@@ -23,7 +23,9 @@ Search. Each system ranks the facts for each question. Numbers over all probes:
 - stale>gold: a stale fact ranks above the best gold fact (probes with stale facts only);
 - stale@5: a stale fact is in the top 5 (probes with stale facts only);
 - decoy@1: the top result is a decoy (probes with decoys only);
-- empty: the number of probes that got no result at all.
+- empty: the number of probes that got no result at all;
+- n-stale: how many probes the two stale rates are measured on. A superseded fact is not in
+  a search over active facts, so it cannot rank and its probe is left out.
 
 Systems: `cairnkit` (the search as it is, with the part-of-word fallback),
 `cairnkit-whole-word` (the same without the fallback), `strict` (the search before BM25),
@@ -67,7 +69,7 @@ BOOTSTRAP = 2000
 SYSTEMS = ("cairnkit", "cairnkit-whole-word", "strict", "keyword-count", "random")
 CONTROLS = ("oracle", "inverted", "mismatched-query")
 LOAD_SYSTEMS = ("cairnkit", "newest-first", "random-fill")
-RANDOM_FILL_SEEDS = 20
+RANDOM_SEEDS = 20
 ID_IN_LINE = re.compile(r"^- \[(f-\d{8}-[0-9a-f]{4})\]")
 
 
@@ -173,27 +175,38 @@ RANKERS = {
 }
 
 
-def score_ranking(order: list[str], probe: dict) -> dict:
-    """What one ranked list says about one probe."""
+def score_ranking(order: list[str], probe: dict, corpus: set[str]) -> dict:
+    """What one ranked list says about one probe.
+
+    A stale or decoy fact that the corpus does not hold (a superseded fact, in a search over
+    active facts) cannot rank, so it does not count: the probe is left out of that rate.
+    """
     gold = probe["gold"]
+    stale = probe["stale"] & corpus
+    decoy = probe["decoy"] & corpus
     top = order[:TOP]
     place = {fid: i for i, fid in enumerate(order)}
     far = len(order) + 1
     best_gold = min((place.get(g, far) for g in gold), default=far)
-    best_stale = min((place.get(s, far) for s in probe["stale"]), default=far)
+    best_stale = min((place.get(s, far) for s in stale), default=far)
     return {
         "any1": bool(top[:1] and top[0] in gold),
         "any5": bool(gold & set(top)),
         "all5": gold <= set(top),
-        "stale>gold": (best_stale < best_gold) if probe["stale"] else None,
-        "stale@5": bool(probe["stale"] & set(top)) if probe["stale"] else None,
-        "decoy@1": bool(top[:1] and top[0] in probe["decoy"]) if probe["decoy"] else None,
+        "stale>gold": (best_stale < best_gold) if stale else None,
+        "stale@5": bool(stale & set(top)) if stale else None,
+        "decoy@1": bool(top[:1] and top[0] in decoy) if decoy else None,
         "empty": not order,
     }
 
 
 def search_outcomes(facts: list[dict], probes: list[dict], seed: int = 0) -> dict[str, list[dict]]:
-    """For every system and control, one outcome per probe."""
+    """For every system and control, one outcome per probe.
+
+    `random-mean` is the random order averaged over RANDOM_SEEDS seeds, a steadier floor than
+    the one seed of `random`.
+    """
+    corpus = {s["id"] for s in facts}
     out: dict[str, list[dict]] = {}
     for name in (*SYSTEMS, *CONTROLS):
         rng = random.Random(seed)
@@ -207,9 +220,28 @@ def search_outcomes(facts: list[dict], probes: list[dict], seed: int = 0) -> dic
                 order = rank_cairnkit(facts, other, rng)
             else:
                 order = RANKERS[name](facts, probe["question"], rng)
-            rows.append(score_ranking(order, probe))
+            rows.append(score_ranking(order, probe, corpus))
         out[name] = rows
-    return out
+    out["random-mean"] = [
+        _mean_rows(
+            [
+                score_ranking(
+                    rank_random(facts, probe["question"], random.Random(k)), probe, corpus
+                )
+                for k in range(RANDOM_SEEDS)
+            ]
+        )
+        for probe in probes
+    ]
+    return {name: out[name] for name in (*SYSTEMS[:-1], "random", "random-mean", *CONTROLS)}
+
+
+def _mean_rows(rows: list[dict]) -> dict:
+    """The mean of the outcomes of one probe over several runs (None stays None)."""
+    return {
+        key: (None if rows[0][key] is None else sum(r[key] for r in rows) / len(rows))
+        for key in rows[0]
+    }
 
 
 def summarize(rows: list[dict]) -> dict[str, float | int | None]:
@@ -226,7 +258,8 @@ def summarize(rows: list[dict]) -> dict[str, float | int | None]:
         "stale>gold": rate("stale>gold"),
         "stale@5": rate("stale@5"),
         "decoy@1": rate("decoy@1"),
-        "empty": sum(r["empty"] for r in rows),
+        "empty": round(sum(r["empty"] for r in rows), 4),
+        "n-stale": sum(r["stale>gold"] is not None for r in rows),
     }
 
 
@@ -298,8 +331,8 @@ def bootstrap_delta(
 
 def compare(outcomes: dict[str, list[dict]], a: str, b: str, metric: str) -> dict:
     """System a against system b on one 0/1 metric: delta, 95% CI, and the probes that differ."""
-    xs = [int(r[metric]) for r in outcomes[a]]
-    ys = [int(r[metric]) for r in outcomes[b]]
+    xs = [float(r[metric]) for r in outcomes[a]]
+    ys = [float(r[metric]) for r in outcomes[b]]
     delta, low, high = bootstrap_delta(xs, ys)
     return {
         "a": a,
@@ -354,11 +387,13 @@ def fill(states: list[dict], budget: int) -> list[str]:
     return chosen
 
 
-def load_row(shown: set[str], probes: list[dict]) -> dict:
+def load_row(shown: set[str], probes: list[dict], corpus: set[str]) -> dict:
     gold_any = [bool(p["gold"] & shown) for p in probes]
     gold_all = [p["gold"] <= shown for p in probes]
-    with_stale = [p for p in probes if p["stale"]]
-    with_decoy = [p for p in probes if p["decoy"]]
+    probes_stale = [{**p, "stale": p["stale"] & corpus} for p in probes]
+    probes_decoy = [{**p, "decoy": p["decoy"] & corpus} for p in probes]
+    with_stale = [p for p in probes_stale if p["stale"]]
+    with_decoy = [p for p in probes_decoy if p["decoy"]]
     return {
         "gold@load": sum(gold_any) / len(probes),
         "gold-all@load": sum(gold_all) / len(probes),
@@ -372,6 +407,7 @@ def load_row(shown: set[str], probes: list[dict]) -> dict:
         if with_decoy
         else None,
         "facts": len(shown),
+        "n-stale": len(with_stale),
     }
 
 
@@ -379,6 +415,7 @@ def evaluate_load(
     memory_folder: Path, probes: list[dict], budget: int, now: str = NOW
 ) -> dict[str, dict]:
     """Score `memory load --budget N`, and two floors with the same budget."""
+    corpus = {s["id"] for s in load_facts(memory_folder, now=now)}
     check_probes(memory_folder, load_facts(memory_folder, now=now), probes)
     with pinned_environment(now), tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)  # an empty folder outside any repo: no branch, no git
@@ -390,14 +427,14 @@ def evaluate_load(
         newest = sorted(rest, key=lambda s: s["id"])
         newest.sort(key=lambda s: s.get("learned_at", ""), reverse=True)
         rows = {
-            "cairnkit": load_row(set(shown), probes),
-            "newest-first": load_row(set(always + fill(newest, budget)), probes),
+            "cairnkit": load_row(set(shown), probes, corpus),
+            "newest-first": load_row(set(always + fill(newest, budget)), probes, corpus),
         }
     floors = []
-    for seed in range(RANDOM_FILL_SEEDS):
+    for seed in range(RANDOM_SEEDS):
         shuffled = list(rest)
         random.Random(seed).shuffle(shuffled)
-        floors.append(load_row(set(always + fill(shuffled, budget)), probes))
+        floors.append(load_row(set(always + fill(shuffled, budget)), probes, corpus))
     rows["random-fill"] = {
         key: (
             None if floors[0][key] is None else round(sum(f[key] for f in floors) / len(floors), 4)
@@ -456,7 +493,7 @@ def _grid(rows: dict[str, dict], columns: list[str], first: str = "system") -> l
 
 
 def table(result: dict) -> str:
-    cols = ["any@1", "any@5", "all@5", "stale>gold", "stale@5", "decoy@1", "empty"]
+    cols = ["any@1", "any@5", "all@5", "stale>gold", "stale@5", "decoy@1", "empty", "n-stale"]
     lines = [
         f"{result['probes']} probes, {result['facts']} active facts "
         f"({result['facts-incl-ended']} with ended ones), time {result['now']}, "
@@ -491,7 +528,15 @@ def table(result: dict) -> str:
         lines += ["", f"Load with --budget {budget}"]
         lines += _grid(
             rows,
-            ["gold@load", "gold-all@load", "stale-leak", "stale-loaded", "decoy-loaded", "facts"],
+            [
+                "gold@load",
+                "gold-all@load",
+                "stale-leak",
+                "stale-loaded",
+                "decoy-loaded",
+                "facts",
+                "n-stale",
+            ],
         )
     return "\n".join(lines)
 
