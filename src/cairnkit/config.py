@@ -11,7 +11,7 @@ AUTO_TIDY_MODES = ("auto", "report", "on", "off")
 DEFAULTS = {
     "short_term_days": 14,
     "areas": {},
-    "rules_file": "AGENTS.md",
+    "rules_file": None,  # unset: rules_target.shared_file picks it
     "auto_tidy": "auto",
     "skills_check": True,
     "skills_auto_update": False,

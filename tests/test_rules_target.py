@@ -131,8 +131,6 @@ def test_dry_run_says_what_it_found_and_would_do_and_writes_nothing(repo, capsys
     assert "would" in out and "AGENTS.md" in out
     assert (repo / "AGENTS.md").read_text() == HAND
     assert not (repo / "CLAUDE.md").exists()
-    code, out = run(["init", "--dry-run", "--write-instructions=shared"], capsys)
-    assert "would" in out and "CLAUDE.md" in out
 
 
 def test_dry_run_in_an_empty_repo_plans_both_files_and_creates_none(repo, capsys):

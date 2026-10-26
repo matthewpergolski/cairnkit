@@ -163,7 +163,7 @@ def test_other_words_or_facts_are_not_flagged(repo, mem, capsys, records):
 
 def test_the_block_that_memory_writes_is_not_a_duplicate(repo, capsys):
     assert main(["init", "--preset", "commits", "--write-instructions=shared"]) == 0
-    assert "cairnkit:start" in (repo / "AGENTS.md").read_text()
+    assert "cairnkit:start" in (repo / "CLAUDE.md").read_text()
     capsys.readouterr()
     assert main(["check", "--strict"]) == 0, capsys.readouterr().out
     from cairnkit.rules import GUARDED

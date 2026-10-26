@@ -17,6 +17,7 @@ from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
+from cairnkit.rules_target import shared_file
 from cairnkit.schema import validate_record
 from cairnkit.similar import exact_key
 from cairnkit.state import effective_status
@@ -123,7 +124,7 @@ def build_proposals(memory: Memory, days: int) -> list[Proposal]:
 
     linked = {link["id"] for s in states.values() for link in s.get("links", [])}
     linked |= {s["id"] for s in states.values() if s.get("links")}
-    rules_file = memory.config.get("rules_file", "AGENTS.md")
+    rules_file = memory.config.get("rules_file") or shared_file(memory.project.root)
     for state in sorted(active, key=lambda s: s["id"]):
         if state.get("scope", "long") != "long":
             continue
