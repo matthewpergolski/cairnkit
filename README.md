@@ -45,7 +45,7 @@ memory status
   `memory-bank`. It adds the link to `.git/info/exclude`, so git ignores it.
 - `memory add` writes one fact. It prints the new fact id.
 - `memory load` prints what an agent sees at session start.
-- `memory search` finds facts by words.
+- `memory search` finds facts by words or by a question.
 - `memory check` checks the facts and the link, and looks for secrets in the facts.
 - `memory status` prints the version, the install source, and the update
   lines.
@@ -80,7 +80,7 @@ It is not:
   - `memory skills install pstack --yes`: reads `pstack/plugin.json`, runs
     `git clone` of `github.com/cursor/plugins`, and for Claude Code runs
     `claude plugin marketplace add` and `claude plugin install`.
-- A vector database or a model. Search is plain word matching.
+- A vector database or a model. Search is plain word matching, ranked with BM25.
 - A replacement for `AGENTS.md`, `CLAUDE.md`, docs or tests. Instructions for
   every contributor belong there. See
   [How memory fits with CLAUDE.md and AGENTS.md](#how-memory-fits-with-claudemd-and-agentsmd).
@@ -479,7 +479,7 @@ level only. It writes nothing into a repo.
 | `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. `memory hooks uninstall` removes only what it added. |
 | `memory tidy [--days 90]`, `memory tidy --apply ID ...` | you, sometimes | Proposes clean-up; writes only the approved changes. |
 | `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start hook; you, to look; an agent, to release a hold | Retires the clear cases now: an exact duplicate (the older fact is superseded by the newest), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that a person set back to `active`. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |
-| `memory add [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` never refuses. It supersedes an exact repeat and links a near repeat with `similar_to`. `search` also lists up to 5 lines of `notes/` that hold every word, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
+| `memory add [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` never refuses. It supersedes an exact repeat and links a near repeat with `similar_to`. `search` ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. `--strict` brings back the old match, where every word must appear as a substring. `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
 | `memory load [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions` | anyone | Prints the rules block for agents. |

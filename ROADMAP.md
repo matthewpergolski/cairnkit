@@ -101,6 +101,13 @@ The measure: for each rule, hits per week fall after its check lands.
 
 ## Evaluation (to design)
 
+Built: `memory search` ranks by BM25 and takes a question. A small harness,
+`benchmarks/retrieval_eval.py`, scores it on probe questions (any@1, any@5,
+all@5) against the old strict match, a keyword count and a random order. A
+synthetic fixture runs in the test suite. Still to build:
+
+- A larger set of probes written by hand, with decoy and superseded facts, to
+  check what `memory load` puts in the budget and what `memory search` ranks.
 - Probe questions, asked with and without `memory load`. Compare recall.
 - Rule adherence, from git history and hooks.
 - Hygiene: active count, duplicates, stale facts, load size against the
