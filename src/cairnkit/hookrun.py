@@ -22,7 +22,6 @@ from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, ru
 from cairnkit.session import needs_reminder, start_session
 
 NOTE_IDS = 10
-AGENTS = ("claude", "codex", "cursor", "generic")
 
 RULES_SHORT = """\
 Memory rules: record what a later session needs with `memory add` (decisions,

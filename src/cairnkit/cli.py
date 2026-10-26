@@ -7,34 +7,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from cairnkit import __version__, autotidy, followups
-from cairnkit import presets as presets_module
-from cairnkit import skills as skills_module
-from cairnkit.autotidy import run_auto
-from cairnkit.check import run_check
+from cairnkit import __version__
 from cairnkit.clock import parse_time
-from cairnkit.hookrun import AGENTS, run_hook
-from cairnkit.hooks_cmd import run_install, run_uninstall
-from cairnkit.init import run_init
-from cairnkit.instructions import block as instructions_block
-from cairnkit.instructions import write_instructions
-from cairnkit.load import run_load
-from cairnkit.memory import Memory, MemoryMissing
-from cairnkit.migrate import run_migrate
-from cairnkit.paths import find_project, resolve_memory_dir
-from cairnkit.reading import run_search, run_show
-from cairnkit.refresh import run_refresh
-from cairnkit.schema import BASES, KINDS, STATUSES
-from cairnkit.tidy import run_tidy
-from cairnkit.update import run_status, run_update
-from cairnkit.writing import (
-    Refused,
-    add_fact,
-    change_fact,
-    fail,
-    keep_fact,
-    purge_fact,
-)
+from cairnkit.schema import AGENTS, BASES, KINDS, STATUSES
 
 
 def _time(value: str) -> str:
@@ -306,11 +281,34 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _open(project, args) -> Memory:
+def _open(project, args):
+    from cairnkit.memory import Memory
+
     return Memory.open(project, getattr(args, "path", None))
 
 
 def run(args) -> int:
+    # Imported here, not at the top: building the parser (--help, --version) needs none of this.
+    from cairnkit import autotidy, followups
+    from cairnkit import presets as presets_module
+    from cairnkit import skills as skills_module
+    from cairnkit.autotidy import run_auto
+    from cairnkit.check import run_check
+    from cairnkit.hookrun import run_hook
+    from cairnkit.hooks_cmd import run_install, run_uninstall
+    from cairnkit.init import run_init
+    from cairnkit.instructions import block as instructions_block
+    from cairnkit.instructions import write_instructions
+    from cairnkit.load import run_load
+    from cairnkit.memory import MemoryMissing
+    from cairnkit.migrate import run_migrate
+    from cairnkit.paths import find_project, resolve_memory_dir
+    from cairnkit.reading import run_search, run_show
+    from cairnkit.refresh import run_refresh
+    from cairnkit.tidy import run_tidy
+    from cairnkit.update import run_status, run_update
+    from cairnkit.writing import Refused, add_fact, change_fact, fail, keep_fact, purge_fact
+
     if args.command == "update":
         return run_update(args.source, args.check, args.dry_run)
     project = find_project()

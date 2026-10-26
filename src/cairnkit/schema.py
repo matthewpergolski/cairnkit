@@ -10,6 +10,7 @@ KINDS = ("rule", "decision", "event", "trap", "preference", "lesson", "fact")
 BASES = ("seen", "told", "guess")
 STATUSES = ("active", "superseded", "expired", "wrong", "promoted")
 SCOPES = ("long", "short")
+AGENTS = ("claude", "codex", "cursor", "generic")
 RELS = ("related", "depends_on", "caused_by", "contradicts", "similar_to")
 TYPES = ("fact", "change", "tombstone")
 MAX_TEXT = 400
