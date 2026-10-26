@@ -34,10 +34,28 @@ def test_the_fixture_has_a_dozen_notes_and_probes():
 
 def test_every_system_reports_the_three_numbers():
     results = evaluate()
-    assert list(results) == ["cairnkit", "strict", "keyword-count", "random"]
+    assert list(results) == [
+        "cairnkit",
+        "cairnkit-whole-word",
+        "strict",
+        "keyword-count",
+        "random",
+        "oracle",
+        "inverted",
+        "mismatched-query",
+    ]
     for numbers in results.values():
-        assert set(numbers) == {"any@1", "any@5", "all@5"}
-        assert all(0.0 <= v <= 1.0 for v in numbers.values())
+        assert set(numbers) == {
+            "any@1",
+            "any@5",
+            "all@5",
+            "stale>gold",
+            "stale@5",
+            "decoy@1",
+            "empty",
+        }
+        rates = [v for k, v in numbers.items() if k != "empty" and v is not None]
+        assert all(0.0 <= v <= 1.0 for v in rates)
 
 
 def test_the_numbers_are_the_same_on_every_run():
@@ -75,12 +93,9 @@ def test_the_command_line_prints_a_table_and_json(capsys):
     table = capsys.readouterr().out
     assert "any@1" in table and "cairnkit" in table and "random" in table
     assert harness.main([str(FIXTURE), probes, "--json"]) == 0
-    assert set(json.loads(capsys.readouterr().out)) == {
-        "cairnkit",
-        "strict",
-        "keyword-count",
-        "random",
-    }
+    data = json.loads(capsys.readouterr().out)
+    assert {"search", "by-kind", "by-overlap", "paired", "load"} <= set(data)
+    assert set(data["search"]) >= {"cairnkit", "strict", "keyword-count", "random"}
 
 
 # --- load mode, stale and decoy facts, controls, splits and the bootstrap ---
@@ -171,7 +186,7 @@ def test_the_corpus_does_not_depend_on_the_real_clock(mem, monkeypatch):
 def test_stale_facts_that_outrank_gold_are_counted(mem):
     harness = load_harness()
     small_memory(mem)
-    p = probe("Which branch do releases come from?", ["f-20261001-0003"], stale=["f-20261001-0004"])
+    p = probe("Are releases cut from main?", ["f-20261001-0003"], stale=["f-20261001-0004"])
     shown = harness.evaluate(mem, [p], include_ended=True)["cairnkit"]
     assert shown["any@1"] == 1.0 and shown["stale>gold"] == 0.0
     # keyword-count ranks the longer stale text with more of the words first
