@@ -122,8 +122,8 @@ def check_probes(memory_folder: Path, facts: list[dict], probes: list[dict]) -> 
 def rank_cairnkit(facts: list[dict], question: str, rng: random.Random) -> list[str]:
     terms = ranking.query_terms(question)
     ranked = ranking.rank_facts(facts, terms)
-    if not ranked and ranking.part_terms(terms):
-        ranked = ranking.rank_facts(facts, ranking.part_terms(terms), parts=True)
+    if not ranked and ranking.prefix_terms(question):
+        ranked = ranking.rank_facts(facts, ranking.prefix_terms(question), prefix=True)
     return [s["id"] for s, _ in ranked]
 
 
@@ -278,7 +278,8 @@ def overlap(probe: dict, facts_by_id: dict[str, dict]) -> int:
     """The most question words (as search sees them) that one gold fact shares with the question."""
     terms = set(ranking.query_terms(probe["question"]))
     return max(
-        (len(terms & set(ranking.words(facts_by_id[g]["text"]))) for g in probe["gold"]), default=0
+        (len(terms & set(ranking.index_words(facts_by_id[g]["text"]))) for g in probe["gold"]),
+        default=0,
     )
 
 

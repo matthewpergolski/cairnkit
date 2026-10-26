@@ -416,3 +416,17 @@ def test_with_all_the_use_gate_is_measured_against_the_best_active_hit(mem, caps
     _, out = run(capsys, "search", "cache cleared night", "--all")
     assert set(fact_ids(out)) == {"f-20261001-0001", "f-20261001-0002"}
     assert used_ids(mem) == {"f-20261001-0002"}
+
+
+def test_a_word_start_that_ends_in_s_is_not_cut_as_a_plural(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Pull requests are merged with squash and merge."),
+            make_fact("f-20261001-0002", "Tests run with pytest."),
+        ],
+    )
+    _, out = run(capsys, "search", "squas")
+    assert fact_ids(out) == ["f-20261001-0001"]
+    _, out = run(capsys, "search", "pytes")
+    assert fact_ids(out) == ["f-20261001-0002"]

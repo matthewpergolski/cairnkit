@@ -5,7 +5,12 @@ from cairnkit.ranking import query_terms, stem, words
 
 def test_words_drop_filler_and_stem():
     assert words("The Retries, and the EMAILS!") == ["the", "retry", "and", "the", "email"]
-    assert query_terms("How are email retries handled again?") == ["email", "retry", "handled"]
+    assert query_terms("How are email retries handled again?") == [
+        "email",
+        "retry",
+        "retrie",
+        "handled",
+    ]
     assert query_terms("the of") == ["the", "of"]
     assert query_terms("?!") == []
     assert stem("processes") == "process" and stem("class") == "class" and stem("is") == "is"
