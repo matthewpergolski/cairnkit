@@ -91,13 +91,13 @@ def note_files(folder: Path) -> list[Path]:
 
 
 def note_hits(
-    memory: Memory, terms: list[str], strict: bool = False, parts: bool = False
+    memory: Memory, terms: list[str], strict: bool = False, prefix: bool = False
 ) -> list[str]:
     """Lines of notes/ as `memory-bank/notes/PATH:LINE: text`, best first.
 
     A line counts when it holds any term (BM25 over the lines). With `strict`, it must
-    hold every term, as a substring, and the lines come in file order. With `parts`, a term
-    may sit inside a longer word.
+    hold every term, as a substring, and the lines come in file order. With `prefix`, a term
+    may start a longer word.
     """
     folder = memory.dir / "notes"
     lines = []  # (path, number, cleaned line)
@@ -112,7 +112,7 @@ def note_hits(
             (rel, n, line, 0.0) for rel, n, line in lines if all(t in line.lower() for t in terms)
         ]
     else:
-        scores = ranking.bm25([line for _, _, line in lines], terms, parts)
+        scores = ranking.bm25([line for _, _, line in lines], terms, prefix)
         picked = [
             (rel, n, line, round(s, 9))
             for (rel, n, line), s in zip(lines, scores, strict=True)
@@ -120,12 +120,12 @@ def note_hits(
         ]
         picked.sort(key=lambda p: (-p[3], p[0], p[1]))
     return [
-        f"- {LINK_NAME}/notes/{rel}:{n}: {_snippet(line, terms, strict, parts)}"
+        f"- {LINK_NAME}/notes/{rel}:{n}: {_snippet(line, terms, strict, prefix)}"
         for rel, n, line, _ in picked
     ]
 
 
-def _snippet(line: str, terms: list[str], strict: bool, parts: bool = False) -> str:
+def _snippet(line: str, terms: list[str], strict: bool, prefix: bool = False) -> str:
     """The line, cut to NOTE_WIDTH characters around the first query word it holds."""
     if len(line) <= NOTE_WIDTH:
         return line
@@ -137,7 +137,7 @@ def _snippet(line: str, terms: list[str], strict: bool, parts: bool = False) -> 
             (
                 m.start()
                 for m in ranking.WORD.finditer(low)
-                if _holds(ranking.stem(m.group()), terms, parts)
+                if _holds(ranking.forms(m.group()), terms, prefix)
             ),
             0,
         )
@@ -147,8 +147,35 @@ def _snippet(line: str, terms: list[str], strict: bool, parts: bool = False) -> 
     return ("..." if start else "") + line[start:end] + more
 
 
-def _holds(word: str, terms: list[str], parts: bool) -> bool:
-    return any(t in word for t in terms) if parts else word in terms
+def _holds(forms: list[str], terms: list[str], prefix: bool) -> bool:
+    if prefix:
+        return any(ranking.starts(t, f) for t in terms for f in forms)
+    return any(f in terms for f in forms)
+
+
+def _used(
+    hits: list, ranked: list, limit: int, terms: list[str], strict: bool, prefix: bool
+) -> list[str]:
+    """The ids of the shown active facts that count as use.
+
+    A loose hit is not use. A shown fact counts when its score is near the best active score
+    and it shares a query word with the best active fact. Ended facts that --all shows
+    never set the bar.
+    """
+    rows = [(s, status, score) for (s, status, _), (_, score) in zip(hits, ranked, strict=True)]
+    active = [row for row in rows if row[1] == "active"]
+    if not active:
+        return []
+    shown = [row for row in rows[:limit] if row[1] == "active"]
+    if strict:
+        return [s["id"] for s, _, _ in shown]
+    best_state, _, best = active[0]
+    top_terms = ranking.matched(best_state, terms, prefix)
+    return [
+        s["id"]
+        for s, _, score in shown
+        if score >= USE_SHARE * best and ranking.matched(s, terms, prefix) & top_terms
+    ]
 
 
 def run_search(
@@ -175,27 +202,22 @@ def run_search(
     states = [s for s, _, _ in shown]
     ranked = ranking.rank_strict(states, query) if strict else ranking.rank_facts(states, terms)
     notes = note_hits(memory, terms, strict) if terms else []
-    parts = False
-    if not strict and not ranked and not notes and ranking.part_terms(terms):
-        # No whole word matched anywhere: try the words as parts of longer words.
-        terms = ranking.part_terms(terms)
-        ranked = ranking.rank_facts(states, terms, parts=True)
-        notes = note_hits(memory, terms, parts=True)
-        parts = bool(ranked or notes)
+    prefix = False
+    if not strict and not ranked and not notes and ranking.prefix_terms(query):
+        # No whole word matched anywhere: try the words as the start of longer words.
+        terms = ranking.prefix_terms(query)
+        ranked = ranking.rank_facts(states, terms, prefix=True)
+        notes = note_hits(memory, terms, prefix=True)
+        prefix = bool(ranked or notes)
     hits = [(state, *by_id[state["id"]]) for state, _ in ranked]
-    best = ranked[0][1] if ranked else 0.0
     if not hits and not notes:
         scope = "any fact or note" if include_all else "active facts or notes (try --all)"
-        tried = "" if strict else "; whole words and parts of words were tried"
+        tried = "" if strict else "; whole words and word starts were tried"
         print(f"no match for {query!r} in {scope}{tried}")
         return 0
-    if parts:
-        print(f"no whole-word match for {query!r}; showing parts of words instead")
-    used = [  # a loose match is not use: only the facts near the top score count
-        state["id"]
-        for (state, status, _), (_, score) in zip(hits[:limit], ranked, strict=False)
-        if status == "active" and (strict or score >= USE_SHARE * best)
-    ]
+    if prefix:
+        print(f"no whole-word match for {query!r}; showing words that start with yours instead")
+    used = _used(hits, ranked, limit, terms, strict, prefix)
     usage.record(memory, used, moment)
     print(FRAME_HEADER)
     for state, status, reason in hits[:limit]:
