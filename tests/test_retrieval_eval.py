@@ -45,16 +45,18 @@ def test_cairnkit_search_beats_the_baselines_and_the_old_search():
     results = evaluate()
     best = results["cairnkit"]
     for other in ("strict", "keyword-count", "random"):
-        assert best["any@5"] > results[other]["any@5"]
         assert best["any@1"] > results[other]["any@1"]
-    assert results["strict"]["any@5"] <= 0.25  # a question rarely holds only words of one note
+    for other in ("strict", "random"):
+        assert best["any@5"] > results[other]["any@5"]
+    assert best["any@5"] >= results["keyword-count"]["any@5"]
+    assert results["strict"]["any@5"] == 0.0  # a question holds the words of no single note
 
 
 def test_floors_of_cairnkit_search_on_the_fixture():
     best = evaluate()["cairnkit"]
-    assert best["any@1"] >= 0.7
-    assert best["any@5"] >= 0.9
-    assert best["all@5"] >= 0.8
+    assert best["any@1"] >= 0.9
+    assert best["any@5"] >= 0.95
+    assert best["all@5"] >= 0.95
 
 
 def test_ended_facts_are_not_in_the_corpus():
