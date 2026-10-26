@@ -18,7 +18,8 @@ no agent hooks and no agent rules.
      `memory preset add commits`.
    - For a codebase, use `memory init --preset dev`. It adds the commit rules
      and rules for checks, tests, small diffs, git and lock files. It adds no
-     rule for one tool. Put such rules in `AGENTS.md`.
+     rule for one tool. Put such rules in `CLAUDE.md` (or `AGENTS.md`, if that is
+     what the repo has).
      For a folder of documents, use `--preset basic`. Look first with
      `memory preset show dev --detect`. See [presets.md](presets.md).
 5. Connect the agent tool and git: `memory hooks install`.

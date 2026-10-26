@@ -40,6 +40,10 @@ that every contributor needs can move into an instruction file later, through
 | The agent tool's user-level rules file | Your personal instructions for every project. | Outside any repo | You, in all projects. |
 | Memory (`memory-bank`, a link to `../<project>.memory/`) | Facts: dated, replaceable, searchable, private. | Never | You and your agents, in this project. |
 
+Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`,
+`.claude/CLAUDE.md` or `CLAUDE.local.md`. To load both, put `@AGENTS.md` on its
+own line at the top of `CLAUDE.md` or `CLAUDE.local.md`.
+
 `AGENTS.md`, `CLAUDE.md` and `CLAUDE.local.md` are the project's policy, or
 the policy of the template that the project came from. People write them.
 `memory` does not write them by default (see
@@ -97,9 +101,21 @@ default. These commands write an instruction file. A person runs each one:
 
 - `memory instructions --write-instructions local` writes the rules block to
   `CLAUDE.local.md`, which Claude Code reads. The tool adds that file to
-  `.git/info/exclude`. It refuses a file that git tracks. Older versions
-  wrote `AGENTS.local.md`. The tool does not move or delete that file. It
-  prints a note, and `memory init --refresh` keeps updating the block in it.
+  `.git/info/exclude`. It refuses a file that git tracks, and a
+  `CLAUDE.local.md` that is a link to a tracked file. It never writes through
+  such a link. Older versions wrote `AGENTS.local.md`. The tool does not move
+  or delete that file. It prints a note, and `memory init --refresh` keeps
+  updating the block in it.
+  - Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`,
+    `.claude/CLAUDE.md` or `CLAUDE.local.md`. When `AGENTS.md` is a real file
+    and the repo has no `CLAUDE.md` or `.claude/CLAUDE.md`, a new
+    `CLAUDE.local.md` would hide it. So the tool puts the line `@AGENTS.md`
+    and a blank line at the top of `CLAUDE.local.md`, outside the markers, and
+    prints a note. A later local write adds the line to an older file that
+    lacks it. `memory init --refresh` and later writes keep it, and never add
+    it twice. The tool does not add it when `CLAUDE.local.md` is `AGENTS.md`
+    itself. It never puts the line in the shared block or in the pointer
+    `AGENTS.md`.
 - `memory instructions --write-instructions shared` writes the rules block to
   one tracked file, picked by what the repo has:
   - `CLAUDE.md`, if it exists (also when `AGENTS.md` exists);
@@ -111,9 +127,21 @@ default. These commands write an instruction file. A person runs each one:
   The block sits between the marker lines `<!-- cairnkit:start -->` and
   `<!-- cairnkit:end -->`. The first run adds the block at the end of the
   file. Each later run replaces the block in place. It never adds a second
-  block. Text outside the markers does not change. The tool never edits an
-  `AGENTS.md` that exists. When it exists and does not mention `CLAUDE.md`, the
-  tool prints a hint.
+  block. Text outside the markers does not change. The tool edits an existing
+  `AGENTS.md` in two cases only: it is the only rules file (the block is
+  appended), or it already holds a block (the block is refreshed). In a repo
+  with both files, `AGENTS.md` is not touched. If it does not mention
+  `CLAUDE.md`, the tool prints a hint: add `@AGENTS.md` at the top of
+  `CLAUDE.md` if Claude Code should load those instructions, because Claude
+  Code skips `AGENTS.md` when a `CLAUDE.md` exists. Tools that read only
+  `AGENTS.md` will not see the block unless `AGENTS.md` points to `CLAUDE.md`.
+  The tool never edits a hand-written `CLAUDE.md` outside the block.
+  - A shared write refuses a file that resolves outside the repo, for example
+    a `CLAUDE.md` that is a link to a file in your home folder. It prints an
+    error and writes nothing.
+  - If `CLAUDE.md` and `AGENTS.md` are one file (one links to the other), the
+    tool treats them as one rules file. A symlink loop is an error, and
+    nothing is written.
 - Both modes print which of `CLAUDE.md`, `AGENTS.md` and `CLAUDE.local.md` they
   found and where the block goes, also with `--dry-run`.
 - `--instructions-file PATH` picks another file for either mode. It overrides
@@ -220,7 +248,9 @@ copies also drift apart. Keep one copy.
   The fact leaves the load. The archive keeps it. `memory preset add` does not
   add an ended preset rule again.
 - **The same line in `CLAUDE.md` and `AGENTS.md`.** Keep it in `AGENTS.md`.
-  Delete it from `CLAUDE.md`. Make `CLAUDE.md` point at `AGENTS.md`.
+  Delete it from `CLAUDE.md`. Put `@AGENTS.md` on its own line at the top of
+  `CLAUDE.md`. Claude Code loads the other file only through that import. A
+  sentence such as "see AGENTS.md" does not load it.
 - **A fact in an instruction file** (a status, a result, a date). Add it to
   memory with `memory add`. Then delete it from the file by hand.
 - **A rule that a check enforces.** Keep the check. The note is only its
