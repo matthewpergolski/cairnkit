@@ -1,0 +1,51 @@
+# For an agent that reads and talks about the files in a folder. The folder
+# does not need to hold code or use git.
+summary = "Ask before you change files or run commands; cite files; keep secrets and contents private."
+
+[[rule]]
+key = "basic.files"
+area = "files"
+tags = ["files", "safety"]
+text = "Ask before you delete, move, rename or overwrite a file that you did not create in this session."
+
+[[rule]]
+key = "basic.commands"
+area = "commands"
+tags = ["commands", "safety"]
+text = "Ask before you run a command that changes, installs or deletes anything. Commands that only read are fine."
+
+[[rule]]
+key = "basic.cite"
+area = "answers"
+tags = ["answers", "citations"]
+text = "For each claim about a file, name the file and the page or line. Quote exactly."
+
+[[rule]]
+key = "basic.not-found"
+area = "answers"
+tags = ["answers", "guess"]
+text = "When the files do not hold the answer, say so. Do not fill the gap from general knowledge. Mark a conclusion as a guess."
+
+[[rule]]
+key = "basic.privacy"
+area = "privacy"
+tags = ["privacy", "upload"]
+text = "Do not send file contents to an outside service, site or tool without asking."
+
+[[rule]]
+key = "basic.secrets"
+area = "secrets"
+tags = ["secrets"]
+text = "Never write a password, key, token or private link into memory or notes. Name the place where it is kept instead."
+
+[[rule]]
+key = "basic.assumptions"
+area = "work"
+tags = ["assumptions", "questions"]
+text = "State your assumptions. When a request can be read two ways, ask."
+
+[[rule]]
+key = "basic.search-first"
+area = "memory"
+tags = ["memory", "duplicates"]
+text = "Before you run `memory add`, run `memory search` for the same words. If a fact already says it, use `--supersedes ID` and do not add a second one."

@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+# This tool's own memory, if you use it on itself:
+memory-bank
+.memory-path
+# Local files that must never be committed:
+.DS_Store
+.env
+.env.*
+!.env.example
+.coverage
+htmlcov/
+*.memory/
+.claude/settings.local.json

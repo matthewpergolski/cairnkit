@@ -1,0 +1,57 @@
+# For a codebase. It holds the commits preset and the basic rules that apply to code.
+# It has no rule for one tool (uv, Ruff, Bun, Biome, version pins). Such a rule is
+# an instruction for one toolchain. It goes in the project's or template's AGENTS.md.
+summary = "For a codebase: verify, test first, small diffs, ask before risky changes."
+includes = ["commits"]
+include_rules = ["basic.files", "basic.commands", "basic.privacy", "basic.secrets", "basic.assumptions", "basic.search-first"]
+
+[[rule]]
+key = "dev.verify"
+area = "checks"
+tags = ["verify", "tests"]
+text = "Name the command that checks a change before you edit. Run it before you say the work is done. If you cannot run it, say so. Never invent a command or a result."
+
+[[rule]]
+key = "dev.tests"
+area = "tests"
+tags = ["tests", "tdd"]
+text = "Write a failing test before you fix a bug, then make it pass. A test checks a behavior, not a coverage number."
+
+[[rule]]
+key = "dev.scope"
+area = "code"
+tags = ["scope", "style"]
+text = "Make the smallest change that does the task. No drive-by refactors, reformats or extra features. Match the local style."
+
+[[rule]]
+key = "dev.ask"
+area = "code"
+tags = ["dependencies", "schema", "ci", "deploy"]
+text = "Ask before you add a dependency, change a database schema, or change CI, deploy or auth settings."
+
+[[rule]]
+key = "dev.git"
+area = "commits"
+tags = ["git", "push"]
+text = "Ask before a commit or a push. Never force-push and never skip hooks (--no-verify) unless asked."
+
+[[rule]]
+key = "dev.commit-secrets"
+area = "secrets"
+tags = ["secrets", "git"]
+text = "Never commit a secret or a local settings file such as .env. Commit an example file with placeholders."
+
+[[rule]]
+key = "dev.generated"
+area = "code"
+tags = ["generated", "lockfile"]
+text = "Do not edit generated files or lock files by hand. Run the tool that makes them."
+
+# The rule below is added only when the project has its lock file (`when`).
+
+[[rule]]
+key = "dev.lockfile"
+area = "javascript"
+tags = ["javascript", "lockfile"]
+when = "other-lockfile"
+text = "Use the package manager whose lock file is in the repo. Never add a second lock file."

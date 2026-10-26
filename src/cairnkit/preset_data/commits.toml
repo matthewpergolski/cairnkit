@@ -1,0 +1,22 @@
+# Plain `memory init` does not add this preset. Add it with
+# `memory init --preset commits` or `memory preset add commits`.
+# Its rules keep `source: default`.
+summary = "No AI attribution in commits, pull requests or docs."
+
+[[rule]]
+key = "commits.co-author"
+area = "commits"
+tags = ["git", "attribution"]
+text = "Never add a Co-authored-by trailer that names an AI model or an agent tool to a commit."
+
+[[rule]]
+key = "commits.generated"
+area = "commits"
+tags = ["git", "attribution"]
+text = "Never add a 'Generated with' footer, or any other AI attribution line, to a commit, a pull request or a doc."
+
+[[rule]]
+key = "commits.author"
+area = "commits"
+tags = ["git", "attribution"]
+text = "Never say that a model or an agent tool wrote a change. The person who commits the change is its author."

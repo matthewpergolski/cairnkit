@@ -1,0 +1,44 @@
+# A test preset. The tool does not ship it.
+# These rules left the dev preset. There, their keys were dev.uv, dev.ruff,
+# dev.bun, dev.biome and dev.pins. The wording does not change. The tests use
+# this preset to check `when` and `enforce_when` (see detect.py).
+summary = "Rules for single tools, for the detection tests."
+
+[[rule]]
+key = "tools.uv"
+area = "python"
+tags = ["python", "uv"]
+when = "uv"
+text = "Manage Python with uv (uv sync, uv add, uv run). Never use pip, and do not edit .venv/."
+
+[[rule]]
+key = "tools.ruff"
+area = "python"
+tags = ["python", "ruff", "lint"]
+when = "ruff"
+enforced_by = "lint:ruff"
+enforce_when = "ruff-run"
+text = "Python code must pass `ruff check`, and `ruff format --check` when the project formats with Ruff. Do not add another Python linter or formatter."
+
+[[rule]]
+key = "tools.bun"
+area = "javascript"
+tags = ["javascript", "bun"]
+when = "bun"
+text = "Use Bun for JavaScript here (bun install, bun run, bun test). Do not use npm, yarn or pnpm, and do not add their lock files."
+
+[[rule]]
+key = "tools.biome"
+area = "javascript"
+tags = ["javascript", "biome", "lint"]
+when = "biome"
+enforced_by = "lint:biome"
+enforce_when = "biome-run"
+text = "JavaScript and TypeScript must pass `biome check`. Do not add ESLint or Prettier."
+
+[[rule]]
+key = "tools.pins"
+area = "tools"
+tags = ["versions", "pins"]
+when = "pins"
+text = "Use the tool versions that the repo pins. Do not change a pin without asking."
