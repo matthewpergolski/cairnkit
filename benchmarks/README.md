@@ -108,5 +108,7 @@ resamples of the probes) of the difference between two systems.
   against 0.78 for the rest.
 - `load` holds a gold fact for 0.48 of the questions at `--budget 600`, against
   0.41 for newest-first and 0.38 for a random fill. That is a small lead.
+  At `--budget 300` it is 0.29 against 0.28 for newest-first and 0.23 for a
+  random fill. At `--budget 1200` it is 0.74 against 0.62 and 0.69.
   It never loaded a stale fact, because the stale facts are the older ones and
   load prefers newer facts.
