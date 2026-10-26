@@ -220,7 +220,7 @@ def test_every_system_reports_an_empty_count(mem):
     assert results["random"]["empty"] == 0
 
 
-def test_the_fallback_system_finds_a_part_of_a_word_and_the_whole_word_one_does_not(mem):
+def test_the_fallback_system_finds_a_word_start_and_the_whole_word_one_does_not(mem):
     harness = load_harness()
     write_facts(mem, [make_fact("f-20261001-0001", "Production deployment needs approval.")])
     results = harness.evaluate(mem, [probe("deploy", ["f-20261001-0001"])])
