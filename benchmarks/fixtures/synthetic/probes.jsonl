@@ -1,0 +1,14 @@
+{"question": "Where do we keep orders and how do we change the schema?", "gold_note_ids": ["f-20261001-0001"]}
+{"question": "Who sends the confirmation email and when?", "gold_note_ids": ["f-20261001-0002"]}
+{"question": "What happens when an order email fails and we have to retry it?", "gold_note_ids": ["f-20261001-0003"]}
+{"question": "How do we make sure a payment webhook really came from the provider?", "gold_note_ids": ["f-20261001-0004"]}
+{"question": "Can I store a price as a float?", "gold_note_ids": ["f-20261001-0005"]}
+{"question": "Do the tests have to pass before a release to staging?", "gold_note_ids": ["f-20261001-0006"]}
+{"question": "Who has to approve a production deploy?", "gold_note_ids": ["f-20261001-0007"]}
+{"question": "How long are product images cached?", "gold_note_ids": ["f-20261001-0008"]}
+{"question": "What does the API send back when something goes wrong?", "gold_note_ids": ["f-20261001-0009"]}
+{"question": "What time zone do we use for dates in the database, and what does the UI show?", "gold_note_ids": ["f-20261001-0010"]}
+{"question": "When does the backup run and how many days do we keep?", "gold_note_ids": ["f-20261001-0011"]}
+{"question": "Why is the order list paginated?", "gold_note_ids": ["f-20261001-0012"]}
+{"question": "Do I need to restart the app after I change a feature flag?", "gold_note_ids": ["f-20261001-0013"]}
+{"question": "What do we do about emails: who sends them and how are failures retried?", "gold_note_ids": ["f-20261001-0002", "f-20261001-0003"]}
