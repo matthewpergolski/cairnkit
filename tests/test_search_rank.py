@@ -162,3 +162,50 @@ def test_a_long_note_line_is_cut_around_the_match(mem, capsys):
     _, out = run(capsys, "search", "needle")
     line = next(line for line in out.splitlines() if "notes/long.md" in line)
     assert "needle" in line and len(line) < 160
+
+
+def used_ids(mem):
+    ids = set()
+    for log in (mem / ".usage").glob("*.log") if (mem / ".usage").is_dir() else []:
+        ids |= {line.split("\t")[1].strip() for line in log.read_text().splitlines() if line}
+    return ids
+
+
+def test_looking_up_an_id_finds_that_fact_and_counts_only_it_as_use(mem, capsys):
+    seed(mem)
+    _, out = run(capsys, "search", "f-20261001-0003")
+    assert fact_ids(out)[0] == "f-20261001-0003"
+    assert used_ids(mem) == {"f-20261001-0003"}
+
+
+def test_a_loose_match_does_not_count_as_use(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Deploys use a manual approval step."),
+            make_fact("f-20261001-0002", "Friday deploys are frozen. Friday means no release."),
+            make_fact("f-20261001-0003", "Deploys run from the main branch."),
+            make_fact("f-20261001-0004", "Friday lunch is at noon."),
+        ],
+    )
+    run(capsys, "search", "Can we deploy on Friday?")
+    assert used_ids(mem) == {"f-20261001-0002"}
+
+
+def test_limit_and_more_line_work_with_ranked_hits(mem, capsys):
+    seed(mem)
+    _, out = run(capsys, "search", "email deploys backup prices", "--limit", "2")
+    assert len(fact_ids(out)) == 2
+    assert "2 more; use --limit" in out
+
+
+def test_no_match_hints_at_strict(mem, capsys):
+    seed(mem)
+    _, out = run(capsys, "search", "kubernetes")
+    assert "no match" in out and "--strict" in out
+
+
+def test_strict_with_an_empty_query_still_lists_every_fact(mem, capsys):
+    seed(mem)
+    code, out = run(capsys, "search", "", "--strict")
+    assert code == 0 and len(fact_ids(out)) == 4

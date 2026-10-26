@@ -9,3 +9,8 @@ def test_words_drop_filler_and_stem():
     assert query_terms("the of") == ["the", "of"]
     assert query_terms("?!") == []
     assert stem("processes") == "process" and stem("class") == "class" and stem("is") == "is"
+
+
+def test_stem_keeps_a_word_and_its_plural_together():
+    for single, plural in [("box", "boxes"), ("index", "indexes"), ("retry", "retries")]:
+        assert stem(plural) == stem(single)
