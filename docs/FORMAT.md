@@ -206,7 +206,7 @@ A reader computes the status of a fact; it does not only read it:
 
 ```toml
 short_term_days = 14          # end of a short-term fact with no expires_at
-rules_file = "AGENTS.md"      # shared rules file for `memory tidy` rule proposals
+# rules_file = "CLAUDE.md"    # shared rules file for `memory tidy`; unset: CLAUDE.md, else AGENTS.md
 auto_tidy = "auto"            # "auto", "report" (only say), "on" (retire) or "off"
 skills_check = true           # false: no advisory line about the pstack skills (also init, migrate)
 skills_auto_update = false    # true: session start installs or updates pstack (user level)
@@ -236,8 +236,12 @@ Marker rules for every block:
 
 ### Rules block for agents
 
-Files: `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, `CLAUDE.local.md`, or a
-file that a person names.
+Files: `CLAUDE.md`, `AGENTS.md`, `CLAUDE.local.md` (the local default),
+`AGENTS.local.md` (older versions), or a file that a person names.
+
+Shared mode picks the file: one that already holds a block, else `CLAUDE.md`
+if it exists, else `AGENTS.md` if it exists, else a new `CLAUDE.md` plus a
+short `AGENTS.md` that points to it. Local mode writes `CLAUDE.local.md`.
 
 | | Start | End |
 |---|---|---|
@@ -254,7 +258,8 @@ marker with no end marker runs to the end of the file.
 
 ### Rules block of `memory tidy`
 
-File: `rules_file` from `config.toml` (default `AGENTS.md`).
+File: `rules_file` from `config.toml`. Unset, it is `CLAUDE.md` if it exists,
+else `AGENTS.md` if it exists, else `CLAUDE.md`.
 
 | | Start | End |
 |---|---|---|
@@ -325,7 +330,7 @@ In the memory folder. It records the tool version that last wrote the blocks
 and hooks of this repo:
 
 ```json
-{"version": "0.2.0", "at": "2026-10-25T09:00:00+00:00", "blocks": ["AGENTS.local.md"]}
+{"version": "0.2.0", "at": "2026-10-25T09:00:00+00:00", "blocks": ["CLAUDE.local.md"]}
 ```
 
 `blocks` lists the files that got a rules block, relative to the checkout.

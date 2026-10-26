@@ -53,6 +53,7 @@ src/cairnkit/
   detect.py      toolchain detection for preset rules (read only)
   instructions.py  the rules block for agents
   instruction_files.py  AGENTS.md, CLAUDE.md, CLAUDE.local.md: lines that hold a rule
+  rules_target.py  which file takes the rules block (CLAUDE.local.md; CLAUDE.md or AGENTS.md)
   ignore.py      .git/info/exclude
   tidy.py        memory tidy (no AI)
   autotidy.py    memory tidy --auto: retire the clear cases, with the undo log
