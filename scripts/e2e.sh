@@ -126,4 +126,16 @@ memory preset add --file "$tools" | grep "tools\.ruff: enforced"
 memory load --budget 1 | grep -A1 "## Enforced rules"
 memory check --strict
 
+step "rules block: local goes to CLAUDE.local.md, shared goes to CLAUDE.md with an AGENTS.md pointer"
+mkdir -p "$tmp/rules" && cd "$tmp/rules"
+git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
+memory init --no-default-rules > /dev/null
+memory init --write-instructions --dry-run | grep -E "^(found|would)"
+memory init --write-instructions | grep -E "^(found|created)"
+[ -f CLAUDE.local.md ] && [ ! -e AGENTS.local.md ] && git check-ignore -q CLAUDE.local.md
+memory instructions --write-instructions=shared | grep -E "^(found|created)"
+grep -q "cairnkit:start" CLAUDE.md && ! grep -q "cairnkit:start" AGENTS.md && grep -q "CLAUDE.md" AGENTS.md
+memory instructions --write-instructions=shared | grep -q "unchanged"
+[ "$(cat CLAUDE.md AGENTS.md CLAUDE.local.md | grep -c 'cairnkit:start')" = 2 ] && echo "one block per file"
+
 echo "e2e: ok"
