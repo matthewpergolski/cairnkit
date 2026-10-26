@@ -247,3 +247,15 @@ def test_the_help_names_the_new_files(capsys):
             main([command, "--help"])
     out = capsys.readouterr().out
     assert "CLAUDE.local.md" in out and "AGENTS.local.md" not in out
+
+
+def test_a_claude_md_that_links_to_agents_md_is_one_file(repo, capsys):
+    (repo / "AGENTS.md").write_text(HAND)
+    (repo / "CLAUDE.md").symlink_to("AGENTS.md")
+    _, out = run(["init", "--write-instructions=shared"], capsys)
+    assert (repo / "AGENTS.md").read_text().count(START) == 1
+    assert (repo / "CLAUDE.md").is_symlink()
+    assert "hint:" not in out and "note:" not in out
+    _, out = run(["init", "--write-instructions=shared"], capsys)
+    assert (repo / "AGENTS.md").read_text().count(START) == 1
+    assert "note:" not in out
