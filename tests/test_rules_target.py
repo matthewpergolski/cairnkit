@@ -356,3 +356,117 @@ def test_local_mode_may_use_a_link_that_leaves_the_repo(repo, tmp_path):
     (repo / "CLAUDE.local.md").symlink_to(far)
     assert main(["init", "--write-instructions"]) == 0
     assert START in far.read_text()
+
+
+IMPORT = "@AGENTS.md\n\n"
+
+
+def local_text(repo):
+    return (repo / "CLAUDE.local.md").read_text()
+
+
+def test_local_mode_imports_agents_md_when_it_is_the_only_shared_file(repo, capsys):
+    (repo / "AGENTS.md").write_text(HAND)
+    code, out = run(["init", "--write-instructions"], capsys)
+    assert code == 0
+    assert local_text(repo).startswith(IMPORT + START)
+    assert (repo / "AGENTS.md").read_text() == HAND
+    [note] = [x for x in out.splitlines() if "@AGENTS.md" in x]
+    assert "CLAUDE.local.md" in note
+    first = local_text(repo)
+    for _ in range(2):
+        assert main(["instructions", "--write-instructions"]) == 0
+        assert main(["init", "--refresh"]) == 0
+    assert local_text(repo) == first
+    assert first.count("@AGENTS.md") == 1 and first.count(START) == 1
+    _, out = run(["instructions", "--write-instructions"], capsys)
+    assert "@AGENTS.md" not in out
+
+
+def test_an_earlier_local_file_gets_the_import_on_the_next_write(repo):
+    (repo / "AGENTS.md").write_text(HAND)
+    (repo / "CLAUDE.local.md").write_text(f"# Mine\n\n{START}\nstale line\n{END}\n")
+    assert main(["init", "--write-instructions"]) == 0
+    text = local_text(repo)
+    assert text.startswith(IMPORT + "# Mine\n\n" + START)
+    assert "stale line" not in text
+
+
+def test_an_import_the_user_already_has_is_not_repeated(repo):
+    (repo / "AGENTS.md").write_text(HAND)
+    (repo / "CLAUDE.local.md").write_text("# Mine\n\n@AGENTS.md\n")
+    assert main(["init", "--write-instructions"]) == 0
+    assert local_text(repo).count("@AGENTS.md") == 1
+    assert local_text(repo).startswith("# Mine\n\n@AGENTS.md\n")
+
+
+@pytest.mark.parametrize("home", ["CLAUDE.md", ".claude/CLAUDE.md"])
+def test_no_import_when_claude_reads_a_claude_md_anyway(repo, home):
+    (repo / "AGENTS.md").write_text(HAND)
+    (repo / home).parent.mkdir(exist_ok=True)
+    (repo / home).write_text(HAND)
+    assert main(["init", "--write-instructions"]) == 0
+    assert "@AGENTS.md" not in local_text(repo)
+
+
+def test_no_import_without_an_agents_md(repo):
+    assert main(["init", "--write-instructions"]) == 0
+    assert "@AGENTS.md" not in local_text(repo)
+
+
+def test_no_import_when_claude_local_md_is_agents_md(repo):
+    (repo / "AGENTS.md").write_text(HAND)
+    (repo / "CLAUDE.local.md").symlink_to("AGENTS.md")
+    assert main(["init", "--write-instructions"]) == 0
+    assert "@AGENTS.md" not in (repo / "AGENTS.md").read_text()
+
+
+def test_shared_mode_never_writes_the_import(repo):
+    (repo / "AGENTS.md").write_text(HAND)
+    assert main(["init", "--write-instructions=shared"]) == 0
+    assert "@AGENTS.md" not in (repo / "AGENTS.md").read_text()
+    assert "@AGENTS.md" not in instructions.block()
+    from cairnkit import rules_target
+
+    assert "@AGENTS.md" not in rules_target.POINTER
+
+
+def test_dry_run_says_it_would_add_the_import_and_adds_nothing(repo, capsys):
+    (repo / "AGENTS.md").write_text(HAND)
+    code, out = run(["init", "--dry-run", "--write-instructions"], capsys)
+    assert code == 0
+    assert any("would" in x and "@AGENTS.md" in x for x in out.splitlines())
+    assert not (repo / "CLAUDE.local.md").exists()
+
+
+def test_a_link_between_the_two_files_is_reported_as_one_file(repo, capsys):
+    (repo / "AGENTS.md").write_text(HAND)
+    (repo / "CLAUDE.md").symlink_to("AGENTS.md")
+    _, out = run(["init", "--write-instructions=shared"], capsys)
+    [found] = [x for x in out.splitlines() if x.startswith("found:")]
+    assert "same file" in found
+    assert "Only CLAUDE.md exists" not in out and "Only AGENTS.md exists" not in out
+
+
+def test_the_both_files_hint_tells_how_to_load_the_agents_md_instructions(repo, capsys):
+    (repo / "CLAUDE.md").write_text(HAND)
+    (repo / "AGENTS.md").write_text("# Agents\n\nBe kind.\n")
+    _, out = run(["init", "--write-instructions=shared"], capsys)
+    [hint] = [x for x in out.splitlines() if x.startswith("hint:")]
+    assert "@AGENTS.md" in hint and "top of CLAUDE.md" in hint
+    assert "only read AGENTS.md" in hint
+    assert (repo / "CLAUDE.md").read_text().startswith(HAND)
+
+
+def test_local_blocks_do_not_grow_in_any_file_across_repeated_writes(repo):
+    (repo / "AGENTS.md").write_text(HAND)
+    assert main(["init"]) == 0
+    assert main(["init", "--write-instructions"]) == 0
+    assert main(["init", "--write-instructions=shared"]) == 0
+    names = ("CLAUDE.md", "AGENTS.md", "CLAUDE.local.md")
+    first = {n: (repo / n).read_text() for n in names if (repo / n).exists()}
+    for _ in range(2):
+        assert main(["init", "--write-instructions"]) == 0
+        assert main(["init", "--write-instructions=shared"]) == 0
+        assert main(["init", "--refresh"]) == 0
+    assert {n: (repo / n).read_text() for n in names if (repo / n).exists()} == first
