@@ -129,6 +129,11 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
 
     said = "would " if dry_run else ""
     root = project.root
+    looped = rules_target.loops(root, file)
+    for name in looped:
+        print(f"error: {name} is a symlink loop. Remove or fix the link. Nothing was written.")
+    if looped:
+        return 1
     here = rules_target.present(root)
     print("found: " + (", ".join(here) if here else "none of " + ", ".join(rules_target.LOOKED_AT)))
     choice = None
@@ -146,6 +151,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     target = root / rel
     if mode == "local" and is_tracked(project, rel):
         print(f"error: {rel} is tracked by git; use --write-instructions=shared for it")
+        return 1
+    real = rules_target.link_target(root, rel)
+    if mode == "local" and real not in (None, rel) and is_tracked(project, real):
+        print(
+            f"error: {rel} is a link to {real}, which is tracked by git. "
+            f"Nothing was written. Remove the link, or use --write-instructions=shared."
+        )
         return 1
     result = planned(target) if dry_run else write_block(target)
     if result == "broken":
