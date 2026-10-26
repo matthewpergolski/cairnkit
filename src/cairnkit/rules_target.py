@@ -60,7 +60,8 @@ class Choice:
 
 def choose_shared(root: Path) -> Choice:
     """Pick the file for the shared block. A file that already holds a block wins."""
-    names = SHARED
+    same = (root / SHARED[0]).resolve() == (root / SHARED[1]).resolve()  # one is a symlink
+    names = SHARED[:1] if same else SHARED
     holders = [n for n in names if holds_block(root / n)]
     notes = []
     if len(holders) == 2:
