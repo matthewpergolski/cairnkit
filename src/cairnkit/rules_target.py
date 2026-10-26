@@ -8,6 +8,7 @@ an `AGENTS.md` that a person wrote.
 
 from __future__ import annotations
 
+import errno
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -33,6 +34,30 @@ def _text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+def is_loop(path: Path) -> bool:
+    """True when path is, or sits behind, a symlink loop."""
+    try:
+        path.stat()
+    except OSError as exc:
+        return exc.errno == errno.ELOOP
+    return False
+
+
+def loops(root: Path, extra: str | None = None) -> list[str]:
+    """The rules files (and the chosen --instructions-file) that are symlink loops."""
+    return [
+        n for n in dict.fromkeys((*LOOKED_AT, *([extra] if extra else []))) if is_loop(root / n)
+    ]
+
+
+def link_target(root: Path, rel: str) -> str | None:
+    """Where rel really is, as a path relative to root, or None when it is outside root."""
+    try:
+        return (root / rel).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
 
 
 def holds_block(path: Path) -> bool:
