@@ -33,7 +33,8 @@ CONFIG = """\
 short_term_days = 14
 
 # The shared, tracked rules file. `memory tidy` proposes durable facts for it.
-rules_file = "AGENTS.md"
+# Unset, it is CLAUDE.md if the repo has one, else AGENTS.md, else CLAUDE.md.
+# rules_file = "CLAUDE.md"
 
 # What the session-start hook does with facts that are clearly redundant (exact
 # repeats, ended short-term facts). "auto" (the default) only reports for the

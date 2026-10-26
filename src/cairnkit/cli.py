@@ -51,8 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         const="local",
         choices=("local", "shared"),
-        help="add the agent rules block: local (default; AGENTS.local.md, ignored by git) "
-        "or shared (AGENTS.md, tracked)",
+        help="add the agent rules block: local (default; CLAUDE.local.md, ignored by git) "
+        "or shared (the tracked CLAUDE.md or AGENTS.md the repo has; CLAUDE.md if neither)",
     )
     p.add_argument(
         "--instructions-file",
@@ -172,7 +172,8 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         const="local",
         choices=("local", "shared"),
-        help="write the block: local (AGENTS.local.md, ignored) or shared (AGENTS.md, tracked)",
+        help="write the block: local (CLAUDE.local.md, ignored) or shared (the tracked "
+        "CLAUDE.md or AGENTS.md the repo has; CLAUDE.md if neither)",
     )
     p.add_argument("--instructions-file", help="file to write, relative to the checkout")
 
