@@ -3,34 +3,33 @@
 import subprocess
 import sys
 
-HEAVY = (
-    "cairnkit.hookrun",
-    "cairnkit.autotidy",
-    "cairnkit.memory",
-    "cairnkit.load",
-    "cairnkit.check",
-    "cairnkit.skills",
-    "cairnkit.update",
-    "urllib.request",
-    "tarfile",
-)
+import pytest
+
+from cairnkit.cli import AGENTS, build_parser
+
+# The only package modules the parser may load. Any other import at the top of cli.py fails this.
+LIGHT = ("cairnkit", "cairnkit.cli", "cairnkit.clock", "cairnkit.schema")
 
 SCRIPT = """
 import sys
 from cairnkit.cli import build_parser
 build_parser()
-print(",".join(name for name in {heavy!r} if name in sys.modules))
+print(",".join(sorted(n for n in sys.modules if n == "cairnkit" or n.startswith("cairnkit."))))
+print(",".join(n for n in ("urllib.request", "tarfile") if n in sys.modules))
 """
 
 
-def test_building_the_parser_imports_no_heavy_module():
-    code = SCRIPT.format(heavy=HEAVY)
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+def test_building_the_parser_imports_only_light_modules():
+    result = subprocess.run([sys.executable, "-c", SCRIPT], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == ""
+    loaded, stdlib = result.stdout.splitlines()
+    assert set(loaded.split(",")) <= set(LIGHT)
+    assert stdlib == ""
 
 
-def test_agent_names_live_in_the_schema():
-    from cairnkit import schema
-
-    assert schema.AGENTS == ("claude", "codex", "cursor", "generic")
+def test_agent_choices():
+    assert AGENTS == ("claude", "codex", "cursor", "generic")
+    args = build_parser().parse_args(["hook", "stop", "--agent", "codex"])
+    assert args.agent == "codex"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hook", "stop", "--agent", "bogus"])

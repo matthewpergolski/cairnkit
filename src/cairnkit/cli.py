@@ -9,7 +9,10 @@ from pathlib import Path
 
 from cairnkit import __version__
 from cairnkit.clock import parse_time
-from cairnkit.schema import AGENTS, BASES, KINDS, STATUSES
+from cairnkit.schema import BASES, KINDS, STATUSES
+
+# The agent tools the hook command knows. Kept here so building the parser imports no adapter.
+AGENTS = ("claude", "codex", "cursor", "generic")
 
 
 def _time(value: str) -> str:
