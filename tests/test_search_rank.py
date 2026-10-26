@@ -171,11 +171,23 @@ def used_ids(mem):
     return ids
 
 
-def test_looking_up_an_id_finds_that_fact_and_counts_only_it_as_use(mem, capsys):
+def test_looking_up_an_id_finds_only_that_fact_and_counts_only_it_as_use(mem, capsys):
     seed(mem)
     _, out = run(capsys, "search", "f-20261001-0003")
-    assert fact_ids(out)[0] == "f-20261001-0003"
+    assert fact_ids(out) == ["f-20261001-0003"]
     assert used_ids(mem) == {"f-20261001-0003"}
+
+
+def test_an_id_is_one_word_for_search_on_both_sides():
+    from cairnkit import ranking
+
+    assert ranking.query_terms("f-20261026-a053") == ["f-20261026-a053"]
+    assert ranking.words("See f-20261026-a053, then f-20261026-a054.") == [
+        "see",
+        "f-20261026-a053",
+        "then",
+        "f-20261026-a054",
+    ]
 
 
 def test_a_loose_match_does_not_count_as_use(mem, capsys):
@@ -202,22 +214,41 @@ def test_limit_and_more_line_work_with_ranked_hits(mem, capsys):
 def test_no_match_says_that_parts_of_words_were_tried(mem, capsys):
     seed(mem)
     _, out = run(capsys, "search", "kubernetes")
-    assert "no match" in out and "parts of words were tried" in out
+    assert "no match" in out and "whole words and word starts were tried" in out
 
 
-def test_a_word_that_is_only_part_of_a_longer_word_still_finds_it(mem, capsys):
+def test_a_word_that_starts_a_longer_word_finds_it_when_no_whole_word_matches(mem, capsys):
     write_facts(
         mem,
         [
             make_fact("f-20261001-0001", "Production deployment needs a manual approval."),
             make_fact("f-20261001-0002", "Email retries use a cron job every 15 minutes."),
+            make_fact("f-20261001-0003", "The configuration lives in environment variables."),
+            make_fact("f-20261001-0004", "The check passed on the second run."),
         ],
     )
-    code, out = run(capsys, "search", "deploy")
-    assert code == 0 and fact_ids(out) == ["f-20261001-0001"]
-    assert "no whole-word match" in out and "parts of words" in out
-    _, out = run(capsys, "search", "retr")
-    assert fact_ids(out) == ["f-20261001-0002"]
+    for query, expected in (
+        ("deploy", "f-20261001-0001"),
+        ("config", "f-20261001-0003"),
+        ("pass", "f-20261001-0004"),
+    ):
+        code, out = run(capsys, "search", query)
+        assert code == 0 and fact_ids(out) == [expected], query
+        assert "no whole-word match" in out and "start with" in out
+
+
+def test_a_short_start_or_a_middle_of_a_word_does_not_match(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Email retries use a cron job every 15 minutes."),
+            make_fact("f-20261001-0002", "The important step is the review."),
+            make_fact("f-20261001-0003", "Production deployment needs approval."),
+        ],
+    )
+    for query in ("retr", "port", "ploy", "oyo", "ret"):
+        _, out = run(capsys, "search", query)
+        assert "no match" in out, query
 
 
 def test_the_part_of_word_note_comes_before_the_stored_notes_frame(mem, capsys):
@@ -229,7 +260,7 @@ def test_the_part_of_word_note_comes_before_the_stored_notes_frame(mem, capsys):
     assert note < frame
 
 
-def test_a_whole_word_match_means_no_part_of_word_search(mem, capsys):
+def test_a_whole_word_match_means_no_prefix_search(mem, capsys):
     write_facts(
         mem,
         [
@@ -242,7 +273,7 @@ def test_a_whole_word_match_means_no_part_of_word_search(mem, capsys):
     assert "no whole-word match" not in out
 
 
-def test_part_of_word_hits_rank_by_how_many_query_words_they_hold(mem, capsys):
+def test_prefix_hits_rank_by_how_many_query_words_they_hold(mem, capsys):
     write_facts(
         mem,
         [
@@ -255,29 +286,133 @@ def test_part_of_word_hits_rank_by_how_many_query_words_they_hold(mem, capsys):
     assert fact_ids(out) == ["f-20261001-0002", "f-20261001-0001"]
 
 
-def test_a_short_word_never_matches_inside_other_words(mem, capsys):
-    write_facts(mem, [make_fact("f-20261001-0001", "Production deployment needs approval.")])
-    _, out = run(capsys, "search", "ploy")
-    assert fact_ids(out) == ["f-20261001-0001"]
-    _, out = run(capsys, "search", "oyo")
-    assert "no match" in out
-
-
-def test_part_of_word_search_reads_notes_too(mem, capsys):
+def test_prefix_search_reads_notes_too(mem, capsys):
     path = mem / "notes" / "ops.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("Rollbacks follow the deployment checklist.\n")
     _, out = run(capsys, "search", "deploy")
     assert "ops.md:1:" in out and "no whole-word match" in out
+    assert "deployment" in out
+
+
+def test_the_top_prefix_hit_counts_as_use_and_a_weak_one_does_not(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "The deployment pipeline runs the migrations first."),
+            make_fact("f-20261001-0002", "The deployment pipeline is slow."),
+        ],
+    )
+    run(capsys, "search", "deploy migrat")
+    assert used_ids(mem) == {"f-20261001-0001"}
 
 
 def test_strict_never_falls_back(mem, capsys):
     write_facts(mem, [make_fact("f-20261001-0001", "Production deployment needs approval.")])
     _, out = run(capsys, "search", "deploy migrat", "--strict")
     assert "no match" in out and "no whole-word match" not in out
+    _, out = run(capsys, "search", "deploy", "--strict")
+    assert fact_ids(out) == ["f-20261001-0001"]
 
 
 def test_strict_with_an_empty_query_still_lists_every_fact(mem, capsys):
     seed(mem)
     code, out = run(capsys, "search", "", "--strict")
     assert code == 0 and len(fact_ids(out)) == 4
+
+
+def test_a_filler_pronoun_does_not_match_a_fact_on_its_own(mem, capsys):
+    from cairnkit import ranking
+
+    assert "them" not in ranking.query_terms("who sends them and how are failures retried?")
+    write_facts(
+        mem,
+        [
+            make_fact(
+                "f-20261001-0001", "Confirmation emails are sent by a worker. Failures are retried."
+            ),
+            make_fact(
+                "f-20261001-0002", "Dates are UTC. The UI converts them to the shop time zone."
+            ),
+        ],
+    )
+    _, out = run(capsys, "search", "emails: who sends them and how are failures retried?")
+    assert fact_ids(out) == ["f-20261001-0001"]
+    assert used_ids(mem) == {"f-20261001-0001"}
+
+
+def test_a_hit_that_shares_no_word_with_the_top_hit_is_not_use(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact(
+                "f-20261001-0001", "The zebra gate is red.", learned_at="2026-10-02T12:00:00+00:00"
+            ),
+            make_fact(
+                "f-20261001-0002", "The yak gate is red.", learned_at="2026-10-01T12:00:00+00:00"
+            ),
+        ],
+    )
+    _, out = run(capsys, "search", "zebra yak")
+    assert fact_ids(out) == ["f-20261001-0001", "f-20261001-0002"]  # both are shown
+    assert used_ids(mem) == {"f-20261001-0001"}  # only the top one counts
+
+
+def test_plurals_that_are_not_plurals_stay_as_they_are():
+    from cairnkit import ranking
+
+    for word in ("news", "series", "species"):
+        assert ranking.stem(word) == word
+    assert ranking.query_terms("new") != ranking.query_terms("news")
+
+
+def test_odd_plurals_match_their_singular_both_ways(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Old movies are stored as files."),
+            make_fact("f-20261001-0002", "The movie list is cached."),
+            make_fact("f-20261001-0003", "All statuses end in a final state."),
+            make_fact("f-20261001-0004", "Two buses run at night."),
+            make_fact("f-20261001-0005", "Every cookie has an expiry."),
+            make_fact("f-20261001-0006", "Cookies are set by the login page."),
+            make_fact("f-20261001-0007", "The news feed is public."),
+        ],
+    )
+    cases = {
+        "movie": {"f-20261001-0001", "f-20261001-0002"},
+        "movies": {"f-20261001-0001", "f-20261001-0002"},
+        "status": {"f-20261001-0003"},
+        "bus": {"f-20261001-0004"},
+        "buses": {"f-20261001-0004"},
+        "cookie": {"f-20261001-0005", "f-20261001-0006"},
+        "cookies": {"f-20261001-0005", "f-20261001-0006"},
+        "new": set(),
+        "news": {"f-20261001-0007"},
+    }
+    for query, expected in cases.items():
+        _, out = run(capsys, "search", query)
+        assert set(fact_ids(out)) == expected, query
+
+
+def test_with_all_the_use_gate_is_measured_against_the_best_active_hit(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "The cache is cleared at night."),
+            make_fact("f-20261001-0002", "The cache stays warm."),
+            make_fact("f-20261001-0003", "Another note about nothing."),
+            {
+                "type": "change",
+                "id": "f-20261001-0001",
+                "at": "2026-10-03T00:00:00+00:00",
+                "status": "superseded",
+                "superseded_by": "f-20261001-0002",
+                "reason": "No more clearing.",
+                "writer": "main",
+            },
+        ],
+    )
+    _, out = run(capsys, "search", "cache cleared night", "--all")
+    assert set(fact_ids(out)) == {"f-20261001-0001", "f-20261001-0002"}
+    assert used_ids(mem) == {"f-20261001-0002"}
