@@ -259,3 +259,44 @@ def test_a_claude_md_that_links_to_agents_md_is_one_file(repo, capsys):
     _, out = run(["init", "--write-instructions=shared"], capsys)
     assert (repo / "AGENTS.md").read_text().count(START) == 1
     assert "note:" not in out
+
+
+def tracked(repo, *names):
+    from conftest import git
+
+    git(repo, "add", *names)
+    git(repo, "commit", "-q", "-m", "track")
+
+
+@pytest.mark.parametrize("target", ["AGENTS.md", "CLAUDE.md"])
+def test_local_mode_refuses_a_link_to_a_tracked_file(repo, capsys, target):
+    (repo / target).write_text(HAND)
+    tracked(repo, target)
+    (repo / "CLAUDE.local.md").symlink_to(target)
+    code, out = run(["init", "--write-instructions"], capsys)
+    assert code == 1
+    assert "error:" in out and "tracked" in out and target in out
+    assert (repo / target).read_text() == HAND
+    code, out = run(["instructions", "--write-instructions"], capsys)
+    assert code == 1 and (repo / target).read_text() == HAND
+
+
+def test_local_mode_follows_a_link_to_an_untracked_file(repo):
+    (repo / "mine.md").write_text("# Mine\n")
+    (repo / "CLAUDE.local.md").symlink_to("mine.md")
+    assert main(["init", "--write-instructions"]) == 0
+    assert START in (repo / "mine.md").read_text()
+    assert (repo / "CLAUDE.local.md").is_symlink()
+
+
+@pytest.mark.parametrize("mode", ["local", "shared"])
+@pytest.mark.parametrize("name", ["CLAUDE.md", "AGENTS.md", "CLAUDE.local.md"])
+def test_a_symlink_loop_is_an_error_and_nothing_is_written(repo, capsys, mode, name):
+    assert main(["init"]) == 0
+    (repo / name).symlink_to(name)
+    before = sorted(p.name for p in repo.iterdir())
+    code, out = run(["instructions", f"--write-instructions={mode}"], capsys)
+    assert code == 1
+    assert "error:" in out and name in out and "loop" in out
+    assert "Traceback" not in out
+    assert sorted(p.name for p in repo.iterdir()) == before
