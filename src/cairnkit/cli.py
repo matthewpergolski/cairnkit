@@ -281,7 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "query",
         help="words or a question; a fact with any of the words is found (--strict: all). "
-        "With no whole-word match, parts of longer words count (deploy finds deployment)",
+        "With no whole-word match, a word of 4+ letters may start a longer one "
+        "(deploy finds deployment)",
     )
     p.add_argument("--all", action="store_true", help="also non-active facts, with reasons")
     p.add_argument(
