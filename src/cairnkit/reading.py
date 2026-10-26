@@ -150,7 +150,7 @@ def _snippet(line: str, terms: list[str], strict: bool, prefix: bool = False) ->
 def _holds(forms: list[str], terms: list[str], prefix: bool) -> bool:
     if prefix:
         return any(ranking.starts(t, f) for t in terms for f in forms)
-    return any(f in terms for f in forms)
+    return any(f in ranking.forms(t) for t in terms for f in forms)
 
 
 def _used(
