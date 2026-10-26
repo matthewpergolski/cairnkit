@@ -21,6 +21,8 @@ HOME = "CLAUDE.md"
 SHARED = (HOME, "AGENTS.md")
 LOOKED_AT = (*SHARED, LOCAL)
 
+IMPORT = "@AGENTS.md"
+
 POINTER = f"""\
 # Agent instructions
 
@@ -65,6 +67,33 @@ def holds_block(path: Path) -> bool:
     return markers.find(_text(path), PAIRS)[0] != "missing"
 
 
+def same_file(root: Path) -> bool:
+    """True when CLAUDE.md and AGENTS.md are one file (one is a link to the other)."""
+    one, two = (root / n for n in SHARED)
+    return one.is_file() and two.is_file() and one.resolve() == two.resolve()
+
+
+def needs_import(root: Path, rel: str) -> bool:
+    """True when the local file must start with `@AGENTS.md`.
+
+    Claude Code reads AGENTS.md only when it finds no CLAUDE.md, .claude/CLAUDE.md or
+    CLAUDE.local.md. A CLAUDE.local.md without the import would hide a shared AGENTS.md.
+    """
+    agents, local = root / SHARED[1], root / rel
+    if rel != LOCAL or not agents.is_file():
+        return False
+    if (root / HOME).is_file() or (root / ".claude" / HOME).is_file():
+        return False
+    if agents.resolve() == local.resolve():
+        return False
+    return IMPORT not in (line.strip() for line in _text(local).splitlines())
+
+
+def add_import(path: Path) -> None:
+    """Put the import and a blank line at the top, before any text that is already there."""
+    path.write_text(f"{IMPORT}\n\n" + path.read_text(encoding="utf-8"), encoding="utf-8")
+
+
 def present(root: Path) -> list[str]:
     """The rules files this checkout has, in the order of LOOKED_AT."""
     return [name for name in LOOKED_AT if (root / name).is_file()]
@@ -81,6 +110,22 @@ class Choice:
     reason: str
     pointer: bool = False
     notes: list[str] = field(default_factory=list)
+
+
+def _hint(root: Path) -> str:
+    """For a repo with both files: how Claude Code and AGENTS.md-only tools find AGENTS.md."""
+    imports = IMPORT in (line.strip() for line in _text(root / HOME).splitlines())
+    load = (
+        ""
+        if imports
+        else f"Claude Code reads {SHARED[1]} only when there is no {HOME}, so add `{IMPORT}` "
+        f"at the top of {HOME} if those instructions should load there. "
+    )
+    return (
+        f"hint: {SHARED[1]} does not mention {HOME}. It was left as it is. {load}"
+        f"Tools that only read {SHARED[1]} will not see the rules block unless "
+        f"{SHARED[1]} points to {HOME}."
+    )
 
 
 def choose_shared(root: Path) -> Choice:
@@ -105,11 +150,10 @@ def choose_shared(root: Path) -> Choice:
             HOME, f"Neither {SHARED[0]} nor {SHARED[1]} exists, so {HOME} is created.", pointer=True
         )
     rel = has[0]
+    if same and has:
+        return Choice(rel, f"{HOME} and {SHARED[1]} are the same file, so the block goes there.")
     if len(has) == 2:
         if HOME not in _text(root / SHARED[1]):
-            notes.append(
-                f"hint: {SHARED[1]} does not mention {HOME}. It was left as it is. "
-                f"Add a line there that points to {HOME} if other tools should find the rules."
-            )
+            notes.append(_hint(root))
         return Choice(rel, f"Both exist, so the block goes to {HOME}.", notes=notes)
     return Choice(rel, f"Only {rel} exists, so the block goes there.", notes=notes)
