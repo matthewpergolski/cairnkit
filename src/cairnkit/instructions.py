@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from cairnkit import markers
@@ -71,7 +72,7 @@ def write_block(path: Path) -> str:
     """Add or replace the marked block in path. Return what happened."""
     new = block()
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.resolve().parent.mkdir(parents=True, exist_ok=True)  # a dangling link: its target
         path.write_text(new)
         return "created"
     old = path.read_text(encoding="utf-8")
@@ -153,6 +154,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
         print(f"error: {rel} is tracked by git; use --write-instructions=shared for it")
         return 1
     real = rules_target.link_target(root, rel)
+    if mode == "shared" and real is None:
+        print(
+            f"error: {rel} resolves to {(root / rel).resolve()}, outside the repo. "
+            "Nothing was written. A tracked rules file must stay inside the repo: replace the "
+            "link with a real file, or pick another with --instructions-file."
+        )
+        return 1
     if mode == "local" and real not in (None, rel) and is_tracked(project, real):
         print(
             f"error: {rel} is a link to {real}, which is tracked by git. "
@@ -170,9 +178,14 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
         record(project, None, rel)
     if choice and choice.pointer:
         pointer = root / "AGENTS.md"
-        if not dry_run:
-            pointer.write_text(rules_target.POINTER, encoding="utf-8")
-        print(f"{said}create {pointer}, which only points to {rel}")
+        if os.path.lexists(pointer) or pointer.resolve() == target.resolve():
+            print(
+                f"AGENTS.md already exists or is the same file as {rel}, so no pointer is written"
+            )
+        else:
+            if not dry_run:
+                pointer.write_text(rules_target.POINTER, encoding="utf-8")
+            print(f"{said}create {pointer}, which only points to {rel}")
     if mode == "local":
         for step in exclude(project, [rel], dry_run):
             print(said + step)
