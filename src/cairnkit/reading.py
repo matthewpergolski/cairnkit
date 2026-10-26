@@ -74,6 +74,7 @@ def run_show(memory: Memory, fact_id: str) -> int:
 NOTE_SUFFIXES = {".md", ".markdown", ".txt"}
 NOTE_LINES = 5  # note lines shown per search
 NOTE_WIDTH = 120  # characters shown of one note line
+USE_SHARE = 0.8  # a hit counts as use when its score is this share of the best score
 
 
 def note_files(folder: Path) -> list[Path]:
@@ -122,7 +123,7 @@ def note_hits(memory: Memory, terms: list[str], strict: bool = False) -> list[st
 
 
 def _snippet(line: str, terms: list[str], strict: bool) -> str:
-    """The line, cut to NOTE_WIDTH characters around the first term."""
+    """The line, cut to NOTE_WIDTH characters around the first query word it holds."""
     if len(line) <= NOTE_WIDTH:
         return line
     low = line.lower()
@@ -162,12 +163,19 @@ def run_search(
     states = [s for s, _, _ in shown]
     ranked = ranking.rank_strict(states, query) if strict else ranking.rank_facts(states, terms)
     hits = [(state, *by_id[state["id"]]) for state, _ in ranked]
+    best = ranked[0][1] if ranked else 0.0
     notes = note_hits(memory, terms, strict) if terms else []
     if not hits and not notes:
         scope = "any fact or note" if include_all else "active facts or notes (try --all)"
-        print(f"no match for {query!r} in {scope}")
+        hint = "" if strict else "; --strict matches parts of words"
+        print(f"no match for {query!r} in {scope}{hint}")
         return 0
-    usage.record(memory, [h[0]["id"] for h in hits[:limit] if h[1] == "active"], moment)
+    used = [  # a loose match is not use: only the facts near the top score count
+        state["id"]
+        for (state, status, _), (_, score) in zip(hits[:limit], ranked, strict=False)
+        if status == "active" and (strict or score >= USE_SHARE * best)
+    ]
+    usage.record(memory, used, moment)
     print(FRAME_HEADER)
     for state, status, reason in hits[:limit]:
         line = render(state)
