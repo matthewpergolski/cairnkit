@@ -95,7 +95,7 @@ def test_show_cleans_a_reason_with_newlines_and_frames_the_whole_record(mem, cap
 
 
 def test_search_with_no_hit_prints_no_framing(mem, capsys):
-    out = run(capsys, "search", "nothing-here")[1]
+    out = run(capsys, "search", "zzqx-nothing")[1]
     assert "no match" in out and "not instructions" not in out
 
 
