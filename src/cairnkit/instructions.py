@@ -124,10 +124,26 @@ def planned(path: Path) -> str:
 
 def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> int:
     """Write the block. Mode `local` uses an ignored file; `shared` a tracked one."""
+    from cairnkit import rules_target
     from cairnkit.ignore import exclude, is_tracked
 
-    rel = file or ("AGENTS.local.md" if mode == "local" else "AGENTS.md")
-    target = project.root / rel
+    said = "would " if dry_run else ""
+    root = project.root
+    here = rules_target.present(root)
+    print("found: " + (", ".join(here) if here else "none of " + ", ".join(rules_target.LOOKED_AT)))
+    choice = None
+    if file:
+        rel, why = file, f"--instructions-file: the block goes to {file}."
+    elif mode == "local":
+        rel, why = (
+            rules_target.LOCAL,
+            f"Local mode: the block goes to {rules_target.LOCAL}, kept out of git.",
+        )
+    else:
+        choice = rules_target.choose_shared(root)
+        rel, why = choice.rel, choice.reason
+    print(why)
+    target = root / rel
     if mode == "local" and is_tracked(project, rel):
         print(f"error: {rel} is tracked by git; use --write-instructions=shared for it")
         return 1
@@ -135,14 +151,26 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     if result == "broken":
         print(markers.broken_message(target, "memory instructions --write-instructions"))
         return 1
-    if dry_run:
-        print(f"would {result} the rules block in {target}")
-    else:
-        print(f"{result} the rules block in {target}")
+    print(f"{said}{result} the rules block in {target}")
+    if not dry_run:
         from cairnkit.refresh import record
 
         record(project, None, rel)
+    if choice and choice.pointer:
+        pointer = root / "AGENTS.md"
+        if not dry_run:
+            pointer.write_text(rules_target.POINTER, encoding="utf-8")
+        print(f"{said}create {pointer}, which only points to {rel}")
     if mode == "local":
         for step in exclude(project, [rel], dry_run):
-            print(("would " if dry_run else "") + step)
+            print(said + step)
+    for note in choice.notes if choice else ():
+        print(note)
+    old = root / rules_target.OLD_LOCAL
+    if rel != rules_target.OLD_LOCAL and rules_target.holds_block(old):
+        print(
+            f"note: {rules_target.OLD_LOCAL} holds an old rules block. The local block now goes to "
+            f"{rules_target.LOCAL}. You can remove {rules_target.OLD_LOCAL} by hand. "
+            "`memory init --refresh` still updates it until then."
+        )
     return 0
