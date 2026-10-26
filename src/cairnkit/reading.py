@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from cairnkit import usage
+from cairnkit import ranking, usage
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, merged_checker
@@ -89,66 +89,87 @@ def note_files(folder: Path) -> list[Path]:
     return sorted(found)
 
 
-def note_hits(memory: Memory, terms: list[str]) -> list[str]:
-    """Lines of notes/ that hold every term, as `memory-bank/notes/PATH:LINE: text`."""
+def note_hits(memory: Memory, terms: list[str], strict: bool = False) -> list[str]:
+    """Lines of notes/ as `memory-bank/notes/PATH:LINE: text`, best first.
+
+    A line counts when it holds any term (BM25 over the lines). With `strict`, it must
+    hold every term, as a substring, and the lines come in file order.
+    """
     folder = memory.dir / "notes"
-    hits = []
+    lines = []  # (path, number, cleaned line)
     for path in note_files(folder):
         text = path.read_text(encoding="utf-8", errors="replace")
         for number, raw in enumerate(text.splitlines(), start=1):
             line = clean(raw)
-            low = line.lower()
-            if not all(term in low for term in terms):
-                continue
-            if len(line) > NOTE_WIDTH:
-                start = max(0, min(low.find(terms[0]) - NOTE_WIDTH // 3, len(line) - NOTE_WIDTH))
-                end = start + NOTE_WIDTH
-                more = "..." if end < len(line) else ""
-                line = ("..." if start else "") + line[start:end] + more
-            rel = path.relative_to(folder).as_posix()
-            hits.append(f"- {LINK_NAME}/notes/{rel}:{number}: {line}")
-    return hits
+            if line.strip():
+                lines.append((path.relative_to(folder).as_posix(), number, line))
+    if strict:
+        picked = [
+            (rel, n, line, 0.0) for rel, n, line in lines if all(t in line.lower() for t in terms)
+        ]
+    else:
+        scores = ranking.bm25([line for _, _, line in lines], terms)
+        picked = [
+            (rel, n, line, round(s, 9))
+            for (rel, n, line), s in zip(lines, scores, strict=True)
+            if s > 0
+        ]
+        picked.sort(key=lambda p: (-p[3], p[0], p[1]))
+    return [
+        f"- {LINK_NAME}/notes/{rel}:{n}: {_snippet(line, terms, strict)}"
+        for rel, n, line, _ in picked
+    ]
 
 
-def run_search(memory: Memory, query: str, include_all: bool, limit: int) -> int:
-    terms = [t for t in query.lower().split() if t]
+def _snippet(line: str, terms: list[str], strict: bool) -> str:
+    """The line, cut to NOTE_WIDTH characters around the first term."""
+    if len(line) <= NOTE_WIDTH:
+        return line
+    low = line.lower()
+    if strict:
+        at = low.find(terms[0])
+    else:
+        at = next(
+            (m.start() for m in ranking.WORD.finditer(low) if ranking.stem(m.group()) in terms), 0
+        )
+    start = max(0, min(at - NOTE_WIDTH // 3, len(line) - NOTE_WIDTH))
+    end = start + NOTE_WIDTH
+    more = "..." if end < len(line) else ""
+    return ("..." if start else "") + line[start:end] + more
+
+
+def run_search(
+    memory: Memory, query: str, include_all: bool, limit: int, strict: bool = False
+) -> int:
+    if strict:
+        terms = [t for t in query.lower().split() if t]
+    else:
+        terms = ranking.query_terms(query)
+        if not terms:
+            print(f"error: no searchable words in {query!r}")
+            return 1
     moment = now()
     is_merged = merged_checker(memory.project.root)
-    hits = []
+    shown = []  # (state, status, reason) of every fact that may match
     for state in memory.states.values():
         if state["status"] == "purged":
             continue
         status, reason = effective_status(state, moment, is_merged)
         if status != "active" and not include_all:
             continue
-        hay = " ".join(
-            [
-                state.get("id", ""),
-                state.get("text", ""),
-                state.get("area", ""),
-                " ".join(state.get("tags", [])),
-                " ".join(c.get("reason", "") for c in state["history"]),
-            ]
-        ).lower()
-        if all(term in hay for term in terms):
-            hits.append(
-                (
-                    sum(hay.count(t) for t in terms),
-                    state.get("learned_at", ""),
-                    state,
-                    status,
-                    reason,
-                )
-            )
-    notes = note_hits(memory, terms) if terms else []
+        shown.append((state, status, reason))
+    by_id = {s["id"]: (status, reason) for s, status, reason in shown}
+    states = [s for s, _, _ in shown]
+    ranked = ranking.rank_strict(states, query) if strict else ranking.rank_facts(states, terms)
+    hits = [(state, *by_id[state["id"]]) for state, _ in ranked]
+    notes = note_hits(memory, terms, strict) if terms else []
     if not hits and not notes:
         scope = "any fact or note" if include_all else "active facts or notes (try --all)"
         print(f"no match for {query!r} in {scope}")
         return 0
-    hits.sort(key=lambda h: (h[0], h[1]), reverse=True)  # most hits, then newest
-    usage.record(memory, [h[2]["id"] for h in hits[:limit] if h[3] == "active"], moment)
+    usage.record(memory, [h[0]["id"] for h in hits[:limit] if h[1] == "active"], moment)
     print(FRAME_HEADER)
-    for _, _, state, status, reason in hits[:limit]:
+    for state, status, reason in hits[:limit]:
         line = render(state)
         if status != "active":
             line += f" [{status}" + (f": {clean(reason)}" if reason else "") + "]"
