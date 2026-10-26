@@ -484,3 +484,11 @@ def test_forms_keep_the_surface_word_when_stripping_s_changed_it():
     assert set(ranking.forms("analysis")) & set(ranking.forms("analyses"))
     for word in ("news", "series", "species"):
         assert ranking.forms(word) == [word]
+
+
+def test_no_match_line_names_word_starts_only_when_they_were_tried(mem, capsys):
+    seed(mem)
+    _, out = run(capsys, "search", "xyz")  # 3 letters: never tried as a word start
+    assert "no match" in out and "word starts" not in out and "whole words were tried" in out
+    _, out = run(capsys, "search", "kubernetes")
+    assert "whole words and word starts were tried" in out
