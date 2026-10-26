@@ -84,3 +84,4 @@ def test_rules_stay_in_memory_unless_asked(repo, capsys):
     assert (repo / "AGENTS.md").read_text() == "# Team rules\n"
     assert not (repo / ".githooks").exists()
     assert not (repo / "AGENTS.local.md").exists()
+    assert not (repo / "CLAUDE.local.md").exists()
