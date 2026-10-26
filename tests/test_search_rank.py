@@ -430,3 +430,28 @@ def test_a_word_start_that_ends_in_s_is_not_cut_as_a_plural(mem, capsys):
     assert fact_ids(out) == ["f-20261001-0001"]
     _, out = run(capsys, "search", "pytes")
     assert fact_ids(out) == ["f-20261001-0002"]
+
+
+def test_a_plural_query_word_is_one_term_not_two(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "The movie list is cached."),
+            make_fact("f-20261001-0002", "Old movies are stored as files."),
+            make_fact("f-20261001-0003", "Prices are stored as integer cents."),
+            make_fact("f-20261001-0004", "The nightly backup runs at night."),
+        ],
+    )
+    _, out = run(capsys, "search", "movies cached")
+    assert fact_ids(out)[0] == "f-20261001-0001"
+    assert used_ids(mem) == {"f-20261001-0001"}  # a fact with only "movies" is not use
+
+
+def test_a_word_counts_once_toward_the_length_of_a_text():
+    from cairnkit import ranking
+
+    one, two = ranking.bm25(["movies cached", "movies cached cached"], ["cached"])
+    assert one > 0 and two > one  # a repeat adds score
+    # the two forms of "movies" add no length
+    plain, plural = ranking.bm25(["alpha movie beta", "alpha movies beta"], ["alpha"])
+    assert plain == plural
