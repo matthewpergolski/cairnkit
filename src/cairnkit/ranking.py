@@ -80,14 +80,31 @@ def index_words(text: str) -> list[str]:
     return [form for w in WORD.findall(text.lower()) for form in forms(w)]
 
 
-def query_terms(query: str) -> list[str]:
-    """The distinct words of a query, in order, without filler words, each as its forms.
+def word_counts(text: str) -> tuple[Counter, int]:
+    """How many words of a text have each form, and how many words the text has.
 
-    A query of only filler words keeps them, so `memory search the` still works.
+    A word with two forms (`movies`) adds to both counts but is one word of the text.
+    """
+    found = WORD.findall(text.lower())
+    return Counter(form for w in found for form in forms(w)), len(found)
+
+
+def query_terms(query: str) -> list[str]:
+    """The distinct words of a query, in order, without filler words.
+
+    A word is one term, as typed. A word that shares a form with an earlier one (`movie`,
+    `movies`) is the same term. A query of only filler words keeps them, so
+    `memory search the` still works.
     """
     raw = WORD.findall(query.lower())
     kept = [w for w in raw if w not in STOPWORDS] or raw
-    return list(dict.fromkeys(form for w in kept for form in forms(w)))
+    terms: list[str] = []
+    seen: set[str] = set()
+    for word in kept:
+        if seen.isdisjoint(forms(word)):
+            terms.append(word)
+            seen.update(forms(word))
+    return terms
 
 
 def fact_text(state: dict) -> str:
@@ -129,11 +146,12 @@ def bm25(texts: list[str], terms: list[str], prefix: bool = False) -> list[float
 
     With `prefix`, a term also counts at the start of a longer word: `deploy` in `deployment`.
     """
-    counts = [Counter(index_words(t)) for t in texts]
+    measured = [word_counts(t) for t in texts]
+    counts = [c for c, _ in measured]
     size = len(counts)
     if not size or not terms:
         return [0.0] * size
-    lengths = [sum(c.values()) for c in counts]
+    lengths = [n for _, n in measured]
     average = (sum(lengths) / size) or 1.0
     idf = {}
     for term in terms:
@@ -151,15 +169,18 @@ def bm25(texts: list[str], terms: list[str], prefix: bool = False) -> list[float
 
 
 def _tf(count: Counter, term: str, prefix: bool) -> int:
-    """How often a term is in a text: as a whole word, or with `prefix` at the start of one."""
+    """How often a term is in a text: as a whole word, or with `prefix` at the start of one.
+
+    A whole word counts as its best form: `movies` in a text that says `movies` twice is 2.
+    """
     if not prefix:
-        return count.get(term, 0)
+        return max((count.get(form, 0) for form in forms(term)), default=0)
     return sum(n for word, n in count.items() if starts(term, word))
 
 
 def matched(state: dict, terms: list[str], prefix: bool = False) -> set[str]:
     """The query terms that a fact holds."""
-    count = Counter(index_words(fact_text(state)))
+    count, _ = word_counts(fact_text(state))
     return {t for t in terms if _tf(count, t, prefix)}
 
 

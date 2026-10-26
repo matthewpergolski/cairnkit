@@ -276,9 +276,12 @@ def evaluate(
 
 def overlap(probe: dict, facts_by_id: dict[str, dict]) -> int:
     """The most question words (as search sees them) that one gold fact shares with the question."""
-    terms = set(ranking.query_terms(probe["question"]))
+    terms = ranking.query_terms(probe["question"])
     return max(
-        (len(terms & set(ranking.index_words(facts_by_id[g]["text"]))) for g in probe["gold"]),
+        (
+            sum(1 for t in terms if set(ranking.forms(t)) & set(ranking.index_words(text)))
+            for text in (facts_by_id[g]["text"] for g in probe["gold"])
+        ),
         default=0,
     )
 
