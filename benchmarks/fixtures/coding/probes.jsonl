@@ -1,0 +1,58 @@
+{"question": "Which message broker did we pick for background jobs?", "gold_note_ids": ["f-20260702-0001"], "kind": "decision"}
+{"question": "Do we store tracking data anywhere other than PostgreSQL?", "gold_note_ids": ["f-20260702-0002"], "kind": "decision"}
+{"question": "Where does the API version go in a request?", "gold_note_ids": ["f-20260706-0003"], "kind": "decision", "decoy_note_ids": ["f-20260616-0026", "f-20260720-0057"]}
+{"question": "What kind of credentials do API clients present?", "gold_note_ids": ["f-20260708-0004"], "kind": "decision", "decoy_note_ids": ["f-20260915-0038", "f-20260624-0037"]}
+{"question": "If a carrier sends us a correction, do we edit the old event?", "gold_note_ids": ["f-20260709-0005"], "kind": "decision", "decoy_note_ids": ["f-20260812-0011", "f-20260803-000c"]}
+{"question": "How do list endpoints page through results?", "gold_note_ids": ["f-20260714-0006"], "kind": "decision", "decoy_note_ids": ["f-20260926-0044", "f-20260627-0043"]}
+{"question": "What time zone are dates stored in?", "gold_note_ids": ["f-20260714-0007"], "kind": "decision", "decoy_note_ids": ["f-20260813-0012", "f-20260711-0050"]}
+{"question": "Why aren't shipment ids just auto-increment numbers?", "gold_note_ids": ["f-20260715-0008"], "kind": "decision"}
+{"question": "What's our rollout strategy for releases?", "gold_note_ids": ["f-20260721-0009"], "kind": "decision", "decoy_note_ids": ["f-20260615-0024", "f-20260724-0059", "f-20260912-0036"]}
+{"question": "Where do application logs go?", "gold_note_ids": ["f-20260722-000a"], "kind": "decision", "decoy_note_ids": ["f-20260916-003a", "f-20260624-0039"]}
+{"question": "How are feature toggles handled?", "gold_note_ids": ["f-20260728-000b"], "kind": "decision"}
+{"question": "How long do we hold on to raw carrier callbacks?", "gold_note_ids": ["f-20260803-000c"], "kind": "decision", "decoy_note_ids": ["f-20260827-006c", "f-20260916-003a"]}
+{"question": "How do we email customers?", "gold_note_ids": ["f-20260804-000d"], "kind": "decision", "decoy_note_ids": ["f-20260708-0004"]}
+{"question": "How did we stop clients from creating the same shipment twice on retry?", "gold_note_ids": ["f-20260805-000e"], "kind": "fix", "decoy_note_ids": ["f-20260703-004b", "f-20260812-0011"]}
+{"question": "Why was the late-night summary job so slow, and what fixed it?", "gold_note_ids": ["f-20260806-000f"], "kind": "fix", "decoy_note_ids": ["f-20260704-004c", "f-20260705-004d"]}
+{"question": "What happened to the workers after the Redis failover?", "gold_note_ids": ["f-20260811-0010"], "kind": "fix", "decoy_note_ids": ["f-20260707-004e", "f-20260718-0055"]}
+{"question": "How do we avoid handling a carrier's repeated webhook twice?", "gold_note_ids": ["f-20260812-0011"], "kind": "fix", "decoy_note_ids": ["f-20260710-004f", "f-20260803-000c"]}
+{"question": "Why were delivery dates a day out for customers in Asia, and what was the fix?", "gold_note_ids": ["f-20260813-0012"], "kind": "fix", "decoy_note_ids": ["f-20260711-0050", "f-20260714-0007"]}
+{"question": "What caused the API pods to run out of memory?", "gold_note_ids": ["f-20260818-0013"], "kind": "fix", "decoy_note_ids": ["f-20260712-0051"]}
+{"question": "How did we add the carrier column without locking the table?", "gold_note_ids": ["f-20260819-0014"], "kind": "fix", "decoy_note_ids": ["f-20260713-0052", "f-20260612-001f"]}
+{"question": "Why did the label rendering test fail only in CI?", "gold_note_ids": ["f-20260820-0015"], "kind": "fix", "decoy_note_ids": ["f-20260716-0053", "f-20260712-0051"]}
+{"question": "What was behind the 500s for some postal codes?", "gold_note_ids": ["f-20260825-0016"], "kind": "fix", "decoy_note_ids": ["f-20260717-0054", "f-20260815-0068"]}
+{"question": "Why did jobs vanish when a worker restarted?", "gold_note_ids": ["f-20260826-0017"], "kind": "fix", "decoy_note_ids": ["f-20260718-0055", "f-20260719-0056"]}
+{"question": "Why did one server keep rejecting valid logins?", "gold_note_ids": ["f-20260901-0018"], "kind": "fix", "decoy_note_ids": ["f-20260915-0038", "f-20260708-0004"]}
+{"question": "How did we make spreadsheets show customer names with accents properly?", "gold_note_ids": ["f-20260902-0019"], "kind": "fix", "decoy_note_ids": ["f-20260723-0058"]}
+{"question": "How do we merge PRs?", "gold_note_ids": ["f-20260610-001b"], "kind": "convention", "decoy_note_ids": ["f-20260725-005a", "f-20260829-0040", "f-20260611-001e"]}
+{"question": "What should I call a new branch?", "gold_note_ids": ["f-20260610-001c"], "kind": "convention", "decoy_note_ids": ["f-20260725-005a"]}
+{"question": "What style do commit messages follow?", "gold_note_ids": ["f-20260611-001d"], "kind": "convention", "decoy_note_ids": ["f-20260611-001e"]}
+{"question": "Can I change an old migration file?", "gold_note_ids": ["f-20260612-001f"], "kind": "convention", "decoy_note_ids": ["f-20260819-0014", "f-20260713-0052"]}
+{"question": "Which formatter does the repo use, and what happens if it isn't run?", "gold_note_ids": ["f-20260612-0020"], "kind": "convention", "decoy_note_ids": ["f-20260618-002a"]}
+{"question": "Where do I put a new test file?", "gold_note_ids": ["f-20260613-0021"], "kind": "convention", "decoy_note_ids": ["f-20260619-002b", "f-20260828-0032"]}
+{"question": "What does an error response look like?", "gold_note_ids": ["f-20260613-0022"], "kind": "convention", "decoy_note_ids": ["f-20260825-0016"]}
+{"question": "How do I add a new setting for the service?", "gold_note_ids": ["f-20260614-0023"], "kind": "convention", "decoy_note_ids": ["f-20260728-000b"]}
+{"question": "How do we cut a release?", "gold_note_ids": ["f-20260615-0024"], "kind": "convention", "decoy_note_ids": ["f-20260724-0059", "f-20260721-0009", "f-20260912-0036"]}
+{"question": "Is it okay to put an API key in the repo?", "gold_note_ids": ["f-20260615-0025"], "kind": "convention", "decoy_note_ids": ["f-20260720-0057", "f-20260729-005c"]}
+{"question": "How big should a pull request be?", "gold_note_ids": ["f-20260617-0027"], "kind": "preference", "decoy_note_ids": ["f-20260621-0030", "f-20260611-001e", "f-20260829-0040"]}
+{"question": "Do we use an ORM for reports?", "gold_note_ids": ["f-20260617-0028"], "kind": "preference", "decoy_note_ids": ["f-20260704-004c"]}
+{"question": "How should I pass structured data between modules?", "gold_note_ids": ["f-20260618-0029"], "kind": "preference"}
+{"question": "Is it fine to abbreviate variable names?", "gold_note_ids": ["f-20260618-002a"], "kind": "preference"}
+{"question": "How do I run tests while I'm iterating?", "gold_note_ids": ["f-20260619-002b"], "kind": "preference", "decoy_note_ids": ["f-20260613-0021", "f-20260828-0032"]}
+{"question": "Can I add a new package for a tiny helper?", "gold_note_ids": ["f-20260619-002c"], "kind": "preference"}
+{"question": "What's the writing style for docs?", "gold_note_ids": ["f-20260620-002d"], "kind": "preference"}
+{"question": "Should I just wrap the flaky call in a retry?", "gold_note_ids": ["f-20260620-002e"], "kind": "preference", "decoy_note_ids": ["f-20260812-0011", "f-20260805-000e", "f-20260811-0010"]}
+{"question": "When should alerts wake someone up at night?", "gold_note_ids": ["f-20260621-002f"], "kind": "preference", "decoy_note_ids": ["f-20260929-0046", "f-20260906-005f"]}
+{"question": "What does the reviewer want at the top of a PR description?", "gold_note_ids": ["f-20260621-0030"], "kind": "preference", "decoy_note_ids": ["f-20260611-001e"]}
+{"question": "What do we use to run the tests?", "gold_note_ids": ["f-20260828-0032"], "kind": "stale", "stale_note_ids": ["f-20260622-0031"], "decoy_note_ids": ["f-20260619-002b", "f-20260613-0021"]}
+{"question": "Which Python version are we on?", "gold_note_ids": ["f-20260910-0034"], "kind": "stale", "stale_note_ids": ["f-20260622-0033"]}
+{"question": "When can I ship to production?", "gold_note_ids": ["f-20260912-0036"], "kind": "stale", "stale_note_ids": ["f-20260623-0035"], "decoy_note_ids": ["f-20260615-0024", "f-20260721-0009"]}
+{"question": "How long does an access token last?", "gold_note_ids": ["f-20260915-0038"], "kind": "stale", "stale_note_ids": ["f-20260624-0037"], "decoy_note_ids": ["f-20260708-0004", "f-20260901-0018"]}
+{"question": "How long do we keep logs?", "gold_note_ids": ["f-20260916-003a"], "kind": "stale", "stale_note_ids": ["f-20260624-0039"], "decoy_note_ids": ["f-20260722-000a", "f-20260803-000c"]}
+{"question": "Where is the service hosted?", "gold_note_ids": ["f-20260922-003c"], "kind": "stale", "stale_note_ids": ["f-20260625-003b"]}
+{"question": "How do we talk to Alpha to print labels?", "gold_note_ids": ["f-20260924-003e"], "kind": "stale", "stale_note_ids": ["f-20260625-003d"], "decoy_note_ids": ["f-20260810-0066"]}
+{"question": "How many approvals does a PR need?", "gold_note_ids": ["f-20260829-0040"], "kind": "stale", "stale_note_ids": ["f-20260626-003f"], "decoy_note_ids": ["f-20260611-001e", "f-20260610-001b"]}
+{"question": "How long are carrier rates cached?", "gold_note_ids": ["f-20260925-0042"], "kind": "stale", "stale_note_ids": ["f-20260626-0041"], "decoy_note_ids": ["f-20260712-0051"]}
+{"question": "How many results does a list call return by default?", "gold_note_ids": ["f-20260926-0044"], "kind": "stale", "stale_note_ids": ["f-20260627-0043"], "decoy_note_ids": ["f-20260714-0006"]}
+{"question": "How does on-call get paged?", "gold_note_ids": ["f-20260929-0046"], "kind": "stale", "stale_note_ids": ["f-20260627-0045"], "decoy_note_ids": ["f-20260621-002f"]}
+{"question": "Does staging contain production data?", "gold_note_ids": ["f-20261001-0048"], "kind": "stale", "stale_note_ids": ["f-20260628-0047"], "decoy_note_ids": ["f-20260726-005b"]}
+{"question": "How often is the database backed up?", "gold_note_ids": ["f-20261002-004a"], "kind": "stale", "stale_note_ids": ["f-20260628-0049"], "decoy_note_ids": ["f-20260905-005e"]}
