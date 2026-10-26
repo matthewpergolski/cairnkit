@@ -300,3 +300,59 @@ def test_a_symlink_loop_is_an_error_and_nothing_is_written(repo, capsys, mode, n
     assert "error:" in out and name in out and "loop" in out
     assert "Traceback" not in out
     assert sorted(p.name for p in repo.iterdir()) == before
+
+
+@pytest.mark.parametrize(
+    ("link", "target"), [("CLAUDE.md", "AGENTS.md"), ("AGENTS.md", "CLAUDE.md")]
+)
+def test_a_dangling_link_between_the_two_files_ends_with_one_block(repo, capsys, link, target):
+    (repo / link).symlink_to(target)
+    for _ in range(2):
+        code, out = run(["init", "--write-instructions=shared"], capsys)
+        assert code == 0
+        assert "Traceback" not in out
+        assert (repo / link).is_symlink()
+        assert (repo / target).is_file()
+        assert (repo / "CLAUDE.md").read_text() == (repo / "AGENTS.md").read_text()
+        assert (repo / "CLAUDE.md").read_text().count(START) == 1
+
+
+def outside(tmp_path, text=HAND):
+    far = tmp_path / "elsewhere"
+    far.mkdir()
+    (far / "rules.md").write_text(text)
+    return far / "rules.md"
+
+
+@pytest.mark.parametrize("name", ["CLAUDE.md", "AGENTS.md"])
+def test_shared_mode_refuses_a_link_that_leaves_the_repo(repo, tmp_path, capsys, name):
+    far = outside(tmp_path)
+    (repo / name).symlink_to(far)
+    code, out = run(["init", "--write-instructions=shared"], capsys)
+    assert code == 1
+    assert "error:" in out and name in out and "outside the repo" in out
+    assert far.read_text() == HAND
+    assert (repo / name).is_symlink()
+
+
+def test_shared_mode_refuses_a_dangling_link_that_leaves_the_repo(repo, tmp_path, capsys):
+    far = tmp_path / "elsewhere" / "missing.md"
+    (repo / "CLAUDE.md").symlink_to(far)
+    code, out = run(["init", "--write-instructions=shared"], capsys)
+    assert code == 1 and "outside the repo" in out
+    assert not far.exists()
+
+
+def test_shared_mode_refuses_an_instructions_file_outside_the_repo(repo, tmp_path, capsys):
+    code, out = run(
+        ["init", "--write-instructions=shared", "--instructions-file", "../far.md"], capsys
+    )
+    assert code == 1 and "outside the repo" in out
+    assert not (tmp_path / "far.md").exists()
+
+
+def test_local_mode_may_use_a_link_that_leaves_the_repo(repo, tmp_path):
+    far = outside(tmp_path, "# Mine\n")
+    (repo / "CLAUDE.local.md").symlink_to(far)
+    assert main(["init", "--write-instructions"]) == 0
+    assert START in far.read_text()
