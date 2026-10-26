@@ -40,6 +40,7 @@ def test_every_system_reports_the_three_numbers():
         "strict",
         "keyword-count",
         "random",
+        "random-mean",
         "oracle",
         "inverted",
         "mismatched-query",
@@ -53,8 +54,9 @@ def test_every_system_reports_the_three_numbers():
             "stale@5",
             "decoy@1",
             "empty",
+            "n-stale",
         }
-        rates = [v for k, v in numbers.items() if k != "empty" and v is not None]
+        rates = [v for k, v in numbers.items() if k not in ("empty", "n-stale") and v is not None]
         assert all(0.0 <= v <= 1.0 for v in rates)
 
 
@@ -252,7 +254,8 @@ def test_load_mode_does_not_load_superseded_facts_and_counts_unlinked_stale_ones
     assert row["stale-leak"] == 1.0 and row["stale-loaded"] == 1.0
     small_memory(mem)
     p2 = probe("q", ["f-20261001-0003"], stale=["f-20261001-0004"])
-    assert load_rows(mem, [p2], budget=0)["cairnkit"]["stale-leak"] == 0.0
+    row2 = load_rows(mem, [p2], budget=0)["cairnkit"]
+    assert row2["stale-leak"] is None and row2["n-stale"] == 0  # it cannot leak: not active
 
 
 def test_load_mode_does_not_depend_on_the_clock_or_the_writer(mem, monkeypatch):
