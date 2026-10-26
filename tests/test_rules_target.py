@@ -116,12 +116,17 @@ def test_local_and_shared_blocks_stay_in_separate_files_and_do_not_grow(repo, se
     for name, text in SETUPS[setup].items():
         (repo / name).write_text(text)
     assert main(["init"]) == 0
-    for _ in range(2):
-        assert main(["init", "--write-instructions"]) == 0
-        assert main(["init", "--write-instructions=shared"]) == 0
+    assert main(["init", "--write-instructions"]) == 0
+    assert main(["init", "--write-instructions=shared"]) == 0
+    first = {n: (repo / n).read_text() for n in FILES if (repo / n).exists()}
     count = blocks(repo)
     assert count["CLAUDE.local.md"] == 1
     assert sum(v for k, v in count.items() if k != "CLAUDE.local.md") == 1
+    for _ in range(2):
+        assert main(["init", "--write-instructions"]) == 0
+        assert main(["init", "--write-instructions=shared"]) == 0
+        assert main(["init", "--refresh"]) == 0
+    assert {n: (repo / n).read_text() for n in FILES if (repo / n).exists()} == first
 
 
 def test_dry_run_says_what_it_found_and_would_do_and_writes_nothing(repo, capsys):
@@ -456,17 +461,3 @@ def test_the_both_files_hint_tells_how_to_load_the_agents_md_instructions(repo, 
     assert "@AGENTS.md" in hint and "top of CLAUDE.md" in hint
     assert "only read AGENTS.md" in hint
     assert (repo / "CLAUDE.md").read_text().startswith(HAND)
-
-
-def test_local_blocks_do_not_grow_in_any_file_across_repeated_writes(repo):
-    (repo / "AGENTS.md").write_text(HAND)
-    assert main(["init"]) == 0
-    assert main(["init", "--write-instructions"]) == 0
-    assert main(["init", "--write-instructions=shared"]) == 0
-    names = ("CLAUDE.md", "AGENTS.md", "CLAUDE.local.md")
-    first = {n: (repo / n).read_text() for n in names if (repo / n).exists()}
-    for _ in range(2):
-        assert main(["init", "--write-instructions"]) == 0
-        assert main(["init", "--write-instructions=shared"]) == 0
-        assert main(["init", "--refresh"]) == 0
-    assert {n: (repo / n).read_text() for n in names if (repo / n).exists()} == first
