@@ -136,7 +136,10 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     if looped:
         return 1
     here = rules_target.present(root)
-    print("found: " + (", ".join(here) if here else "none of " + ", ".join(rules_target.LOOKED_AT)))
+    found = ", ".join(here) if here else "none of " + ", ".join(rules_target.LOOKED_AT)
+    if rules_target.same_file(root):
+        found += " (CLAUDE.md and AGENTS.md are the same file)"
+    print("found: " + found)
     choice = None
     if file:
         rel, why = file, f"--instructions-file: the block goes to {file}."
@@ -172,6 +175,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
         print(markers.broken_message(target, "memory instructions --write-instructions"))
         return 1
     print(f"{said}{result} the rules block in {target}")
+    if rules_target.needs_import(root, rel):
+        if not dry_run:
+            rules_target.add_import(target)
+        print(
+            f"{said}add {rules_target.IMPORT} at the top of {rel}. Claude Code skips AGENTS.md "
+            f"when {rel} exists, so the import makes it load both."
+        )
     if not dry_run:
         from cairnkit.refresh import record
 
