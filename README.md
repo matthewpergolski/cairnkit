@@ -389,7 +389,10 @@ of the normal setup:
   the tracked `CLAUDE.md`, or into `AGENTS.md` if that is the only one the repo
   has, between marker lines. Text outside the markers never changes. In a repo
   with neither file it creates `CLAUDE.md` and a short `AGENTS.md` that only
-  points to it. It never edits an `AGENTS.md` that a person wrote.
+  points to it. It edits an existing `AGENTS.md` only when that is the repo's
+  only rules file (it appends the block) or already holds a block (it
+  refreshes it). With both files, `AGENTS.md` is not touched. It never writes
+  through a link that leaves the repo.
 - `memory hooks install --commit-msg-guard=shared` writes tracked hooks in
   `.githooks/`. The commit-msg hook refuses AI attribution lines. It needs
   only `sh` and `grep`. Each clone runs `git config core.hooksPath .githooks`
@@ -413,6 +416,13 @@ does not change them unless a person runs
 `memory instructions --write-instructions local|shared` (or one of the few
 commands listed on the page below). The rules about memory itself ship inside
 the tool.
+
+Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`,
+`.claude/CLAUDE.md` or `CLAUDE.local.md`. So when a repo has an `AGENTS.md` and
+no `CLAUDE.md`, the local write puts `@AGENTS.md` at the top of
+`CLAUDE.local.md`, outside the markers, and prints a note. If you keep both
+`CLAUDE.md` and `AGENTS.md`, put `@AGENTS.md` at the top of `CLAUDE.md` yourself
+to load both.
 
 What memory adds to a project, what each agent tool reads, three examples,
 and what is planned: [docs/layering.md](docs/layering.md).

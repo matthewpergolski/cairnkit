@@ -2,8 +2,16 @@
 
 Local mode writes `CLAUDE.local.md`. Shared mode follows the files the repo
 already has: `CLAUDE.md` first, then `AGENTS.md`. A repo with neither gets
-`CLAUDE.md`, and an `AGENTS.md` that only points to it. The tool never edits
-an `AGENTS.md` that a person wrote.
+`CLAUDE.md`, and an `AGENTS.md` that only points to it.
+
+Shared mode edits an existing `AGENTS.md` in two cases only: it is the repo's
+only rules file (the block is appended), or it already holds a block (the block
+is refreshed). When `CLAUDE.md` exists and `AGENTS.md` holds no block,
+`AGENTS.md` is not touched. Text outside the markers never changes.
+
+Claude Code reads `AGENTS.md` only when it finds no `CLAUDE.md`,
+`.claude/CLAUDE.md` or `CLAUDE.local.md`. So when only `AGENTS.md` is shared,
+local mode starts `CLAUDE.local.md` with `@AGENTS.md`, outside the markers.
 """
 
 from __future__ import annotations
