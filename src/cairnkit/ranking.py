@@ -14,6 +14,7 @@ from collections import Counter
 
 K1 = 1.2  # how fast a repeated word stops adding score
 B = 0.75  # how much a long text is held back
+PART_MIN = 4  # a query word needs this many letters to match inside a longer word
 
 WORD = re.compile(r"[^\W_]+")
 FILLER = (
@@ -66,8 +67,16 @@ def fact_text(state: dict) -> str:
     )
 
 
-def bm25(texts: list[str], terms: list[str]) -> list[float]:
-    """The BM25 score of each text for the terms. A text with none of them scores 0."""
+def part_terms(terms: list[str]) -> list[str]:
+    """The query words long enough to be searched as parts of longer words."""
+    return [t for t in terms if len(t) >= PART_MIN]
+
+
+def bm25(texts: list[str], terms: list[str], parts: bool = False) -> list[float]:
+    """The BM25 score of each text for the terms. A text with none of them scores 0.
+
+    With `parts`, a term also counts inside a longer word: `deploy` in `deployment`.
+    """
     counts = [Counter(words(t)) for t in texts]
     size = len(counts)
     if not size or not terms:
@@ -76,26 +85,35 @@ def bm25(texts: list[str], terms: list[str]) -> list[float]:
     average = (sum(lengths) / size) or 1.0
     idf = {}
     for term in terms:
-        holders = sum(1 for c in counts if term in c)
+        holders = sum(1 for c in counts if _tf(c, term, parts))
         idf[term] = math.log(1 + (size - holders + 0.5) / (holders + 0.5))
     scores = []
     for count, length in zip(counts, lengths, strict=True):
         score = 0.0
         for term in terms:
-            tf = count.get(term, 0)
+            tf = _tf(count, term, parts)
             if tf:
                 score += idf[term] * tf * (K1 + 1) / (tf + K1 * (1 - B + B * length / average))
         scores.append(score)
     return scores
 
 
-def rank_facts(states: list[dict], terms: list[str]) -> list[tuple[dict, float]]:
-    """The facts that hold any term, best first.
+def _tf(count: Counter, term: str, parts: bool) -> int:
+    """How often a term is in a text: as a whole word, or with `parts` inside longer words."""
+    if not parts:
+        return count.get(term, 0)
+    return sum(n for word, n in count.items() if term in word)
+
+
+def rank_facts(
+    states: list[dict], terms: list[str], parts: bool = False
+) -> list[tuple[dict, float]]:
+    """The facts that hold any term, best first. With `parts`, a term may sit inside a word.
 
     An equal score goes to the newer fact, then to the lower id, so the order never changes
     between runs.
     """
-    scores = bm25([fact_text(s) for s in states], terms)
+    scores = bm25([fact_text(s) for s in states], terms, parts)
     found = [(s, round(score, 9)) for s, score in zip(states, scores, strict=True) if score > 0]
     found.sort(key=lambda pair: pair[0].get("id", ""))
     found.sort(key=lambda pair: pair[0].get("learned_at", ""), reverse=True)
