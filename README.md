@@ -99,9 +99,12 @@ It is not:
 For an agent with no hook, such as OpenCode or Pi:
 
 1. Run `memory instructions --write-instructions=shared`. It writes the rules
-   block into the tracked `AGENTS.md`. (Plain `--write-instructions` writes
-   `AGENTS.local.md`, which these tools may not read.)
-2. Add this line to `AGENTS.md` by hand, outside the markers:
+   block into the tracked file your repo has: `CLAUDE.md`, or `AGENTS.md` if
+   that is the only one. In a repo with neither, it creates `CLAUDE.md` and a
+   short `AGENTS.md` that points to it. (Plain `--write-instructions` writes
+   `CLAUDE.local.md`, which these tools may not read.)
+2. Make sure `AGENTS.md` exists and points to the file that holds the block.
+   Then add this line to that file by hand, outside the markers:
    "Run `memory load` at session start." The block itself says that a hook
    runs `memory load`, and these tools have no hook.
 
@@ -159,8 +162,10 @@ These stay, and you can remove them by hand:
 - empty `.claude/`, `.codex/` or `.cursor/` folders that held only those hook
   files;
 - the rules block, if you wrote one, between the `<!-- cairnkit:start -->`
-  and `<!-- cairnkit:end -->` lines, and the file `AGENTS.local.md` if
-  `--write-instructions` made it;
+  and `<!-- cairnkit:end -->` lines, the file `CLAUDE.local.md` if
+  `--write-instructions` made it (or `AGENTS.local.md`, which older versions
+  wrote), and the `AGENTS.md` that only points to `CLAUDE.md`, if it made
+  that;
 - the tracked hooks in `.githooks/` from `--commit-msg-guard=shared`.
   `memory hooks uninstall` looks only in the hooks folder that git uses, and
   it never changes tracked hooks;
@@ -359,7 +364,7 @@ it does not apply.
 - `dev` (16 or 17 rules): for a codebase. It holds `commits`, most `basic`
   rules, and rules for checks, tests, small diffs, git and lock files. It has
   no rule for one tool (uv, ruff, Bun, Biome, version pins). Such rules
-  belong in the project's or template's `AGENTS.md`, or in a preset file
+  belong in the project's or template's `CLAUDE.md` or `AGENTS.md`, or in a preset file
   that the project owns.
 
 Use `memory init --preset dev`, or `memory preset add dev` for a memory that
@@ -374,15 +379,17 @@ no check fails when one is broken. `memory load` shows the two groups apart.
 
 Once you add a preset, its rules live in memory. Every session loads them
 first. Nothing is written to a tracked file. An instruction for every
-contributor still belongs in `AGENTS.md` (see the next section).
+contributor still belongs in `CLAUDE.md` or `AGENTS.md` (see the next section).
 
 The memory is private, so people who clone the project do not see these
 facts. A team that wants to share the rules can opt in. Neither step is part
 of the normal setup:
 
 - `memory instructions --write-instructions=shared` writes the rules block into
-  the tracked `AGENTS.md`, between marker lines. Text outside the markers never
-  changes.
+  the tracked `CLAUDE.md`, or into `AGENTS.md` if that is the only one the repo
+  has, between marker lines. Text outside the markers never changes. In a repo
+  with neither file it creates `CLAUDE.md` and a short `AGENTS.md` that only
+  points to it. It never edits an `AGENTS.md` that a person wrote.
 - `memory hooks install --commit-msg-guard=shared` writes tracked hooks in
   `.githooks/`. The commit-msg hook refuses AI attribution lines. It needs
   only `sh` and `grep`. Each clone runs `git config core.hooksPath .githooks`
@@ -397,7 +404,7 @@ Ask one question about each line: is it an **instruction** or a **fact**?
 
 | Line | Example | Where it goes |
 |---|---|---|
-| Instruction: how to work, always true | "Write a failing test first." "Use uv." | `AGENTS.md`, tracked. `CLAUDE.md` points at it. |
+| Instruction: how to work, always true | "Write a failing test first." "Use uv." | `CLAUDE.md`, tracked. `AGENTS.md` points at it. |
 | Private instruction for this checkout | "The dev server runs on port 5174 here." | `CLAUDE.local.md`, ignored by git. |
 | Fact: true now, with a date and a reason | A decision, a trap, a result, a status. | Memory (`memory add`). Never committed. |
 
@@ -470,7 +477,7 @@ level only. It writes nothing into a repo.
 
 | Command | Who | What it does |
 |---|---|---|
-| `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local\|shared]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. |
+| `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local\|shared]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. With `--write-instructions`, also writes the rules block: local to `CLAUDE.local.md`, shared to the `CLAUDE.md` or `AGENTS.md` the repo has. |
 | `memory migrate [--yes] [--fix-references] [--from DIR] [--path DIR] [--preset NAME ...] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`. `--untrack` stages the removal of a tracked old folder; nothing is committed. `--fix-references` rewrites exact old paths (`memory-bank/X` to `memory-bank/notes/X`) in top-level and `docs/` `*.md` files and adds the memory hooks where a hook runs the old checker (working tree only, never committed). What is left goes to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds you until it is done. |
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Plan by default; `--yes` acts. |
@@ -482,7 +489,7 @@ level only. It writes nothing into a repo.
 | `memory add [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` never refuses. It supersedes an exact repeat and links a near repeat with `similar_to`. `search` ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. When no whole word matches anywhere, it tries the words (4 letters or more) as the start of a longer word, so `deploy` finds "deployment" and `pass` finds "passed", and it says so on the first line. A short start must be a whole word with an ending: `retr` does not find "retries". A fact id is one word, so `memory search f-20261026-a053` finds that fact only. `--strict` brings back the old match, where every word must appear as a substring (also for an empty query, which is an error without it). `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
 | `memory load [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
-| `memory instructions` | anyone | Prints the rules block for agents. |
+| `memory instructions [--write-instructions[=local\|shared]]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. |
 | `memory purge ID --reason secret --yes` | you, rarely | Removes a secret for good. |
 
 ### Where the memory lives

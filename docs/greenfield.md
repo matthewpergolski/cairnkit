@@ -40,7 +40,7 @@ Use this only when the team agrees to it. The memory stays the main place for
 the rules.
 
 - `memory instructions --write-instructions=shared` writes the rules block
-  into the tracked `AGENTS.md`, between marker lines.
+  into the tracked `CLAUDE.md` (or the repo's `AGENTS.md`), between marker lines.
 - `memory hooks install --commit-msg-guard=shared` writes tracked hooks in
   `.githooks/`. Commit them, and tell each clone to run
   `git config core.hooksPath .githooks` once. With that setting, git runs
@@ -53,8 +53,8 @@ the rules.
 | What | Where | Who sees it |
 |---|---|---|
 | 1. **Personal rules for every project you work on.** Example: never add model self-attribution or AI co-author trailers to commits. | The agent tool's user-level rules file, in your home folder, outside any repo. | You, in all projects. |
-| 2. **Team or project rules.** | The tracked `AGENTS.md`, or the tool's tracked project rules file. The rules block goes here only when the team opts in. | Everyone who clones the project. |
-| 3. **Personal details for this computer or this checkout.** Example: a local port, a path. | A local rules file that git ignores, for example `AGENTS.local.md` (`memory init --write-instructions`). | You, in this project. |
+| 2. **Team or project rules.** | The tracked `CLAUDE.md` (or `AGENTS.md`, if that is what the repo has), or the tool's tracked project rules file. The rules block goes here only when the team opts in. | Everyone who clones the project. |
+| 3. **Personal details for this computer or this checkout.** Example: a local port, a path. | A local rules file that git ignores, for example `CLAUDE.local.md` (`memory init --write-instructions`). | You, in this project. |
 | 4. **Things learned while working.** | Memory facts (`memory add`). | You and your agents, in this project. |
 
 Durable facts from row 4 move to row 2, or into a test or a hook. They move

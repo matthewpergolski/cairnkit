@@ -34,8 +34,8 @@ that every contributor needs can move into an instruction file later, through
 
 | Place | What it holds | Tracked | Who reads it |
 |---|---|---|---|
-| `AGENTS.md` | The project's instructions. Write them once, here. | Yes | Every agent tool that reads `AGENTS.md`. |
-| `CLAUDE.md` | One line that points at `AGENTS.md` (`@AGENTS.md`), and only what is special to Claude Code. | Yes | Claude Code. |
+| `CLAUDE.md` | The project's instructions. Write them once, here. This is the default home of the rules block. | Yes | Claude Code. |
+| `AGENTS.md` | A short file that points at `CLAUDE.md`, for the agent tools that read `AGENTS.md`. A project that already keeps its instructions here can keep them here. | Yes | Every agent tool that reads `AGENTS.md`. |
 | `CLAUDE.local.md` | Private instructions for this checkout: a local port, a local path, a test device. | No. Keep it out of git, for example in `.git/info/exclude`. | Claude Code, in this checkout. |
 | The agent tool's user-level rules file | Your personal instructions for every project. | Outside any repo | You, in all projects. |
 | Memory (`memory-bank`, a link to `../<project>.memory/`) | Facts: dated, replaceable, searchable, private. | Never | You and your agents, in this project. |
@@ -51,7 +51,7 @@ This repo does not test it.
 This page uses the same places as the table in
 [Where does each rule go](greenfield.md#where-does-each-rule-go). It adds the
 instruction-or-fact test. The commit rules (no AI attribution) are
-instructions. So they belong in `AGENTS.md` or in your user-level rules file.
+instructions. So they belong in `CLAUDE.md` or in your user-level rules file.
 `memory init` does not add them to memory. `memory preset add commits` adds
 them when you want them there.
 
@@ -59,14 +59,14 @@ them when you want them there.
 
 Three small projects. Each cell shows lines that end up in that place.
 
-| Project | `AGENTS.md` (tracked) | `CLAUDE.local.md` (private) | Memory (private, dated) |
+| Project | `CLAUDE.md` (tracked) | `CLAUDE.local.md` (private) | Memory (private, dated) |
 |---|---|---|---|
 | **A web app** (a team; backend and frontend) | Write a failing test first. One pull request per feature. Run `bun run check` before you push. No AI attribution in commits or pull requests. | The dev server runs on port 5174 on this computer. | Decision: sessions use tokens, not cookies, because the mobile client needs them. Trap: the upload test fails near midnight UTC. Status: the login form is done; the error states are open. |
 | **A data pipeline** (one person) | Use uv for Python. Each job must be safe to run twice. Never commit sample data. | Read raw files from `~/data/raw` on this computer. | Fact: the vendor feed sends dates as day/month since September. Result: the full backfill took 3 hours 10 minutes. Preference: the owner wants one log line per job, not a progress bar. |
 | **A hobby audio tool** (one person) | Keep the audio thread free of allocations. Add a test for each new effect. | The test audio interface on this computer is device 2. | Trap: the reverb clips above 0.9 gain. Event: a soft limiter fixed the clipping but added 12 ms of latency, so it was removed. Status: delay is done; chorus is next. |
 
 Look at each memory cell. Every line can stop being true. Every line has a
-date and a reason. Look at each `AGENTS.md` cell. Every line is true on every
+date and a reason. Look at each `CLAUDE.md` cell. Every line is true on every
 day of the project.
 
 ## What memory adds to a project
@@ -96,23 +96,35 @@ not change it. It prints the lines to add by hand.
 default. These commands write an instruction file. A person runs each one:
 
 - `memory instructions --write-instructions local` writes the rules block to
-  `AGENTS.local.md`. The tool adds that file to `.git/info/exclude`. It
-  refuses a file that git tracks.
+  `CLAUDE.local.md`, which Claude Code reads. The tool adds that file to
+  `.git/info/exclude`. It refuses a file that git tracks. Older versions
+  wrote `AGENTS.local.md`. The tool does not move or delete that file. It
+  prints a note, and `memory init --refresh` keeps updating the block in it.
 - `memory instructions --write-instructions shared` writes the rules block to
-  the tracked `AGENTS.md`, between the marker lines
-  `<!-- cairnkit:start -->` and `<!-- cairnkit:end -->`. The first
-  run adds the block at the end of the file. Each later run replaces the block
-  in place. It never adds a second block. Text outside the markers does not
-  change.
-- `--instructions-file PATH` picks another file for either mode, for example
-  `--write-instructions local --instructions-file CLAUDE.local.md`.
+  one tracked file, picked by what the repo has:
+  - `CLAUDE.md`, if it exists (also when `AGENTS.md` exists);
+  - else `AGENTS.md`, if it exists;
+  - else it creates `CLAUDE.md`, and a short `AGENTS.md` that only says the
+    project rules live in `CLAUDE.md`.
+
+  A file that already holds a block keeps it: the block is refreshed there.
+  The block sits between the marker lines `<!-- cairnkit:start -->` and
+  `<!-- cairnkit:end -->`. The first run adds the block at the end of the
+  file. Each later run replaces the block in place. It never adds a second
+  block. Text outside the markers does not change. The tool never edits an
+  `AGENTS.md` that exists. When it exists and does not mention `CLAUDE.md`, the
+  tool prints a hint.
+- Both modes print which of `CLAUDE.md`, `AGENTS.md` and `CLAUDE.local.md` they
+  found and where the block goes, also with `--dry-run`.
+- `--instructions-file PATH` picks another file for either mode. It overrides
+  the choice above.
 - `memory init --write-instructions local|shared` does the same at init.
 - `memory init --refresh` replaces the rules block in place in each file that
   already holds it. It never adds a block. See [Updating memory](update.md).
 - `memory tidy --apply ID`, for a rule proposal, adds one line to a second
   marked block (`<!-- cairnkit:rules:start -->`) in the shared rules
-  file. The default rules file is `AGENTS.md` (`rules_file` in
-  `config.toml`).
+  file. Unless `rules_file` in `config.toml` names one, that is `CLAUDE.md`
+  if the repo has it, else `AGENTS.md`, else `CLAUDE.md`.
 - `memory migrate --yes --fix-references` rewrites exact old memory paths in
   the top-level `*.md` files and in `docs/`. These can include `CLAUDE.md` and
   `AGENTS.md`. It changes the working tree only. It never commits.

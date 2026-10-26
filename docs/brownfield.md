@@ -114,11 +114,12 @@ refuses, merges, or adds a marked block.
    - A file that is not valid JSON is refused. Fix it first.
 5. **If you have rules files** (`AGENTS.md` or the tool's rules file), they do
    not change. You can add the rules block:
-   - local only: `memory init --write-instructions` (writes `AGENTS.local.md`,
+   - local only: `memory init --write-instructions` (writes `CLAUDE.local.md`,
      ignored by git);
    - shared, only when the team opts in:
      `memory instructions --write-instructions=shared` (a marked block in
-     `AGENTS.md`; text outside the markers stays as it is).
+     `CLAUDE.md`, or in `AGENTS.md` if that is the only one; text outside the
+     markers stays as it is).
    Preset rules live in memory once you add them (`memory init --preset NAME`).
    You do not need either step for them to load.
    To add a preset to a memory that exists: `memory preset add dev --dry-run`,
