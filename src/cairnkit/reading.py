@@ -212,7 +212,10 @@ def run_search(
     hits = [(state, *by_id[state["id"]]) for state, _ in ranked]
     if not hits and not notes:
         scope = "any fact or note" if include_all else "active facts or notes (try --all)"
-        tried = "" if strict else "; whole words and word starts were tried"
+        tried = ""
+        if not strict:
+            starts = " and word starts" if ranking.prefix_terms(query) else ""
+            tried = f"; whole words{starts} were tried"
         print(f"no match for {query!r} in {scope}{tried}")
         return 0
     if prefix:
