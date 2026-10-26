@@ -23,4 +23,4 @@ are floors. Use `--seed` to change the random order and `--json` for JSON.
 
 The fixture is a made-up project with 13 active facts, one superseded fact
 and 14 probes. The test suite runs it and checks the floors. With only 13
-facts, any@5 is easy for every system. Read any@1 first.
+facts, any@5 is easy for `cairnkit` and `keyword-count`. Read any@1 first.

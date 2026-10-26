@@ -31,6 +31,8 @@ def stem(word: str) -> str:
         return word[:-3] + "y"
     if len(word) > 5 and word.endswith("sses"):
         return word[:-2]
+    if len(word) > 4 and word.endswith("xes"):
+        return word[:-2]
     if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
         return word[:-1]
     return word

@@ -1,9 +1,11 @@
 """Measure how well `memory search` finds the right fact for a question.
 
-    python benchmarks/retrieval_eval.py MEMORY_FOLDER PROBES.jsonl [--seed N] [--json]
+    uv run python benchmarks/retrieval_eval.py MEMORY_FOLDER PROBES.jsonl [--seed N] [--json]
 
 MEMORY_FOLDER holds `facts/*.jsonl`. PROBES.jsonl has one probe per line:
 `{"question": "...", "gold_note_ids": ["f-...", ...]}`. Only active facts are searched.
+The time is the clock's now, and a branch merge is not checked, so short-term facts
+may score differently on another day.
 
 Each system ranks the facts for each question. The report gives, over all probes:
 
