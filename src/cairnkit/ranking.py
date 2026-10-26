@@ -32,6 +32,7 @@ STOPWORDS = frozenset(FILLER.split())
 
 
 ALWAYS_SINGULAR = frozenset({"news", "series", "species"})
+IS_PLURALS = ("yses", "ises", "oses", "eses")  # the plural of a word that ends in -is
 
 
 def stem(word: str) -> str:
@@ -53,8 +54,9 @@ def forms(word: str) -> list[str]:
     """The stem of a word, then the other stems that a plural ending could hide.
 
     `movies` is `movy` by the rule for `-ies`, but its singular is `movie`. `statuses` is
-    `statuse` by the rule for `-s`, but its singular is `status`. Both sides of a match
-    use every form, so a singular finds its plural and a plural its singular.
+    `statuse` by the rule for `-s`, but its singular is `status`. `alias` loses its `s` to
+    the rule for `-s`, so the word itself stays a form: `aliases` also gives `alias`. Both
+    sides of a match use every form, so a singular finds its plural and a plural its singular.
     """
     found = [stem(word)]
     if word in ALWAYS_SINGULAR or word.startswith("f-"):
@@ -67,6 +69,10 @@ def forms(word: str) -> list[str]:
         and not word.endswith("sses")
     ):
         found.append(word[:-2])
+        if word.endswith(IS_PLURALS):
+            found.append(word[:-2] + "is")  # analyses to analysis
+    if word.endswith("s") and not word.endswith("ies") and found[0] != word:
+        found.append(word)
     return found
 
 
