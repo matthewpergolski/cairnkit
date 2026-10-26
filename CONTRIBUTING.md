@@ -72,8 +72,10 @@ src/cairnkit/
   usage.py       when a fact was last looked up; feeds the rank
   load.py        memory load
   reading.py     show, search
+  ranking.py     words, stems and BM25 for search
   skills.py      memory skills: the pstack skills check and install
 tests/           pytest; each test makes a throwaway git repo
+benchmarks/      retrieval eval of search, with a synthetic fixture (see its README)
 scripts/verify.sh   all checks
 scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, presets)
 ```
