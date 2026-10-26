@@ -8,6 +8,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 step() { printf '\n== %s\n' "$*"; }
+fail() { echo "FAIL: $*"; exit 1; }  # a check ends the run: an `a && b` list does not under set -e
 
 cd "$tmp" && mkdir app && cd app
 git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
@@ -132,10 +133,32 @@ git init -q -b main && git config user.name e2e && git config user.email e2e@exa
 memory init --no-default-rules > /dev/null
 memory init --write-instructions --dry-run | grep -E "^(found|would)"
 memory init --write-instructions | grep -E "^(found|created)"
-[ -f CLAUDE.local.md ] && [ ! -e AGENTS.local.md ] && git check-ignore -q CLAUDE.local.md
+[ -f CLAUDE.local.md ] || fail "local mode did not write CLAUDE.local.md"
+[ ! -e AGENTS.local.md ] || fail "local mode wrote AGENTS.local.md"
+git check-ignore -q CLAUDE.local.md || fail "CLAUDE.local.md is not ignored"
 memory instructions --write-instructions=shared | grep -E "^(found|created)"
-grep -q "cairnkit:start" CLAUDE.md && ! grep -q "cairnkit:start" AGENTS.md && grep -q "CLAUDE.md" AGENTS.md
-memory instructions --write-instructions=shared | grep -q "unchanged"
-[ "$(cat CLAUDE.md AGENTS.md CLAUDE.local.md | grep -c 'cairnkit:start')" = 2 ] && echo "one block per file"
+grep -q "cairnkit:start" CLAUDE.md || fail "CLAUDE.md has no block"
+! grep -q "cairnkit:start" AGENTS.md || fail "the pointer AGENTS.md holds a block"
+grep -q "CLAUDE.md" AGENTS.md || fail "AGENTS.md does not point to CLAUDE.md"
+memory instructions --write-instructions=shared | grep -q "unchanged" || fail "a second shared write changed a file"
+[ "$(cat CLAUDE.md AGENTS.md CLAUDE.local.md | grep -c 'cairnkit:start')" = 2 ] \
+  || fail "expected one block in CLAUDE.md and one in CLAUDE.local.md"
+! grep -q "@AGENTS.md" CLAUDE.md AGENTS.md CLAUDE.local.md || fail "an import was written next to a CLAUDE.md"
+echo "one block per file"
+
+step "rules block: only AGENTS.md, so CLAUDE.local.md starts with @AGENTS.md and keeps it"
+mkdir -p "$tmp/agentsonly" && cd "$tmp/agentsonly"
+git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
+printf '# Team rules\n\nUse uv.\n' > AGENTS.md
+memory init --no-default-rules > /dev/null
+memory instructions --write-instructions | grep "@AGENTS.md"
+[ "$(head -n 1 CLAUDE.local.md)" = "@AGENTS.md" ] || fail "CLAUDE.local.md does not start with @AGENTS.md"
+first="$(cat CLAUDE.local.md)"
+memory instructions --write-instructions > /dev/null
+memory init --refresh > /dev/null
+[ "$(cat CLAUDE.local.md)" = "$first" ] || fail "CLAUDE.local.md changed on a second write or refresh"
+[ "$(grep -c 'cairnkit:start' CLAUDE.local.md)" = 1 ] || fail "CLAUDE.local.md holds more than one block"
+[ "$(cat AGENTS.md)" = "$(printf '# Team rules\n\nUse uv.\n')" ] || fail "AGENTS.md was edited by a local write"
+echo "import kept, AGENTS.md untouched"
 
 echo "e2e: ok"
