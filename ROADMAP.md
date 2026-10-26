@@ -99,16 +99,35 @@ lint whose message names the fix, then a test, and docs last.
 
 The measure: for each rule, hits per week fall after its check lands.
 
-## Evaluation (to design)
+## Evaluation
 
-Built: `memory search` ranks by BM25 and takes a question. A small harness,
-`benchmarks/retrieval_eval.py`, scores it on probe questions (any@1, any@5,
-all@5) against the old strict match, a keyword count and a random order. A
-synthetic fixture runs in the test suite. Still to build:
+Built, in [benchmarks/](benchmarks/README.md):
 
-- A larger set of probes written by hand, with decoy and superseded facts, to
-  check what `memory load` puts in the budget and what `memory search` ranks.
-- Probe questions, asked with and without `memory load`. Compare recall.
+- `benchmarks/retrieval_eval.py` scores `memory search` (any@1, any@5, all@5,
+  stale and decoy rates) and `memory load` (is the answer inside the word
+  budget, and do stale facts leak in). It compares against the old strict
+  match, a keyword count, newest-first and random baselines, with control
+  rankers that prove the harness can tell good from bad, splits by probe kind,
+  and a paired bootstrap interval.
+- A made-up coding project with 101 active facts, 58 questions and 10 word
+  fragments, hand-labelled, with stale and decoy facts. It runs in a few
+  seconds, in the test suite.
+
+Not covered:
+
+- End-to-end agent runs, with and without `memory load`. The benchmark never
+  asks a model anything, so it does not show that an agent does better work.
+- A per-prompt recall hook (inject a few notes for each prompt). `memory load`
+  ignores the question, so the load numbers only say whether the standing set
+  already holds the answer.
+- Real project notes. The fixture is synthetic, small and written by one
+  author, and the questions are not held out.
+- Stale facts. A stale fact that nobody superseded ranks above its newer
+  replacement in most cases on the fixture (5 of 6). It needs a design, for
+  example to demote a fact that a newer `similar_to` fact replaces.
+- Word endings such as `-ed` and `-ing` (`retried`, `retry`), and questions
+  that share no word with the answer (`rollout`, `rolling`). Try a change only
+  with questions that were not used to build it.
 - Rule adherence, from git history and hooks.
 - Hygiene: active count, duplicates, stale facts, load size against the
   budget, and the accept rate of tidy proposals.
