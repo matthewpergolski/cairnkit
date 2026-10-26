@@ -455,3 +455,32 @@ def test_a_word_counts_once_toward_the_length_of_a_text():
     # the two forms of "movies" add no length
     plain, plural = ranking.bm25(["alpha movie beta", "alpha movies beta"], ["alpha"])
     assert plain == plural
+
+
+def test_a_singular_that_ends_in_s_meets_its_plural_both_ways(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Each alias maps to one command."),
+            make_fact("f-20261001-0002", "Aliases are stored in the config."),
+            make_fact("f-20261001-0003", "The canvas is redrawn on resize."),
+            make_fact("f-20261001-0004", "Canvases share one texture cache."),
+            make_fact("f-20261001-0005", "One analysis runs per upload."),
+            make_fact("f-20261001-0006", "Analyses are queued at night."),
+        ],
+    )
+    pairs = {"alias": "aliases", "canvas": "canvases", "analysis": "analyses"}
+    for single, plural in pairs.items():
+        for query in (single, plural):
+            _, out = run(capsys, "search", query)
+            assert len(fact_ids(out)) == 2, query
+
+
+def test_forms_keep_the_surface_word_when_stripping_s_changed_it():
+    from cairnkit import ranking
+
+    assert set(ranking.forms("alias")) & set(ranking.forms("aliases"))
+    assert set(ranking.forms("canvas")) & set(ranking.forms("canvases"))
+    assert set(ranking.forms("analysis")) & set(ranking.forms("analyses"))
+    for word in ("news", "series", "species"):
+        assert ranking.forms(word) == [word]
