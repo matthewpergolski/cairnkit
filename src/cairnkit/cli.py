@@ -278,8 +278,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p = sub.add_parser("search", parents=[common], help="find facts, then note lines, by words")
-    p.add_argument("query")
+    p.add_argument("query", help="words or a question; a note that holds any of them is found")
     p.add_argument("--all", action="store_true", help="also non-active facts, with reasons")
+    p.add_argument(
+        "--strict",
+        action="store_true",
+        help="the old match: every word must appear, as a substring, no ranking by rarity",
+    )
     p.add_argument("--limit", type=int, default=20)
     return parser
 
@@ -422,7 +427,7 @@ def run(args) -> int:
                 return run_auto(memory, args.dry_run)
             return run_tidy(memory, args.days, args.apply)
         elif args.command == "search":
-            return run_search(memory, args.query, args.all, args.limit)
+            return run_search(memory, args.query, args.all, args.limit, args.strict)
     except (MemoryMissing, Refused) as exc:
         return fail(str(exc))
     return 0
