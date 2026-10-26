@@ -25,6 +25,7 @@ def test_instructions_cover_the_rules(capsys):
 def test_init_does_not_write_instructions_by_default(repo):
     assert main(["init"]) == 0
     assert not (repo / "AGENTS.md").exists()
+    assert not (repo / "CLAUDE.md").exists()
 
 
 def test_write_instructions_adds_one_marked_block(repo):
@@ -55,6 +56,7 @@ def test_instructions_file_can_be_chosen(repo):
 def test_dry_run_does_not_write_instructions(repo):
     assert main(["init", "--dry-run", "--write-instructions"]) == 0
     assert not (repo / "AGENTS.md").exists()
+    assert not (repo / "CLAUDE.local.md").exists()
 
 
 def test_default_writes_a_local_ignored_file(repo):
@@ -63,17 +65,18 @@ def test_default_writes_a_local_ignored_file(repo):
     git(repo, "commit", "-q", "-m", "rules")
     assert main(["init", "--write-instructions"]) == 0
     assert (repo / "AGENTS.md").read_text() == "# Shared rules\n"
-    local = repo / "AGENTS.local.md"
+    local = repo / "CLAUDE.local.md"
     assert START in local.read_text()
-    assert "AGENTS.local.md" in (repo / ".git" / "info" / "exclude").read_text().splitlines()
-    git(repo, "check-ignore", "-q", "AGENTS.local.md")
+    assert not (repo / "AGENTS.local.md").exists()
+    assert "CLAUDE.local.md" in (repo / ".git" / "info" / "exclude").read_text().splitlines()
+    git(repo, "check-ignore", "-q", "CLAUDE.local.md")
     assert git(repo, "status", "--porcelain") == ""
 
 
 def test_local_file_can_be_chosen(repo):
-    assert main(["init", "--write-instructions", "--instructions-file", "CLAUDE.local.md"]) == 0
-    assert START in (repo / "CLAUDE.local.md").read_text()
-    git(repo, "check-ignore", "-q", "CLAUDE.local.md")
+    assert main(["init", "--write-instructions", "--instructions-file", "AGENTS.local.md"]) == 0
+    assert START in (repo / "AGENTS.local.md").read_text()
+    git(repo, "check-ignore", "-q", "AGENTS.local.md")
 
 
 def test_text_outside_the_block_is_never_changed(repo):
@@ -90,6 +93,14 @@ def test_local_mode_refuses_a_tracked_file(repo):
     git(repo, "commit", "-q", "-m", "rules")
     assert main(["init", "--write-instructions", "--instructions-file", "AGENTS.md"]) == 1
     assert (repo / "AGENTS.md").read_text() == "# Shared rules\n"
+
+
+def test_local_mode_refuses_a_tracked_claude_local_file(repo):
+    (repo / "CLAUDE.local.md").write_text("# Mine\n")
+    git(repo, "add", "CLAUDE.local.md")
+    git(repo, "commit", "-q", "-m", "local")
+    assert main(["init", "--write-instructions"]) == 1
+    assert (repo / "CLAUDE.local.md").read_text() == "# Mine\n"
 
 
 def test_kinds_line_lists_every_kind(capsys):

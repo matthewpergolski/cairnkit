@@ -88,9 +88,9 @@ def test_writing_the_block_or_hooks_records_the_tool_version(repo):
     assert main(["instructions", "--write-instructions", "local"]) == 0
     record = stamp(repo)
     assert record["version"] == __version__
-    assert record["blocks"] == ["AGENTS.local.md"]
+    assert record["blocks"] == ["CLAUDE.local.md"]
     assert main(["hooks", "install", "--agent", "claude"]) == 0
-    assert stamp(repo)["blocks"] == ["AGENTS.local.md"]
+    assert stamp(repo)["blocks"] == ["CLAUDE.local.md"]
 
 
 def test_repo_line_shows_when_the_files_are_older_than_the_tool(repo, monkeypatch):
