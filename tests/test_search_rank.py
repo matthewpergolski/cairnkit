@@ -199,10 +199,82 @@ def test_limit_and_more_line_work_with_ranked_hits(mem, capsys):
     assert "2 more; use --limit" in out
 
 
-def test_no_match_hints_at_strict(mem, capsys):
+def test_no_match_says_that_parts_of_words_were_tried(mem, capsys):
     seed(mem)
     _, out = run(capsys, "search", "kubernetes")
-    assert "no match" in out and "--strict" in out
+    assert "no match" in out and "parts of words were tried" in out
+
+
+def test_a_word_that_is_only_part_of_a_longer_word_still_finds_it(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Production deployment needs a manual approval."),
+            make_fact("f-20261001-0002", "Email retries use a cron job every 15 minutes."),
+        ],
+    )
+    code, out = run(capsys, "search", "deploy")
+    assert code == 0 and fact_ids(out) == ["f-20261001-0001"]
+    assert "no whole-word match" in out and "parts of words" in out
+    _, out = run(capsys, "search", "retr")
+    assert fact_ids(out) == ["f-20261001-0002"]
+
+
+def test_the_part_of_word_note_comes_before_the_stored_notes_frame(mem, capsys):
+    write_facts(mem, [make_fact("f-20261001-0001", "Production deployment needs approval.")])
+    _, out = run(capsys, "search", "deploy")
+    lines = out.splitlines()
+    note = next(i for i, line in enumerate(lines) if "no whole-word match" in line)
+    frame = next(i for i, line in enumerate(lines) if line.startswith("Stored notes"))
+    assert note < frame
+
+
+def test_a_whole_word_match_means_no_part_of_word_search(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Deploys need a manual approval."),
+            make_fact("f-20261001-0002", "Production deployment is on Fridays only."),
+        ],
+    )
+    _, out = run(capsys, "search", "deploys")
+    assert fact_ids(out) == ["f-20261001-0001"]
+    assert "no whole-word match" not in out
+
+
+def test_part_of_word_hits_rank_by_how_many_query_words_they_hold(mem, capsys):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "The deployment pipeline is slow."),
+            make_fact("f-20261001-0002", "The deployment pipeline runs the migrations first."),
+            make_fact("f-20261001-0003", "Lunch is at noon."),
+        ],
+    )
+    _, out = run(capsys, "search", "deploy migrat")
+    assert fact_ids(out) == ["f-20261001-0002", "f-20261001-0001"]
+
+
+def test_a_short_word_never_matches_inside_other_words(mem, capsys):
+    write_facts(mem, [make_fact("f-20261001-0001", "Production deployment needs approval.")])
+    _, out = run(capsys, "search", "ploy")
+    assert fact_ids(out) == ["f-20261001-0001"]
+    _, out = run(capsys, "search", "oyo")
+    assert "no match" in out
+
+
+def test_part_of_word_search_reads_notes_too(mem, capsys):
+    path = mem / "notes" / "ops.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("Rollbacks follow the deployment checklist.\n")
+    _, out = run(capsys, "search", "deploy")
+    assert "ops.md:1:" in out and "no whole-word match" in out
+
+
+def test_strict_never_falls_back(mem, capsys):
+    write_facts(mem, [make_fact("f-20261001-0001", "Production deployment needs approval.")])
+    _, out = run(capsys, "search", "deploy migrat", "--strict")
+    assert "no match" in out and "no whole-word match" not in out
 
 
 def test_strict_with_an_empty_query_still_lists_every_fact(mem, capsys):
