@@ -94,7 +94,7 @@ def test_hook_command_never_fails(repo, mem, capsys, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("cairnkit.hookrun.link_here", boom)
+    monkeypatch.setattr("cairnkit.hookrun.ensure_linked", boom)
     code, _ = run(capsys, "hook", "post-checkout")
     assert code == 0
 
@@ -269,9 +269,7 @@ def test_check_heals_every_unlinked_worktree_not_only_cwd(repo, mem, capsys):
     assert out.count("memory: linked") == 2
 
 
-def test_missing_link_error_names_existing_memory_not_bare_init(
-    repo, mem, capsys, monkeypatch
-):
+def test_missing_link_error_names_existing_memory_not_bare_init(repo, mem, capsys, monkeypatch):
     """When a link cannot be auto-created, name the memory and the repair command."""
 
     def fail(*args, **kwargs):

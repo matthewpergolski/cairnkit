@@ -84,11 +84,12 @@ def test_each_rule_is_reported(mem, capsys, needle):
     assert needle in out
 
 
-def test_missing_link_is_reported(repo, mem, capsys):
+def test_missing_link_is_healed_when_memory_exists(repo, mem, capsys):
     (repo / "memory-bank").unlink()
     code, out = run_check(capsys)
-    assert code == 1
-    assert "memory init" in out
+    assert code == 0, out
+    assert (repo / "memory-bank").resolve() == mem.resolve()
+    assert "linked" in out
 
 
 def test_broken_link_is_reported(repo, mem, capsys, tmp_path):

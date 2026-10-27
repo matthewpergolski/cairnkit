@@ -7,7 +7,7 @@ from collections import Counter
 
 from cairnkit import instruction_files, presets, skills
 from cairnkit.clock import now
-from cairnkit.init import link_here
+from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, Project, merged_checker, resolve_memory_dir
 from cairnkit.schema import validate_record
@@ -16,27 +16,34 @@ from cairnkit.state import effective_status
 from cairnkit.store import fact_files, read_located
 
 
+def _repair_cmd(memdir) -> str:
+    """The command that links a checkout to memdir. Never bare init when memory exists."""
+    if memdir.is_dir():
+        return f"`memory init --path {memdir}`"
+    return "`memory init`"
+
+
 def check_links(project: Project, memdir) -> list[str]:
     errors = []
+    repair = _repair_cmd(memdir)
     for checkout in project.checkouts:
         link = checkout / LINK_NAME
         if link.is_symlink():
             if not link.exists():
-                errors.append(f"{link}: broken link; run `memory init` to relink it")
+                errors.append(f"{link}: broken link; run {repair} to relink it")
             elif link.resolve() != memdir.resolve():
                 errors.append(
-                    f"{link}: points to {link.resolve()}, not {memdir}; "
-                    "run `memory init` to relink it"
+                    f"{link}: points to {link.resolve()}, not {memdir}; run {repair} to relink it"
                 )
         elif link.is_dir():
             errors.append(
                 f"{link}: a real folder, not a link; move its files to {memdir / 'notes'}/, "
-                "remove the folder, then run `memory init`"
+                f"remove the folder, then run {repair}"
             )
         elif link.exists():
-            errors.append(f"{link}: a file, not a link; move it away, then run `memory init`")
+            errors.append(f"{link}: a file, not a link; move it away, then run {repair}")
         else:
-            errors.append(f"{link}: missing; run `memory init`")
+            errors.append(f"{link}: missing; run {repair} from {checkout}")
     return errors
 
 
@@ -165,8 +172,7 @@ def run_check(
     hint: bool = True,
 ) -> int:
     memdir, source = resolve_memory_dir(project, flag)
-    linked = link_here(project, flag)
-    if linked:
+    for linked in ensure_all_linked(project, flag):
         print(linked)
     link_exists = any((c / LINK_NAME).is_symlink() for c in project.checkouts)
     if not memdir.is_dir() and not link_exists:

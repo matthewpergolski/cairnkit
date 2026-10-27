@@ -114,19 +114,30 @@ def _write_skeleton(memdir: Path) -> list[str]:
     return made
 
 
-def link_here(project: Project, flag: str | None = None) -> str | None:
-    """Link a linked worktree that has no memory link yet. Return a line, or None.
+def is_linked(checkout: Path, memdir: Path) -> bool:
+    """True when checkout's memory-bank symlink resolves to memdir."""
+    link = checkout / LINK_NAME
+    return link.is_symlink() and link.exists() and link.resolve() == memdir.resolve()
 
-    It acts only on a plain missing path that git does not track, and only when
-    the memory folder exists. `memory check` reports every other case.
+
+def ensure_linked(
+    project: Project,
+    checkout: Path,
+    flag: str | None = None,
+    memdir: Path | None = None,
+) -> str | None:
+    """Link checkout to the project's memory when the link is plainly missing.
+
+    Memory is resolved from the main checkout, so a worktree needs no
+    .memory-path of its own. Acts only on a missing path that git does not
+    track, and only when the memory folder exists. Returns a notice, or None.
     """
-    if not project.is_git or project.root == project.main_root:
-        return None
-    memdir, _ = resolve_memory_dir(project, flag)
-    link = project.root / LINK_NAME
+    if memdir is None:
+        memdir, _ = resolve_memory_dir(project, flag)
+    link = checkout / LINK_NAME
     if not (memdir / "facts").is_dir() or os.path.lexists(link) or is_tracked(project, LINK_NAME):
         return None
-    target = os.path.relpath(memdir, project.root)
+    target = os.path.relpath(memdir, checkout)
     try:
         exclude(project, IGNORE_LINES)  # first: a link git does not ignore is worse than none
     except OSError:
@@ -136,6 +147,21 @@ def link_here(project: Project, flag: str | None = None) -> str | None:
     except OSError:
         return None
     return f"memory: linked {link} -> {target}"
+
+
+def ensure_all_linked(project: Project, flag: str | None = None) -> list[str]:
+    """Ensure every checkout is linked. Return the notice lines that were printed."""
+    memdir, _ = resolve_memory_dir(project, flag)
+    return [
+        line
+        for checkout in project.checkouts
+        if (line := ensure_linked(project, checkout, flag, memdir))
+    ]
+
+
+def link_here(project: Project, flag: str | None = None) -> str | None:
+    """Link this checkout when its memory link is plainly missing. Return a line, or None."""
+    return ensure_linked(project, project.root, flag)
 
 
 def run_init(

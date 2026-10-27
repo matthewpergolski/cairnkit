@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from cairnkit import adapters, githook, markers, refresh, rules
+from cairnkit.init import ensure_all_linked, is_linked
 from cairnkit.memory import Memory, MemoryMissing
-from cairnkit.paths import Project
+from cairnkit.paths import Project, resolve_memory_dir
 
 
 def guard_patterns(project: Project, flag: str | None) -> list[str]:
@@ -42,10 +43,29 @@ def run_install(
             print(markers.broken_message(path, "memory hooks install"))
         return 1
     steps: list[str] = []
+    # Link every checkout that can be linked before writing agent config into it.
+    if not dry_run:
+        steps += ensure_all_linked(project, flag)
+    memdir, _ = resolve_memory_dir(project, flag)
+    has_memory = (memdir / "facts").is_dir()
+    if has_memory:
+        targets = [c for c in project.checkouts if dry_run or is_linked(c, memdir)]
+        if not dry_run:
+            for checkout in project.checkouts:
+                if checkout not in targets:
+                    steps.append(
+                        f"skip {checkout}: not linked to {memdir}; "
+                        f"run `memory init --path {memdir}` from there first"
+                    )
+    else:
+        # No project memory yet: never put stop-hook config into an unlinked worktree.
+        targets = [project.main_root]
     try:
         for name in names:
             if name != "generic":
-                steps += adapters.apply(project, name, install=True, dry_run=dry_run)
+                steps += adapters.apply(
+                    project, name, install=True, dry_run=dry_run, checkouts=targets
+                )
     except adapters.BadConfig as exc:
         print(f"error: {exc}")
         return 1

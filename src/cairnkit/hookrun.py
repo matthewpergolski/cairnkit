@@ -16,7 +16,7 @@ import sys
 
 from cairnkit import autotidy, followups, skills, usage
 from cairnkit.check import check_links, check_records
-from cairnkit.init import link_here
+from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
@@ -190,6 +190,7 @@ def _strict_problems(project: Project, flag: str | None) -> list[str]:
     memdir, _ = resolve_memory_dir(project, flag)
     if not memdir.is_dir():
         return []
+    ensure_all_linked(project, flag)
     problems = check_links(project, memdir)
     memory = Memory.open(project, flag)
     errors, warnings = check_records(memory)
@@ -254,6 +255,7 @@ def pre_commit(project: Project, flag: str | None) -> int:
         return 1
     if not memdir.is_dir():
         return 0
+    ensure_all_linked(project, flag)
     errors = check_links(project, memdir) + check_records(Memory.open(project, flag))[0]
     if errors:
         shown = "\n".join(f"  {e}" for e in errors[:10])
@@ -265,7 +267,7 @@ def pre_commit(project: Project, flag: str | None) -> int:
 def post_checkout(project: Project, flag: str | None) -> int:
     """After `git worktree add`: link the new checkout. Never fails the git command."""
     with contextlib.suppress(Exception):
-        line = link_here(project, flag)
+        line = ensure_linked(project, project.root, flag)
         if line:
             print(line)
     return 0
