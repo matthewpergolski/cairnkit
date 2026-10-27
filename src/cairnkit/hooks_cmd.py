@@ -53,7 +53,7 @@ def run_install(
         for checkout in project.checkouts:
             if can_link(project, checkout, memdir):
                 target = os.path.relpath(memdir, checkout)
-                steps.append(f"would link {checkout / LINK_NAME} -> {target}")
+                steps.append(f"link {checkout / LINK_NAME} -> {target}")
     has_memory = (memdir / "facts").is_dir()
     if has_memory:
         # Real install: only linked checkouts. Dry-run: already linked or healable.
