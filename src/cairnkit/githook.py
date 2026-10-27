@@ -74,14 +74,16 @@ _QUIET_BUDGET = 3
 def quiet_body(event: str) -> str:
     """A personal hook. It never fails git, and it does not read stdin or arguments.
 
-    Bounds hung process start with timeout/gtimeout when present, else a
-    background process plus kill. Stdout and stderr go to /dev/null so a missing
-    package or early failure stays silent. Stdin is /dev/null so a pre-push ref
-    list is not eaten. Always ends with || true (or equivalent) so git proceeds.
+    Bounds hung process start with timeout/gtimeout when present, else perl's
+    alarm+exec (ships on macOS and Linux; alarm survives exec, so there is no
+    watcher and no orphan). With none of those, the command runs unbounded.
+    Stdout and stderr go to /dev/null so a missing package or early failure
+    stays silent. Stdin is /dev/null so a pre-push ref list is not eaten.
+    Always ends with || true so git proceeds.
     """
     py = shlex.quote(sys.executable)
-    # Redirections sit on the simple command so the child inherits them, whether
-    # run under timeout or in the background.
+    # Redirections sit on the simple command so the child inherits them under
+    # timeout, gtimeout, or perl exec.
     run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
     budget = _QUIET_BUDGET
     return (
@@ -90,15 +92,10 @@ def quiet_body(event: str) -> str:
         f"    timeout -k 1 {budget} {run} || true\n"
         f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
         f"    gtimeout -k 1 {budget} {run} || true\n"
+        f"  elif command -v perl >/dev/null 2>&1; then\n"
+        f"    perl -e 'alarm {budget}; exec @ARGV' -- {run} || true\n"
         f"  else\n"
-        f"    {run} &\n"
-        f"    _ck_pid=$!\n"
-        f'    (sleep {budget}; kill "$_ck_pid" >/dev/null 2>&1; '
-        f'sleep 1; kill -9 "$_ck_pid" >/dev/null 2>&1) &\n'
-        f"    _ck_watch=$!\n"
-        f'    wait "$_ck_pid" >/dev/null 2>&1 || true\n'
-        f'    kill "$_ck_watch" >/dev/null 2>&1 || true\n'
-        f'    wait "$_ck_watch" >/dev/null 2>&1 || true\n'
+        f"    {run} || true\n"
         f"  fi\n"
         f"fi\n"
     )
