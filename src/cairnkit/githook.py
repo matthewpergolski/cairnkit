@@ -93,12 +93,12 @@ def quiet_body(event: str) -> str:
         f"  else\n"
         f"    {run} &\n"
         f"    _ck_pid=$!\n"
-        f"    (sleep {budget}; kill \"$_ck_pid\" >/dev/null 2>&1; "
-        f"sleep 1; kill -9 \"$_ck_pid\" >/dev/null 2>&1) &\n"
+        f'    (sleep {budget}; kill "$_ck_pid" >/dev/null 2>&1; '
+        f'sleep 1; kill -9 "$_ck_pid" >/dev/null 2>&1) &\n'
         f"    _ck_watch=$!\n"
-        f"    wait \"$_ck_pid\" >/dev/null 2>&1 || true\n"
-        f"    kill \"$_ck_watch\" >/dev/null 2>&1 || true\n"
-        f"    wait \"$_ck_watch\" >/dev/null 2>&1 || true\n"
+        f'    wait "$_ck_pid" >/dev/null 2>&1 || true\n'
+        f'    kill "$_ck_watch" >/dev/null 2>&1 || true\n'
+        f'    wait "$_ck_watch" >/dev/null 2>&1 || true\n'
         f"  fi\n"
         f"fi\n"
     )

@@ -304,11 +304,12 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   Shared: `memory hook pre-commit`, run only when `memory` is on `PATH`.
 - `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
-- `pre-push`: `if [ -x PY ]; then PY -m cairnkit hook pre-push </dev/null || true; fi`.
-  It does not read stdin or the arguments. It never fails the push.
-  Not part of the shared option.
-- `post-merge`: the same shape, with `hook post-merge`. It never fails the merge.
-  Not part of the shared option.
+- `pre-push` / `post-merge`: a short shell block. When `PY` is executable it
+  runs `PY -m cairnkit hook EVENT` with stdin, stdout and stderr on `/dev/null`,
+  under a few-second wall-clock bound (`timeout` / `gtimeout` when present,
+  else a background process plus kill), then `|| true`. It does not read the
+  hook arguments. It never fails the push or the merge. Not part of the shared
+  option.
 - `commit-msg` (opt-in): a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
@@ -364,11 +365,16 @@ The session key is `session_id`, else `conversation_id`, else `default`.
   memory folder it exits 0.
 - `post-checkout`: makes the `memory-bank` link in a new worktree.
 - `pre-push` and `post-merge`: run the same auto-tidy step as `session-start`.
-  They do not count as a session start. They print nothing. They always exit 0.
-  With no memory folder they do nothing. If the step takes more than a few
-  seconds, they stop and leave the memory as it is. Before the gate they only
-  report. After the gate they retire. The same lock, and the same retire id,
-  keep one retire when a session start runs at the same time.
+  They do not count as a session start. They print nothing (including when the
+  interpreter lacks cairnkit). They always exit 0. With no memory folder they
+  do nothing. The shell bounds hung process start to a few seconds; once
+  cairnkit is running, an in-process budget of a few seconds stops a slow
+  tidy and leaves the memory as it is. A held tidy lock can add up to about
+  three seconds to a push or a merge before that budget stops the wait.
+  `git push --no-verify` skips the pre-push hook, as git does for every
+  pre-push hook. Before the gate they only report. After the gate they retire.
+  The same lock, and the same retire id, keep one retire when a session start
+  runs at the same time.
 
 ## 8. Install record and update receipt
 

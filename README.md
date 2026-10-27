@@ -218,7 +218,10 @@ not written to `.githooks/`. A teammate who does not use cairnkit never
 runs them. A teammate who does has their own memory and their own hooks.
 The two do not conflict. This works for every agent, including OpenCode
 and Pi. A push or a merge does not count as a session start. The git hook
-never stops git. It prints nothing when it works.
+never stops git. It prints nothing. A few-second shell bound covers a hung
+python start; once cairnkit runs, the same short budget stops a slow tidy.
+A held tidy lock can add up to about three seconds. `git push --no-verify`
+skips the pre-push hook, as git does for every pre-push hook.
 
 Nothing is deleted. Each retire is a change record and one line in
 `auto-tidy.log`, with the command that undoes it.

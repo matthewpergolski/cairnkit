@@ -292,6 +292,27 @@ def test_pre_push_leaves_the_ref_list_for_a_later_hook(repo, mem, capsys):
     assert "refs/heads/" in seen
 
 
+def test_pre_push_no_verify_skips_the_hook(repo, mem, capsys):
+    """git push --no-verify skips every pre-push hook, including ours."""
+    install(capsys)
+    hook = repo / ".git" / "hooks" / "pre-push"
+    hook.write_text(hook.read_text() + 'echo RAN > "$PWD/hook-ran.txt"\n')
+    bare = repo.parent / "remote.git"
+    if not bare.exists():
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+        git(repo, "remote", "add", "origin", str(bare))
+    (repo / "no-verify.txt").write_text("x\n")
+    git(repo, "add", "no-verify.txt")
+    git_quiet(repo, "commit", "-q", "-m", "no-verify marker")
+    git_quiet(repo, "push", "-q", "--no-verify", "origin", "HEAD:main")
+    assert not (repo / "hook-ran.txt").exists()
+    (repo / "verify.txt").write_text("y\n")
+    git(repo, "add", "verify.txt")
+    git_quiet(repo, "commit", "-q", "-m", "verify marker")
+    git_quiet(repo, "push", "-q", "origin", "HEAD:main")
+    assert (repo / "hook-ran.txt").read_text() == "RAN\n"
+
+
 def test_hooks_exit_0_and_print_nothing_outside_git(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     for event in ("pre-push", "post-merge"):

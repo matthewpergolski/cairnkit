@@ -87,8 +87,8 @@ with `memory init --dry-run` and `memory hooks install --dry-run`.
 | `.cursor/hooks.json` | `memory hooks install` (Cursor found) | No | The same hooks. Added to `.git/info/exclude`. |
 | `.git/hooks/pre-commit` | `memory hooks install` | No: it is inside `.git` | Refuses a commit that stages the `memory-bank` link. `--no-git-hook` skips it. |
 | `.git/hooks/post-checkout` | `memory hooks install` | No | Links the memory into a new worktree made with `git worktree add`. With `--commit-msg-guard=shared`, `.githooks/post-checkout` (tracked) does the same, once each clone runs `git config core.hooksPath .githooks`. Re-run `memory hooks install` in an older project to get it. |
-| `.git/hooks/pre-push` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a push. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the push. Re-run `memory hooks install` in an older project to get it. |
-| `.git/hooks/post-merge` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a merge. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the merge. |
+| `.git/hooks/pre-push` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a push. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the push. `git push --no-verify` skips it, as git does for every pre-push hook. A held tidy lock can add up to about three seconds. Re-run `memory hooks install` in an older project to get it. |
+| `.git/hooks/post-merge` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a merge. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the merge. A held tidy lock can add up to about three seconds. |
 | `.git/hooks/commit-msg` | `memory hooks install --commit-msg-guard` only | No | Refuses AI attribution lines in a commit message. |
 | `.githooks/` | `memory hooks install --commit-msg-guard=shared` only | Yes | The commit-msg guard, pre-commit hook and post-checkout hook, for every clone. Does not include `pre-push` or `post-merge`. |
 
@@ -243,6 +243,8 @@ These items were planned. They are built now.
 - **Git-event tidy.** `memory hooks install` adds personal `pre-push` and
   `post-merge` hooks. They run the same auto-tidy step as session start.
   They are not shared. They work for every agent, including OpenCode and Pi.
+  `git push --no-verify` skips the pre-push hook. A held tidy lock can add
+  up to about three seconds to a push or a merge.
 
 ## If you have duplicates
 

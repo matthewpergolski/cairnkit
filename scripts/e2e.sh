@@ -179,4 +179,23 @@ git checkout -q main
 git merge -q --no-ff --no-edit feature || fail "merge failed after the memory folder was removed"
 echo "push and merge with no memory: ok"
 
+step "personal tidy hooks: a hung interpreter does not stall the push"
+fake=$(mktemp)
+printf '%s\n' '#!/bin/sh' 'exec sleep 60' > "$fake"
+chmod +x "$fake"
+# shellcheck disable=SC2016
+old_py=$(sed -n 's/.*\[ -x \([^] ]*\) \].*/\1/p' .git/hooks/pre-push | head -1)
+[ -n "$old_py" ] || fail "could not find the python path in pre-push"
+sed "s|$old_py|$fake|g" .git/hooks/pre-push > .git/hooks/pre-push.new
+mv .git/hooks/pre-push.new .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+echo c > c.txt && git add c.txt && git commit -qm hung
+start=$(date +%s)
+git push -q origin HEAD:main || fail "push failed with a hung interpreter"
+end=$(date +%s)
+elapsed=$((end - start))
+[ "$elapsed" -lt 8 ] || fail "hung interpreter stalled the push for ${elapsed}s"
+rm -f "$fake"
+echo "hung interpreter push bounded: ok"
+
 echo "e2e: ok"
