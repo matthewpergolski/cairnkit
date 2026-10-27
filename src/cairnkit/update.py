@@ -120,6 +120,7 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
     if check:
         if newer:
             bar.say(f"Update available: {before} -> {after}. Run `memory update`.")
+            _say_changes(bar, source, commit, found.commit)
         elif commit:
             bar.say(f"Up to date ({old}).")
         else:
@@ -140,6 +141,8 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
     if dry_run:
         bar.say("Dry run: nothing will change.")
         bar.say(f"Update available: {before} -> {after}." if newer else "No newer version.")
+        if newer:
+            _say_changes(bar, source, commit, found.commit)
         if source.kind == "git":
             fetch = f"git fetch {found.commit[:7]} from {source.spec}"
         elif src.is_git_folder(Path(source.spec)):
@@ -164,6 +167,7 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
     arrow = "→" if bar.live else "->"
     short = f" ({found.commit[:7]})" if found.commit else ""
     bar.finish(f"memory updated: {old} {arrow} {new}{short}.")
+    _say_changes(bar, source, commit, found.commit)
     bar.say(AFTER)
     if src.tool_env().name == src.OLD_PACKAGE:
         # Old agent and git hooks call the old environment's Python, so each repo must
@@ -374,16 +378,24 @@ def _verify(bar: Progress, source, found: Latest) -> str:
     return new
 
 
+def _say_changes(bar: Progress, source, old: str | None, new: str | None) -> None:
+    """Print commit subjects between refs, or a GitHub compare URL."""
+    for line in src.change_lines(source, old, new):
+        bar.say(line)
+
+
 def run_status(project, flag: str | None) -> int:
     """The version, the source, and one line for each update that is due."""
     from cairnkit.refresh import repo_line
 
-    source, _ = src.installed(None)
-    print(f"memory {src.current_version()}")
+    source, commit = src.installed(None)
+    print(f"memory {src.current_version()}{src.ref_tag(commit)}")
     if source is None:
         print("Source: unknown. `memory update --source PATH` sets it.")
     else:
         print(f"Source: {source.label}" + (", editable" if source.editable else ""))
     print(src.update_line(background=False) or "No update found.")
+    for line in src.pending_change_lines():
+        print(line)
     print(repo_line(project, flag) or "Repo files: current.")
     return 0

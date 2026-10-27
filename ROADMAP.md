@@ -178,6 +178,16 @@ None of these breaks a normal update by one person on one computer.
 - The fallback fetch for a server that refuses a commit id goes 100 commits
   deep.
 
+## Upgrade notes (not built)
+
+`memory status` and `memory update` already show the installed short commit and
+the subjects (or a GitHub compare URL) between the installed ref and a newer
+one. Still to build:
+
+- A CHANGELOG (or release notes) that `memory update` can show.
+- Flag new capabilities on install (commands or hooks added since the
+  installed ref), so a person knows what to try after an update.
+
 ## Other ideas
 
 - Generated views: `views/active.md` and `views/history.md`.

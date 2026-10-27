@@ -30,15 +30,20 @@ second update says that it waits. Then it checks the source itself, so it
 never installs an older commit last. After 5 minutes it stops and installs
 nothing. `--check` and `--dry-run` take no lock. Windows has no lock.
 
-It prints the old and the new version. On a failure it stops, exits 1 and
-says how to fix it. When nothing is newer, it says "Already up to date" and
-changes nothing. So it is safe to run twice.
+It prints the old and the new version. When the source moved on, it also
+prints the commit subjects between the installed ref and the new one (for a
+local git folder), or a GitHub compare URL (for a GitHub git URL). On a
+failure it stops, exits 1 and says how to fix it. When nothing is newer, it
+says "Already up to date" and changes nothing. So it is safe to run twice.
 
 - `memory update --check` only says whether an update exists.
 - `memory update --dry-run` runs the check and lists the other steps.
 - `memory update --source PATH|URL` sets the source, for example on the first
   run when uv has no record of it.
-- `memory status` prints the version, the source and the update lines.
+- `memory status` prints the version, the installed short commit (when known),
+  the source and the update lines. When a newer commit exists, it also lists
+  the commit subjects between the installed ref and the new one, or a GitHub
+  compare URL when subjects are not available locally.
 
 On a terminal the steps show as one progress bar. Piped output shows one
 plain line per step. `NO_COLOR` turns off color.

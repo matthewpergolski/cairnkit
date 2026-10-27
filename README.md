@@ -47,8 +47,9 @@ memory status
 - `memory load` prints what an agent sees at session start.
 - `memory search` finds facts by words or by a question.
 - `memory check` checks the facts and the link, and looks for secrets in the facts.
-- `memory status` prints the version, the install source, and the update
-  lines.
+- `memory status` prints the version, the installed short commit, the install
+  source, and the update lines. When a newer commit exists, it also shows
+  what changed (subjects, or a GitHub compare URL).
 
 To connect your agent tool, run `memory hooks install` in the project. Then
 the agent loads the memory at session start and checks it at session end.
@@ -510,7 +511,7 @@ level only. It writes nothing into a repo.
 | `memory migrate [--yes] [--fix-references] [--from DIR] [--path DIR] [--preset NAME ...] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`. `--untrack` stages the removal of a tracked old folder; nothing is committed. `--fix-references` rewrites exact old paths (`memory-bank/X` to `memory-bank/notes/X`) in top-level and `docs/` `*.md` files and adds the memory hooks where a hook runs the old checker (working tree only, never committed). What is left goes to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds you until it is done. |
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Plan by default; `--yes` acts. |
-| `memory update [--check\|--dry-run] [--source PATH\|URL]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. `status` prints the version, the source and the update lines. |
+| `memory update [--check\|--dry-run] [--source PATH\|URL]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `status` prints the version, the installed short commit, the source and the update lines. |
 | `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Never adds a second block. |
 | `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. Adds personal `pre-push` and `post-merge` hooks that run auto-tidy. They are not shared. `--no-git-hook` skips every git hook. `memory hooks uninstall` removes only what it added. |
 | `memory tidy [--days 90]`, `memory tidy --apply ID ...` | you, sometimes | Proposes clean-up; writes only the approved changes. |

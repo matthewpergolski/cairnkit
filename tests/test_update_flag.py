@@ -51,8 +51,11 @@ def test_status_shows_the_installed_git_ref(repo, machine, monkeypatch, capsys):
 
 
 def test_status_shows_commit_subjects_when_the_source_is_newer(
-    repo, machine, monkeypatch, capsys
-):  # noqa: F811
+    repo,
+    machine,  # noqa: F811
+    monkeypatch,
+    capsys,
+):
     from test_update import head
 
     assert main(["init"]) == 0

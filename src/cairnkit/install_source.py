@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import tomllib
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from cairnkit import __version__
 from cairnkit.clock import now, parse_time, stamp
@@ -296,6 +298,62 @@ def describe(version: str | None, commit: str | None) -> str:
     return " ".join(part for part in (version, short) if part) or "unknown"
 
 
+def ref_tag(commit: str | None) -> str:
+    """A short `@hash` suffix for status, like uv's display. Empty when unknown."""
+    return f" @{commit[:7]}" if commit else ""
+
+
+_GITHUB_SPEC = re.compile(
+    r"(?:https?://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+    r"([^/]+)/([^/]+?)(?:\.git)?/?$",
+    re.I,
+)
+
+
+def github_compare_url(spec: str, old: str, new: str) -> str | None:
+    """A GitHub compare link for two commits, or None when the source is not GitHub."""
+    if not old or not new:
+        return None
+    match = _GITHUB_SPEC.match(spec.strip())
+    if not match:
+        return None
+    owner, repo = match.group(1), match.group(2)
+    return f"https://github.com/{owner}/{repo}/compare/{old[:7]}...{new[:7]}"
+
+
+def local_git_path(source: Source) -> Path | None:
+    """A local git folder for this source, when subjects can be read without the network."""
+    if source.kind == "folder":
+        folder = Path(source.spec)
+        return folder if is_git_folder(folder) else None
+    if source.spec.startswith("file:"):
+        folder = Path(unquote(urlparse(source.spec).path))
+        return folder if is_git_folder(folder) else None
+    return None
+
+
+def commit_subjects(folder: Path, old: str, new: str, limit: int = 20) -> list[str]:
+    """Commit subjects in old..new, newest last omitted; empty when git cannot say."""
+    out = git(
+        ["-C", str(folder), "log", "--format=%s", f"{old}..{new}", f"-{limit}"],
+        timeout=5.0,
+    )
+    return out.splitlines() if out else []
+
+
+def change_lines(source: Source, old: str | None, new: str | None) -> list[str]:
+    """What changed between two refs: local subjects, or a GitHub compare URL."""
+    if not old or not new or old == new:
+        return []
+    folder = local_git_path(source)
+    if folder is not None:
+        subjects = commit_subjects(folder, old, new)
+        if subjects:
+            return subjects
+    url = github_compare_url(source.spec, old, new)
+    return [url] if url else []
+
+
 # --- the cached check for the session start -------------------------------------------
 
 
@@ -308,6 +366,7 @@ def save_check(source: Source, version: str, commit: str | None, found: Latest, 
         "checked": stamp(now()),
         "source": source.spec,
         "installed": [version, commit],
+        "found_commit": found.commit,
         "newer": newer,
         "from": describe(version, commit),
         "to": describe(found.version, found.commit),
@@ -379,3 +438,23 @@ def update_line(background: bool = True) -> str | None:
     except Exception:
         return None
     return None
+
+
+def pending_change_lines() -> list[str]:
+    """Subjects or a compare URL when the cached check says the source is newer.
+
+    Call after update_line so a stale cache has been refreshed. Never raises.
+    """
+    try:
+        source, commit = installed(None)
+        if source is None or source.editable:
+            return []
+        data, _ = _cached(source, current_version(), commit)
+        if not data.get("newer"):
+            return []
+        found = data.get("found_commit")
+        if not isinstance(found, str):
+            return []
+        return change_lines(source, commit, found)
+    except Exception:
+        return []
