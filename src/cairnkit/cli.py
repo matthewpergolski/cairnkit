@@ -251,7 +251,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Called by the installed hooks. Not for people.
     p = sub.add_parser("hook", parents=[common])
-    p.add_argument("event", choices=("session-start", "stop", "pre-commit", "post-checkout"))
+    p.add_argument(
+        "event",
+        choices=("session-start", "stop", "pre-commit", "post-checkout", "pre-push", "post-merge"),
+    )
     p.add_argument("--agent", default="generic", choices=AGENTS)
 
     p = sub.add_parser("load", parents=[common], help="print the facts for this session")
@@ -271,7 +274,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--auto",
         action="store_true",
         help="retire the clear mechanical cases now (exact duplicates, ended short-term "
-        "facts), log each one, delete nothing. The session-start hook does this too",
+        "facts), log each one, delete nothing. The session-start hook does this too, "
+        "and so do the personal pre-push and post-merge git hooks",
     )
     p.add_argument("--dry-run", action="store_true", help="with --auto: show, change nothing")
     p.add_argument(

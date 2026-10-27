@@ -2,7 +2,9 @@
 
 A retire is a status change, never a delete. Each one is a change record
 (writer `auto-tidy`) and one line in `<memory>/auto-tidy.log`. The line holds
-the command that undoes it. The session-start hook calls `retire`.
+the command that undoes it. The session-start hook calls `retire`. So do the
+personal pre-push and post-merge git hooks. A git event does not count as a
+session start.
 
 What it retires:
 
@@ -272,45 +274,53 @@ class Decision:
     status: str = ""  # shown with a report: how long until it turns on
 
 
-def decide(memory: Memory) -> Decision:
+def decide(memory: Memory, *, count_session: bool = True) -> Decision:
     """Count this session start and say whether the hook retires or only reports.
 
     It turns on after WINDOW_SESSIONS session starts and WINDOW_DAYS days, and
     only while no retire is undone. An undo returns it to report only.
+
+    A git push or merge passes `count_session=False`. That reads the same gate.
+    It does not add a session, and it does not write the state file.
     """
     moment = now()
     with locked(memory.dir / LOCK_NAME):
         data = _state(memory)
-        data.setdefault("started_at", stamp(moment))
-        data["sessions"] = int(data.get("sessions", 0)) + 1
+        if count_session:
+            data.setdefault("started_at", stamp(moment))
+            data["sessions"] = int(data.get("sessions", 0)) + 1
+        elif not data.get("started_at"):
+            return Decision("report")
         days = (moment - parse_time(data["started_at"])).total_seconds() / 86400
+        sessions = int(data.get("sessions", 0))
         notes = []
         status = ""
         if open_undos(memory):
-            data["on"] = False
+            if count_session:
+                data["on"] = False
             notes.append(
                 "held report only: a retire was undone, so an agent task in "
                 "proposals/tidy-followups.md says which rule to review"
             )
             mode = "report"
-        elif data.get("on"):
+        elif data.get("on") or (sessions >= WINDOW_SESSIONS and days >= WINDOW_DAYS):
             mode = "on"
-        elif data["sessions"] >= WINDOW_SESSIONS and days >= WINDOW_DAYS:
-            data["on"] = True
-            mode = "on"
-            notes.append(
-                f"turned itself on after {data['sessions']} session starts and {int(days)} "
-                "days with no retire undone"
-            )
+            if count_session and not data.get("on"):
+                data["on"] = True
+                notes.append(
+                    f"turned itself on after {sessions} session starts and {int(days)} "
+                    "days with no retire undone"
+                )
         else:
             mode = "report"
-            left_sessions = max(WINDOW_SESSIONS - data["sessions"], 0)
+            left_sessions = max(WINDOW_SESSIONS - sessions, 0)
             left_days = max(math.ceil(WINDOW_DAYS - days), 0)
             status = (
                 f"report only; it turns itself on after {left_sessions} more session start(s) "
                 f"and {left_days} more day(s) if no retire is undone"
             )
-        _save(memory, data)
+        if count_session:
+            _save(memory, data)
     return Decision(mode, notes, status)
 
 

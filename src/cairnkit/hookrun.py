@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import signal
 import sys
 
 from cairnkit import autotidy, followups, skills, usage
@@ -57,40 +58,93 @@ def _names(items) -> str:
     return names + (f" and {len(items) - NOTE_IDS} more" if len(items) > NOTE_IDS else "")
 
 
+def gated_auto_tidy(project: Project, flag: str | None, *, count_session: bool):
+    """Run the gated tidy step. Return `(decision, items, retired)` or None when off.
+
+    `retired` is true when `items` were retired. Otherwise `items` is a report.
+    A git event passes `count_session=False`, so it does not move the gate counter.
+    """
+    memory = Memory.open(project, flag)
+    mode = memory.config["auto_tidy"]
+    if mode == "off":
+        return None
+    decision = autotidy.Decision(mode)
+    if mode == "auto":
+        decision = autotidy.decide(memory, count_session=count_session)
+    if decision.mode == "on":
+        return decision, autotidy.retire(memory), True
+    return decision, autotidy.report(memory), False
+
+
 def auto_retire_note(project: Project, flag: str | None) -> str:
     """Retire (mode "on") or report (mode "report") the clear cases. Never raises.
 
     Return one line for the session, or an empty string.
     """
     try:
-        memory = Memory.open(project, flag)
-        mode = memory.config["auto_tidy"]
-        if mode == "off":
+        result = gated_auto_tidy(project, flag, count_session=True)
+        if result is None:
             return ""
-        decision = autotidy.Decision(mode)
-        if mode == "auto":
-            decision = autotidy.decide(memory)
-        if decision.mode == "on":
-            retired = autotidy.retire(memory)
-            lines = [f"auto-tidy {n}." for n in decision.notes]
-            if retired:
+        decision, items, retired = result
+        lines = [f"auto-tidy {n}." for n in decision.notes]
+        if retired:
+            if items:
                 lines.append(
-                    f"auto-tidy retired {len(retired)} fact(s): {_names(retired)}. Nothing was "
+                    f"auto-tidy retired {len(items)} fact(s): {_names(items)}. Nothing was "
                     f"deleted; {autotidy.LOG_NAME} in the memory folder shows each one and how "
                     "to undo it."
                 )
             return "\n".join(lines) + "\n\n" if lines else ""
-        lines = [f"auto-tidy {n}." for n in decision.notes]
-        found = autotidy.report(memory)
-        if found:
+        if items:
             lines.append(
-                f"auto-tidy would retire {len(found)}: {_names(found)} "
+                f"auto-tidy would retire {len(items)}: {_names(items)} "
                 f"({decision.status or 'report only'}; nothing changed). "
                 f"Read {autotidy.LOG_NAME} in the memory folder."
             )
         return "\n".join(lines) + "\n\n" if lines else ""
     except Exception:
         return ""
+
+
+# A git hook must not make push or merge wait. Past this, the step is skipped.
+GIT_HOOK_BUDGET = 3
+
+
+class _OverBudget(Exception):
+    """The git-hook tidy step used its time budget."""
+
+
+def _over_budget(_signum, _frame):
+    raise _OverBudget
+
+
+@contextlib.contextmanager
+def _time_budget(seconds: float):
+    if not hasattr(signal, "setitimer"):
+        yield
+        return
+    previous = signal.signal(signal.SIGALRM, _over_budget)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    except _OverBudget:
+        return
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, signal.SIG_IGN)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def git_event(project: Project, flag: str | None) -> int:
+    """Auto-tidy after a push or a merge. Always exits 0. Prints nothing."""
+    try:
+        with _time_budget(GIT_HOOK_BUDGET):
+            sink = io.StringIO()
+            with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+                gated_auto_tidy(project, flag, count_session=False)
+    except (Exception, SystemExit):
+        pass
+    return 0
 
 
 def refresh_followups(project: Project, flag: str | None) -> None:
@@ -218,6 +272,8 @@ def post_checkout(project: Project, flag: str | None) -> int:
 
 
 def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
+    if event in ("pre-push", "post-merge"):
+        return git_event(project, flag)
     if event == "pre-commit":
         return pre_commit(project, flag)
     if event == "post-checkout":
