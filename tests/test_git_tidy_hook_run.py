@@ -325,7 +325,6 @@ def test_no_timeout_path_bounds_a_hung_start(repo, mem, capsys, tmp_path):
     (repo / "no-timeout-hung.txt").write_text("x\n")
     git(repo, "add", "no-timeout-hung.txt")
     git_quiet(repo, "commit", "-q", "-m", "no-timeout hung")
-    before = sleep_lines()
     result, elapsed = push_with_path(repo, str(bin_dir))
     after = sleep_lines()
     assert result.returncode == 0, result.stdout + result.stderr
@@ -366,7 +365,6 @@ def test_no_timeout_path_fast_push_is_quick_and_quiet(repo, mem, capsys, tmp_pat
     (repo / "no-timeout-fast.txt").write_text("x\n")
     git(repo, "add", "no-timeout-fast.txt")
     git_quiet(repo, "commit", "-q", "-m", "no-timeout fast")
-    before = sleep_lines()
     result, elapsed = push_with_path(repo, str(bin_dir))
     after = sleep_lines()
     assert result.returncode == 0, result.stdout + result.stderr
