@@ -154,6 +154,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("claude", "codex", "cursor", "all"),
         help="one tool (default: every tool that is found)",
     )
+    h.add_argument(
+        "--adopt",
+        "--all",
+        dest="adopt",
+        action="store_true",
+        help="replace same-named skill folders so every pstack skill is installed",
+    )
     h.add_argument("--yes", action="store_true", help="do it; without this, only show the plan")
 
     p = sub.add_parser("update", help="install the newest memory from its source")
@@ -342,7 +349,7 @@ def run(args) -> int:
     if args.command == "skills":
         if args.skills_command == "status":
             return skills_module.run_status()
-        return skills_module.run_install(args.tool, args.yes)
+        return skills_module.run_install(args.tool, args.yes, adopt=args.adopt)
     if args.command == "preset":
         if args.preset_command == "list":
             return presets_module.run_list()

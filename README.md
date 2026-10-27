@@ -454,17 +454,23 @@ memory tool does not need it. It checks for it and keeps it current, at user
 level only. It writes nothing into a repo.
 
 - `memory skills status` says, for Claude Code, Codex and Cursor, whether
-  pstack is installed and which version. It also says the latest version.
-  The latest version comes from `pstack/plugin.json` on the `main` branch of
-  `cursor/plugins`. The answer is cached for one day. Offline, it is skipped.
+  pstack is installed and which version. It also says the latest version, and
+  for each tool the installed skill count versus the available count (so a
+  partial install is visible). The latest version comes from
+  `pstack/plugin.json` on the `main` branch of `cursor/plugins`. The answer is
+  cached for one day. Offline, it is skipped.
 - `memory skills install pstack` shows the plan. `--yes` does it. The same
   command updates. A rerun with nothing to do says so. `--tool NAME` picks one
   tool. For Claude Code it runs `claude plugin marketplace add cursor/plugins`
-  and `claude plugin install pstack@cursor-plugins --scope user`. For Codex
-  and Cursor it copies the skill folders into `~/.codex/skills` and
+  and `claude plugin install pstack@cursor-plugins --scope user` (Claude loads
+  the plugin's `skills/` as a unit; it does not copy into `~/.claude/skills`).
+  For Codex and Cursor it copies the skill folders into `~/.codex/skills` and
   `~/.cursor/skills`, with the LICENSE and a marker file
-  (`.pstack/install.json`: the version and the source commit). It keeps a
-  skill of yours that has the same name.
+  (`.pstack/install.json`: the version, the source commit, and every skill it
+  owns). The command output says how many skill(s) were installed and how many
+  were skipped and why. By default it keeps a skill of yours that has the same
+  name. `--adopt` (also `--all`) replaces those same-named folders so every
+  pstack skill is installed, and prints which ones it adopted.
 - The advisory is quiet. A session hears only about the tool that runs it. The
   tool is known from the hook's `--agent`, or from one set of environment
   markers (`CLAUDECODE`; `CODEX_CI`, `CODEX_SANDBOX` or `CODEX_THREAD_ID`;
@@ -510,7 +516,7 @@ level only. It writes nothing into a repo.
 | `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local\|shared]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. With `--write-instructions`, also writes the rules block: local to `CLAUDE.local.md`, shared to the `CLAUDE.md` or `AGENTS.md` the repo has. |
 | `memory migrate [--yes] [--fix-references] [--from DIR] [--path DIR] [--preset NAME ...] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`. `--untrack` stages the removal of a tracked old folder; nothing is committed. `--fix-references` rewrites exact old paths (`memory-bank/X` to `memory-bank/notes/X`) in top-level and `docs/` `*.md` files and adds the memory hooks where a hook runs the old checker (working tree only, never committed). What is left goes to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds you until it is done. |
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
-| `memory skills status`, `memory skills install pstack [--tool NAME] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Plan by default; `--yes` acts. |
+| `memory skills status`, `memory skills install pstack [--tool NAME] [--adopt\|--all] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Status includes installed/available skill counts. Plan by default; `--yes` acts. `--adopt` (or `--all`) replaces same-named folders so every pstack skill is installed. |
 | `memory update [--check\|--dry-run] [--source PATH\|URL]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `status` prints the version, the installed short commit, the source and the update lines. |
 | `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Never adds a second block. |
 | `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. Adds personal `pre-push` and `post-merge` hooks that run auto-tidy. They are not shared. `--no-git-hook` skips every git hook. `memory hooks uninstall` removes only what it added. |

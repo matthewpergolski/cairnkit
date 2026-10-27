@@ -446,7 +446,7 @@ def test_all_flag_is_the_same_as_adopt(world, capsys):
     base = world.home / ".cursor" / "skills"
     (base / "tdd").mkdir(parents=True)
     (base / "tdd" / "SKILL.md").write_text("mine")
-    code, out = run(capsys, "skills", "install", "pstack", "--tool", "cursor", "--all", "--yes")
+    code, _out = run(capsys, "skills", "install", "pstack", "--tool", "cursor", "--all", "--yes")
     assert code == 0
     assert "Body of tdd" in (base / "tdd" / "SKILL.md").read_text()
     assert sorted(json.loads((base / ".pstack" / "install.json").read_text())["skills"]) == sorted(
@@ -458,6 +458,7 @@ def test_stale_marker_partial_install_is_filled_on_rerun(world, capsys):
     """A marker that lists only some skills must not block installing the rest."""
     world.dirs(".codex")
     base = world.mark("codex", names=("tdd",))  # version matches latest; only one owned
+    skills.record_catalog(len(SKILLS))
     # Pretend an earlier plugin left the other names (unowned): they were "kept".
     for name in ("poteto-mode", "unslop"):
         (base / name).mkdir()

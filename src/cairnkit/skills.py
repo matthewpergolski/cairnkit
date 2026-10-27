@@ -32,6 +32,7 @@ FRESH = timedelta(days=1)
 FRESH_AFTER_FAILURE = timedelta(hours=1)
 MARKER_DIR = ".pstack"
 MARKER = "install.json"
+CATALOG = "pstack-catalog.json"
 
 
 # --- the machine: all stubbed in tests ------------------------------------------------
@@ -142,11 +143,35 @@ def _marker(tool: str) -> dict:
     return _read_json(skills_dir(tool) / MARKER_DIR / MARKER) or {}
 
 
-def installed_version(tool: str) -> str | None:
-    """The installed pstack version for a tool, or None."""
-    if tool != "claude":
-        version = _marker(tool).get("version")
-        return version if isinstance(version, str) else None
+def record_catalog(count: int, names: list[str] | None = None) -> None:
+    """Remember how many pstack skills the source has (for status counts). Never raises."""
+    if count < 0:
+        return
+    record: dict = {"count": count, "checked": stamp(now())}
+    if names is not None:
+        record["skills"] = list(names)
+    with contextlib.suppress(OSError):
+        path = cache_dir() / CATALOG
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+
+def catalog_count() -> int | None:
+    """How many skills the last-seen pstack source had, or None."""
+    data = _read_json(cache_dir() / CATALOG) or {}
+    count = data.get("count")
+    return count if isinstance(count, int) and count >= 0 else None
+
+
+def source_skill_names(source: Path) -> list[str]:
+    """Skill folder names under pstack/skills that have a SKILL.md."""
+    folder = source / "pstack" / "skills"
+    if not folder.is_dir():
+        return []
+    return sorted(p.name for p in folder.iterdir() if (p / "SKILL.md").is_file())
+
+
+def _claude_install_path() -> Path | None:
     data = _read_json(Path.home() / ".claude" / "plugins" / "installed_plugins.json") or {}
     entries = (data.get("plugins") or {}).get(PLUGIN) or []
     entries = sorted(
@@ -154,10 +179,46 @@ def installed_version(tool: str) -> str | None:
     )
     for entry in entries:
         where = Path(str(entry.get("installPath", "")))
+        if where.is_dir():
+            return where
+    return None
+
+
+def installed_skill_count(tool: str) -> int | None:
+    """How many pstack skills this tool currently has, or None when unknown."""
+    if tool == "claude":
+        where = _claude_install_path()
+        if where is None:
+            return None
+        folder = where / "skills"
+        # Claude loads the plugin as a unit; no skills/ means we cannot count yet.
+        if not folder.is_dir():
+            return None
+        return sum(1 for p in folder.iterdir() if (p / "SKILL.md").is_file())
+    owned = _marker(tool).get("skills")
+    if not isinstance(owned, list):
+        return None
+    base = skills_dir(tool)
+    return sum(1 for n in owned if isinstance(n, str) and (base / n / "SKILL.md").is_file())
+
+
+def installed_version(tool: str) -> str | None:
+    """The installed pstack version for a tool, or None."""
+    if tool != "claude":
+        version = _marker(tool).get("version")
+        return version if isinstance(version, str) else None
+    where = _claude_install_path()
+    if where is not None:
         for name in (where / "plugin.json", where / ".claude-plugin" / "plugin.json"):
             version = (_read_json(name) or {}).get("version")
             if isinstance(version, str):
                 return version
+    data = _read_json(Path.home() / ".claude" / "plugins" / "installed_plugins.json") or {}
+    entries = (data.get("plugins") or {}).get(PLUGIN) or []
+    entries = sorted(
+        (e for e in entries if isinstance(e, dict)), key=lambda e: e.get("scope") != "user"
+    )
+    for entry in entries:
         if isinstance(entry.get("version"), str):
             return entry["version"]
     return None
@@ -173,22 +234,32 @@ class Row:
     tool: str
     found: bool
     installed: str | None
+    skills: int | None = None
 
     @property
     def label(self) -> str:
         return TOOLS[self.tool]
 
-    def state(self, latest: str | None) -> str:
-        """not found, missing, behind or current."""
+    def state(self, latest: str | None, available: int | None = None) -> str:
+        """not found, missing, behind, partial or current."""
         if not self.found:
             return "not found"
         if self.installed is None:
             return "missing"
-        return "behind" if is_behind(self.installed, latest) else "current"
+        if is_behind(self.installed, latest):
+            return "behind"
+        if (
+            available is not None
+            and self.skills is not None
+            and self.tool != "claude"
+            and self.skills < available
+        ):
+            return "partial"
+        return "current"
 
 
 def rows() -> list[Row]:
-    return [Row(t, detected(t), installed_version(t)) for t in TOOLS]
+    return [Row(t, detected(t), installed_version(t), installed_skill_count(t)) for t in TOOLS]
 
 
 MARKERS = {
@@ -297,21 +368,35 @@ def once_line(memdir: Path, record: bool = True) -> str | None:
 # --- status ---------------------------------------------------------------------------
 
 
+def _skills_phrase(row: Row, available: int | None) -> str:
+    """`2/3 skills` when both sides are known, else a short owned count, else empty."""
+    if row.skills is None:
+        return ""
+    if available is not None:
+        return f"{row.skills}/{available} skills"
+    return f"{row.skills} skill(s)"
+
+
 def run_status() -> int:
     latest = latest_version()
+    available = catalog_count()
     print(f"pstack skills (latest: {latest or 'unknown'})")
     for row in rows():
-        state = row.state(latest)
+        state = row.state(latest, available)
+        counts = _skills_phrase(row, available)
+        extra = f" — {counts}" if counts else ""
         if state == "not found":
             text = "not found"
         elif state == "missing":
             text = "not installed"
         elif state == "behind":
-            text = f"installed {row.installed} (behind: latest is {latest})"
+            text = f"installed {row.installed}{extra} (behind: latest is {latest})"
+        elif state == "partial":
+            text = f"installed {row.installed}{extra} (partial)"
         elif latest is None:
-            text = f"installed {row.installed} (latest unknown)"
+            text = f"installed {row.installed}{extra} (latest unknown)"
         else:
-            text = f"installed {row.installed} (up to date)"
+            text = f"installed {row.installed}{extra} (up to date)"
         print(f"  {row.label}: {text}")
     return 0
 
@@ -326,24 +411,37 @@ def _remove(path: Path) -> None:
         shutil.rmtree(path)
 
 
-def copy_skills(tool: str, source: Path, version: str, commit: str) -> tuple[list[str], list[str]]:
-    """Copy the pstack skills into the user skills folder. Return (copied, kept)."""
+def copy_skills(
+    tool: str, source: Path, version: str, commit: str, adopt: bool = False
+) -> tuple[list[str], list[str], list[str]]:
+    """Copy the pstack skills into the user skills folder.
+
+    Return (installed, adopted, skipped). With `adopt`, same-named folders that
+    cairnkit does not own are replaced and listed in `adopted`. Without it they
+    are left alone and listed in `skipped`. The marker records every skill we
+    own after the copy (catalog minus skipped), not only the ones written this
+    run.
+    """
     base = skills_dir(tool)
     top = source / "pstack"
-    names = sorted(p.name for p in (top / "skills").iterdir() if (p / "SKILL.md").is_file())
+    names = source_skill_names(source)
     if not names:
         raise OSError(f"no skills found in {top / 'skills'}")
-    owned = {str(n) for n in _marker(tool).get("skills", [])}
+    record_catalog(len(names), names)
+    owned = {str(n) for n in _marker(tool).get("skills", []) if isinstance(n, str)}
     base.mkdir(parents=True, exist_ok=True)
-    copied, kept = [], []
+    installed, adopted, skipped = [], [], []
     for name in names:
         dest = base / name
-        if os.path.lexists(dest) and name not in owned:
-            kept.append(name)
+        exists = os.path.lexists(dest)
+        if exists and name not in owned and not adopt:
+            skipped.append(name)
             continue
+        if exists and name not in owned and adopt:
+            adopted.append(name)
         _remove(dest)
         shutil.copytree(top / "skills" / name, dest, symlinks=True)
-        copied.append(name)
+        installed.append(name)
     for gone in sorted(owned - set(names)):
         _remove(base / gone)
     meta = base / MARKER_DIR
@@ -354,16 +452,18 @@ def copy_skills(tool: str, source: Path, version: str, commit: str) -> tuple[lis
                 top / name if (top / name).is_file() else source / name, meta / "LICENSE"
             )
             break
+    owned_now = [n for n in names if n not in skipped]
     record = {
         "name": "pstack",
         "version": version,
         "commit": commit,
         "source": REPO_URL,
-        "skills": copied,
+        "skills": owned_now,
+        "catalog": len(names),
         "installed_at": stamp(now()),
     }
     (meta / MARKER).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    return copied, kept
+    return installed, adopted, skipped
 
 
 def _claude_steps(row: Row) -> list[list[str]]:
@@ -399,11 +499,38 @@ def _install_claude(row: Row, yes: bool) -> bool:
     return True
 
 
-def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list) -> bool:
+def _copy_needed(tool: str, source: Path, commit: str, adopt: bool) -> bool:
+    """True when a copy install still has work: version drift, gaps, or adopt collisions."""
+    marker = _marker(tool)
+    version = (_read_json(source / "pstack" / "plugin.json") or {}).get("version")
+    names = source_skill_names(source)
+    owned = {str(n) for n in marker.get("skills", []) if isinstance(n, str)}
+    base = skills_dir(tool)
+    if marker.get("version") != version or marker.get("commit") != commit:
+        return True
+    for name in names:
+        exists = os.path.lexists(base / name)
+        if not exists:
+            return True
+        if name not in owned and adopt:
+            return True
+    return False
+
+
+def _unowned_names(tool: str, names: list[str]) -> list[str]:
+    owned = {str(n) for n in _marker(tool).get("skills", []) if isinstance(n, str)}
+    base = skills_dir(tool)
+    return [n for n in names if os.path.lexists(base / n) and n not in owned]
+
+
+def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list, adopt: bool) -> bool:
     verb = "install" if row.installed is None else "update"
+    if adopt and row.installed is not None:
+        verb = "adopt"
     target = skills_dir(row.tool)
     shown = f" {latest}" if latest else ""
-    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {target}")
+    note = " (replace same-named folders)" if adopt else ""
+    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {target}{note}")
     if not yes:
         return True
     try:
@@ -413,32 +540,74 @@ def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list) -> bool
         version = (_read_json(source / "pstack" / "plugin.json") or {}).get("version")
         if not _key(version):
             raise OSError("pstack/plugin.json has no version")
-        marker = _marker(row.tool)
-        if marker.get("version") == version and marker.get("commit") == commit:
-            print(f"{row.label}: pstack {version} is already there.")
+        names = source_skill_names(source)
+        if not _copy_needed(row.tool, source, commit, adopt):
+            record_catalog(len(names), names)
+            owned = installed_skill_count(row.tool) or 0
+            skipped = _unowned_names(row.tool, names)
+            print(
+                f"{row.label}: pstack {version} is already there "
+                f"({owned} skill(s) installed, {len(skipped)} skipped)."
+            )
+            if skipped:
+                print(
+                    f"  skipped {len(skipped)}: kept your own skill(s) with the same name: "
+                    f"{', '.join(skipped)}"
+                )
+                print(f"  to replace them: {COMMAND} --tool {row.tool} --adopt --yes")
             return True
-        copied, kept = copy_skills(row.tool, source, version, commit)
+        installed, adopted, skipped = copy_skills(row.tool, source, version, commit, adopt=adopt)
     except Exception as exc:
         print(f"error: {row.label}: cannot fetch the pstack skills: {exc}")
         return False
-    print(f"{row.label}: pstack {version} ({len(copied)} skill(s)) copied to {target}")
-    if kept:
-        print(f"  kept your own skill(s) with the same name: {', '.join(kept)}")
+    print(
+        f"{row.label}: pstack {version} ({len(installed)} skill(s) installed, "
+        f"{len(skipped)} skipped) copied to {target}"
+    )
+    if adopted:
+        print(f"  adopted (replaced) {len(adopted)} same-named folder(s): {', '.join(adopted)}")
+    if skipped:
+        print(
+            f"  skipped {len(skipped)}: kept your own skill(s) with the same name: "
+            f"{', '.join(skipped)}"
+        )
+        print(f"  to replace them: {COMMAND} --tool {row.tool} --adopt --yes")
     return True
 
 
-def run_install(tool: str | None, yes: bool) -> int:
-    """Plan (default) or do (--yes) the install or update. The same command updates."""
+def _row_needs_install(row: Row, latest: str | None, available: int | None, adopt: bool) -> bool:
+    if not row.found:
+        return False
+    state = row.state(latest, available)
+    if state in ("missing", "behind", "partial"):
+        return True
+    return bool(
+        adopt
+        and row.tool != "claude"
+        and row.installed is not None
+        and (available is None or row.skills is None or row.skills < available)
+    )
+
+
+def run_install(tool: str | None, yes: bool, adopt: bool = False) -> int:
+    """Plan (default) or do (--yes) the install or update. The same command updates.
+
+    With `adopt` (also `--all`), same-named skill folders are replaced so every
+    pstack skill is installed. Without it, a skill of yours with the same name
+    is kept and counted as skipped.
+    """
     wanted = [t for t in TOOLS if detected(t)] if tool in (None, "all") else [tool]
     if not wanted:
         print("No agent tool found (looked for ~/.claude, ~/.codex and ~/.cursor).")
         print("Nothing to do. Use --tool NAME to pick one.")
         return 0
     latest = latest_version(force=yes)
-    todo = []
-    for row in rows():
-        if row.tool in wanted and (row.installed is None or is_behind(row.installed, latest)):
-            todo.append(row)
+    available = catalog_count()
+    todo = [
+        row
+        for row in rows()
+        if row.tool in wanted and _row_needs_install(row, latest, available, adopt)
+    ]
     if not todo:
         names = ", ".join(TOOLS[t] for t in wanted)
         print(f"Nothing to do. pstack is up to date for: {names}.")
@@ -449,12 +618,13 @@ def run_install(tool: str | None, yes: bool) -> int:
         done = (
             _install_claude(row, yes)
             if row.tool == "claude"
-            else _install_copy(row, latest, yes, cloned)
+            else _install_copy(row, latest, yes, cloned, adopt)
         )
         ok = ok and done
     if not yes:
         flag = f" --tool {tool}" if tool not in (None, "all") else ""
-        print(f"This is the plan. Nothing changed. To do it: {COMMAND}{flag}")
+        adopt_flag = " --adopt" if adopt else ""
+        print(f"This is the plan. Nothing changed. To do it: {COMMAND}{flag}{adopt_flag}")
     return 0 if ok else 1
 
 
@@ -465,7 +635,10 @@ def update_note() -> str:
     """
     try:
         latest = latest_version()
-        stale = [r for r in rows() if r.state(latest) in ("missing", "behind")]
+        available = catalog_count()
+        stale = [
+            r for r in rows() if r.state(latest, available) in ("missing", "behind", "partial")
+        ]
         if not stale:
             return ""
         out = io.StringIO()
