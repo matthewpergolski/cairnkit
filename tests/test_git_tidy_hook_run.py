@@ -331,7 +331,9 @@ def test_no_timeout_path_bounds_a_hung_start(repo, mem, capsys, tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == "" and result.stderr == ""
     assert 2.0 <= elapsed < 5.0, f"hung fallback took {elapsed:.2f}s"
-    assert after == before, f"leftover sleep after hung fallback: {after}"
+    # Only new sleeps count: a pre-existing sleep may exit during the wait.
+    leftover = [line for line in after if line not in before]
+    assert not leftover, f"leftover sleep after hung fallback: {leftover}"
 
 
 def test_bash_hook_stays_silent_when_perl_stops_a_hung_start(repo, mem, capsys, tmp_path):
@@ -370,7 +372,8 @@ def test_no_timeout_path_fast_push_is_quick_and_quiet(repo, mem, capsys, tmp_pat
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == "" and result.stderr == ""
     assert elapsed < 1.0, f"fast fallback stalled for {elapsed:.2f}s"
-    assert after == before, f"leftover sleep after fast fallback: {after}"
+    leftover = [line for line in after if line not in before]
+    assert not leftover, f"leftover sleep after fast fallback: {leftover}"
 
 
 def test_no_timeout_path_is_silent_when_cairnkit_is_missing(repo, mem, capsys, tmp_path):
