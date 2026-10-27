@@ -115,6 +115,18 @@ Built, in [benchmarks/](benchmarks/README.md):
 
 Not covered:
 
+- Raw-source baseline for the retrieval benchmark. A recent paper (arXiv
+  2610.34073, "memory tax") reports that many agent-memory systems score
+  below plain retrieval over the raw history on LongMemEval, PersonaMem and
+  MINT-Eval, because building the memory drops or distorts facts. Retrieving
+  from the raw history alongside the memory and reranking both together cut
+  the tax. We have not checked that cairnkit fact search beats searching the
+  raw sources. Plan, later: extend `benchmarks/retrieval_eval.py` with a
+  plain keyword/BM25 baseline over the repo docs, git log and PR text;
+  compare it with fact search and with the two merged. If the baseline wins,
+  add an "also search the sources" fallback to `memory search`. The paper's
+  benchmarks are chat-history recall, so the result may not transfer, and
+  the numbers here are from the paper's summary, not checked by us.
 - End-to-end agent runs, with and without `memory load`. The benchmark never
   asks a model anything, so it does not show that an agent does better work.
 - A per-prompt recall hook (inject a few notes for each prompt). `memory load`
