@@ -37,7 +37,9 @@ short_term_days = 14
 # rules_file = "CLAUDE.md"
 
 # What the session-start hook does with facts that are clearly redundant (exact
-# repeats, ended short-term facts). "auto" (the default) only reports for the
+# repeats, ended short-term facts). The same step runs after a git push or
+# merge. Those hooks are personal. A push does not count as a session start.
+# "auto" (the default) only reports for the
 # first 3 session starts and 7 days, then turns itself on, unless a retire was
 # undone. "report", "on" and "off" force a mode. `memory tidy --auto` always retires.
 # auto_tidy = "auto"

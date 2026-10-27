@@ -52,7 +52,10 @@ memory status
 
 To connect your agent tool, run `memory hooks install` in the project. Then
 the agent loads the memory at session start and checks it at session end.
-Start with `--dry-run` to see what it would write.
+Start with `--dry-run` to see what it would write. The same command adds two
+personal git hooks, `pre-push` and `post-merge`. They run auto-tidy after a
+push or a merge. They are not shared. They work for every agent, including
+OpenCode and Pi.
 
 ## What it is, and what it is not
 
@@ -92,8 +95,8 @@ It is not:
 | Claude Code | Hook adapter: `.claude/settings.local.json` (`SessionStart`, `Stop`). | Checked against the public docs. |
 | Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). | **Experimental.** Project hooks run only in a trusted project. |
 | Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). | **Experimental.** Cloud agents do not run `sessionStart`. |
-| OpenCode | No hook adapter. It reads `AGENTS.md`. | Not built. Set it up by hand (below). |
-| Pi | No hook adapter. It reads `AGENTS.md`. | Not built. Set it up by hand (below). |
+| OpenCode | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
+| Pi | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
 | Any other agent | `memory hooks install --agent generic` prints the two commands to connect by hand. | Manual. |
 
 For an agent with no hook, such as OpenCode or Pi:
@@ -106,7 +109,8 @@ For an agent with no hook, such as OpenCode or Pi:
 2. Make sure `AGENTS.md` exists and points to the file that holds the block.
    Then add this line to that file by hand, outside the markers:
    "Run `memory load` at session start." The block itself says that a hook
-   runs `memory load`, and these tools have no hook.
+   runs `memory load`, and these tools have no hook. Auto-tidy still runs
+   after a push or a merge. That does not load the memory.
 
 Details: [Agent hooks](#agent-hooks) and [docs/layering.md](docs/layering.md).
 
@@ -208,13 +212,22 @@ After that, **agents do the rest**:
 
 **Clean-up needs no person.** At each session start, the hook retires what
 needs no judgment: exact duplicates and short-term facts that have ended.
+The same step runs after a push or a merge. Those git hooks are personal.
+They live in this clone's `.git/hooks`. They are not shared, and they are
+not written to `.githooks/`. A teammate who does not use cairnkit never
+runs them. A teammate who does has their own memory and their own hooks.
+The two do not conflict. This works for every agent, including OpenCode
+and Pi. A push or a merge does not count as a session start. The git hook
+never stops git. It prints nothing when it works.
+
 Nothing is deleted. Each retire is a change record and one line in
 `auto-tidy.log`, with the command that undoes it.
 
 The default mode is `auto_tidy = "auto"`. For the first 3 session starts and
-7 days (the later of the two), the hook only reports what it would retire.
-Then it turns itself on. It does not turn on if someone set a retired fact back
-to `active`. That undo means a rule misfired. The hook stays in report mode,
+7 days (the later of the two), the step only reports what it would retire.
+A push or a merge uses that same gate. It does not add to the session count.
+Then the step turns itself on. It does not turn on if someone set a retired fact back
+to `active`. That undo means a rule misfired. The step stays in report mode,
 and an agent task asks the agent to review the rule. When the agent has fixed
 it, it runs `memory tidy --release`. Set `auto_tidy` to `"on"`, `"report"` or
 `"off"` in `config.toml` to force a mode. `memory tidy --auto` run by hand
@@ -493,9 +506,9 @@ level only. It writes nothing into a repo.
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Plan by default; `--yes` acts. |
 | `memory update [--check\|--dry-run] [--source PATH\|URL]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. `status` prints the version, the source and the update lines. |
 | `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Never adds a second block. |
-| `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. `memory hooks uninstall` removes only what it added. |
+| `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. Adds personal `pre-push` and `post-merge` hooks that run auto-tidy. They are not shared. `--no-git-hook` skips every git hook. `memory hooks uninstall` removes only what it added. |
 | `memory tidy [--days 90]`, `memory tidy --apply ID ...` | you, sometimes | Proposes clean-up; writes only the approved changes. |
-| `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start hook; you, to look; an agent, to release a hold | Retires the clear cases now: an exact duplicate (the older fact is superseded by the newest), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that a person set back to `active`. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |
+| `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start hook; the personal pre-push and post-merge hooks; you, to look; an agent, to release a hold | Retires the clear cases now: an exact duplicate (the older fact is superseded by the newest), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that a person set back to `active`. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. A push or a merge does not count as a session start. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |
 | `memory add [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` never refuses. It supersedes an exact repeat and links a near repeat with `similar_to`. `search` ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. When no whole word matches anywhere, it tries the words (4 letters or more) as the start of a longer word, so `deploy` finds "deployment" and `pass` finds "passed", and it says so on the first line. A short start must be a whole word with an ending: `retr` does not find "retries". A fact id is one word, so `memory search f-20261026-a053` finds that fact only. `--strict` brings back the old match, where every word must appear as a substring (also for an empty query, which is an error without it). `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
 | `memory load [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |

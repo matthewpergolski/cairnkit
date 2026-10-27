@@ -117,7 +117,7 @@ flowchart TB
 | Update | `memory add --supersedes ID`, `memory change ID`, `memory keep ID` | Each adds a change record. The old state stays in the archive. `memory add` never refuses. It supersedes an exact repeat by itself, and it links a near repeat to the old fact with `similar_to`. An exact repeat of a rule or a pinned fact writes nothing. A `told` fact is never superseded by a fact with another basis; the new fact is written beside it. The same words as a retired fact are written with a `similar_to` link and a note. |
 | Forget | `memory change ID --status expired\|wrong --reason ...` | The fact leaves the load. The archive keeps it with its reason. Short-term facts also end by date or merge, computed at read time. |
 | Review | `memory tidy`, `memory tidy --apply ID ...` | Proposes stale facts and rules for the shared rules file. A person approves each one. Similar pairs go to the agent as a task in `proposals/tidy-followups.md`. |
-| Clean-up | `memory tidy --auto` (also the session-start hook) | Retires exact duplicates and ended short-term facts (`auto_tidy = "auto"` reports first, then turns on). A change record and a log line for each, with the undo command. Never a rule or a pinned fact. |
+| Clean-up | `memory tidy --auto` (also the session-start hook, and after a push or a merge) | Retires exact duplicates and ended short-term facts (`auto_tidy = "auto"` reports first, then turns on). A push or a merge uses the same gate and does not count as a session start. The git hooks are personal, not shared. A change record and a log line for each, with the undo command. Never a rule or a pinned fact. |
 | Delete | `memory purge ID --reason secret --yes` | The only real deletion. It leaves a tombstone with no content. |
 
 ### Replace or narrow

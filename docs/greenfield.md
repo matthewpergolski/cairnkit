@@ -24,13 +24,19 @@ no agent hooks and no agent rules.
      `memory preset show dev --detect`. See [presets.md](presets.md).
 5. Connect the agent tool and git: `memory hooks install`.
    - Add `--agent claude`, `codex` or `cursor` when the tool is not found.
+   - This also adds personal `pre-push` and `post-merge` hooks. They tidy
+     the memory after a push or a merge. They stay in this clone. They are
+     not committed. A teammate who does not use cairnkit never runs them.
+     A teammate who does has a separate memory and separate hooks. The two
+     do not conflict.
 6. That is all for one person. Every session loads the memory at the start.
    Rule facts load first.
 7. Check: `git status` shows nothing new. Run `memory check`. It must say `ok`.
 8. Start an agent session. The agent gets the memory at the start, and it
    records facts as it works.
 9. Exact duplicates and ended short-term facts leave the load by themselves at
-   each session start (see `auto-tidy.log`). The first sessions only report.
+   each session start, and also after a push or a merge (see `auto-tidy.log`).
+   The first sessions only report. A push does not count as a session start.
    Similar pairs go to the agent as a task (`proposals/tidy-followups.md`). From
    time to time, run `memory tidy`, read the proposals for rule promotions and
    stale facts, and approve the ones you want with `memory tidy --apply ID ...`.
@@ -48,6 +54,9 @@ the rules.
   `.githooks/` and not `.git/hooks/`. The tracked `.githooks/pre-commit` runs
   the memory guard when the tool is installed, and does nothing when it is not.
   The tracked `.githooks/post-checkout` links a new worktree the same way.
+  The tidy hooks are not in `.githooks/`. If you point `core.hooksPath` at
+  `.githooks`, git does not run `.git/hooks`. Add the `pre-push` and
+  `post-merge` blocks by hand if you still want tidy after a push or a merge.
 
 ## Where does each rule go
 

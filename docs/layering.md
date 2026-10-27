@@ -87,8 +87,10 @@ with `memory init --dry-run` and `memory hooks install --dry-run`.
 | `.cursor/hooks.json` | `memory hooks install` (Cursor found) | No | The same hooks. Added to `.git/info/exclude`. |
 | `.git/hooks/pre-commit` | `memory hooks install` | No: it is inside `.git` | Refuses a commit that stages the `memory-bank` link. `--no-git-hook` skips it. |
 | `.git/hooks/post-checkout` | `memory hooks install` | No | Links the memory into a new worktree made with `git worktree add`. With `--commit-msg-guard=shared`, `.githooks/post-checkout` (tracked) does the same, once each clone runs `git config core.hooksPath .githooks`. Re-run `memory hooks install` in an older project to get it. |
+| `.git/hooks/pre-push` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a push. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the push. Re-run `memory hooks install` in an older project to get it. |
+| `.git/hooks/post-merge` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a merge. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the merge. |
 | `.git/hooks/commit-msg` | `memory hooks install --commit-msg-guard` only | No | Refuses AI attribution lines in a commit message. |
-| `.githooks/` | `memory hooks install --commit-msg-guard=shared` only | Yes | The commit-msg guard and pre-commit hook, for every clone. |
+| `.githooks/` | `memory hooks install --commit-msg-guard=shared` only | Yes | The commit-msg guard, pre-commit hook and post-checkout hook, for every clone. Does not include `pre-push` or `post-merge`. |
 
 The hook files go into every checkout and worktree of the repo. An existing
 file is merged, never replaced. When git tracks a hook file, the tool does
@@ -192,8 +194,8 @@ Memory records what happened and what is true now.
 | Codex | `.codex/hooks.json` | The session-start hook. | Built, **experimental**. Project hooks run only in a trusted project, after you review them in `/hooks`. |
 | Cursor | `.cursor/hooks.json` | The session-start hook. | Built, **experimental**. Cloud agents do not run `sessionStart`. |
 | Grok CLI | None | Its docs say that it reads `.cursor/hooks.json` and `~/.claude/settings.json`, and that it has its own `.grok/hooks/`. Whether it runs the Cursor hooks that `memory` writes is not known. | **Not verified here. Not built.** |
-| Pi | None | Only the rules block in `AGENTS.md`. | No hook adapter yet. |
-| OpenCode | None | Only the rules block in `AGENTS.md`. | No hook adapter yet. |
+| Pi | None | Only the rules block in `AGENTS.md`. Auto-tidy still runs after a push or a merge once `memory hooks install` has run. | No hook adapter yet. |
+| OpenCode | None | The same as Pi. | No hook adapter yet. |
 | Any other tool | None. `memory hooks install --agent generic` prints the commands to connect by hand. | The commands, or the rules block. | Connect by hand. |
 
 A tool without a hook gets memory only when its instructions tell it to run
@@ -201,6 +203,8 @@ A tool without a hook gets memory only when its instructions tell it to run
 tells the agent to run `memory check --strict` before it finishes. A tool
 with no hook does not run `memory load` by itself. So add the line
 "Run `memory load` at session start." to `AGENTS.md`, outside the markers.
+Auto-tidy still runs after a push or a merge. That step does not load the
+memory. The git hooks are personal to this clone.
 
 ## Built
 
@@ -236,6 +240,9 @@ These items were planned. They are built now.
   that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already holds, in the
   same words, does not go into the worklist of candidate facts. Migrate says
   how many it skipped. See [brownfield.md](brownfield.md).
+- **Git-event tidy.** `memory hooks install` adds personal `pre-push` and
+  `post-merge` hooks. They run the same auto-tidy step as session start.
+  They are not shared. They work for every agent, including OpenCode and Pi.
 
 ## If you have duplicates
 

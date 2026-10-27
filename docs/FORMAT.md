@@ -60,7 +60,7 @@ before the home folder and the file system root.
   proposals/tidy-followups.md   the agent task for similar pairs (rebuilt; removed when empty)
   proposals/migrate-candidates.jsonl   output of `memory migrate`
   proposals/migrate-followups.md       the agent task of `memory migrate --fix-references`
-  auto-tidy.log                 one line per retire by `memory tidy --auto`, with the undo command
+  auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
@@ -281,9 +281,11 @@ once.
 
 ### Git hooks
 
-Files: `pre-commit`, `post-checkout` and `commit-msg` in the hooks folder
-that git uses (`git rev-parse --git-path hooks`), or in `.githooks/` for the
-shared option.
+Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `commit-msg`
+in the hooks folder that git uses (`git rev-parse --git-path hooks`).
+The shared option writes `commit-msg`, `pre-commit` and `post-checkout` into
+`.githooks/`. It does not write `pre-push` or `post-merge`. Those two stay
+in this clone.
 
 | | Start | End |
 |---|---|---|
@@ -302,6 +304,11 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   Shared: `memory hook pre-commit`, run only when `memory` is on `PATH`.
 - `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
+- `pre-push`: `if [ -x PY ]; then PY -m cairnkit hook pre-push </dev/null || true; fi`.
+  It does not read stdin or the arguments. It never fails the push.
+  Not part of the shared option.
+- `post-merge`: the same shape, with `hook post-merge`. It never fails the merge.
+  Not part of the shared option.
 - `commit-msg` (opt-in): a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
@@ -356,6 +363,12 @@ The session key is `session_id`, else `conversation_id`, else `default`.
   or inside the memory folder, or when `memory check` finds an error. With no
   memory folder it exits 0.
 - `post-checkout`: makes the `memory-bank` link in a new worktree.
+- `pre-push` and `post-merge`: run the same auto-tidy step as `session-start`.
+  They do not count as a session start. They print nothing. They always exit 0.
+  With no memory folder they do nothing. If the step takes more than a few
+  seconds, they stop and leave the memory as it is. Before the gate they only
+  report. After the gate they retire. The same lock, and the same retire id,
+  keep one retire when a session start runs at the same time.
 
 ## 8. Install record and update receipt
 

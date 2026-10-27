@@ -29,8 +29,9 @@ in [docs/](docs/).
 
 ## Clean-up
 
-`memory tidy` and `memory tidy --auto` are built. Still to build, with no
-model:
+`memory tidy` and `memory tidy --auto` are built. Git-event tidy is built
+too: personal `pre-push` and `post-merge` hooks run the same step after a
+push or a merge. Still to build, with no model:
 
 - `superseded_by` chains that end in a fact that is not active;
 - `promoted` facts whose `held_by` file is gone;

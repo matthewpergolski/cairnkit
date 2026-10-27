@@ -161,4 +161,22 @@ memory init --refresh > /dev/null
 [ "$(cat AGENTS.md)" = "$(printf '# Team rules\n\nUse uv.\n')" ] || fail "AGENTS.md was edited by a local write"
 echo "import kept, AGENTS.md untouched"
 
+step "personal tidy hooks: push exits 0 after the memory folder is removed"
+mkdir -p "$tmp/tidyhook" && cd "$tmp/tidyhook"
+git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
+echo a > a.txt && git add a.txt && git commit -qm init
+memory init --no-default-rules >/dev/null
+memory hooks install --agent generic >/dev/null
+[ -x .git/hooks/pre-push ] || fail "pre-push was not installed"
+[ -x .git/hooks/post-merge ] || fail "post-merge was not installed"
+git init -q --bare "$tmp/tidyhook.git"
+git remote add origin "$tmp/tidyhook.git"
+rm -rf "$tmp/tidyhook.memory"
+git push -q origin main || fail "push failed after the memory folder was removed"
+git checkout -q -b feature
+echo b > b.txt && git add b.txt && git commit -qm feature
+git checkout -q main
+git merge -q --no-ff --no-edit feature || fail "merge failed after the memory folder was removed"
+echo "push and merge with no memory: ok"
+
 echo "e2e: ok"

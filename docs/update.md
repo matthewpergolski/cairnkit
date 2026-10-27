@@ -94,6 +94,11 @@ This line compares version numbers. So a release that changes these files
 must raise the version in `pyproject.toml` and `__init__.py`. A test checks
 that the two match.
 
+`memory init --refresh` rewrites a hook that is already there. It does not
+add a missing hook. `pre-push` and `post-merge` are new. After you update,
+run `memory hooks install` in each repo. That adds the new hooks. A second
+run changes nothing.
+
 ## From project-memory to cairnkit
 
 The tool was named `project-memory`. Its Python package was `project_memory`.

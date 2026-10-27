@@ -56,13 +56,13 @@ src/cairnkit/
   rules_target.py  which file takes the rules block (CLAUDE.local.md; CLAUDE.md or AGENTS.md)
   ignore.py      .git/info/exclude
   tidy.py        memory tidy (no AI)
-  autotidy.py    memory tidy --auto: retire the clear cases, with the undo log
+  autotidy.py    memory tidy --auto: retire the clear cases; session start and git hooks call it
   followups.py   the agent task for similar pairs and other follow-ups
   session.py     hook state per session
   hookrun.py     memory hook EVENT --agent NAME (output per agent)
   adapters.py    agent hook configs, one per agent tool
   markers.py     the start and end markers of a block, new and old names
-  githook.py     git pre-commit, post-checkout (new worktree link) and commit-msg guard
+  githook.py     git pre-commit, post-checkout, pre-push, post-merge (tidy) and commit-msg guard
   install_source.py  where memory was installed from; the cached newer check
   update.py      memory update and memory status
   progress.py    the step display of memory update

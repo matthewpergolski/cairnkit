@@ -126,10 +126,15 @@ refuses, merges, or adds a marked block.
    then `memory preset add dev`. It adds only the missing rules. It skips a
    rule that a person ended and a rule with the same text as one you have.
 6. **If you have git hooks**, the tool adds a marked block after the first
-   line of a shell hook and keeps the rest. When `core.hooksPath` points into
-   the repo, it changes nothing and prints the block to add by hand. A team
-   that wants a shared guard can opt in with `--commit-msg-guard=shared`
-   (tracked hooks in `.githooks/`).
+   line of a shell hook and keeps the rest. It also adds personal `pre-push`
+   and `post-merge` hooks. They run auto-tidy after a push or a merge.
+   They stay in this clone. They are not committed. A teammate who does not
+   use cairnkit never runs them. A teammate who does has a separate memory
+   and separate hooks. The two do not conflict.
+   When `core.hooksPath` points into the repo, the tool changes nothing and
+   prints the block to add by hand. A team that wants a shared guard can opt
+   in with `--commit-msg-guard=shared` (tracked hooks in `.githooks/`).
+   That set does not include the tidy hooks.
 7. Check: `git status`, `memory check`, then start an agent session.
 8. Durable lessons move into the shared rules file only through `memory tidy`
    proposals that you approve.
