@@ -4,6 +4,7 @@ import io
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from conftest import git, make_fact, read_jsonl, write_facts
@@ -204,6 +205,67 @@ def test_git_events_exit_0_when_the_python_path_is_missing(repo, mem, capsys):
             path.write_text(path.read_text().replace(sys.executable, "/no/such/cairnkit-python"))
     push_main(repo)
     merge_side(repo)
+
+
+def test_a_hung_python_start_does_not_stall_the_push(repo, mem, capsys, tmp_path):
+    """The shell block must bound process start, not only the in-process SIGALRM budget."""
+    install(capsys)
+    fake = tmp_path / "hung-python"
+    fake.write_text("#!/bin/sh\nexec sleep 60\n")
+    fake.chmod(0o755)
+    hook = repo / ".git" / "hooks" / "pre-push"
+    hook.write_text(hook.read_text().replace(sys.executable, str(fake)))
+    bare = repo.parent / "remote.git"
+    if not bare.exists():
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+        git(repo, "remote", "add", "origin", str(bare))
+    (repo / "hung-push.txt").write_text("x\n")
+    git(repo, "add", "hung-push.txt")
+    git_quiet(repo, "commit", "-q", "-m", "hung push marker")
+    began = time.monotonic()
+    result = subprocess.run(
+        ["git", "push", "-q", "origin", "HEAD:main"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    elapsed = time.monotonic() - began
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "" and result.stderr == ""
+    assert elapsed < 8, f"hung interpreter stalled the push for {elapsed:.1f}s"
+
+
+def test_git_events_print_nothing_when_cairnkit_is_missing(repo, mem, capsys):
+    """An existing interpreter without cairnkit must not print to the push terminal."""
+    install(capsys)
+    # A real system python that is not the test env (so cairnkit is not importable).
+    py = "/usr/bin/python3"
+    assert Path(py).is_file() and py != sys.executable
+    probe = subprocess.run([py, "-c", "import cairnkit"], capture_output=True, text=True)
+    assert probe.returncode != 0
+    assert "No module named" in probe.stderr and "cairnkit" in probe.stderr
+    # Only the quiet tidy hooks: pre-commit must keep a working interpreter.
+    for name in ("pre-push", "post-merge"):
+        path = repo / ".git" / "hooks" / name
+        path.write_text(path.read_text().replace(sys.executable, py))
+    bare = repo.parent / "remote.git"
+    if not bare.exists():
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+        git(repo, "remote", "add", "origin", str(bare))
+    (repo / "missing-mod.txt").write_text("x\n")
+    git(repo, "add", "missing-mod.txt")
+    git_quiet(repo, "commit", "-q", "-m", "missing module marker")
+    result = subprocess.run(
+        ["git", "push", "-q", "origin", "HEAD:main"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert "No module named" not in result.stderr
+    assert "cairnkit" not in result.stderr
 
 
 def test_git_events_exit_0_when_the_store_is_locked(repo, mem, capsys):
