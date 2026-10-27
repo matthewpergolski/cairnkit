@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
+
 from cairnkit import adapters, githook, markers, refresh, rules
-from cairnkit.init import ensure_all_linked, is_linked
+from cairnkit.init import can_link, ensure_all_linked, is_linked
 from cairnkit.memory import Memory, MemoryMissing
-from cairnkit.paths import Project, resolve_memory_dir
+from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir
 
 
 def guard_patterns(project: Project, flag: str | None) -> list[str]:
@@ -43,13 +45,23 @@ def run_install(
             print(markers.broken_message(path, "memory hooks install"))
         return 1
     steps: list[str] = []
+    memdir, _ = resolve_memory_dir(project, flag)
     # Link every checkout that can be linked before writing agent config into it.
     if not dry_run:
         steps += ensure_all_linked(project, flag)
-    memdir, _ = resolve_memory_dir(project, flag)
+    else:
+        for checkout in project.checkouts:
+            if can_link(project, checkout, memdir):
+                target = os.path.relpath(memdir, checkout)
+                steps.append(f"would link {checkout / LINK_NAME} -> {target}")
     has_memory = (memdir / "facts").is_dir()
     if has_memory:
-        targets = [c for c in project.checkouts if dry_run or is_linked(c, memdir)]
+        # Real install: only linked checkouts. Dry-run: already linked or healable.
+        targets = [
+            c
+            for c in project.checkouts
+            if is_linked(c, memdir) or (dry_run and can_link(project, c, memdir))
+        ]
         if not dry_run:
             for checkout in project.checkouts:
                 if checkout not in targets:

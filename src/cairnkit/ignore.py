@@ -28,10 +28,11 @@ def exclude_file(project: Project) -> Path | None:
     return project.common_dir / "info" / "exclude"
 
 
-def is_tracked(project: Project, rel: str) -> bool:
+def is_tracked(project: Project, rel: str, checkout: Path | None = None) -> bool:
+    """True when git tracks rel in checkout (default: the discovery root)."""
     if not project.is_git:
         return False
-    return bool(run_git(project.root, "ls-files", "--", rel))
+    return bool(run_git(checkout or project.root, "ls-files", "--", rel))
 
 
 def exclude(project: Project, lines: list[str], dry_run: bool = False) -> list[str]:

@@ -120,6 +120,16 @@ def is_linked(checkout: Path, memdir: Path) -> bool:
     return link.is_symlink() and link.exists() and link.resolve() == memdir.resolve()
 
 
+def can_link(project: Project, checkout: Path, memdir: Path) -> bool:
+    """True when ensure_linked would create a link in this checkout."""
+    link = checkout / LINK_NAME
+    return (
+        (memdir / "facts").is_dir()
+        and not os.path.lexists(link)
+        and not is_tracked(project, LINK_NAME, checkout)
+    )
+
+
 def ensure_linked(
     project: Project,
     checkout: Path,
@@ -130,12 +140,13 @@ def ensure_linked(
 
     Memory is resolved from the main checkout, so a worktree needs no
     .memory-path of its own. Acts only on a missing path that git does not
-    track, and only when the memory folder exists. Returns a notice, or None.
+    track in this checkout, and only when the memory folder exists. Returns a
+    notice, or None.
     """
     if memdir is None:
         memdir, _ = resolve_memory_dir(project, flag)
     link = checkout / LINK_NAME
-    if not (memdir / "facts").is_dir() or os.path.lexists(link) or is_tracked(project, LINK_NAME):
+    if not can_link(project, checkout, memdir):
         return None
     target = os.path.relpath(memdir, checkout)
     try:
