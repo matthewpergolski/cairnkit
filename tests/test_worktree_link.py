@@ -23,7 +23,10 @@ def new_worktree(repo, branch, *extra):
 
 def install(capsys, *args):
     capsys.readouterr()
-    assert main(["hooks", "install", "--agent", "generic", *args]) == 0
+    cmd = ["hooks", "install", *args]
+    if not any(a == "--agent" or str(a).startswith("--agent=") for a in args):
+        cmd[2:2] = ["--agent", "generic"]
+    assert main(cmd) == 0
     return capsys.readouterr().out
 
 
@@ -226,9 +229,72 @@ def test_link_elsewhere_is_never_replaced(repo, mem, capsys, tmp_path, monkeypat
     assert (wt / "memory-bank").resolve() == other.resolve()
 
 
-def test_main_checkout_is_not_healed(repo, mem, capsys):
+def test_main_checkout_is_healed_when_memory_exists(repo, mem, capsys):
     (repo / "memory-bank").unlink()
     code, out = run(capsys, "check")
+    assert code == 0, out
+    assert (repo / "memory-bank").resolve() == mem.resolve()
+    assert "linked" in out
+
+
+def test_hooks_install_links_worktrees_made_before_install(repo, mem, capsys, monkeypatch):
+    """Older worktrees (no post-checkout yet) must get a link before agent config."""
+    from conftest import add_worktree
+
+    wt1 = add_worktree(repo, "old1")
+    wt2 = add_worktree(repo, "old2")
+    assert not os.path.lexists(wt1 / "memory-bank")
+    assert not os.path.lexists(wt2 / "memory-bank")
+    install(capsys, "--agent", "claude")
+    assert (wt1 / "memory-bank").resolve() == mem.resolve()
+    assert (wt2 / "memory-bank").resolve() == mem.resolve()
+    assert (wt1 / ".claude" / "settings.local.json").is_file()
+    assert (wt2 / ".claude" / "settings.local.json").is_file()
+    git(wt1, "check-ignore", "-q", "memory-bank")
+    assert git(wt1, "status", "--porcelain") == ""
+    monkeypatch.chdir(wt1)
+    code, out = run(capsys, "check", "--strict")
+    assert code == 0, out
+
+
+def test_check_heals_every_unlinked_worktree_not_only_cwd(repo, mem, capsys):
+    from conftest import add_worktree
+
+    wt1 = add_worktree(repo, "twin-a")
+    wt2 = add_worktree(repo, "twin-b")
+    code, out = run(capsys, "check")
+    assert code == 0, out
+    assert (wt1 / "memory-bank").resolve() == mem.resolve()
+    assert (wt2 / "memory-bank").resolve() == mem.resolve()
+    assert out.count("memory: linked") == 2
+
+
+def test_missing_link_error_names_existing_memory_not_bare_init(
+    repo, mem, capsys, monkeypatch
+):
+    """When a link cannot be auto-created, name the memory and the repair command."""
+
+    def fail(*args, **kwargs):
+        raise OSError("read-only")
+
+    monkeypatch.setattr("cairnkit.init.exclude", fail)
+    from conftest import add_worktree
+
+    wt = add_worktree(repo, "noheal")
+    code, out = run(capsys, "check")
     assert code == 1
+    assert not os.path.lexists(wt / "memory-bank")
+    assert str(mem) in out
+    assert f"memory init --path {mem}" in out
+    assert "missing; run `memory init`" not in out
+
+
+def test_no_memory_means_no_links_and_no_agent_config_in_worktrees(repo, capsys):
+    from conftest import add_worktree
+
+    wt = add_worktree(repo, "lonely")
+    install(capsys, "--agent", "claude")
     assert not os.path.lexists(repo / "memory-bank")
-    assert "missing; run `memory init`" in out
+    assert not os.path.lexists(wt / "memory-bank")
+    # No memory to link to: do not write stop-hook config into an unlinked worktree.
+    assert not (wt / ".claude" / "settings.local.json").exists()
