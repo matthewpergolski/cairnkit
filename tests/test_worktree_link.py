@@ -296,3 +296,58 @@ def test_no_memory_means_no_links_and_no_agent_config_in_worktrees(repo, capsys)
     assert not os.path.lexists(wt / "memory-bank")
     # No memory to link to: do not write stop-hook config into an unlinked worktree.
     assert not (wt / ".claude" / "settings.local.json").exists()
+
+
+def _worktree_on_tracked_memory_bank_branch(repo, mem, name: str):
+    """A worktree whose index tracks memory-bank as a file, then the file is removed."""
+    git(repo, "checkout", "-q", "-b", f"tracked-{name}")
+    (repo / "memory-bank").unlink()
+    (repo / "memory-bank").write_text("tracked\n")
+    git(repo, "add", "-f", "memory-bank")
+    git(repo, "commit", "-q", "--no-verify", "-m", f"tracked memory-bank {name}")
+    git(repo, "checkout", "-q", "main")
+    # Relink main after the branch dance removed its symlink.
+    if not (repo / "memory-bank").is_symlink():
+        (repo / "memory-bank").unlink(missing_ok=True)
+        (repo / "memory-bank").symlink_to(os.path.relpath(mem, repo), target_is_directory=True)
+    wt = repo / ".worktrees" / name
+    result = subprocess.run(
+        ["git", "worktree", "add", str(wt), f"tracked-{name}"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (wt / "memory-bank").is_file()
+    (wt / "memory-bank").unlink()
+    assert not os.path.lexists(wt / "memory-bank")
+    return wt
+
+
+def test_check_from_main_does_not_symlink_over_tracked_worktree_path(repo, mem, capsys):
+    """Heal must not create a symlink where that worktree's index tracks memory-bank."""
+    wt = _worktree_on_tracked_memory_bank_branch(repo, mem, "tracked-rm")
+    code, out = run(capsys, "check")
+    assert not (wt / "memory-bank").is_symlink(), out
+    assert "T memory-bank" not in git(wt, "status", "--porcelain")
+    # The missing tracked path is still an error, with a --path repair hint.
+    assert code == 1
+    assert f"memory init --path {mem}" in out
+
+
+def test_check_from_tracked_worktree_still_heals_other_checkouts(repo, mem, capsys, monkeypatch):
+    """is_tracked must be per-checkout: a tracked worktree must not block healing others."""
+    from conftest import add_worktree
+
+    tracked = _worktree_on_tracked_memory_bank_branch(repo, mem, "tracked-cwd")
+    sibling = add_worktree(repo, "sibling-ok")
+    assert not os.path.lexists(sibling / "memory-bank")
+    (repo / "memory-bank").unlink()
+    assert not os.path.lexists(repo / "memory-bank")
+    monkeypatch.chdir(tracked)
+    code, out = run(capsys, "check")
+    assert (repo / "memory-bank").resolve() == mem.resolve(), out
+    assert (sibling / "memory-bank").resolve() == mem.resolve(), out
+    assert not (tracked / "memory-bank").is_symlink()
+    assert "linked" in out
+    assert code == 1  # tracked worktree still missing / not a valid link
