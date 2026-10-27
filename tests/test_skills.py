@@ -394,6 +394,99 @@ def test_a_skill_of_the_user_with_the_same_name_is_kept(world, capsys):
     assert (world.home / ".codex" / "skills" / "unslop" / "SKILL.md").is_file()
 
 
+def test_clean_install_copies_every_skill_and_reports_counts(world, capsys):
+    world.dirs(".codex")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "codex", "--yes")
+    assert code == 0
+    base = world.home / ".codex" / "skills"
+    for name in SKILLS:
+        assert (base / name / "SKILL.md").is_file()
+    assert "3 skill(s) installed" in out or "installed 3" in out
+    assert "0 skipped" in out
+    marker = json.loads((base / ".pstack" / "install.json").read_text())
+    assert sorted(marker["skills"]) == sorted(SKILLS)
+
+
+def test_preexisting_same_named_are_kept_without_adopt_and_counts_say_why(world, capsys):
+    world.dirs(".codex")
+    base = world.home / ".codex" / "skills"
+    for name in SKILLS:
+        (base / name).mkdir(parents=True)
+        (base / name / "SKILL.md").write_text(f"mine {name}")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "codex", "--yes")
+    assert code == 0
+    for name in SKILLS:
+        assert (base / name / "SKILL.md").read_text() == f"mine {name}"
+    assert "0 skill(s) installed" in out or "installed 0" in out
+    assert "3 skipped" in out
+    assert "kept your own" in out
+    marker = json.loads((base / ".pstack" / "install.json").read_text())
+    assert marker["skills"] == []
+
+
+def test_adopt_replaces_same_named_folders_and_installs_every_skill(world, capsys):
+    world.dirs(".codex")
+    base = world.home / ".codex" / "skills"
+    for name in SKILLS:
+        (base / name).mkdir(parents=True)
+        (base / name / "SKILL.md").write_text(f"mine {name}")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "codex", "--adopt", "--yes")
+    assert code == 0
+    for name in SKILLS:
+        assert "Body of" in (base / name / "SKILL.md").read_text()
+    assert "3 skill(s) installed" in out or "installed 3" in out
+    assert "0 skipped" in out
+    assert "adopt" in out.lower() or "replaced" in out.lower()
+    marker = json.loads((base / ".pstack" / "install.json").read_text())
+    assert sorted(marker["skills"]) == sorted(SKILLS)
+
+
+def test_all_flag_is_the_same_as_adopt(world, capsys):
+    world.dirs(".cursor")
+    base = world.home / ".cursor" / "skills"
+    (base / "tdd").mkdir(parents=True)
+    (base / "tdd" / "SKILL.md").write_text("mine")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "cursor", "--all", "--yes")
+    assert code == 0
+    assert "Body of tdd" in (base / "tdd" / "SKILL.md").read_text()
+    assert sorted(json.loads((base / ".pstack" / "install.json").read_text())["skills"]) == sorted(
+        SKILLS
+    )
+
+
+def test_stale_marker_partial_install_is_filled_on_rerun(world, capsys):
+    """A marker that lists only some skills must not block installing the rest."""
+    world.dirs(".codex")
+    base = world.mark("codex", names=("tdd",))  # version matches latest; only one owned
+    # Pretend an earlier plugin left the other names (unowned): they were "kept".
+    for name in ("poteto-mode", "unslop"):
+        (base / name).mkdir()
+        (base / name / "SKILL.md").write_text(f"old plugin {name}")
+    # Without --adopt: missing owned gaps are none; unowned stay. Status must show partial.
+    _, status = run(capsys, "skills", "status")
+    line = next(x for x in status.splitlines() if "Codex" in x)
+    assert "1/3" in line or "1 of 3" in line
+    # --adopt claims the leftover same-named folders so every skill is owned and current.
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "codex", "--adopt", "--yes")
+    assert code == 0
+    assert "Nothing to do" not in out
+    for name in SKILLS:
+        assert "Body of" in (base / name / "SKILL.md").read_text()
+    marker = json.loads((base / ".pstack" / "install.json").read_text())
+    assert sorted(marker["skills"]) == sorted(SKILLS)
+    assert "3 skill(s) installed" in out or "installed 3" in out
+
+
+def test_status_shows_installed_vs_available_skill_counts(world, capsys):
+    world.dirs(".codex")
+    world.mark("codex", names=("tdd", "unslop"))  # 2 of 3 from the fake source catalog
+    # Seed the catalog count the status line reads (same place install writes).
+    skills.record_catalog(len(SKILLS))
+    _, out = run(capsys, "skills", "status")
+    line = next(x for x in out.splitlines() if "Codex" in x)
+    assert "2/3" in line or "2 of 3" in line
+
+
 def test_install_touches_no_tracked_file_in_a_repo(world, repo, capsys):
     world.dirs(".codex", ".claude")
     run(capsys, "skills", "install", "pstack", "--yes")
