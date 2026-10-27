@@ -35,6 +35,43 @@ def test_load_and_status_say_when_the_source_folder_is_newer(repo, machine, caps
     assert "a newer memory is at" in out
 
 
+def test_status_shows_the_installed_git_ref(repo, machine, monkeypatch, capsys):  # noqa: F811
+    """After an install, status names the short commit like uv's @hash."""
+    from test_update import head
+
+    assert main(["init"]) == 0
+    assert main(["update"]) == 0
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.2.0")
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    out = capsys.readouterr().out
+    short = head(machine.source)[:7]
+    assert f"memory 0.2.0 @{short}" in out
+    assert f"Source: {machine.source} (folder)" in out
+
+
+def test_status_shows_commit_subjects_when_the_source_is_newer(
+    repo, machine, monkeypatch, capsys
+):  # noqa: F811
+    from test_update import head
+
+    assert main(["init"]) == 0
+    monkeypatch.setenv("MEMORY_NOW", "2026-10-25T09:00:00+00:00")
+    assert main(["update"]) == 0
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.2.0")
+    git(machine.source, "commit", "-q", "--allow-empty", "-m", "Add the quiet hook.")
+    git(machine.source, "commit", "-q", "--allow-empty", "-m", "Hide the alarm line.")
+    # The post-update cache still says "not newer"; wait a day so status rechecks.
+    monkeypatch.setenv("MEMORY_NOW", "2026-10-26T10:00:00+00:00")
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "a newer memory is at" in out
+    assert "Add the quiet hook." in out
+    assert "Hide the alarm line." in out
+    assert head(machine.source)[:7] in out
+
+
 def test_the_check_is_cached_for_a_day(repo, machine, monkeypatch, capsys):  # noqa: F811
     assert main(["init"]) == 0
     monkeypatch.setenv("MEMORY_NOW", "2026-10-25T09:00:00+00:00")

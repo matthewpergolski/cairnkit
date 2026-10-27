@@ -193,6 +193,74 @@ def test_a_new_commit_with_the_same_version_is_an_update(machine, monkeypatch, c
     assert first[:7] in out and head(machine.source)[:7] in out
 
 
+def test_update_check_shows_commit_subjects_between_refs(machine, monkeypatch, capsys):
+    """When a local folder moved on, --check lists the subjects that would land."""
+    assert main(["update"]) == 0
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.2.0")
+    git(machine.source, "commit", "-q", "--allow-empty", "-m", "Add the quiet hook.")
+    git(machine.source, "commit", "-q", "--allow-empty", "-m", "Hide the alarm line.")
+    capsys.readouterr()
+    assert main(["update", "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "Update available" in out
+    assert "Add the quiet hook." in out
+    assert "Hide the alarm line." in out
+
+
+def test_update_prints_commit_subjects_after_a_successful_install(machine, monkeypatch, capsys):
+    assert main(["update"]) == 0
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.2.0")
+    git(machine.source, "commit", "-q", "--allow-empty", "-m", "Record the installed ref.")
+    capsys.readouterr()
+    assert main(["update"]) == 0
+    out = capsys.readouterr().out
+    assert "Record the installed ref." in out
+    assert "memory updated:" in out
+
+
+def test_update_check_shows_a_github_compare_url(machine, monkeypatch, capsys):
+    """A GitHub git URL has no local history; --check prints a compare link instead."""
+    url = "https://github.com/example/cairnkit"
+    old = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    new = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    (machine.env / "uv-receipt.toml").write_text(
+        f'[tool]\nrequirements = [{{ name = "cairnkit", git = "{url}" }}]\n'
+        f'entrypoints = [{{ name = "memory", install-path = "{machine.bin / "memory"}" }}]\n'
+    )
+    record = {"source": f"git+{url}", "commit": old, "version": "0.1.0"}
+    (machine.env / install_source.RECORD).write_text(json.dumps(record))
+    monkeypatch.setattr(
+        install_source, "latest", lambda source, timeout=3.0: install_source.Latest(new, None)
+    )
+    assert main(["update", "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "Update available" in out
+    assert f"https://github.com/example/cairnkit/compare/{old[:7]}...{new[:7]}" in out
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        (
+            "https://github.com/example/cairnkit",
+            "https://github.com/example/cairnkit/compare/aaa1111...bbb2222",
+        ),
+        (
+            "https://github.com/example/cairnkit.git",
+            "https://github.com/example/cairnkit/compare/aaa1111...bbb2222",
+        ),
+        (
+            "git@github.com:example/cairnkit.git",
+            "https://github.com/example/cairnkit/compare/aaa1111...bbb2222",
+        ),
+        ("https://gitlab.com/example/cairnkit", None),
+        ("/tmp/local-folder", None),
+    ],
+)
+def test_github_compare_url(spec, expected):
+    assert install_source.github_compare_url(spec, "aaa1111ffff", "bbb2222eeee") == expected
+
+
 def test_check_says_so_and_changes_nothing(machine, capsys):
     assert main(["update", "--check"]) == 0
     out = capsys.readouterr().out
