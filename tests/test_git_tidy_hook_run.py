@@ -52,6 +52,7 @@ def ensure_origin(repo: Path) -> None:
         subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
         git(repo, "remote", "add", "origin", str(bare))
 
+
 DAY0 = "2026-10-20T12:00:00+00:00"
 DAY1 = "2026-10-21T12:00:00+00:00"
 DAY2 = "2026-10-22T12:00:00+00:00"
