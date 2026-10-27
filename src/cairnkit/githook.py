@@ -76,10 +76,12 @@ def quiet_body(event: str) -> str:
 
     Bounds hung process start with timeout/gtimeout when present, else perl's
     alarm+exec (ships on macOS and Linux; alarm survives exec, so there is no
-    watcher and no orphan). With none of those, the command runs unbounded.
-    Stdout and stderr go to /dev/null so a missing package or early failure
-    stays silent. Stdin is /dev/null so a pre-push ref list is not eaten.
-    Always ends with || true so git proceeds.
+    watcher and no orphan). The perl command runs in a redirected group so
+    bash, which is /bin/sh on macOS, does not print its alarm line. With none
+    of those tools, the command runs unbounded. Stdout and stderr go to
+    /dev/null so a missing package or early failure stays silent. Stdin is
+    /dev/null so a pre-push ref list is not eaten. Always ends with || true
+    so git proceeds.
     """
     py = shlex.quote(sys.executable)
     # Redirections sit on the simple command so the child inherits them under
@@ -93,7 +95,7 @@ def quiet_body(event: str) -> str:
         f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
         f"    gtimeout -k 1 {budget} {run} || true\n"
         f"  elif command -v perl >/dev/null 2>&1; then\n"
-        f"    perl -e 'alarm {budget}; exec @ARGV' -- {run} || true\n"
+        f"    {{ perl -e 'alarm {budget}; exec @ARGV' -- {run} || true; }} >/dev/null 2>&1\n"
         f"  else\n"
         f"    {run} || true\n"
         f"  fi\n"

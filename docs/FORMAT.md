@@ -307,10 +307,11 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
 - `pre-push` / `post-merge`: a short shell block. When `PY` is executable it
   runs `PY -m cairnkit hook EVENT` with stdin, stdout and stderr on `/dev/null`,
   under a few-second wall-clock bound (`timeout` / `gtimeout` when present,
-  else `perl` `alarm`+`exec`, which ships on macOS and Linux; with none of
-  those the command runs unbounded), then `|| true`. It does not read the
-  hook arguments. It never fails the push or the merge. Not part of the shared
-  option.
+  else `perl` `alarm`+`exec`, which ships on macOS and Linux). The perl
+  command runs in a group that discards output, so the shell's alarm line is
+  not printed. With none of those tools the command runs unbounded. It ends
+  with `|| true`. It does not read the hook arguments. It never fails the
+  push or the merge. Not part of the shared option.
 - `commit-msg` (opt-in): a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
@@ -369,10 +370,11 @@ The session key is `session_id`, else `conversation_id`, else `default`.
   They do not count as a session start. They print nothing (including when the
   interpreter lacks cairnkit). They always exit 0. With no memory folder they
   do nothing. The shell bounds hung process start to a few seconds when
-  `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`);
-  without any of those the start is unbounded. Once cairnkit is running, an
-  in-process budget of a few seconds stops a slow tidy and leaves the memory
-  as it is. A held tidy lock can add up to about three seconds to a push or a
+  `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`).
+  The perl command runs in a group that discards output, so the shell's
+  alarm line is not printed. Without any of those the start is unbounded.
+  Once cairnkit is running, an in-process budget of a few seconds stops a
+  slow tidy and leaves the memory as it is. A held tidy lock can add up to about three seconds to a push or a
   merge before that budget stops the wait.
   `git push --no-verify` skips the pre-push hook, as git does for every
   pre-push hook. Before the gate they only report. After the gate they retire.
