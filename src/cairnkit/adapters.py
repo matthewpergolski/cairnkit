@@ -179,9 +179,10 @@ def apply(
     """Install or remove one adapter in every checkout, or in `checkouts`. Return the steps."""
     adapter = ADAPTERS[name]
     steps: list[str] = []
+    tracked = is_tracked(project, adapter.rel)
     for checkout in project.checkouts if checkouts is None else checkouts:
         path = checkout / adapter.rel
-        if is_tracked(project, adapter.rel):
+        if tracked:
             if install:
                 start, stop = hook_command("session-start", name), hook_command("stop", name)
                 steps.append(
@@ -207,7 +208,7 @@ def apply(
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2) + "\n")
-    if install:
+    if install and not tracked:
         steps += exclude(project, [adapter.rel], dry_run)
     return steps
 

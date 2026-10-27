@@ -234,7 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--agent", default="auto", choices=("auto", *AGENTS))
     h.add_argument("--dry-run", action="store_true")
     h.add_argument(
-        "--no-git-hook", action="store_true", help="skip the git pre-commit and post-checkout hooks"
+        "--no-git-hook",
+        action="store_true",
+        help="skip the git pre-commit, post-checkout, pre-push and post-merge hooks",
     )
     h.add_argument(
         "--commit-msg-guard",

@@ -87,7 +87,8 @@ def _local_hooks(project: Project) -> list[str]:
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder is None or githook._inside_worktree(project, folder):
         return []
-    return [h for h in ("pre-commit", "post-checkout", "commit-msg") if _has_block(folder / h)]
+    names = ("pre-commit", "post-checkout", "pre-push", "post-merge", "commit-msg")
+    return [h for h in names if _has_block(folder / h)]
 
 
 def _shared_hooks(project: Project) -> list[str]:
@@ -150,6 +151,8 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     bodies = {
         "pre-commit": githook.pre_commit_body(shared=False),
         "post-checkout": githook.post_checkout_body(shared=False),
+        "pre-push": githook.pre_push_body(),
+        "post-merge": githook.post_merge_body(),
     }
     hooks = _local_hooks(project)
     broken += githook.broken_paths(project, hooks)

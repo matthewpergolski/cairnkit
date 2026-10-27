@@ -1,5 +1,6 @@
 """Git hooks: the pre-commit memory guard, the post-checkout link for a new
-worktree, and the opt-in commit-msg guard.
+worktree, personal pre-push and post-merge tidy hooks, and the opt-in
+commit-msg guard.
 
 Each hook is a marked block in a shell script. A foreign hook is kept: the
 block goes right after its first line. Uninstall removes only the block.
@@ -63,6 +64,20 @@ def pre_commit_body(shared: bool) -> str:
         return "if command -v memory >/dev/null 2>&1; then memory hook pre-commit || exit 1; fi\n"
     py = shlex.quote(sys.executable)
     return f"if [ -x {py} ]; then {py} -m cairnkit hook pre-commit || exit 1; fi\n"
+
+
+def quiet_body(event: str) -> str:
+    """A personal hook. It never fails git, and it does not read stdin or arguments."""
+    py = shlex.quote(sys.executable)
+    return f"if [ -x {py} ]; then {py} -m cairnkit hook {event} </dev/null || true; fi\n"
+
+
+def pre_push_body() -> str:
+    return quiet_body("pre-push")
+
+
+def post_merge_body() -> str:
+    return quiet_body("post-merge")
 
 
 def post_checkout_body(shared: bool) -> str:

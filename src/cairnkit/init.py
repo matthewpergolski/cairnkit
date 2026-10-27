@@ -224,4 +224,6 @@ def run_init(
         say(line)
     if not steps:
         say("Already set up. Nothing to do.")
+    if not dry_run:
+        say("Run `memory hooks install` to connect your agent and git.")
     return 0
