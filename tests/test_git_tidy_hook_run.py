@@ -1,6 +1,8 @@
 """pre-push and post-merge run the gated auto-tidy step and never fail git."""
 
 import io
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -10,6 +12,45 @@ import pytest
 from conftest import git, make_fact, read_jsonl, write_facts
 
 from cairnkit.cli import main
+
+
+def tool_bin(folder: Path, *names: str) -> Path:
+    """A PATH directory that holds only the named tools (as symlinks)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        src = shutil.which(name)
+        assert src, f"needed tool missing: {name}"
+        dest = folder / name
+        if not dest.exists():
+            dest.symlink_to(src)
+    return folder
+
+
+def sleep_lines() -> list[str]:
+    """Running sleep processes (pid, ppid, args), for leftover checks."""
+    out = subprocess.check_output(["ps", "-eo", "pid=,ppid=,args="], text=True)
+    return [line.strip() for line in out.splitlines() if "sleep" in line.split(None, 2)[-1]]
+
+
+def push_with_path(repo: Path, path: str) -> tuple[subprocess.CompletedProcess[str], float]:
+    """git push under a forced PATH. Returns (result, elapsed seconds)."""
+    env = {**os.environ, "PATH": path}
+    began = time.monotonic()
+    result = subprocess.run(
+        ["git", "push", "-q", "origin", "HEAD:main"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    return result, time.monotonic() - began
+
+
+def ensure_origin(repo: Path) -> None:
+    bare = repo.parent / "remote.git"
+    if not bare.exists():
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+        git(repo, "remote", "add", "origin", str(bare))
 
 DAY0 = "2026-10-20T12:00:00+00:00"
 DAY1 = "2026-10-21T12:00:00+00:00"
@@ -266,6 +307,87 @@ def test_git_events_print_nothing_when_cairnkit_is_missing(repo, mem, capsys):
     assert result.stderr == ""
     assert "No module named" not in result.stderr
     assert "cairnkit" not in result.stderr
+
+
+def test_no_timeout_path_bounds_a_hung_start(repo, mem, capsys, tmp_path):
+    """Without timeout/gtimeout, the fallback must still stop a hung start near 3s."""
+    install(capsys)
+    bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
+    assert not (bin_dir / "timeout").exists() and not (bin_dir / "gtimeout").exists()
+    fake = tmp_path / "hung-python"
+    # Absolute sleep: a PATH with no sleep must not make the fake exit early.
+    fake.write_text("#!/bin/sh\nexec /bin/sleep 60\n")
+    fake.chmod(0o755)
+    hook = repo / ".git" / "hooks" / "pre-push"
+    hook.write_text(hook.read_text().replace(sys.executable, str(fake)))
+    ensure_origin(repo)
+    (repo / "no-timeout-hung.txt").write_text("x\n")
+    git(repo, "add", "no-timeout-hung.txt")
+    git_quiet(repo, "commit", "-q", "-m", "no-timeout hung")
+    before = sleep_lines()
+    result, elapsed = push_with_path(repo, str(bin_dir))
+    after = sleep_lines()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "" and result.stderr == ""
+    assert 2.0 <= elapsed < 5.0, f"hung fallback took {elapsed:.2f}s"
+    assert after == before, f"leftover sleep after hung fallback: {after}"
+
+
+def test_no_timeout_path_fast_push_is_quick_and_quiet(repo, mem, capsys, tmp_path):
+    """Without timeout/gtimeout, a fast hook must finish well under 1s with no sleep left."""
+    install(capsys)
+    bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
+    ensure_origin(repo)
+    (repo / "no-timeout-fast.txt").write_text("x\n")
+    git(repo, "add", "no-timeout-fast.txt")
+    git_quiet(repo, "commit", "-q", "-m", "no-timeout fast")
+    before = sleep_lines()
+    result, elapsed = push_with_path(repo, str(bin_dir))
+    after = sleep_lines()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "" and result.stderr == ""
+    assert elapsed < 1.0, f"fast fallback stalled for {elapsed:.2f}s"
+    assert after == before, f"leftover sleep after fast fallback: {after}"
+
+
+def test_no_timeout_path_is_silent_when_cairnkit_is_missing(repo, mem, capsys, tmp_path):
+    """The no-timeout fallback must keep a missing cairnkit silent too."""
+    install(capsys)
+    py = "/usr/bin/python3"
+    assert Path(py).is_file() and py != sys.executable
+    probe = subprocess.run([py, "-c", "import cairnkit"], capture_output=True, text=True)
+    assert probe.returncode != 0
+    for name in ("pre-push", "post-merge"):
+        path = repo / ".git" / "hooks" / name
+        path.write_text(path.read_text().replace(sys.executable, py))
+    bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
+    ensure_origin(repo)
+    (repo / "no-timeout-missing.txt").write_text("x\n")
+    git(repo, "add", "no-timeout-missing.txt")
+    git_quiet(repo, "commit", "-q", "-m", "no-timeout missing")
+    result, elapsed = push_with_path(repo, str(bin_dir))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "" and result.stderr == ""
+    assert "No module named" not in result.stderr
+    assert "cairnkit" not in result.stderr
+    assert elapsed < 1.0, f"missing-module fallback stalled for {elapsed:.2f}s"
+
+
+def test_no_timeout_no_perl_path_fast_push_still_works(repo, mem, capsys, tmp_path):
+    """With neither timeout/gtimeout nor perl, a fast push still exits 0 quickly."""
+    install(capsys)
+    bin_dir = tool_bin(tmp_path / "bin", "git")
+    assert not (bin_dir / "timeout").exists()
+    assert not (bin_dir / "gtimeout").exists()
+    assert not (bin_dir / "perl").exists()
+    ensure_origin(repo)
+    (repo / "no-perl-fast.txt").write_text("x\n")
+    git(repo, "add", "no-perl-fast.txt")
+    git_quiet(repo, "commit", "-q", "-m", "no-perl fast")
+    result, elapsed = push_with_path(repo, str(bin_dir))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "" and result.stderr == ""
+    assert elapsed < 1.0, f"unbounded fallback stalled for {elapsed:.2f}s"
 
 
 def test_git_events_exit_0_when_the_store_is_locked(repo, mem, capsys):
