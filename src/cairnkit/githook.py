@@ -66,10 +66,42 @@ def pre_commit_body(shared: bool) -> str:
     return f"if [ -x {py} ]; then {py} -m cairnkit hook pre-commit || exit 1; fi\n"
 
 
+# Wall-clock bound for quiet git hooks. Matches hookrun.GIT_HOOK_BUDGET: the
+# in-process SIGALRM only starts after import, so the shell must bound start too.
+_QUIET_BUDGET = 3
+
+
 def quiet_body(event: str) -> str:
-    """A personal hook. It never fails git, and it does not read stdin or arguments."""
+    """A personal hook. It never fails git, and it does not read stdin or arguments.
+
+    Bounds hung process start with timeout/gtimeout when present, else a
+    background process plus kill. Stdout and stderr go to /dev/null so a missing
+    package or early failure stays silent. Stdin is /dev/null so a pre-push ref
+    list is not eaten. Always ends with || true (or equivalent) so git proceeds.
+    """
     py = shlex.quote(sys.executable)
-    return f"if [ -x {py} ]; then {py} -m cairnkit hook {event} </dev/null || true; fi\n"
+    # Redirections sit on the simple command so the child inherits them, whether
+    # run under timeout or in the background.
+    run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
+    budget = _QUIET_BUDGET
+    return (
+        f"if [ -x {py} ]; then\n"
+        f"  if command -v timeout >/dev/null 2>&1; then\n"
+        f"    timeout -k 1 {budget} {run} || true\n"
+        f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
+        f"    gtimeout -k 1 {budget} {run} || true\n"
+        f"  else\n"
+        f"    {run} &\n"
+        f"    _ck_pid=$!\n"
+        f"    (sleep {budget}; kill \"$_ck_pid\" >/dev/null 2>&1; "
+        f"sleep 1; kill -9 \"$_ck_pid\" >/dev/null 2>&1) &\n"
+        f"    _ck_watch=$!\n"
+        f"    wait \"$_ck_pid\" >/dev/null 2>&1 || true\n"
+        f"    kill \"$_ck_watch\" >/dev/null 2>&1 || true\n"
+        f"    wait \"$_ck_watch\" >/dev/null 2>&1 || true\n"
+        f"  fi\n"
+        f"fi\n"
+    )
 
 
 def pre_push_body() -> str:
