@@ -298,6 +298,18 @@ def test_no_memory_means_no_links_and_no_agent_config_in_worktrees(repo, capsys)
     assert not (wt / ".claude" / "settings.local.json").exists()
 
 
+def test_dry_run_says_would_link_once_not_twice(repo, mem, capsys):
+    """Dry-run prefixes 'would ' once; the step text must not already include it."""
+    from conftest import add_worktree
+
+    wt = add_worktree(repo, "dry-link")
+    assert not os.path.lexists(wt / "memory-bank")
+    out = install(capsys, "--agent", "claude", "--dry-run")
+    assert "would would" not in out
+    assert "would link" in out
+    assert str(wt / "memory-bank") in out
+
+
 def _worktree_on_tracked_memory_bank_branch(repo, mem, name: str):
     """A worktree whose index tracks memory-bank as a file, then the file is removed."""
     git(repo, "checkout", "-q", "-b", f"tracked-{name}")
