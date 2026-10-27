@@ -334,6 +334,28 @@ def test_no_timeout_path_bounds_a_hung_start(repo, mem, capsys, tmp_path):
     assert after == before, f"leftover sleep after hung fallback: {after}"
 
 
+def test_bash_hook_stays_silent_when_perl_stops_a_hung_start(repo, mem, capsys, tmp_path):
+    """macOS /bin/sh is bash. Bash prints an alarm line when perl's alarm fires."""
+    install(capsys)
+    bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
+    fake = tmp_path / "hung-python"
+    fake.write_text("#!/bin/sh\nexec /bin/sleep 60\n")
+    fake.chmod(0o755)
+    hook = repo / ".git" / "hooks" / "pre-push"
+    text = hook.read_text().replace(sys.executable, str(fake))
+    assert text.startswith("#!/bin/sh\n")
+    hook.write_text("#!/bin/bash\n" + text[len("#!/bin/sh\n") :])
+    ensure_origin(repo)
+    (repo / "bash-hung.txt").write_text("x\n")
+    git(repo, "add", "bash-hung.txt")
+    git_quiet(repo, "commit", "-q", "-m", "bash hung")
+    result, elapsed = push_with_path(repo, str(bin_dir))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "" and result.stderr == ""
+    assert "Alarm clock" not in result.stderr
+    assert 2.0 <= elapsed < 5.0, f"bash perl fallback took {elapsed:.2f}s"
+
+
 def test_no_timeout_path_fast_push_is_quick_and_quiet(repo, mem, capsys, tmp_path):
     """Without timeout/gtimeout, a fast hook must finish well under 1s with no sleep left."""
     install(capsys)
