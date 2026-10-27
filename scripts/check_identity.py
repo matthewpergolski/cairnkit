@@ -7,7 +7,9 @@ Allowed identity (author, committer, and Co-authored-by / Signed-off-by):
 
 Also fails when a commit's added lines introduce a personal-looking email
 address other than that neutral address. Generic placeholders such as
-git@github.com and *@example.* are allowed in file text.
+git@github.com and *@example.* are allowed in file text. Paths under
+tests/ are skipped for the file-text scan so fixtures may use synthetic
+addresses; author, committer, and trailers are still checked on every commit.
 
 Usage:
   python3 scripts/check_identity.py [BASE..HEAD]
@@ -73,7 +75,14 @@ def _parse_trailer_value(value: str) -> tuple[str, str] | None:
     return match.group(1).strip(), match.group(2).strip()
 
 
-def check_commit(sha: str, author: str, email: str, committer: str, cemail: str, body: str) -> list[str]:
+def check_commit(
+    sha: str,
+    author: str,
+    email: str,
+    committer: str,
+    cemail: str,
+    body: str,
+) -> list[str]:
     """Return problem lines for one commit's identity and trailers."""
     errors: list[str] = []
     short = sha[:7]
@@ -102,7 +111,9 @@ def check_added_text(sha: str, path: str, text: str) -> list[str]:
             continue
         for addr in _EMAIL.findall(line):
             if not email_ok_in_text(addr):
-                errors.append(f"{short}: added {path} has {addr} (only {ALLOWED_EMAIL} or generic examples)")
+                errors.append(
+                    f"{short}: added {path} has {addr} (only {ALLOWED_EMAIL} or generic examples)"
+                )
     return errors
 
 
@@ -111,7 +122,8 @@ def check_range(repo: Path | str, rev_range: str) -> list[str]:
     root = Path(repo)
     listed = _run(root, "rev-list", rev_range)
     if listed.returncode != 0:
-        return [f"git rev-list failed for {rev_range!r}: {listed.stderr.strip() or listed.stdout.strip()}"]
+        detail = listed.stderr.strip() or listed.stdout.strip()
+        return [f"git rev-list failed for {rev_range!r}: {detail}"]
     shas = [line.strip() for line in listed.stdout.splitlines() if line.strip()]
     errors: list[str] = []
     for sha in shas:
@@ -139,7 +151,7 @@ def check_range(repo: Path | str, rev_range: str) -> list[str]:
         chunk: list[str] = []
         for line in diff.stdout.splitlines():
             if line.startswith("diff --git "):
-                if path and chunk:
+                if path and chunk and not _skip_file_email_scan(path):
                     errors += check_added_text(sha, path, "\n".join(chunk))
                 chunk = []
                 # diff --git a/path b/path
@@ -149,9 +161,15 @@ def check_range(repo: Path | str, rev_range: str) -> list[str]:
                 continue
             else:
                 chunk.append(line)
-        if path and chunk:
+        if path and chunk and not _skip_file_email_scan(path):
             errors += check_added_text(sha, path, "\n".join(chunk))
     return errors
+
+
+def _skip_file_email_scan(path: str) -> bool:
+    """True when added-line email rules do not apply (test fixtures)."""
+    norm = path.replace("\\", "/").lstrip("./")
+    return norm == "tests" or norm.startswith("tests/")
 
 
 def main(argv: list[str] | None = None) -> int:

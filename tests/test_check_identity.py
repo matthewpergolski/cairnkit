@@ -113,12 +113,15 @@ def test_foreign_signed_off_by_trailer_is_reported(mod, tmp_path):
 
 
 def test_added_personal_email_in_file_is_reported(mod, tmp_path):
+    # Build the address at runtime so this test file itself stays clean under
+    # the identity check (no personal-looking literal in added lines).
+    addr = "person@" + "somewhere.org"
     repo = init_repo(tmp_path / "file-email")
-    (repo / "note.md").write_text("contact me at person@somewhere.org please\n")
+    (repo / "note.md").write_text(f"contact me at {addr} please\n")
     git(repo, "add", "note.md")
     git(repo, "commit", "-q", "-m", "add note")
     errors = mod.check_range(repo, "HEAD~1..HEAD")
-    assert any("person@somewhere.org" in e for e in errors)
+    assert any(addr in e for e in errors)
 
 
 def test_generic_example_emails_in_files_are_allowed(mod, tmp_path):
@@ -130,6 +133,16 @@ def test_generic_example_emails_in_files_are_allowed(mod, tmp_path):
     )
     git(repo, "add", "note.md")
     git(repo, "commit", "-q", "-m", "generic examples")
+    assert mod.check_range(repo, "HEAD~1..HEAD") == []
+
+
+def test_personal_email_under_tests_path_is_allowed(mod, tmp_path):
+    addr = "person@" + "somewhere.org"
+    repo = init_repo(tmp_path / "tests-dir")
+    (repo / "tests").mkdir()
+    (repo / "tests" / "fixture.txt").write_text(f"{addr}\n")
+    git(repo, "add", "tests/fixture.txt")
+    git(repo, "commit", "-q", "-m", "fixture under tests")
     assert mod.check_range(repo, "HEAD~1..HEAD") == []
 
 

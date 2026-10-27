@@ -29,7 +29,8 @@ bash scripts/e2e.sh      # end-to-end run; the last line is "e2e: ok"
    `Signed-off-by` trailer must be
    `cairnkit contributors <cairnkit@users.noreply.github.com>`. Added file
    lines may use that address or generic examples (`git@github.com`,
-   `*@example.*`); other personal-looking addresses fail the check. Locally:
+   `*@example.*`); other personal-looking addresses fail the check (paths
+   under `tests/` are skipped for the file-text scan). Locally:
    `python3 scripts/check_identity.py origin/main..HEAD`. Pull requests run
    the same check in CI on `base..head`.
 
