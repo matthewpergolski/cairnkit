@@ -307,7 +307,8 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
 - `pre-push` / `post-merge`: a short shell block. When `PY` is executable it
   runs `PY -m cairnkit hook EVENT` with stdin, stdout and stderr on `/dev/null`,
   under a few-second wall-clock bound (`timeout` / `gtimeout` when present,
-  else a background process plus kill), then `|| true`. It does not read the
+  else `perl` `alarm`+`exec`, which ships on macOS and Linux; with none of
+  those the command runs unbounded), then `|| true`. It does not read the
   hook arguments. It never fails the push or the merge. Not part of the shared
   option.
 - `commit-msg` (opt-in): a comment line that starts with
@@ -367,10 +368,12 @@ The session key is `session_id`, else `conversation_id`, else `default`.
 - `pre-push` and `post-merge`: run the same auto-tidy step as `session-start`.
   They do not count as a session start. They print nothing (including when the
   interpreter lacks cairnkit). They always exit 0. With no memory folder they
-  do nothing. The shell bounds hung process start to a few seconds; once
-  cairnkit is running, an in-process budget of a few seconds stops a slow
-  tidy and leaves the memory as it is. A held tidy lock can add up to about
-  three seconds to a push or a merge before that budget stops the wait.
+  do nothing. The shell bounds hung process start to a few seconds when
+  `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`);
+  without any of those the start is unbounded. Once cairnkit is running, an
+  in-process budget of a few seconds stops a slow tidy and leaves the memory
+  as it is. A held tidy lock can add up to about three seconds to a push or a
+  merge before that budget stops the wait.
   `git push --no-verify` skips the pre-push hook, as git does for every
   pre-push hook. Before the gate they only report. After the gate they retire.
   The same lock, and the same retire id, keep one retire when a session start
