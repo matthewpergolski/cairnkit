@@ -25,6 +25,13 @@ bash scripts/e2e.sh      # end-to-end run; the last line is "e2e: ok"
    choices, and the commit-msg guard patterns. Check each adapter against the
    tool's public docs before you change it.
 7. **Plain docs.** Short sentences. One instruction per sentence. Active voice.
+8. **Neutral git identity.** Author, committer, and any `Co-authored-by` /
+   `Signed-off-by` trailer must be
+   `cairnkit contributors <cairnkit@users.noreply.github.com>`. Added file
+   lines may use that address or generic examples (`git@github.com`,
+   `*@example.*`); other personal-looking addresses fail the check. Locally:
+   `python3 scripts/check_identity.py origin/main..HEAD`. Pull requests run
+   the same check in CI on `base..head`.
 
 ## Layout
 
@@ -79,4 +86,5 @@ tests/           pytest; each test makes a throwaway git repo
 benchmarks/      retrieval eval of search, with a synthetic fixture (see its README)
 scripts/verify.sh   all checks
 scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, presets)
+scripts/check_identity.py  merge-time check: neutral author/committer/trailers and file emails
 ```

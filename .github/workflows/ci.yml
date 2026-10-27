@@ -27,3 +27,17 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest -q
+
+  identity:
+    if: github.event_name == 'pull_request'
+    name: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Neutral commit identity
+        run: >
+          python3 scripts/check_identity.py
+          ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
