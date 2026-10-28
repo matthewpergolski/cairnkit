@@ -132,6 +132,15 @@ def test_model_ids_are_reported_but_bare_product_names_are_not(mod):
         assert "Fix:" in "\n".join(errors)
 
 
+def test_cursor_asset_filenames_are_not_model_ids(mod):
+    body = good_body().replace(
+        "- none yet\n",
+        "- none yet\n\n![x](https://example.com/open-in-cursor-dark.png)\n",
+    )
+    # Asset names must not trip the model-id rule; the Open in * phrases still do.
+    assert not any("model id" in e for e in mod.check_body(body))
+
+
 def test_missing_heading_is_reported(mod):
     body = good_body().replace("## Review\n", "## Notes\n")
     errors = mod.check_body(body)

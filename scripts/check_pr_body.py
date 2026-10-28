@@ -43,6 +43,7 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 _MERMAID = re.compile(r"^```mermaid\s*$", re.M | re.I)
 
 # Versioned / dotted model ids. Bare Claude / Cursor / Codex are not matched.
+# Trailing file extensions are ignored so asset names are not treated as ids.
 _MODEL_ID = re.compile(
     r"(?i)\b(?:"
     r"gpt-[\w.\-]+|"
@@ -56,6 +57,10 @@ _MODEL_ID = re.compile(
     r"codex-[\w.\-]+|"
     r"cursor-[\w.\-]+"
     r")\b"
+)
+_ASSET_SUFFIX = re.compile(
+    r"\.(?:png|jpe?g|gif|webp|svg|ico|js|css|map|md|txt)$",
+    re.I,
 )
 
 _GENERATED_WITH = re.compile(r"Generated with", re.I)
@@ -88,7 +93,9 @@ def check_body(text: str) -> list[str]:
             'Fix: remove "Generated with ..." lines from the PR body.'
         )
 
-    models = sorted({m.group(0) for m in _MODEL_ID.finditer(text)})
+    models = sorted(
+        {m.group(0) for m in _MODEL_ID.finditer(text) if not _ASSET_SUFFIX.search(m.group(0))}
+    )
     for model in models:
         errors.append(
             f"model id {model!r} found. "
