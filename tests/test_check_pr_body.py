@@ -37,9 +37,7 @@ def mod():
 def good_body(*, mention_products: bool = False) -> str:
     products = ""
     if mention_products:
-        products = (
-            "\nHooks cover Claude, Cursor, and Codex as product names in adapters.\n"
-        )
+        products = "\nHooks cover Claude, Cursor, and Codex as product names in adapters.\n"
     return f"""## TL;DR
 
 After merge, CI rejects unmarked or AI-attributed PR bodies.
