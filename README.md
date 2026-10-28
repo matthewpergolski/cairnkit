@@ -578,7 +578,8 @@ There is no memory folder on CI. `memory check` prints
 git clone https://github.com/matthewpergolski/cairnkit.git
 cd cairnkit
 uv sync --group dev
-./scripts/verify.sh
+./scripts/verify.sh      # same command CI runs for lint and tests
+bash scripts/e2e.sh      # end-to-end; CI runs this on Linux
 ```
 
 To use your checkout as the installed tool, run `uv tool install .` in it.

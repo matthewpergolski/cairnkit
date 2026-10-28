@@ -4,9 +4,13 @@
 
 ```sh
 uv sync --group dev
-./scripts/verify.sh      # ruff check, ruff format --check, pytest
-bash scripts/e2e.sh      # end-to-end run; the last line is "e2e: ok"
+./scripts/verify.sh      # ruff check, ruff format --check, pytest (CI runs this)
+bash scripts/e2e.sh      # end-to-end run; the last line is "e2e: ok" (CI on Linux)
+bash scripts/install-verify-pre-push.sh   # optional: local pre-push runs verify.sh
 ```
+
+The optional pre-push hook lives under `.git/hooks/` and keeps a cairnkit
+marked tidy block when one is already there, so the two chain.
 
 ## Rules
 
@@ -85,7 +89,8 @@ src/cairnkit/
   skills.py      memory skills: the pstack skills check and install
 tests/           pytest; each test makes a throwaway git repo
 benchmarks/      retrieval eval of search, with a synthetic fixture (see its README)
-scripts/verify.sh   all checks
-scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, presets)
+scripts/verify.sh   all checks (ruff, format, pytest); CI calls this
+scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, presets); CI on Linux
+scripts/install-verify-pre-push.sh  optional local pre-push that runs verify.sh; chains with cairnkit hooks
 scripts/check_identity.py  merge-time check: neutral author/committer/trailers and file emails
 ```
