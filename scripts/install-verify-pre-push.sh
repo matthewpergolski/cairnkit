@@ -2,6 +2,7 @@
 # Install a local pre-push hook that runs ./scripts/verify.sh.
 # Keeps an existing cairnkit (or project-memory) marked block so the two chain.
 # Optional: run once in a clone. Not shared; lives under .git/hooks/.
+# Compatible with bash 3.2 (macOS /bin/bash).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -39,34 +40,43 @@ if [[ ! -f $hook ]]; then
   exit 0
 fi
 
-mapfile -t lines < <(strip_ours <"$hook")
-if [[ ${#lines[@]} -eq 0 || ${lines[0]} != '#!'* ]]; then
-  lines=('#!/bin/sh' "${lines[@]}")
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+strip_ours <"$hook" >"$tmp"
+
+# Ensure a shebang on line 1.
+first="$(head -n 1 "$tmp")"
+if [[ $first != '#!'* ]]; then
+  { printf '%s\n' '#!/bin/sh'; cat "$tmp"; } >"$tmp.new"
+  mv "$tmp.new" "$tmp"
 fi
 
-out=("${lines[0]}")
+out="$(mktemp)"
+trap 'rm -f "$tmp" "$out"' EXIT
 inserted=0
-for ((i = 1; i < ${#lines[@]}; i++)); do
-  out+=("${lines[i]}")
-  if [[ ${lines[i]} == "$CAIRN_END" || ${lines[i]} == "$OLD_END" ]]; then
-    while IFS= read -r vb; do
-      out+=("$vb")
-    done < <(verify_block)
-    inserted=1
-  fi
-done
+{
+  IFS= read -r line || true
+  printf '%s\n' "$line"
+  while IFS= read -r line || [[ -n $line ]]; do
+    printf '%s\n' "$line"
+    if [[ $line == "$CAIRN_END" || $line == "$OLD_END" ]]; then
+      verify_block
+      inserted=1
+    fi
+  done
+} <"$tmp" >"$out"
+
 if [[ $inserted -eq 0 ]]; then
   # No cairnkit block: verify right after the shebang, then the rest.
-  rebuilt=("${out[0]}")
-  while IFS= read -r vb; do
-    rebuilt+=("$vb")
-  done < <(verify_block)
-  if [[ ${#out[@]} -gt 1 ]]; then
-    rebuilt+=("${out[@]:1}")
-  fi
-  out=("${rebuilt[@]}")
+  {
+    IFS= read -r line || true
+    printf '%s\n' "$line"
+    verify_block
+    cat
+  } <"$out" >"$tmp"
+  mv "$tmp" "$out"
 fi
 
-printf '%s\n' "${out[@]}" >"$hook"
+mv "$out" "$hook"
 chmod +x "$hook"
 echo "updated $hook"
