@@ -9,7 +9,15 @@ import time
 from pathlib import Path
 
 import pytest
-from conftest import git, make_fact, read_jsonl, write_facts
+from conftest import (
+    assert_marker_gone,
+    git,
+    hung_marker,
+    make_fact,
+    read_jsonl,
+    write_facts,
+    write_hung_interpreter,
+)
 
 from cairnkit.cli import main
 
@@ -24,12 +32,6 @@ def tool_bin(folder: Path, *names: str) -> Path:
         if not dest.exists():
             dest.symlink_to(src)
     return folder
-
-
-def sleep_lines() -> list[str]:
-    """Running sleep processes (pid, ppid, args), for leftover checks."""
-    out = subprocess.check_output(["ps", "-eo", "pid=,ppid=,args="], text=True)
-    return [line.strip() for line in out.splitlines() if "sleep" in line.split(None, 2)[-1]]
 
 
 def push_with_path(repo: Path, path: str) -> tuple[subprocess.CompletedProcess[str], float]:
@@ -252,9 +254,9 @@ def test_git_events_exit_0_when_the_python_path_is_missing(repo, mem, capsys):
 def test_a_hung_python_start_does_not_stall_the_push(repo, mem, capsys, tmp_path):
     """The shell block must bound process start, not only the in-process SIGALRM budget."""
     install(capsys)
+    marker = hung_marker()
     fake = tmp_path / "hung-python"
-    fake.write_text("#!/bin/sh\nexec sleep 60\n")
-    fake.chmod(0o755)
+    write_hung_interpreter(fake, marker)
     hook = repo / ".git" / "hooks" / "pre-push"
     hook.write_text(hook.read_text().replace(sys.executable, str(fake)))
     bare = repo.parent / "remote.git"
@@ -275,6 +277,7 @@ def test_a_hung_python_start_does_not_stall_the_push(repo, mem, capsys, tmp_path
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == "" and result.stderr == ""
     assert elapsed < 8, f"hung interpreter stalled the push for {elapsed:.1f}s"
+    assert_marker_gone(marker)
 
 
 def test_git_events_print_nothing_when_cairnkit_is_missing(repo, mem, capsys):
@@ -315,10 +318,10 @@ def test_no_timeout_path_bounds_a_hung_start(repo, mem, capsys, tmp_path):
     install(capsys)
     bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
     assert not (bin_dir / "timeout").exists() and not (bin_dir / "gtimeout").exists()
+    marker = hung_marker()
     fake = tmp_path / "hung-python"
-    # Absolute sleep: a PATH with no sleep must not make the fake exit early.
-    fake.write_text("#!/bin/sh\nexec /bin/sleep 60\n")
-    fake.chmod(0o755)
+    # Absolute interpreter in the fake: a PATH with no python must not exit early.
+    write_hung_interpreter(fake, marker)
     hook = repo / ".git" / "hooks" / "pre-push"
     hook.write_text(hook.read_text().replace(sys.executable, str(fake)))
     ensure_origin(repo)
@@ -326,22 +329,19 @@ def test_no_timeout_path_bounds_a_hung_start(repo, mem, capsys, tmp_path):
     git(repo, "add", "no-timeout-hung.txt")
     git_quiet(repo, "commit", "-q", "-m", "no-timeout hung")
     result, elapsed = push_with_path(repo, str(bin_dir))
-    after = sleep_lines()
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == "" and result.stderr == ""
     assert 2.0 <= elapsed < 5.0, f"hung fallback took {elapsed:.2f}s"
-    # Only the hung fake's sleep 60 counts. Runner noise (other sleep N) is ignored.
-    leftover = [line for line in after if "sleep 60" in line]
-    assert not leftover, f"leftover sleep after hung fallback: {leftover}"
+    assert_marker_gone(marker)
 
 
 def test_hung_leftover_check_ignores_unrelated_sleep_60(repo, mem, capsys, tmp_path):
-    """Machine-wide 'sleep 60' scans flake when another process sleeps 60s (macOS CI)."""
+    """An unrelated sleep 60 must not trip the hung leftover check (macOS CI flake)."""
     install(capsys)
     bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
+    marker = hung_marker()
     fake = tmp_path / "hung-python"
-    fake.write_text("#!/bin/sh\nexec /bin/sleep 60\n")
-    fake.chmod(0o755)
+    write_hung_interpreter(fake, marker)
     hook = repo / ".git" / "hooks" / "pre-push"
     hook.write_text(hook.read_text().replace(sys.executable, str(fake)))
     ensure_origin(repo)
@@ -351,13 +351,10 @@ def test_hung_leftover_check_ignores_unrelated_sleep_60(repo, mem, capsys, tmp_p
     decoy = subprocess.Popen(["/bin/sleep", "60"], start_new_session=True)
     try:
         result, elapsed = push_with_path(repo, str(bin_dir))
-        after = sleep_lines()
         assert result.returncode == 0, result.stdout + result.stderr
         assert result.stdout == "" and result.stderr == ""
         assert 2.0 <= elapsed < 5.0, f"hung fallback took {elapsed:.2f}s"
-        # Same leftover filter the hung/fast tests use today — fails with a decoy.
-        leftover = [line for line in after if "sleep 60" in line]
-        assert not leftover, f"leftover sleep after hung fallback: {leftover}"
+        assert_marker_gone(marker)
         assert decoy.poll() is None, "decoy sleep must still be running"
     finally:
         decoy.kill()
@@ -368,9 +365,9 @@ def test_bash_hook_stays_silent_when_perl_stops_a_hung_start(repo, mem, capsys, 
     """macOS /bin/sh is bash. Bash prints an alarm line when perl's alarm fires."""
     install(capsys)
     bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
+    marker = hung_marker()
     fake = tmp_path / "hung-python"
-    fake.write_text("#!/bin/sh\nexec /bin/sleep 60\n")
-    fake.chmod(0o755)
+    write_hung_interpreter(fake, marker)
     hook = repo / ".git" / "hooks" / "pre-push"
     text = hook.read_text().replace(sys.executable, str(fake))
     assert text.startswith("#!/bin/sh\n")
@@ -384,10 +381,11 @@ def test_bash_hook_stays_silent_when_perl_stops_a_hung_start(repo, mem, capsys, 
     assert result.stdout == "" and result.stderr == ""
     assert "Alarm clock" not in result.stderr
     assert 2.0 <= elapsed < 5.0, f"bash perl fallback took {elapsed:.2f}s"
+    assert_marker_gone(marker)
 
 
 def test_no_timeout_path_fast_push_is_quick_and_quiet(repo, mem, capsys, tmp_path):
-    """Without timeout/gtimeout, a fast hook must finish well under 1s with no sleep left."""
+    """Without timeout/gtimeout, a fast hook must finish well under 1s."""
     install(capsys)
     bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
     ensure_origin(repo)
@@ -395,12 +393,9 @@ def test_no_timeout_path_fast_push_is_quick_and_quiet(repo, mem, capsys, tmp_pat
     git(repo, "add", "no-timeout-fast.txt")
     git_quiet(repo, "commit", "-q", "-m", "no-timeout fast")
     result, elapsed = push_with_path(repo, str(bin_dir))
-    after = sleep_lines()
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == "" and result.stderr == ""
     assert elapsed < 1.0, f"fast fallback stalled for {elapsed:.2f}s"
-    leftover = [line for line in after if "sleep 60" in line]
-    assert not leftover, f"leftover sleep after fast fallback: {leftover}"
 
 
 def test_no_timeout_path_is_silent_when_cairnkit_is_missing(repo, mem, capsys, tmp_path):
