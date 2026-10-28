@@ -31,8 +31,17 @@ bash scripts/e2e.sh      # end-to-end run; the last line is "e2e: ok"
    lines may use that address or generic examples (`git@github.com`,
    `*@example.*`); other personal-looking addresses fail the check (paths
    under `tests/` are skipped for the file-text scan). Locally:
-   `python3 scripts/check_identity.py origin/main..HEAD`. Pull requests run
-   the same check in CI on `base..head`.
+   `python3 scripts/check_identity.py origin/main..HEAD`. CI runs the same
+   check on pull requests (`base..head`) and on pushes to `main`
+   (`before..sha`) as a post-hoc alarm when commits land by fast-forward.
+9. **Six-section PR body.** Pull request descriptions use the headings in
+   `.github/pull_request_template.md` in order (TL;DR, How it works,
+   Summary, Files changed, How to test, Review), include a `mermaid` fence,
+   and must not carry Cursor agent footer markers (`CURSOR_AGENT_PR_BODY`,
+   Open in Cursor / Open in Web), `Generated with`, or model names/ids.
+   Product names (Claude, Cursor, Codex) are fine. Locally:
+   `python3 scripts/check_pr_body.py path/to/body.md`. Pull requests run
+   the same check in CI.
 
 ## Layout
 
@@ -88,4 +97,6 @@ benchmarks/      retrieval eval of search, with a synthetic fixture (see its REA
 scripts/verify.sh   all checks
 scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, presets)
 scripts/check_identity.py  merge-time check: neutral author/committer/trailers and file emails
+scripts/check_pr_body.py    PR body check: six headings, mermaid, no agent footer or model ids
+.github/pull_request_template.md  the six-section PR description skeleton
 ```
