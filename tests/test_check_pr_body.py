@@ -185,3 +185,10 @@ def test_cli_exits_0_on_good_body(tmp_path):
 
 def test_required_headings_constant_matches_template_expectation(mod):
     assert list(mod.REQUIRED_HEADINGS) == HEADINGS
+
+
+def test_pull_request_template_passes_the_body_check(mod):
+    template = ROOT / ".github" / "pull_request_template.md"
+    assert template.is_file(), "add .github/pull_request_template.md with the six headings"
+    errors = mod.check_body(template.read_text(encoding="utf-8"))
+    assert errors == [], errors
