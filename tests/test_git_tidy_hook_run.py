@@ -335,6 +335,35 @@ def test_no_timeout_path_bounds_a_hung_start(repo, mem, capsys, tmp_path):
     assert not leftover, f"leftover sleep after hung fallback: {leftover}"
 
 
+def test_hung_leftover_check_ignores_unrelated_sleep_60(repo, mem, capsys, tmp_path):
+    """Machine-wide 'sleep 60' scans flake when another process sleeps 60s (macOS CI)."""
+    install(capsys)
+    bin_dir = tool_bin(tmp_path / "bin", "git", "perl")
+    fake = tmp_path / "hung-python"
+    fake.write_text("#!/bin/sh\nexec /bin/sleep 60\n")
+    fake.chmod(0o755)
+    hook = repo / ".git" / "hooks" / "pre-push"
+    hook.write_text(hook.read_text().replace(sys.executable, str(fake)))
+    ensure_origin(repo)
+    (repo / "decoy-hung.txt").write_text("x\n")
+    git(repo, "add", "decoy-hung.txt")
+    git_quiet(repo, "commit", "-q", "-m", "decoy hung")
+    decoy = subprocess.Popen(["/bin/sleep", "60"], start_new_session=True)
+    try:
+        result, elapsed = push_with_path(repo, str(bin_dir))
+        after = sleep_lines()
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout == "" and result.stderr == ""
+        assert 2.0 <= elapsed < 5.0, f"hung fallback took {elapsed:.2f}s"
+        # Same leftover filter the hung/fast tests use today — fails with a decoy.
+        leftover = [line for line in after if "sleep 60" in line]
+        assert not leftover, f"leftover sleep after hung fallback: {leftover}"
+        assert decoy.poll() is None, "decoy sleep must still be running"
+    finally:
+        decoy.kill()
+        decoy.wait(timeout=5)
+
+
 def test_bash_hook_stays_silent_when_perl_stops_a_hung_start(repo, mem, capsys, tmp_path):
     """macOS /bin/sh is bash. Bash prints an alarm line when perl's alarm fires."""
     install(capsys)
