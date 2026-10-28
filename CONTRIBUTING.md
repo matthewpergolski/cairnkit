@@ -38,7 +38,7 @@ bash scripts/e2e.sh      # end-to-end run; the last line is "e2e: ok"
 
 ```
 src/cairnkit/
-  __init__.py    the version (keep it equal to pyproject.toml)
+  __init__.py    the version (hatchling reads it; keep FORMAT.md equal)
   __main__.py    python -m cairnkit, which the hooks run
   cli.py         arguments and dispatch; the cairnkit and memory commands
   paths.py       project, checkouts, memory folder, git helpers

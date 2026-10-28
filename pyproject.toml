@@ -1,6 +1,6 @@
 [project]
 name = "cairnkit"
-version = "0.2.0"
+dynamic = ["version"]
 description = "A private, dated memory for any project. It lives outside the repo and is linked in."
 readme = "README.md"
 license = "MIT"
@@ -18,6 +18,9 @@ dev = ["pytest>=8", "ruff>=0.6"]
 [build-system]
 requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/cairnkit/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cairnkit"]

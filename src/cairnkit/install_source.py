@@ -200,13 +200,32 @@ def installed(flag: str | None) -> tuple[Source | None, str | None]:
     return source, commit if isinstance(commit, str) else None
 
 
+_VERSION_ASSIGN = re.compile(r"""^(?:__version__|VERSION)\s*=\s*['"]([^'"]+)['"]""", re.M)
+
+
+def _version_in_file(path: Path) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _VERSION_ASSIGN.search(text)
+    return match.group(1) if match else None
+
+
 def folder_version(folder: Path) -> str | None:
+    """The package version in a source folder (literal or hatchling dynamic)."""
     try:
         data = tomllib.loads((folder / "pyproject.toml").read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError):
         return None
     version = data.get("project", {}).get("version")
-    return version if isinstance(version, str) else None
+    if isinstance(version, str):
+        return version
+    # Hatchling: [tool.hatch.version] path = "…/__init__.py"
+    path = data.get("tool", {}).get("hatch", {}).get("version", {}).get("path")
+    if isinstance(path, str):
+        return _version_in_file(folder / path)
+    return None
 
 
 def is_git_folder(folder: Path) -> bool:
