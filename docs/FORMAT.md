@@ -210,6 +210,7 @@ short_term_days = 14          # end of a short-term fact with no expires_at
 auto_tidy = "auto"            # "auto", "report" (only say), "on" (retire) or "off"
 skills_check = true           # false: no advisory line about the pstack skills (also init, migrate)
 skills_auto_update = false    # true: session start installs or updates pstack (user level)
+                              # (fills missing skills; does not --adopt same-named folders)
 
 [areas]                       # path prefix -> area, for ranking in `memory load`
 "src/db/" = "database"
@@ -411,6 +412,20 @@ The user cache is `$XDG_CACHE_HOME/cairnkit`, else `~/.cache/cairnkit`:
 - `wheels/update.lock`: the lock that one update holds from the check to the
   end.
 - `cursor-plugins/` and `pstack-latest.json`: the pstack skills check.
+- `pstack-catalog.json`: how many pstack skills the last-seen source had
+  (`count`, optional `skills` names, `checked`). Written by
+  `memory skills install pstack`. `memory skills status` uses it for the
+  installed/available skill counts per tool.
+
+User-level skill markers (not in the memory folder; under
+`~/.codex/skills/.pstack/` or `~/.cursor/skills/.pstack/`):
+
+- `install.json`: written by a Codex/Cursor copy install. Fields include
+  `name`, `version`, `commit`, `source`, `skills` (every skill folder this
+  install owns), `catalog` (how many skills the source had), and
+  `installed_at`. A same-named folder that was skipped stays off `skills`
+  until `memory skills install pstack --adopt` (or `--all`) replaces it.
+- `LICENSE`: a copy of the pstack license from the source.
 
 ## 9. Checks
 
