@@ -4,12 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+    # edited: re-run pr-body when the description is cleaned after open
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
 
 jobs:
   test:
+    # Body/title edits only need pr-body; skip the matrix.
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +33,7 @@ jobs:
       - run: uv run pytest -q
 
   identity:
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
     name: identity
     runs-on: ubuntu-latest
     timeout-minutes: 5
