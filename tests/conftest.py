@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import shlex
 import subprocess
+import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -11,6 +14,42 @@ import pytest
 def git(cwd: Path, *args: str) -> str:
     result = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
     return result.stdout
+
+
+def hung_marker() -> str:
+    """Opaque token unique to one test run; safe to embed in process argv."""
+    return f"cairnkit-hung-{uuid.uuid4().hex}"
+
+
+def write_hung_interpreter(path: Path, marker: str, seconds: float = 60) -> None:
+    """Write a fake python that hangs; *marker* stays visible in ``ps`` args.
+
+    Uses an absolute interpreter and ``python -c`` so a restricted PATH still
+    works, and so ``exec`` keeps the marker in argv (unlike ``exec /bin/sleep``).
+    """
+    code = f"import time; time.sleep({seconds})  # {marker}"
+    path.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -c {shlex.quote(code)}\n")
+    path.chmod(0o755)
+
+
+def processes_with_marker(marker: str) -> list[str]:
+    """Running processes whose args contain *marker* (``pid ppid args`` lines)."""
+    out = subprocess.check_output(["ps", "-eo", "pid=,ppid=,args="], text=True)
+    found: list[str] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 2)
+        if len(parts) == 3 and marker in parts[2]:
+            found.append(line)
+    return found
+
+
+def assert_marker_gone(marker: str, *, label: str = "hung process") -> None:
+    """Fail if any process still carries *marker* in its argv."""
+    leftover = processes_with_marker(marker)
+    assert not leftover, f"leftover {label}: {leftover}"
 
 
 @pytest.fixture(autouse=True)
