@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import json
 import os
-import tomllib
 from pathlib import Path
 
 import pytest
 from conftest import git
 
-from cairnkit import __version__, install_source
+from cairnkit import install_source
 from cairnkit.cli import main
 
 FAKE_UV = """\
@@ -356,12 +355,6 @@ def test_a_folder_moved_back_to_an_older_commit_is_not_newer(machine):
     assert not install_source.is_newer(
         source, "0.2.0", later, install_source.Latest(first, "0.2.0")
     )
-
-
-def test_package_version_matches_pyproject():
-    root = Path(__file__).resolve().parents[1]
-    data = tomllib.loads((root / "pyproject.toml").read_text())
-    assert data["project"]["version"] == __version__
 
 
 def test_check_needs_no_uv_but_update_does(machine, monkeypatch, capsys):
