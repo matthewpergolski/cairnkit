@@ -5,7 +5,6 @@ kind: statechart
 status: implemented
 summary: "A fact starts active, then can be superseded, expired, wrong, or promoted."
 parent: cairnkit
-sourceRevision: "b81d40fe1d94615beb0687e0daa341bb7a2010f6"
 sources:
   - src/cairnkit/schema.py
   - src/cairnkit/state.py

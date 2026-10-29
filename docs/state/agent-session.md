@@ -5,7 +5,6 @@ kind: flow
 status: implemented
 summary: "How an agent session loads facts, works, and stops."
 parent: cairnkit
-sourceRevision: "b81d40fe1d94615beb0687e0daa341bb7a2010f6"
 sources:
   - src/cairnkit/hookrun.py
   - src/cairnkit/load.py
