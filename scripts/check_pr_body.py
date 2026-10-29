@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail when a pull-request body is not the cairnkit six-section shape.
 
-Required headings, in order:
+Required headings, in order, each exactly once:
 
   ## TL;DR
   ## How it works
@@ -10,9 +10,11 @@ Required headings, in order:
   ## How to test
   ## Review
 
-Also requires a ```mermaid fence. Fails on Cursor agent footer markers
-(CURSOR_AGENT_PR_BODY, Open in Cursor / Open in Web), "Generated with",
-and model names/ids. Bare product names (Claude, Cursor, Codex) are fine.
+Also requires a ```mermaid fence. Fails when any of those six headings
+appears more than once (a duplicated template paste). Fails on Cursor
+agent footer markers (CURSOR_AGENT_PR_BODY, Open in Cursor / Open in Web),
+"Generated with", and model names/ids. Bare product names (Claude, Cursor,
+Codex) are fine.
 
 Usage:
   python3 scripts/check_pr_body.py [PATH]
@@ -109,6 +111,15 @@ def check_body(text: str) -> list[str]:
         if title in REQUIRED_HEADINGS:
             found.append(title)
 
+    # Report each duplicated template heading by name (one error per title).
+    for title in REQUIRED_HEADINGS:
+        count = found.count(title)
+        if count > 1:
+            errors.append(
+                f"heading {title!r} appears {count} times. "
+                f"Fix: keep a single ## {title} section; remove the duplicate copy."
+            )
+
     missing = [h for h in REQUIRED_HEADINGS if h not in found]
     if missing:
         errors.append(
@@ -118,18 +129,12 @@ def check_body(text: str) -> list[str]:
             + ", ".join(REQUIRED_HEADINGS)
             + "."
         )
-    else:
-        # Required titles must appear in order (subsequence of found).
-        want = list(REQUIRED_HEADINGS)
-        pos = 0
-        for title in found:
-            if pos < len(want) and title == want[pos]:
-                pos += 1
-        if pos != len(want):
-            errors.append(
-                "required headings are out of order. "
-                "Fix: use the six headings in order: " + ", ".join(REQUIRED_HEADINGS) + "."
-            )
+    elif all(found.count(h) == 1 for h in REQUIRED_HEADINGS) and found != list(REQUIRED_HEADINGS):
+        # Exact once each (above); still must be in the required order.
+        errors.append(
+            "required headings are out of order. "
+            "Fix: use the six headings in order: " + ", ".join(REQUIRED_HEADINGS) + "."
+        )
 
     if not _MERMAID.search(text):
         errors.append(

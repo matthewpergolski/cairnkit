@@ -159,6 +159,23 @@ def test_headings_out_of_order_are_reported(mod):
     assert "Fix:" in "\n".join(errors)
 
 
+def test_duplicated_template_body_fails_and_names_repeated_heading(mod):
+    """Two full six-section pastes must fail; a single copy must pass."""
+    single = good_body()
+    assert mod.check_body(single) == []
+    duplicated = single + "\n" + single
+    errors = mod.check_body(duplicated)
+    assert errors
+    # Every required heading appears twice; each must be named.
+    for title in HEADINGS:
+        assert any(f"heading {title!r}" in e and "appears" in e and "times" in e for e in errors), (
+            title
+        )
+    assert all("Fix:" in e for e in errors)
+    # First error names the first template heading (TL;DR).
+    assert "heading 'TL;DR'" in errors[0] or 'heading "TL;DR"' in errors[0]
+
+
 def test_missing_mermaid_fence_is_reported(mod):
     body = good_body().replace("```mermaid\n", "```\n", 1)
     errors = mod.check_body(body)
