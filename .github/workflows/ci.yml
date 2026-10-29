@@ -79,3 +79,15 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: python3 scripts/check_pr_body.py
+
+  review-gate:
+    if: github.event_name == 'pull_request'
+    name: review-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Review section gate
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/check_review_gate.py
