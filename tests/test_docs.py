@@ -1,5 +1,3 @@
-"""`memory docs` writes a Nessa Docs atlas under docs/state."""
-
 from __future__ import annotations
 
 from pathlib import Path

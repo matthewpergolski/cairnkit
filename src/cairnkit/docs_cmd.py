@@ -1,8 +1,4 @@
-"""`memory docs`: write a Nessa Docs atlas under docs/state.
-
-No model. No network. Inventories the project and emits Markdown that the
-Nessa Docs browser can open (https://github.com/nessalabs/nessa-docs).
-"""
+"""`memory docs`: write a Nessa Docs atlas under docs/state."""
 
 from __future__ import annotations
 
@@ -29,8 +25,7 @@ SKIP_TOP = {
     "memory-bank",
     "docs",
 }
-# Module stems that make a useful cairnkit architecture map.
-CAIRNKIT_CORE = (
+ARCHITECTURE_MODULES = (
     "cli",
     "init",
     "memory",
@@ -45,9 +40,7 @@ CAIRNKIT_CORE = (
 
 @dataclass(frozen=True)
 class Page:
-    """One Nessa Docs page. `relpath` is under docs/state."""
-
-    relpath: str
+    state_path: str
     id: str
     title: str
     kind: str
@@ -98,7 +91,6 @@ def render_page(page: Page) -> str:
 
 
 def _read_name(root: Path) -> tuple[str, str]:
-    """Project display name and one-line summary from common manifests."""
     pyproject = root / "pyproject.toml"
     if pyproject.is_file():
         try:
@@ -140,12 +132,12 @@ def _top_entries(root: Path) -> list[str]:
     return names[:12]
 
 
-def _cairnkit_modules(root: Path) -> list[str]:
+def _architecture_modules(root: Path) -> list[str]:
     folder = root / "src" / "cairnkit"
     if not folder.is_dir():
         return []
     found = []
-    for name in CAIRNKIT_CORE:
+    for name in ARCHITECTURE_MODULES:
         if (folder / f"{name}.py").is_file():
             found.append(name)
     return found
@@ -168,7 +160,7 @@ def build_atlas(project: Project) -> list[Page]:
     name, summary = _read_name(root)
     rev = _revision(root)
     entries = _top_entries(root)
-    modules = _cairnkit_modules(root)
+    modules = _architecture_modules(root)
     root_id = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-") or "project"
 
     links: dict[str, str] = {"MemorySession": "agent-session", "FactStore": "fact-lifecycle"}
@@ -203,7 +195,7 @@ def build_atlas(project: Project) -> list[Page]:
     )
     pages = [
         Page(
-            relpath="README.md",
+            state_path="README.md",
             id=root_id,
             title=name,
             kind="system",
@@ -216,7 +208,7 @@ def build_atlas(project: Project) -> list[Page]:
             source_revision=rev,
         ),
         Page(
-            relpath="agent-session.md",
+            state_path="agent-session.md",
             id="agent-session",
             title="Agent session",
             kind="flow",
@@ -244,7 +236,7 @@ def build_atlas(project: Project) -> list[Page]:
             source_revision=rev,
         ),
         Page(
-            relpath="fact-lifecycle.md",
+            state_path="fact-lifecycle.md",
             id="fact-lifecycle",
             title="Fact lifecycle",
             kind="statechart",
@@ -292,7 +284,7 @@ def build_atlas(project: Project) -> list[Page]:
         )
         pages.append(
             Page(
-                relpath="architecture.md",
+                state_path="architecture.md",
                 id="architecture",
                 title="Package architecture",
                 kind="service",
@@ -311,7 +303,7 @@ def build_atlas(project: Project) -> list[Page]:
 def write_atlas(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
     written: list[Path] = []
     for page in pages:
-        path = root / STATE_DIR / page.relpath
+        path = root / STATE_DIR / page.state_path
         written.append(path)
         if dry_run:
             continue
