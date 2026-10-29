@@ -37,9 +37,10 @@ These parts are the most important to report:
   - The pstack skills check (session start, `memory check`, `memory init`,
     `memory migrate`, `memory skills status`): reads `pstack/plugin.json`
     from `github.com/cursor/plugins`, at most once a day (once an hour after
-    a failure). It runs only when Claude Code, Codex or Cursor is found on
-    the computer. `skills_check = false` in `config.toml` turns it off,
-    except in `memory skills status`, which you run on purpose.
+    a failure). It runs only when Claude Code, Codex, Cursor, OpenCode, Pi or
+    Grok Build is found on the computer. `skills_check = false` in
+    `config.toml` turns it off, except in `memory skills status`, which you
+    run on purpose.
   - `memory skills install pstack --yes`: reads `pstack/plugin.json`, runs
     `git clone` of `github.com/cursor/plugins`, and for Claude Code runs
     `claude plugin marketplace add` and `claude plugin install`.

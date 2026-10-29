@@ -65,6 +65,15 @@ def clean_env(monkeypatch):
         "CODEX_THREAD_ID",
         "CURSOR_AGENT",
         "CURSOR_TRACE_ID",
+        "OPENCODE",
+        "OPENCODE_SESSION_ID",
+        "OPENCODE_CONFIG_DIR",
+        "PI_CODING_AGENT",
+        "PI_CODING_AGENT_DIR",
+        "GROK_SESSION_ID",
+        "GROK_HOOK_EVENT",
+        "GROK_WORKSPACE_ROOT",
+        "GROK_HOME",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -73,13 +82,19 @@ def clean_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_real_machine(tmp_path_factory, monkeypatch):
-    """An empty home, no network and no real install, so the skills check says nothing."""
+    """An empty home, no network and no real install, so the skills check says nothing.
+
+    Also pins XDG_CONFIG_HOME (and cache) under the fake machine. GitHub ubuntu
+    runners often set XDG_CONFIG_HOME to the real ~/.config; without this pin,
+    OpenCode detection escapes HOME and tests share / pollute the runner.
+    """
     from cairnkit import skills
 
     machine = tmp_path_factory.mktemp("machine")  # outside the test's own tmp folder
     (machine / "home").mkdir()
     monkeypatch.setenv("HOME", str(machine / "home"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(machine / "cache"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(machine / "config"))
 
     def offline(*args, **kwargs):
         raise OSError("tests do not use the network")

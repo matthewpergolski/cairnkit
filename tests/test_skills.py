@@ -81,19 +81,24 @@ class World:
         (root / "known_marketplaces.json").write_text(json.dumps({"cursor-plugins": {}}))
 
     def mark(self, tool, version="0.15.32", names=SKILLS):
-        base = self.home / (".codex" if tool == "codex" else ".cursor") / "skills"
-        (base / ".pstack").mkdir(parents=True)
+        base = skills.skills_dir(tool)
+        (base / ".pstack").mkdir(parents=True, exist_ok=True)
         (base / ".pstack" / "install.json").write_text(
             json.dumps({"version": version, "commit": "abc", "skills": list(names)})
         )
         for name in names:
-            (base / name).mkdir()
+            (base / name).mkdir(exist_ok=True)
             (base / name / "SKILL.md").write_text("x")
         return base
 
     def dirs(self, *names):
         for name in names:
             (self.home / name).mkdir(parents=True, exist_ok=True)
+
+    def find(self, *tools):
+        """Create the user-level home folder that means each tool is present."""
+        for tool in tools:
+            skills.tool_home(tool).mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture
@@ -131,6 +136,9 @@ def test_status_names_each_tool_that_it_finds_or_not(world, capsys):
     _, out = run(capsys, "skills", "status")
     assert "Codex" in out and "not installed" in next(x for x in out.splitlines() if "Codex" in x)
     assert "not found" in next(x for x in out.splitlines() if "Cursor" in x)
+    assert "not found" in next(x for x in out.splitlines() if "OpenCode" in x)
+    assert "not found" in next(x for x in out.splitlines() if x.strip().startswith("Pi:"))
+    assert "not found" in next(x for x in out.splitlines() if "Grok Build" in x)
 
 
 def test_status_reads_the_marker_of_a_copied_install(world, capsys):
@@ -350,6 +358,120 @@ def test_install_cursor_uses_its_user_skills_folder(world, capsys):
     world.dirs(".cursor")
     run(capsys, "skills", "install", "pstack", "--tool", "cursor", "--yes")
     assert (world.home / ".cursor" / "skills" / "unslop" / "SKILL.md").is_file()
+
+
+def test_opencode_detection_uses_xdg_config_home(world, monkeypatch):
+    other = world.home / "xdg-config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(other))
+    assert not skills.detected("opencode")
+    (other / "opencode").mkdir(parents=True)
+    assert skills.detected("opencode")
+    assert skills.skills_dir("opencode") == other / "opencode" / "skills"
+
+
+def test_opencode_default_path_when_xdg_config_home_is_unset(world, monkeypatch):
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert skills.tool_home("opencode") == Path.home() / ".config" / "opencode"
+    assert skills.skills_dir("opencode") == Path.home() / ".config" / "opencode" / "skills"
+
+
+def test_xdg_config_home_outside_fake_home_is_honoured_and_isolated(
+    world, tmp_path_factory, monkeypatch
+):
+    """An explicit XDG_CONFIG_HOME wins even when it is not under HOME.
+
+    The shared fixture pins XDG under the fake machine; this test then points
+    it somewhere else entirely and checks HOME/.config/opencode is never used.
+    """
+    outside = tmp_path_factory.mktemp("xdg-outside-home")
+    assert not outside.resolve().is_relative_to(Path.home().resolve())
+    home_config = Path.home() / ".config" / "opencode"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(outside))
+    assert skills.tool_home("opencode") == outside / "opencode"
+    assert skills.skills_dir("opencode") == outside / "opencode" / "skills"
+    assert not skills.detected("opencode")
+    (outside / "opencode").mkdir(parents=True)
+    assert skills.detected("opencode")
+    world.mark("opencode", "0.15.32")
+    assert (outside / "opencode" / "skills" / ".pstack" / "install.json").is_file()
+    assert not home_config.exists()
+
+
+def test_fixture_pins_xdg_config_home_under_the_fake_machine(world):
+    """Default test env must not inherit a runner XDG_CONFIG_HOME."""
+    xdg = Path(os.environ["XDG_CONFIG_HOME"])
+    assert xdg.is_absolute()
+    assert not xdg.resolve().is_relative_to(Path.home().resolve())
+    assert skills.tool_home("opencode") == xdg / "opencode"
+
+
+def test_pi_detection_uses_dot_pi_and_skills_under_agent(world):
+    assert not skills.detected("pi")
+    world.find("pi")
+    assert skills.detected("pi")
+    assert skills.skills_dir("pi") == world.home / ".pi" / "agent" / "skills"
+
+
+def test_pi_honours_pi_coding_agent_dir(world, tmp_path_factory, monkeypatch):
+    agent = tmp_path_factory.mktemp("pi-agent-parent") / "agent"
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent))
+    assert not skills.detected("pi")
+    assert skills.tool_home("pi") == agent
+    assert skills.skills_dir("pi") == agent / "skills"
+    agent.mkdir(parents=True)
+    assert skills.detected("pi")
+    world.mark("pi", "0.15.32")
+    assert (agent / "skills" / ".pstack" / "install.json").is_file()
+    assert not (world.home / ".pi" / "agent" / "skills" / ".pstack").exists()
+
+
+def test_opencode_honours_opencode_config_dir(world, tmp_path_factory, monkeypatch, capsys):
+    other = tmp_path_factory.mktemp("opencode-config-parent") / "opencode"
+    monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(other))
+    xdg_default = Path(os.environ["XDG_CONFIG_HOME"]) / "opencode"
+    assert skills.tool_home("opencode") == other
+    assert skills.skills_dir("opencode") == other / "skills"
+    assert not skills.detected("opencode")
+    other.mkdir(parents=True)
+    assert skills.detected("opencode")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "opencode", "--yes")
+    assert code == 0
+    assert (other / "skills" / "tdd" / "SKILL.md").is_file()
+    assert (other / "skills" / ".pstack" / "install.json").is_file()
+    assert not (xdg_default / "skills" / ".pstack").exists()
+
+
+def test_grok_detection_uses_dot_grok_and_skills(world):
+    assert not skills.detected("grok")
+    world.find("grok")
+    assert skills.detected("grok")
+    assert skills.skills_dir("grok") == world.home / ".grok" / "skills"
+
+
+def test_grok_honours_grok_home(world, tmp_path_factory, monkeypatch, capsys):
+    other = tmp_path_factory.mktemp("grok-home-parent") / "home"
+    monkeypatch.setenv("GROK_HOME", str(other))
+    assert skills.tool_home("grok") == other
+    assert skills.skills_dir("grok") == other / "skills"
+    assert not skills.detected("grok")
+    other.mkdir(parents=True)
+    assert skills.detected("grok")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "grok", "--yes")
+    assert code == 0
+    assert (other / "skills" / "unslop" / "SKILL.md").is_file()
+    assert (other / "skills" / ".pstack" / "install.json").is_file()
+    assert not (world.home / ".grok" / "skills" / ".pstack").exists()
+
+
+def test_install_grok_copies_into_native_skills(world, capsys):
+    world.find("grok")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "grok", "--yes")
+    assert code == 0
+    base = world.home / ".grok" / "skills"
+    for name in SKILLS:
+        assert (base / name / "SKILL.md").is_file()
+    marker = json.loads((base / ".pstack" / "install.json").read_text())
+    assert marker["version"] == "0.15.32" and sorted(marker["skills"]) == sorted(SKILLS)
 
 
 def test_the_default_installs_every_tool_that_it_finds(world, capsys):
@@ -604,18 +726,24 @@ def test_migrate_task_has_no_install_line_when_current(world, repo, capsys):
 
 
 @pytest.mark.parametrize(
-    "marker,tool",
+    "marker,tool,value",
     [
-        ("CLAUDECODE", "claude"),
-        ("CODEX_THREAD_ID", "codex"),
-        ("CODEX_SANDBOX", "codex"),
-        ("CODEX_CI", "codex"),
-        ("CURSOR_AGENT", "cursor"),
-        ("CURSOR_TRACE_ID", "cursor"),
+        ("CLAUDECODE", "claude", "1"),
+        ("CODEX_THREAD_ID", "codex", "1"),
+        ("CODEX_SANDBOX", "codex", "1"),
+        ("CODEX_CI", "codex", "1"),
+        ("CURSOR_AGENT", "cursor", "1"),
+        ("CURSOR_TRACE_ID", "cursor", "1"),
+        ("OPENCODE", "opencode", "1"),
+        ("OPENCODE_SESSION_ID", "opencode", "s1"),
+        ("PI_CODING_AGENT", "pi", "true"),
+        ("GROK_SESSION_ID", "grok", "s1"),
+        ("GROK_HOOK_EVENT", "grok", "SessionStart"),
+        ("GROK_WORKSPACE_ROOT", "grok", "/tmp/ws"),
     ],
 )
-def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool):
-    monkeypatch.setenv(marker, "1")
+def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool, value):
+    monkeypatch.setenv(marker, value)
     assert skills.running_tool() == tool
 
 
@@ -634,11 +762,30 @@ def test_the_hook_agent_beats_the_environment(monkeypatch):
 
 def test_a_session_hears_only_about_its_own_tool(world, mem, capsys, monkeypatch):
     world.dirs(".codex", ".cursor")
+    world.find("opencode", "pi", "grok")
     monkeypatch.setenv("CODEX_THREAD_ID", "t1")
     for command in ("check", "load"):
         _, out = run(capsys, command)
         line = next(x for x in out.splitlines() if "pstack" in x)
         assert "Codex" in line and "Cursor" not in line
+        assert "OpenCode" not in line and "Pi" not in line
+        assert "Grok Build" not in line
+
+
+def test_an_opencode_session_hears_only_about_opencode(world, mem, capsys, monkeypatch):
+    world.find("opencode", "pi", "grok")
+    monkeypatch.setenv("OPENCODE", "1")
+    _, out = run(capsys, "check")
+    line = next(x for x in out.splitlines() if "pstack" in x)
+    assert "OpenCode" in line and "Pi" not in line and "Grok Build" not in line
+
+
+def test_a_grok_session_hears_only_about_grok(world, mem, capsys, monkeypatch):
+    world.find("opencode", "pi", "grok")
+    monkeypatch.setenv("GROK_SESSION_ID", "s1")
+    _, out = run(capsys, "check")
+    line = next(x for x in out.splitlines() if "pstack" in x)
+    assert "Grok Build" in line and "OpenCode" not in line and "Pi" not in line
 
 
 def test_an_unknown_session_hears_nothing(world, mem, capsys, monkeypatch):
@@ -662,6 +809,7 @@ def test_status_by_hand_still_lists_every_tool(world, capsys, monkeypatch):
     monkeypatch.setenv("CODEX_THREAD_ID", "t1")
     _, out = run(capsys, "skills", "status")
     assert "Codex" in out and "Cursor" in out and "Claude Code" in out
+    assert "OpenCode" in out and "Pi:" in out and "Grok Build" in out
 
 
 def _shown(out):

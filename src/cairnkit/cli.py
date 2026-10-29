@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("name", choices=("pstack",))
     h.add_argument(
         "--tool",
-        choices=("claude", "codex", "cursor", "all"),
+        choices=("claude", "codex", "cursor", "opencode", "pi", "grok", "all"),
         help="one tool (default: every tool that is found)",
     )
     h.add_argument(

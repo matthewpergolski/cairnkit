@@ -56,7 +56,7 @@ the agent loads the memory at session start and checks it at session end.
 Start with `--dry-run` to see what it would write. The same command adds two
 personal git hooks, `pre-push` and `post-merge`. They run auto-tidy after a
 push or a merge. They are not shared. They work for every agent, including
-OpenCode and Pi.
+OpenCode, Pi and Grok Build.
 
 ## What it is, and what it is not
 
@@ -78,9 +78,10 @@ It is not:
   - The pstack skills check (session start, `memory check`, `memory init`,
     `memory migrate`, `memory skills status`): reads `pstack/plugin.json`
     from `github.com/cursor/plugins`, at most once a day (once an hour after
-    a failure). It runs only when Claude Code, Codex or Cursor is found on
-    the computer. `skills_check = false` in `config.toml` turns it off,
-    except in `memory skills status`, which you run on purpose.
+    a failure). It runs only when Claude Code, Codex, Cursor, OpenCode, Pi or
+    Grok Build is found on the computer. `skills_check = false` in
+    `config.toml` turns it off, except in `memory skills status`, which you
+    run on purpose.
   - `memory skills install pstack --yes`: reads `pstack/plugin.json`, runs
     `git clone` of `github.com/cursor/plugins`, and for Claude Code runs
     `claude plugin marketplace add` and `claude plugin install`.
@@ -98,9 +99,10 @@ It is not:
 | Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). | **Experimental.** Cloud agents do not run `sessionStart`. |
 | OpenCode | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
 | Pi | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
+| Grok Build | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
 | Any other agent | `memory hooks install --agent generic` prints the two commands to connect by hand. | Manual. |
 
-For an agent with no hook, such as OpenCode or Pi:
+For an agent with no hook, such as OpenCode, Pi or Grok Build:
 
 1. Run `memory instructions --write-instructions=shared`. It writes the rules
    block into the tracked file your repo has: `CLAUDE.md`, or `AGENTS.md` if
@@ -177,7 +179,8 @@ These stay, and you can remove them by hand:
 - the `memory-bank` link in each other worktree. Remove it there too;
 - the user cache `~/.cache/cairnkit/`;
 - the pstack skills, if you installed them: they are at user level, in
-  Claude Code and in `~/.codex/skills` and `~/.cursor/skills`.
+  Claude Code and in `~/.codex/skills`, `~/.cursor/skills`,
+  `~/.config/opencode/skills`, `~/.pi/agent/skills` and `~/.grok/skills`.
 
 Then remove the tool:
 
@@ -217,8 +220,8 @@ The same step runs after a push or a merge. Those git hooks are personal.
 They live in this clone's `.git/hooks`. They are not shared, and they are
 not written to `.githooks/`. A teammate who does not use cairnkit never
 runs them. A teammate who does has their own memory and their own hooks.
-The two do not conflict. This works for every agent, including OpenCode
-and Pi. A push or a merge does not count as a session start. The git hook
+The two do not conflict. This works for every agent, including OpenCode,
+Pi and Grok Build. A push or a merge does not count as a session start. The git hook
 never stops git. It prints nothing. A few-second shell bound covers a hung
 python start when `timeout`, `gtimeout`, or `perl` is available (stock macOS
 has `perl`). The perl command runs in a group that discards output, so the
@@ -453,30 +456,40 @@ pstack is a set of agent skills (MIT, from `github.com/cursor/plugins`). The
 memory tool does not need it. It checks for it and keeps it current, at user
 level only. It writes nothing into a repo.
 
-- `memory skills status` says, for Claude Code, Codex and Cursor, whether
-  pstack is installed and which version. It also says the latest version, and
-  for each tool the installed skill count versus the available count (so a
-  partial install is visible). The latest version comes from
-  `pstack/plugin.json` on the `main` branch of `cursor/plugins`. The answer is
-  cached for one day. Offline, it is skipped.
+- `memory skills status` says, for Claude Code, Codex, Cursor, OpenCode, Pi
+  and Grok Build, whether pstack is installed and which version. It also says
+  the latest version, and for each tool the installed skill count versus the
+  available count (so a partial install is visible). The latest version comes
+  from `pstack/plugin.json` on the `main` branch of `cursor/plugins`. The
+  answer is cached for one day. Offline, it is skipped.
 - `memory skills install pstack` shows the plan. `--yes` does it. The same
   command updates. A rerun with nothing to do says so. `--tool NAME` picks one
-  tool. For Claude Code it runs `claude plugin marketplace add cursor/plugins`
-  and `claude plugin install pstack@cursor-plugins --scope user` (Claude loads
+  tool (`claude`, `codex`, `cursor`, `opencode`, `pi`, `grok`, or `all`). For
+  Claude Code it runs `claude plugin marketplace add cursor/plugins` and
+  `claude plugin install pstack@cursor-plugins --scope user` (Claude loads
   the plugin's `skills/` as a unit; it does not copy into `~/.claude/skills`).
-  For Codex and Cursor it copies the skill folders into `~/.codex/skills` and
-  `~/.cursor/skills`, with the LICENSE and a marker file
+  For Codex, Cursor, OpenCode, Pi and Grok Build it copies the skill folders
+  into that tool's native user skills directory (`~/.codex/skills`,
+  `~/.cursor/skills`, `~/.config/opencode/skills` or `$OPENCODE_CONFIG_DIR/skills`,
+  `~/.pi/agent/skills` or `$PI_CODING_AGENT_DIR/skills`, `~/.grok/skills` or
+  `$GROK_HOME/skills`), with the LICENSE and a marker file
   (`.pstack/install.json`: the version, the source commit, and every skill it
-  owns). The command output says how many skill(s) were installed and how many
-  were skipped and why. By default it keeps a skill of yours that has the same
-  name. `--adopt` (also `--all`) replaces those same-named folders so every
-  pstack skill is installed, and prints which ones it adopted.
+  owns). OpenCode also discovers `~/.claude/skills` and `~/.agents/skills`; Pi
+  also discovers `~/.agents/skills`; Grok Build also discovers
+  `~/.agents/skills` and Claude-compatible skills; the installer does not write
+  those shared folders, so it does not double-install. The command output says
+  how many skill(s) were installed and how many were skipped and why. By
+  default it keeps a skill of yours that has the same name. `--adopt` (also
+  `--all`) replaces those same-named folders so every pstack skill is
+  installed, and prints which ones it adopted.
 - The advisory is quiet. A session hears only about the tool that runs it. The
   tool is known from the hook's `--agent`, or from one set of environment
   markers (`CLAUDECODE`; `CODEX_CI`, `CODEX_SANDBOX` or `CODEX_THREAD_ID`;
-  `CURSOR_AGENT` or `CURSOR_TRACE_ID`). When it is not known, nothing is
-  printed. `memory load` (at session start) and `memory check` print one line
-  when pstack is missing or behind for that tool. The line ends with
+  `CURSOR_AGENT` or `CURSOR_TRACE_ID`; `OPENCODE` or `OPENCODE_SESSION_ID`;
+  `PI_CODING_AGENT`; `GROK_SESSION_ID`, `GROK_HOOK_EVENT` or
+  `GROK_WORKSPACE_ROOT`). When it is not known, nothing is printed.
+  `memory load` (at session start) and `memory check` print one line when
+  pstack is missing or behind for that tool. The line ends with
   `Run: memory skills install pstack --yes`. For one pair of installed and
   latest versions it shows in 3 session starts, then stops. A newer latest
   version starts a new count. The count is in `.skills-advisory.json` in the

@@ -46,6 +46,11 @@ marked tidy block when one is already there, so the two chain.
    Product names (Claude, Cursor, Codex) are fine. Locally:
    `python3 scripts/check_pr_body.py path/to/body.md`. Pull requests run
    the same check in CI.
+10. **Review gate.** The PR body's `## Review` section must not stay
+   `Pending` (or empty). Any Blocker or High finding on that section must be
+   marked `fixed` or `rejected` on the same line. Locally:
+   `python3 scripts/check_review_gate.py path/to/body.md`. Pull requests run
+   the same check as the `review-gate` CI job.
 
 ## Layout
 
@@ -103,5 +108,6 @@ scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, pr
 scripts/install-verify-pre-push.sh  optional local pre-push that runs verify.sh; chains with cairnkit hooks
 scripts/check_identity.py  merge-time check: neutral author/committer/trailers and file emails
 scripts/check_pr_body.py    PR body check: six headings, mermaid, no agent footer or model ids
+scripts/check_review_gate.py  PR Review section: not Pending; Blocker/High must be fixed or rejected
 .github/pull_request_template.md  the six-section PR description skeleton
 ```

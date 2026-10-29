@@ -418,13 +418,17 @@ The user cache is `$XDG_CACHE_HOME/cairnkit`, else `~/.cache/cairnkit`:
   installed/available skill counts per tool.
 
 User-level skill markers (not in the memory folder; under
-`~/.codex/skills/.pstack/` or `~/.cursor/skills/.pstack/`):
+`~/.codex/skills/.pstack/`, `~/.cursor/skills/.pstack/`,
+`~/.config/opencode/skills/.pstack/` (or `$OPENCODE_CONFIG_DIR/skills/.pstack/`),
+`~/.pi/agent/skills/.pstack/` (or `$PI_CODING_AGENT_DIR/skills/.pstack/`), or
+`~/.grok/skills/.pstack/` (or `$GROK_HOME/skills/.pstack/`)):
 
-- `install.json`: written by a Codex/Cursor copy install. Fields include
-  `name`, `version`, `commit`, `source`, `skills` (every skill folder this
-  install owns), `catalog` (how many skills the source had), and
-  `installed_at`. A same-named folder that was skipped stays off `skills`
-  until `memory skills install pstack --adopt` (or `--all`) replaces it.
+- `install.json`: written by a Codex/Cursor/OpenCode/Pi/Grok Build copy
+  install. Fields include `name`, `version`, `commit`, `source`, `skills`
+  (every skill folder this install owns), `catalog` (how many skills the
+  source had), and `installed_at`. A same-named folder that was skipped stays
+  off `skills` until `memory skills install pstack --adopt` (or `--all`)
+  replaces it.
 - `LICENSE`: a copy of the pstack license from the source.
 
 ## 9. Checks
