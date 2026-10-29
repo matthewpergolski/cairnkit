@@ -191,6 +191,9 @@ def build_atlas(project: Project) -> list[Page]:
         "This atlas was written by `memory docs`. Open the project folder in "
         "[Nessa Docs](https://github.com/nessalabs/nessa-docs) to browse the "
         "diagrams. Boxes with a + open a deeper page.\n\n"
+        "The root `sourceRevision` is the git commit inventoried for this system "
+        "map. It is not a claim that every child page was behavior-reviewed at "
+        "that commit. Child template pages omit `sourceRevision`.\n\n"
         "```mermaid\n" + "\n".join(map_lines) + "\n```\n"
     )
     pages = [
@@ -233,7 +236,6 @@ def build_atlas(project: Project) -> list[Page]:
                 "    Search --> Stop\n"
                 "```\n"
             ),
-            source_revision=rev,
         ),
         Page(
             state_path="fact-lifecycle.md",
@@ -264,7 +266,6 @@ def build_atlas(project: Project) -> list[Page]:
                 "    Promoted --> [*]\n"
                 "```\n"
             ),
-            source_revision=rev,
         ),
     ]
 
@@ -294,7 +295,6 @@ def build_atlas(project: Project) -> list[Page]:
                 sources=tuple(f"src/cairnkit/{m}.py" for m in modules),
                 diagram_links={},
                 body=arch_body,
-                source_revision=rev,
             )
         )
     return pages
