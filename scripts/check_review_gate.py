@@ -64,7 +64,7 @@ def _substantive_lines(section: str) -> list[str]:
         if not line:
             continue
         # Cursor agent footer residue after tags are stripped (alt text only).
-        without_footer = _FOOTER_PHRASE.sub("", line).strip(" \t|-–—")
+        without_footer = _FOOTER_PHRASE.sub("", line).strip(" \t|-")
         if not without_footer:
             continue
         lines.append(line)
