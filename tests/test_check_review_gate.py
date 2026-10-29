@@ -67,7 +67,7 @@ def test_pending_fails(mod):
 def test_pending_with_cursor_footer_still_fails(mod):
     """HTML footers must not clear a Pending Review section."""
     footer = (
-        '<!-- CURSOR_AGENT_PR_BODY_END -->\n'
+        "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
         '<div><a href="https://cursor.com/"><picture>'
         '<img alt="Open in Web" src="x.png"></picture></a>&nbsp;'
         '<a href="https://cursor.com/"><picture>'
