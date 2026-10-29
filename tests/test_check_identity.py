@@ -165,3 +165,76 @@ def test_cli_exits_1_on_bad_range(mod, tmp_path):
         text=True,
     ).returncode
     assert code == 1
+
+
+OWNER = "matthewpergolski"
+OWNER_EMAIL = f"160999621+{OWNER}@users.noreply.github.com"
+GITHUB_NAME = "GitHub"
+GITHUB_EMAIL = "noreply@github.com"
+
+
+def _squash_env() -> dict[str, str]:
+    return {
+        **dict(__import__("os").environ),
+        "GIT_AUTHOR_NAME": "Matthew L. Pergolski",
+        "GIT_AUTHOR_EMAIL": OWNER_EMAIL,
+        "GIT_COMMITTER_NAME": GITHUB_NAME,
+        "GIT_COMMITTER_EMAIL": GITHUB_EMAIL,
+    }
+
+
+def test_github_squash_is_rejected_without_allow_flag(mod, tmp_path):
+    repo = init_repo(tmp_path / "squash-default")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-q", "-m", "Add a thing (#14)", env=_squash_env())
+    errors = mod.check_range(repo, "HEAD~1..HEAD")
+    assert errors
+    assert any("committer" in e.lower() and GITHUB_EMAIL in e for e in errors)
+
+
+def test_github_squash_is_accepted_with_allow_flag(mod, tmp_path):
+    repo = init_repo(tmp_path / "squash-ok")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-q", "-m", "Add a thing (#14)", env=_squash_env())
+    assert mod.check_range(repo, "HEAD~1..HEAD", allow_github_squash=True, owner=OWNER) == []
+
+
+def test_github_squash_still_rejects_ai_trailer(mod, tmp_path):
+    repo = init_repo(tmp_path / "squash-ai")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    msg = "Add a thing (#14)\n\nCo-authored-by: Claude <noreply@anthropic.com>\n"
+    git(repo, "commit", "-q", "-m", msg, env=_squash_env())
+    errors = mod.check_range(repo, "HEAD~1..HEAD", allow_github_squash=True, owner=OWNER)
+    assert any("co-authored-by" in e.lower() for e in errors)
+
+
+def test_github_squash_requires_pr_number_in_subject(mod, tmp_path):
+    repo = init_repo(tmp_path / "squash-no-pr")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-q", "-m", "Add a thing without a PR ref", env=_squash_env())
+    errors = mod.check_range(repo, "HEAD~1..HEAD", allow_github_squash=True, owner=OWNER)
+    assert errors
+
+
+def test_cli_allow_github_squash_flag(mod, tmp_path):
+    repo = init_repo(tmp_path / "squash-cli")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-q", "-m", "Land feature (#99)", env=_squash_env())
+    ok = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--allow-github-squash",
+            f"--owner={OWNER}",
+            "HEAD~1..HEAD",
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert ok.returncode == 0, ok.stderr
