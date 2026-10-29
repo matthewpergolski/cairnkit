@@ -312,6 +312,29 @@ def write_atlas(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
     return written
 
 
+def _prune_orphan_markdown(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
+    state = root / STATE_DIR
+    if not state.is_dir():
+        return []
+    keep = {root / STATE_DIR / page.state_path for page in pages}
+    removed: list[Path] = []
+    for path in sorted(state.rglob("*.md"), reverse=True):
+        if path in keep:
+            continue
+        removed.append(path)
+        if not dry_run:
+            path.unlink(missing_ok=True)
+    if not dry_run:
+        for folder in sorted((p for p in state.rglob("*") if p.is_dir()), reverse=True):
+            try:
+                next(folder.iterdir())
+            except StopIteration:
+                folder.rmdir()
+            except OSError:
+                pass
+    return removed
+
+
 def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> int:
     try:
         Memory.open(project, path)
@@ -328,15 +351,20 @@ def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> 
 
     pages = build_atlas(project)
     paths = write_atlas(project.root, pages, dry_run=dry_run)
+    removed = _prune_orphan_markdown(project.root, pages, dry_run=dry_run) if force else []
     rels = [p.relative_to(project.root).as_posix() for p in paths]
     if dry_run:
         print(f"Would write {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
+        for path in removed:
+            print(f"  remove {path.relative_to(project.root).as_posix()}")
     else:
         print(f"Wrote {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
+        for path in removed:
+            print(f"  removed {path.relative_to(project.root).as_posix()}")
     print(
         "Browse with Nessa Docs: https://github.com/nessalabs/nessa-docs "
         "(open this project folder in the app)."
