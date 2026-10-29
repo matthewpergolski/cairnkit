@@ -117,6 +117,17 @@ def test_accepted_alone_does_not_clear_blocker_or_high(mod):
     assert any("fixed/rejected" in e for e in errors)
 
 
+def test_free_prose_blocker_high_words_are_not_findings(mod):
+    """M1: bare words at line start must not look like house-style findings."""
+    review = """
+- High-priority follow-up later
+### High-level notes
+- Blocker 0 · High 0 · Medium 1
+- Independent review found nothing to change.
+"""
+    assert mod.check_review(body_with_review(review)) == []
+
+
 def test_counts_line_and_not_a_blocker_are_ignored(mod):
     review = """
 **Counts:** Blocker 0 · High 0 · Medium 1 · Low 0

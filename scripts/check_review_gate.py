@@ -26,13 +26,14 @@ _HEADING_REVIEW = re.compile(r"^##\s+Review\s*$", re.M)
 _NEXT_H2 = re.compile(r"^##\s+\S", re.M)
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _BULLET = re.compile(r"^[-*]\s+")
-# A finding line that names Blocker / High (or B1 / H1 style ids).
-# Bold labels may be ``**Blocker:**`` / ``**High:**`` (colon inside the marks).
+# House-style Blocker / High labels only (or B1 / H1 ids).
+# Require a colon or bold wrapper so free prose like "High-priority" or
+# "Blocker 0 · High 0" without a Counts: prefix does not trip the gate.
 _FINDING = re.compile(
     r"(?i)^\s*(?:[-*]\s+|#{2,6}\s+)?"
     r"(?:"
     r"\*\*(?:Blocker|High):?\*\*"
-    r"|(?<![A-Za-z])(?:Blocker|High)(?![A-Za-z])"
+    r"|(?:Blocker|High)(?:\s*\([^)]*\))?:"
     r"|\*\*[BH]\d+:?\*\*"
     r"|(?<![A-Za-z])[BH]\d+(?![A-Za-z0-9])"
     r")"

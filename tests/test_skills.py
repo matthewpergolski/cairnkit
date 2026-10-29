@@ -368,6 +368,12 @@ def test_opencode_detection_uses_xdg_config_home(world, monkeypatch):
     assert skills.skills_dir("opencode") == other / "opencode" / "skills"
 
 
+def test_opencode_default_path_when_xdg_config_home_is_unset(world, monkeypatch):
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert skills.tool_home("opencode") == Path.home() / ".config" / "opencode"
+    assert skills.skills_dir("opencode") == Path.home() / ".config" / "opencode" / "skills"
+
+
 def test_xdg_config_home_outside_fake_home_is_honoured_and_isolated(
     world, tmp_path_factory, monkeypatch
 ):
