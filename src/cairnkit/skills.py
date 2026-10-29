@@ -33,6 +33,7 @@ TOOLS = {
     "cursor": "Cursor",
     "opencode": "OpenCode",
     "pi": "Pi",
+    "grok": "Grok Build",
 }
 FRESH = timedelta(days=1)
 FRESH_AFTER_FAILURE = timedelta(hours=1)
@@ -137,33 +138,62 @@ def latest_version(force: bool = False) -> str | None:
 # --- what is installed ----------------------------------------------------------------
 
 
+def _expand_env_path(name: str) -> Path | None:
+    """Absolute path from an env override, or None when unset/blank."""
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return None
+    return Path(os.path.expanduser(str(raw).strip()))
+
+
 def _config_home() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
     return Path(base) if base else Path.home() / ".config"
 
 
+def _opencode_home() -> Path:
+    """OpenCode global config dir: ``OPENCODE_CONFIG_DIR`` or XDG ``…/opencode``."""
+    return _expand_env_path("OPENCODE_CONFIG_DIR") or (_config_home() / "opencode")
+
+
+def _pi_agent_dir() -> Path:
+    """Pi agent config dir: ``PI_CODING_AGENT_DIR`` or ``~/.pi/agent``."""
+    return _expand_env_path("PI_CODING_AGENT_DIR") or (Path.home() / ".pi" / "agent")
+
+
+def _grok_home() -> Path:
+    """Grok Build home: ``GROK_HOME`` or ``~/.grok``."""
+    return _expand_env_path("GROK_HOME") or (Path.home() / ".grok")
+
+
 def tool_home(tool: str) -> Path:
     """User-level folder that means this agent tool is present on the machine.
 
-    OpenCode uses XDG config (`~/.config/opencode`). Pi uses `~/.pi`. The others
-    use `~/.{name}`.
+    OpenCode uses XDG config (``~/.config/opencode``) or ``OPENCODE_CONFIG_DIR``.
+    Pi uses ``~/.pi`` (or the ``PI_CODING_AGENT_DIR`` agent folder when set).
+    Grok Build uses ``~/.grok`` or ``GROK_HOME``. The others use ``~/.{name}``.
     """
     if tool == "opencode":
-        return _config_home() / "opencode"
+        return _opencode_home()
     if tool == "pi":
+        if os.environ.get("PI_CODING_AGENT_DIR"):
+            return _pi_agent_dir()
         return Path.home() / ".pi"
+    if tool == "grok":
+        return _grok_home()
     return Path.home() / f".{tool}"
 
 
 def skills_dir(tool: str) -> Path:
     """Where a copy install places pstack skills for this tool (native path only).
 
-    OpenCode also discovers `~/.claude/skills` and `~/.agents/skills`; Pi also
-    discovers `~/.agents/skills`. Cairnkit does not write those shared folders,
+    OpenCode also discovers ``~/.claude/skills`` and ``~/.agents/skills``; Pi also
+    discovers ``~/.agents/skills``; Grok Build also discovers ``~/.agents/skills``
+    and Claude-compatible skills. Cairnkit does not write those shared folders,
     so one install does not land in two places for the same tool.
     """
     if tool == "pi":
-        return tool_home(tool) / "agent" / "skills"
+        return _pi_agent_dir() / "skills"
     return tool_home(tool) / "skills"
 
 
@@ -305,6 +335,7 @@ MARKERS = {
     "cursor": ("CURSOR_AGENT", "CURSOR_TRACE_ID"),
     "opencode": ("OPENCODE", "OPENCODE_SESSION_ID"),
     "pi": ("PI_CODING_AGENT",),
+    "grok": ("GROK_SESSION_ID", "GROK_HOOK_EVENT", "GROK_WORKSPACE_ROOT"),
 }
 STATE_NAME = ".skills-advisory.json"
 SHOWN_MAX = 3

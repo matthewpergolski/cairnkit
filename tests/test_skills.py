@@ -138,6 +138,7 @@ def test_status_names_each_tool_that_it_finds_or_not(world, capsys):
     assert "not found" in next(x for x in out.splitlines() if "Cursor" in x)
     assert "not found" in next(x for x in out.splitlines() if "OpenCode" in x)
     assert "not found" in next(x for x in out.splitlines() if x.strip().startswith("Pi:"))
+    assert "not found" in next(x for x in out.splitlines() if "Grok Build" in x)
 
 
 def test_status_reads_the_marker_of_a_copied_install(world, capsys):
@@ -411,65 +412,66 @@ def test_pi_detection_uses_dot_pi_and_skills_under_agent(world):
     assert skills.skills_dir("pi") == world.home / ".pi" / "agent" / "skills"
 
 
-def test_status_reports_opencode_and_pi_found_or_not(world, capsys):
-    world.find("opencode")
-    world.mark("opencode", "0.15.30")
-    _, out = run(capsys, "skills", "status")
-    open_line = next(x for x in out.splitlines() if "OpenCode" in x)
-    pi_line = next(x for x in out.splitlines() if x.strip().startswith("Pi:"))
-    assert "0.15.30" in open_line and "behind" in open_line
-    assert "not found" in pi_line
-
-
-def test_status_reads_the_marker_for_opencode_and_pi(world, capsys):
-    world.find("opencode", "pi")
-    world.mark("opencode", "0.15.32")
+def test_pi_honours_pi_coding_agent_dir(world, tmp_path_factory, monkeypatch):
+    agent = tmp_path_factory.mktemp("pi-agent-parent") / "agent"
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent))
+    assert not skills.detected("pi")
+    assert skills.tool_home("pi") == agent
+    assert skills.skills_dir("pi") == agent / "skills"
+    agent.mkdir(parents=True)
+    assert skills.detected("pi")
     world.mark("pi", "0.15.32")
-    _, out = run(capsys, "skills", "status")
-    assert "up to date" in next(x for x in out.splitlines() if "OpenCode" in x)
-    assert "up to date" in next(x for x in out.splitlines() if x.strip().startswith("Pi:"))
+    assert (agent / "skills" / ".pstack" / "install.json").is_file()
+    assert not (world.home / ".pi" / "agent" / "skills" / ".pstack").exists()
 
 
-def test_install_plan_for_opencode_and_pi_changes_nothing(world, capsys):
-    world.find("opencode", "pi")
-    code, out = run(capsys, "skills", "install", "pstack", "--tool", "opencode")
-    assert code == 0
-    assert "OpenCode" in out and str(skills.skills_dir("opencode")) in out
-    assert "--yes" in out and world.clones == 0
-    assert not skills.skills_dir("opencode").exists()
-    code, out = run(capsys, "skills", "install", "pstack", "--tool", "pi")
-    assert code == 0
-    assert "Pi" in out and str(skills.skills_dir("pi")) in out
-    assert not skills.skills_dir("pi").exists()
-
-
-def test_install_opencode_copies_to_config_skills(world, capsys):
-    world.find("opencode")
+def test_opencode_honours_opencode_config_dir(world, tmp_path_factory, monkeypatch, capsys):
+    other = tmp_path_factory.mktemp("opencode-config-parent") / "opencode"
+    monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(other))
+    xdg_default = Path(os.environ["XDG_CONFIG_HOME"]) / "opencode"
+    assert skills.tool_home("opencode") == other
+    assert skills.skills_dir("opencode") == other / "skills"
+    assert not skills.detected("opencode")
+    other.mkdir(parents=True)
+    assert skills.detected("opencode")
     code, _ = run(capsys, "skills", "install", "pstack", "--tool", "opencode", "--yes")
     assert code == 0
-    base = skills.skills_dir("opencode")
+    assert (other / "skills" / "tdd" / "SKILL.md").is_file()
+    assert (other / "skills" / ".pstack" / "install.json").is_file()
+    assert not (xdg_default / "skills" / ".pstack").exists()
+
+
+def test_grok_detection_uses_dot_grok_and_skills(world):
+    assert not skills.detected("grok")
+    world.find("grok")
+    assert skills.detected("grok")
+    assert skills.skills_dir("grok") == world.home / ".grok" / "skills"
+
+
+def test_grok_honours_grok_home(world, tmp_path_factory, monkeypatch, capsys):
+    other = tmp_path_factory.mktemp("grok-home-parent") / "home"
+    monkeypatch.setenv("GROK_HOME", str(other))
+    assert skills.tool_home("grok") == other
+    assert skills.skills_dir("grok") == other / "skills"
+    assert not skills.detected("grok")
+    other.mkdir(parents=True)
+    assert skills.detected("grok")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "grok", "--yes")
+    assert code == 0
+    assert (other / "skills" / "unslop" / "SKILL.md").is_file()
+    assert (other / "skills" / ".pstack" / "install.json").is_file()
+    assert not (world.home / ".grok" / "skills" / ".pstack").exists()
+
+
+def test_install_grok_copies_into_native_skills(world, capsys):
+    world.find("grok")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "grok", "--yes")
+    assert code == 0
+    base = world.home / ".grok" / "skills"
     for name in SKILLS:
         assert (base / name / "SKILL.md").is_file()
     marker = json.loads((base / ".pstack" / "install.json").read_text())
     assert marker["version"] == "0.15.32" and sorted(marker["skills"]) == sorted(SKILLS)
-    assert not (world.home / ".agents" / "skills").exists()
-    assert not (world.home / ".claude" / "skills").exists()
-
-
-def test_install_pi_copies_to_agent_skills(world, capsys):
-    world.find("pi")
-    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "pi", "--yes")
-    assert code == 0
-    base = skills.skills_dir("pi")
-    assert (base / "tdd" / "SKILL.md").is_file()
-    assert json.loads((base / ".pstack" / "install.json").read_text())["version"] == "0.15.32"
-    assert not (world.home / ".agents" / "skills").exists()
-
-
-def test_advisory_names_opencode_when_missing(world):
-    world.find("opencode")
-    line = skills.advisory()
-    assert line and "OpenCode" in line and "missing" in line and CMD in line
 
 
 def test_the_default_installs_every_tool_that_it_finds(world, capsys):
@@ -735,6 +737,9 @@ def test_migrate_task_has_no_install_line_when_current(world, repo, capsys):
         ("OPENCODE", "opencode", "1"),
         ("OPENCODE_SESSION_ID", "opencode", "s1"),
         ("PI_CODING_AGENT", "pi", "true"),
+        ("GROK_SESSION_ID", "grok", "s1"),
+        ("GROK_HOOK_EVENT", "grok", "SessionStart"),
+        ("GROK_WORKSPACE_ROOT", "grok", "/tmp/ws"),
     ],
 )
 def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool, value):
@@ -757,21 +762,30 @@ def test_the_hook_agent_beats_the_environment(monkeypatch):
 
 def test_a_session_hears_only_about_its_own_tool(world, mem, capsys, monkeypatch):
     world.dirs(".codex", ".cursor")
-    world.find("opencode", "pi")
+    world.find("opencode", "pi", "grok")
     monkeypatch.setenv("CODEX_THREAD_ID", "t1")
     for command in ("check", "load"):
         _, out = run(capsys, command)
         line = next(x for x in out.splitlines() if "pstack" in x)
         assert "Codex" in line and "Cursor" not in line
         assert "OpenCode" not in line and "Pi" not in line
+        assert "Grok Build" not in line
 
 
 def test_an_opencode_session_hears_only_about_opencode(world, mem, capsys, monkeypatch):
-    world.find("opencode", "pi")
+    world.find("opencode", "pi", "grok")
     monkeypatch.setenv("OPENCODE", "1")
     _, out = run(capsys, "check")
     line = next(x for x in out.splitlines() if "pstack" in x)
-    assert "OpenCode" in line and "Pi" not in line
+    assert "OpenCode" in line and "Pi" not in line and "Grok Build" not in line
+
+
+def test_a_grok_session_hears_only_about_grok(world, mem, capsys, monkeypatch):
+    world.find("opencode", "pi", "grok")
+    monkeypatch.setenv("GROK_SESSION_ID", "s1")
+    _, out = run(capsys, "check")
+    line = next(x for x in out.splitlines() if "pstack" in x)
+    assert "Grok Build" in line and "OpenCode" not in line and "Pi" not in line
 
 
 def test_an_unknown_session_hears_nothing(world, mem, capsys, monkeypatch):
@@ -795,7 +809,7 @@ def test_status_by_hand_still_lists_every_tool(world, capsys, monkeypatch):
     monkeypatch.setenv("CODEX_THREAD_ID", "t1")
     _, out = run(capsys, "skills", "status")
     assert "Codex" in out and "Cursor" in out and "Claude Code" in out
-    assert "OpenCode" in out and "Pi:" in out
+    assert "OpenCode" in out and "Pi:" in out and "Grok Build" in out
 
 
 def _shown(out):

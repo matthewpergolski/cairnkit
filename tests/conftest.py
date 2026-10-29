@@ -67,7 +67,13 @@ def clean_env(monkeypatch):
         "CURSOR_TRACE_ID",
         "OPENCODE",
         "OPENCODE_SESSION_ID",
+        "OPENCODE_CONFIG_DIR",
         "PI_CODING_AGENT",
+        "PI_CODING_AGENT_DIR",
+        "GROK_SESSION_ID",
+        "GROK_HOOK_EVENT",
+        "GROK_WORKSPACE_ROOT",
+        "GROK_HOME",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
