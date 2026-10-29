@@ -25,17 +25,7 @@ SKIP_TOP = {
     "memory-bank",
     "docs",
 }
-ARCHITECTURE_MODULES = (
-    "cli",
-    "init",
-    "memory",
-    "store",
-    "load",
-    "hooks_cmd",
-    "skills",
-    "tidy",
-    "update",
-)
+SKIP_MODULES = {"__init__", "__main__"}
 
 
 @dataclass(frozen=True)
@@ -137,9 +127,14 @@ def _architecture_modules(root: Path) -> list[str]:
     if not folder.is_dir():
         return []
     found = []
-    for name in ARCHITECTURE_MODULES:
-        if (folder / f"{name}.py").is_file():
-            found.append(name)
+    try:
+        paths = sorted(folder.glob("*.py"))
+    except OSError:
+        return []
+    for path in paths:
+        if path.stem in SKIP_MODULES:
+            continue
+        found.append(path.stem)
     return found
 
 
