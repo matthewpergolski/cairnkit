@@ -78,9 +78,9 @@ It is not:
   - The pstack skills check (session start, `memory check`, `memory init`,
     `memory migrate`, `memory skills status`): reads `pstack/plugin.json`
     from `github.com/cursor/plugins`, at most once a day (once an hour after
-    a failure). It runs only when Claude Code, Codex or Cursor is found on
-    the computer. `skills_check = false` in `config.toml` turns it off,
-    except in `memory skills status`, which you run on purpose.
+    a failure). It runs only when Claude Code, Codex, Cursor, OpenCode or Pi
+    is found on the computer. `skills_check = false` in `config.toml` turns it
+    off, except in `memory skills status`, which you run on purpose.
   - `memory skills install pstack --yes`: reads `pstack/plugin.json`, runs
     `git clone` of `github.com/cursor/plugins`, and for Claude Code runs
     `claude plugin marketplace add` and `claude plugin install`.
@@ -177,7 +177,8 @@ These stay, and you can remove them by hand:
 - the `memory-bank` link in each other worktree. Remove it there too;
 - the user cache `~/.cache/cairnkit/`;
 - the pstack skills, if you installed them: they are at user level, in
-  Claude Code and in `~/.codex/skills` and `~/.cursor/skills`.
+  Claude Code and in `~/.codex/skills`, `~/.cursor/skills`,
+  `~/.config/opencode/skills` and `~/.pi/agent/skills`.
 
 Then remove the tool:
 
@@ -453,30 +454,36 @@ pstack is a set of agent skills (MIT, from `github.com/cursor/plugins`). The
 memory tool does not need it. It checks for it and keeps it current, at user
 level only. It writes nothing into a repo.
 
-- `memory skills status` says, for Claude Code, Codex and Cursor, whether
-  pstack is installed and which version. It also says the latest version, and
-  for each tool the installed skill count versus the available count (so a
-  partial install is visible). The latest version comes from
+- `memory skills status` says, for Claude Code, Codex, Cursor, OpenCode and Pi,
+  whether pstack is installed and which version. It also says the latest
+  version, and for each tool the installed skill count versus the available
+  count (so a partial install is visible). The latest version comes from
   `pstack/plugin.json` on the `main` branch of `cursor/plugins`. The answer is
   cached for one day. Offline, it is skipped.
 - `memory skills install pstack` shows the plan. `--yes` does it. The same
   command updates. A rerun with nothing to do says so. `--tool NAME` picks one
-  tool. For Claude Code it runs `claude plugin marketplace add cursor/plugins`
-  and `claude plugin install pstack@cursor-plugins --scope user` (Claude loads
+  tool (`claude`, `codex`, `cursor`, `opencode`, `pi`, or `all`). For Claude
+  Code it runs `claude plugin marketplace add cursor/plugins` and
+  `claude plugin install pstack@cursor-plugins --scope user` (Claude loads
   the plugin's `skills/` as a unit; it does not copy into `~/.claude/skills`).
-  For Codex and Cursor it copies the skill folders into `~/.codex/skills` and
-  `~/.cursor/skills`, with the LICENSE and a marker file
-  (`.pstack/install.json`: the version, the source commit, and every skill it
-  owns). The command output says how many skill(s) were installed and how many
-  were skipped and why. By default it keeps a skill of yours that has the same
+  For Codex, Cursor, OpenCode and Pi it copies the skill folders into that
+  tool's native user skills directory (`~/.codex/skills`, `~/.cursor/skills`,
+  `~/.config/opencode/skills`, `~/.pi/agent/skills`), with the LICENSE and a
+  marker file (`.pstack/install.json`: the version, the source commit, and
+  every skill it owns). OpenCode also discovers `~/.claude/skills` and
+  `~/.agents/skills`, and Pi also discovers `~/.agents/skills`; the installer
+  does not write those shared folders, so it does not double-install. The
+  command output says how many skill(s) were installed and how many were
+  skipped and why. By default it keeps a skill of yours that has the same
   name. `--adopt` (also `--all`) replaces those same-named folders so every
   pstack skill is installed, and prints which ones it adopted.
 - The advisory is quiet. A session hears only about the tool that runs it. The
   tool is known from the hook's `--agent`, or from one set of environment
   markers (`CLAUDECODE`; `CODEX_CI`, `CODEX_SANDBOX` or `CODEX_THREAD_ID`;
-  `CURSOR_AGENT` or `CURSOR_TRACE_ID`). When it is not known, nothing is
-  printed. `memory load` (at session start) and `memory check` print one line
-  when pstack is missing or behind for that tool. The line ends with
+  `CURSOR_AGENT` or `CURSOR_TRACE_ID`; `OPENCODE` or `OPENCODE_SESSION_ID`;
+  `PI_CODING_AGENT`). When it is not known, nothing is printed. `memory load`
+  (at session start) and `memory check` print one line when pstack is missing
+  or behind for that tool. The line ends with
   `Run: memory skills install pstack --yes`. For one pair of installed and
   latest versions it shows in 3 session starts, then stops. A newer latest
   version starts a new count. The count is in `.skills-advisory.json` in the

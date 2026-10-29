@@ -27,7 +27,13 @@ PLUGIN_URL = "https://raw.githubusercontent.com/cursor/plugins/main/pstack/plugi
 MARKETPLACE = "cursor-plugins"
 PLUGIN = f"pstack@{MARKETPLACE}"
 COMMAND = "memory skills install pstack --yes"
-TOOLS = {"claude": "Claude Code", "codex": "Codex", "cursor": "Cursor"}
+TOOLS = {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "opencode": "OpenCode",
+    "pi": "Pi",
+}
 FRESH = timedelta(days=1)
 FRESH_AFTER_FAILURE = timedelta(hours=1)
 MARKER_DIR = ".pstack"
@@ -131,12 +137,43 @@ def latest_version(force: bool = False) -> str | None:
 # --- what is installed ----------------------------------------------------------------
 
 
+def _config_home() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME")
+    return Path(base) if base else Path.home() / ".config"
+
+
+def tool_home(tool: str) -> Path:
+    """User-level folder that means this agent tool is present on the machine.
+
+    OpenCode uses XDG config (`~/.config/opencode`). Pi uses `~/.pi`. The others
+    use `~/.{name}`.
+    """
+    if tool == "opencode":
+        return _config_home() / "opencode"
+    if tool == "pi":
+        return Path.home() / ".pi"
+    return Path.home() / f".{tool}"
+
+
 def skills_dir(tool: str) -> Path:
-    return Path.home() / f".{tool}" / "skills"
+    """Where a copy install places pstack skills for this tool (native path only).
+
+    OpenCode also discovers `~/.claude/skills` and `~/.agents/skills`; Pi also
+    discovers `~/.agents/skills`. Cairnkit does not write those shared folders,
+    so one install does not land in two places for the same tool.
+    """
+    if tool == "pi":
+        return tool_home(tool) / "agent" / "skills"
+    return tool_home(tool) / "skills"
 
 
 def detected(tool: str) -> bool:
-    return (Path.home() / f".{tool}").is_dir()
+    return tool_home(tool).is_dir()
+
+
+def looked_for() -> str:
+    """Short list of home folders status/install search for."""
+    return ", ".join(str(tool_home(t)).replace(str(Path.home()), "~") for t in TOOLS)
 
 
 def _marker(tool: str) -> dict:
@@ -266,6 +303,8 @@ MARKERS = {
     "claude": ("CLAUDECODE",),
     "codex": ("CODEX_CI", "CODEX_SANDBOX", "CODEX_THREAD_ID"),
     "cursor": ("CURSOR_AGENT", "CURSOR_TRACE_ID"),
+    "opencode": ("OPENCODE", "OPENCODE_SESSION_ID"),
+    "pi": ("PI_CODING_AGENT",),
 }
 STATE_NAME = ".skills-advisory.json"
 SHOWN_MAX = 3
@@ -598,7 +637,7 @@ def run_install(tool: str | None, yes: bool, adopt: bool = False) -> int:
     """
     wanted = [t for t in TOOLS if detected(t)] if tool in (None, "all") else [tool]
     if not wanted:
-        print("No agent tool found (looked for ~/.claude, ~/.codex and ~/.cursor).")
+        print(f"No agent tool found (looked for {looked_for()}).")
         print("Nothing to do. Use --tool NAME to pick one.")
         return 0
     latest = latest_version(force=yes)

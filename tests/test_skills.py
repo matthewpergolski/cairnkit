@@ -81,7 +81,7 @@ class World:
         (root / "known_marketplaces.json").write_text(json.dumps({"cursor-plugins": {}}))
 
     def mark(self, tool, version="0.15.32", names=SKILLS):
-        base = self.home / (".codex" if tool == "codex" else ".cursor") / "skills"
+        base = skills.skills_dir(tool)
         (base / ".pstack").mkdir(parents=True)
         (base / ".pstack" / "install.json").write_text(
             json.dumps({"version": version, "commit": "abc", "skills": list(names)})
@@ -94,6 +94,11 @@ class World:
     def dirs(self, *names):
         for name in names:
             (self.home / name).mkdir(parents=True, exist_ok=True)
+
+    def find(self, *tools):
+        """Create the user-level home folder that means each tool is present."""
+        for tool in tools:
+            skills.tool_home(tool).mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture
@@ -131,6 +136,8 @@ def test_status_names_each_tool_that_it_finds_or_not(world, capsys):
     _, out = run(capsys, "skills", "status")
     assert "Codex" in out and "not installed" in next(x for x in out.splitlines() if "Codex" in x)
     assert "not found" in next(x for x in out.splitlines() if "Cursor" in x)
+    assert "not found" in next(x for x in out.splitlines() if "OpenCode" in x)
+    assert "not found" in next(x for x in out.splitlines() if x.strip().startswith("Pi:"))
 
 
 def test_status_reads_the_marker_of_a_copied_install(world, capsys):
@@ -350,6 +357,83 @@ def test_install_cursor_uses_its_user_skills_folder(world, capsys):
     world.dirs(".cursor")
     run(capsys, "skills", "install", "pstack", "--tool", "cursor", "--yes")
     assert (world.home / ".cursor" / "skills" / "unslop" / "SKILL.md").is_file()
+
+
+def test_opencode_detection_uses_xdg_config_home(world, monkeypatch):
+    other = world.home / "xdg-config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(other))
+    assert not skills.detected("opencode")
+    (other / "opencode").mkdir(parents=True)
+    assert skills.detected("opencode")
+    assert skills.skills_dir("opencode") == other / "opencode" / "skills"
+
+
+def test_pi_detection_uses_dot_pi_and_skills_under_agent(world):
+    assert not skills.detected("pi")
+    world.find("pi")
+    assert skills.detected("pi")
+    assert skills.skills_dir("pi") == world.home / ".pi" / "agent" / "skills"
+
+
+def test_status_reports_opencode_and_pi_found_or_not(world, capsys):
+    world.find("opencode")
+    world.mark("opencode", "0.15.30")
+    _, out = run(capsys, "skills", "status")
+    open_line = next(x for x in out.splitlines() if "OpenCode" in x)
+    pi_line = next(x for x in out.splitlines() if x.strip().startswith("Pi:"))
+    assert "0.15.30" in open_line and "behind" in open_line
+    assert "not found" in pi_line
+
+
+def test_status_reads_the_marker_for_opencode_and_pi(world, capsys):
+    world.find("opencode", "pi")
+    world.mark("opencode", "0.15.32")
+    world.mark("pi", "0.15.32")
+    _, out = run(capsys, "skills", "status")
+    assert "up to date" in next(x for x in out.splitlines() if "OpenCode" in x)
+    assert "up to date" in next(x for x in out.splitlines() if x.strip().startswith("Pi:"))
+
+
+def test_install_plan_for_opencode_and_pi_changes_nothing(world, capsys):
+    world.find("opencode", "pi")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "opencode")
+    assert code == 0
+    assert "OpenCode" in out and str(skills.skills_dir("opencode")) in out
+    assert "--yes" in out and world.clones == 0
+    assert not skills.skills_dir("opencode").exists()
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "pi")
+    assert code == 0
+    assert "Pi" in out and str(skills.skills_dir("pi")) in out
+    assert not skills.skills_dir("pi").exists()
+
+
+def test_install_opencode_copies_to_config_skills(world, capsys):
+    world.find("opencode")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "opencode", "--yes")
+    assert code == 0
+    base = skills.skills_dir("opencode")
+    for name in SKILLS:
+        assert (base / name / "SKILL.md").is_file()
+    marker = json.loads((base / ".pstack" / "install.json").read_text())
+    assert marker["version"] == "0.15.32" and sorted(marker["skills"]) == sorted(SKILLS)
+    assert not (world.home / ".agents" / "skills").exists()
+    assert not (world.home / ".claude" / "skills").exists()
+
+
+def test_install_pi_copies_to_agent_skills(world, capsys):
+    world.find("pi")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "pi", "--yes")
+    assert code == 0
+    base = skills.skills_dir("pi")
+    assert (base / "tdd" / "SKILL.md").is_file()
+    assert json.loads((base / ".pstack" / "install.json").read_text())["version"] == "0.15.32"
+    assert not (world.home / ".agents" / "skills").exists()
+
+
+def test_advisory_names_opencode_when_missing(world):
+    world.find("opencode")
+    line = skills.advisory()
+    assert line and "OpenCode" in line and "missing" in line and CMD in line
 
 
 def test_the_default_installs_every_tool_that_it_finds(world, capsys):
@@ -604,18 +688,21 @@ def test_migrate_task_has_no_install_line_when_current(world, repo, capsys):
 
 
 @pytest.mark.parametrize(
-    "marker,tool",
+    "marker,tool,value",
     [
-        ("CLAUDECODE", "claude"),
-        ("CODEX_THREAD_ID", "codex"),
-        ("CODEX_SANDBOX", "codex"),
-        ("CODEX_CI", "codex"),
-        ("CURSOR_AGENT", "cursor"),
-        ("CURSOR_TRACE_ID", "cursor"),
+        ("CLAUDECODE", "claude", "1"),
+        ("CODEX_THREAD_ID", "codex", "1"),
+        ("CODEX_SANDBOX", "codex", "1"),
+        ("CODEX_CI", "codex", "1"),
+        ("CURSOR_AGENT", "cursor", "1"),
+        ("CURSOR_TRACE_ID", "cursor", "1"),
+        ("OPENCODE", "opencode", "1"),
+        ("OPENCODE_SESSION_ID", "opencode", "s1"),
+        ("PI_CODING_AGENT", "pi", "true"),
     ],
 )
-def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool):
-    monkeypatch.setenv(marker, "1")
+def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool, value):
+    monkeypatch.setenv(marker, value)
     assert skills.running_tool() == tool
 
 
@@ -634,11 +721,21 @@ def test_the_hook_agent_beats_the_environment(monkeypatch):
 
 def test_a_session_hears_only_about_its_own_tool(world, mem, capsys, monkeypatch):
     world.dirs(".codex", ".cursor")
+    world.find("opencode", "pi")
     monkeypatch.setenv("CODEX_THREAD_ID", "t1")
     for command in ("check", "load"):
         _, out = run(capsys, command)
         line = next(x for x in out.splitlines() if "pstack" in x)
         assert "Codex" in line and "Cursor" not in line
+        assert "OpenCode" not in line and "Pi" not in line
+
+
+def test_an_opencode_session_hears_only_about_opencode(world, mem, capsys, monkeypatch):
+    world.find("opencode", "pi")
+    monkeypatch.setenv("OPENCODE", "1")
+    _, out = run(capsys, "check")
+    line = next(x for x in out.splitlines() if "pstack" in x)
+    assert "OpenCode" in line and "Pi" not in line
 
 
 def test_an_unknown_session_hears_nothing(world, mem, capsys, monkeypatch):
@@ -662,6 +759,7 @@ def test_status_by_hand_still_lists_every_tool(world, capsys, monkeypatch):
     monkeypatch.setenv("CODEX_THREAD_ID", "t1")
     _, out = run(capsys, "skills", "status")
     assert "Codex" in out and "Cursor" in out and "Claude Code" in out
+    assert "OpenCode" in out and "Pi:" in out
 
 
 def _shown(out):
