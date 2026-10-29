@@ -305,6 +305,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="the old match: every word must appear, as a substring, no ranking by rarity",
     )
     p.add_argument("--limit", type=int, default=20)
+
+    p = sub.add_parser(
+        "docs",
+        parents=[common],
+        help="write a Nessa Docs atlas (docs/state) for this project",
+    )
+    p.add_argument("--dry-run", action="store_true", help="show the pages; write nothing")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing docs/state atlas",
+    )
     return parser
 
 
@@ -321,6 +333,7 @@ def run(args) -> int:
     from cairnkit import skills as skills_module
     from cairnkit.autotidy import run_auto
     from cairnkit.check import run_check
+    from cairnkit.docs_cmd import run_docs
     from cairnkit.hookrun import run_hook
     from cairnkit.hooks_cmd import run_install, run_uninstall
     from cairnkit.init import run_init
@@ -339,6 +352,8 @@ def run(args) -> int:
     if args.command == "update":
         return run_update(args.source, args.check, args.dry_run)
     project = find_project()
+    if args.command == "docs":
+        return run_docs(project, args.path, args.dry_run, args.force)
     if args.command == "instructions":
         if args.write_instructions:
             return write_instructions(

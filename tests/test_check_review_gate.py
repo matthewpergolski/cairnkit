@@ -64,6 +64,20 @@ def test_pending_fails(mod):
         assert any("Pending" in e for e in errors)
 
 
+def test_pending_with_cursor_footer_still_fails(mod):
+    """HTML footers must not clear a Pending Review section."""
+    footer = (
+        "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        '<div><a href="https://cursor.com/"><picture>'
+        '<img alt="Open in Web" src="x.png"></picture></a>&nbsp;'
+        '<a href="https://cursor.com/"><picture>'
+        '<img alt="Open in Cursor" src="y.png"></picture></a></div>\n'
+    )
+    errors = mod.check_review(body_with_review(f"Pending\n\n{footer}"))
+    assert errors
+    assert any("Pending" in e for e in errors)
+
+
 def test_empty_review_after_comments_fails(mod):
     errors = mod.check_review(
         body_with_review("<!-- Findings as fixed / accepted / rejected. -->\n")
