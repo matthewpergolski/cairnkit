@@ -82,12 +82,12 @@ class World:
 
     def mark(self, tool, version="0.15.32", names=SKILLS):
         base = skills.skills_dir(tool)
-        (base / ".pstack").mkdir(parents=True)
+        (base / ".pstack").mkdir(parents=True, exist_ok=True)
         (base / ".pstack" / "install.json").write_text(
             json.dumps({"version": version, "commit": "abc", "skills": list(names)})
         )
         for name in names:
-            (base / name).mkdir()
+            (base / name).mkdir(exist_ok=True)
             (base / name / "SKILL.md").write_text("x")
         return base
 
@@ -366,6 +366,36 @@ def test_opencode_detection_uses_xdg_config_home(world, monkeypatch):
     (other / "opencode").mkdir(parents=True)
     assert skills.detected("opencode")
     assert skills.skills_dir("opencode") == other / "opencode" / "skills"
+
+
+def test_xdg_config_home_outside_fake_home_is_honoured_and_isolated(
+    world, tmp_path_factory, monkeypatch
+):
+    """An explicit XDG_CONFIG_HOME wins even when it is not under HOME.
+
+    The shared fixture pins XDG under the fake machine; this test then points
+    it somewhere else entirely and checks HOME/.config/opencode is never used.
+    """
+    outside = tmp_path_factory.mktemp("xdg-outside-home")
+    assert not outside.resolve().is_relative_to(Path.home().resolve())
+    home_config = Path.home() / ".config" / "opencode"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(outside))
+    assert skills.tool_home("opencode") == outside / "opencode"
+    assert skills.skills_dir("opencode") == outside / "opencode" / "skills"
+    assert not skills.detected("opencode")
+    (outside / "opencode").mkdir(parents=True)
+    assert skills.detected("opencode")
+    world.mark("opencode", "0.15.32")
+    assert (outside / "opencode" / "skills" / ".pstack" / "install.json").is_file()
+    assert not home_config.exists()
+
+
+def test_fixture_pins_xdg_config_home_under_the_fake_machine(world):
+    """Default test env must not inherit a runner XDG_CONFIG_HOME."""
+    xdg = Path(os.environ["XDG_CONFIG_HOME"])
+    assert xdg.is_absolute()
+    assert not xdg.resolve().is_relative_to(Path.home().resolve())
+    assert skills.tool_home("opencode") == xdg / "opencode"
 
 
 def test_pi_detection_uses_dot_pi_and_skills_under_agent(world):
