@@ -167,17 +167,21 @@ def test_cli_exits_1_on_bad_range(mod, tmp_path):
     assert code == 1
 
 
+# Owner login is a flag, not a banlist. The positive fixture uses the real
+# GitHub squash shape from merges onto main (id+login noreply).
 OWNER = "matthewpergolski"
+OWNER_DISPLAY = "Matthew L. Pergolski"
 OWNER_EMAIL = f"160999621+{OWNER}@users.noreply.github.com"
+OTHER_EMAIL = "999999+other-contributor@users.noreply.github.com"
 GITHUB_NAME = "GitHub"
 GITHUB_EMAIL = "noreply@github.com"
 
 
-def _squash_env() -> dict[str, str]:
+def _squash_env(*, email: str = OWNER_EMAIL, name: str = OWNER_DISPLAY) -> dict[str, str]:
     return {
         **dict(__import__("os").environ),
-        "GIT_AUTHOR_NAME": "Matthew L. Pergolski",
-        "GIT_AUTHOR_EMAIL": OWNER_EMAIL,
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
         "GIT_COMMITTER_NAME": GITHUB_NAME,
         "GIT_COMMITTER_EMAIL": GITHUB_EMAIL,
     }
@@ -194,6 +198,7 @@ def test_github_squash_is_rejected_without_allow_flag(mod, tmp_path):
 
 
 def test_github_squash_is_accepted_with_allow_flag(mod, tmp_path):
+    """Push mode: real squash shape (owner noreply + GitHub + (#N)) is clean."""
     repo = init_repo(tmp_path / "squash-ok")
     (repo / "a.txt").write_text("x\n")
     git(repo, "add", "a.txt")
@@ -209,6 +214,23 @@ def test_github_squash_still_rejects_ai_trailer(mod, tmp_path):
     git(repo, "commit", "-q", "-m", msg, env=_squash_env())
     errors = mod.check_range(repo, "HEAD~1..HEAD", allow_github_squash=True, owner=OWNER)
     assert any("co-authored-by" in e.lower() for e in errors)
+
+
+def test_github_squash_rejects_non_owner_author(mod, tmp_path):
+    repo = init_repo(tmp_path / "squash-other")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(
+        repo,
+        "commit",
+        "-q",
+        "-m",
+        "Add a thing (#14)",
+        env=_squash_env(email=OTHER_EMAIL, name="Other Contributor"),
+    )
+    errors = mod.check_range(repo, "HEAD~1..HEAD", allow_github_squash=True, owner=OWNER)
+    assert errors
+    assert any("author" in e.lower() and "other-contributor" in e for e in errors)
 
 
 def test_github_squash_requires_pr_number_in_subject(mod, tmp_path):
@@ -238,3 +260,68 @@ def test_cli_allow_github_squash_flag(mod, tmp_path):
         text=True,
     )
     assert ok.returncode == 0, ok.stderr
+
+
+def test_simulate_squash_passes_push_mode_check(mod, tmp_path):
+    """PR CI builds a fake squash (owner + GitHub + title (#N)) and checks it."""
+    repo = init_repo(tmp_path / "sim-ok")
+    (repo / "a.txt").write_text("feature\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-q", "-m", "feature work")
+    sha = mod.simulate_github_squash(
+        repo,
+        owner=OWNER,
+        pr_number=42,
+        title="Land the feature",
+        body="Why it exists.\n",
+        author_name=OWNER_DISPLAY,
+        author_email=OWNER_EMAIL,
+    )
+    assert mod.check_range(repo, f"{sha}^!", allow_github_squash=True, owner=OWNER) == []
+
+
+def test_simulate_squash_with_ai_trailer_fails_push_mode(mod, tmp_path):
+    repo = init_repo(tmp_path / "sim-ai")
+    (repo / "a.txt").write_text("feature\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-q", "-m", "feature work")
+    sha = mod.simulate_github_squash(
+        repo,
+        owner=OWNER,
+        pr_number=7,
+        title="Land the feature",
+        body="Notes.\n\nCo-authored-by: Claude <noreply@anthropic.com>\n",
+        author_name=OWNER_DISPLAY,
+        author_email=OWNER_EMAIL,
+    )
+    errors = mod.check_range(repo, f"{sha}^!", allow_github_squash=True, owner=OWNER)
+    assert any("co-authored-by" in e.lower() for e in errors)
+
+
+def test_cli_check_simulated_squash(mod, tmp_path):
+    repo = init_repo(tmp_path / "sim-cli")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-q", "-m", "work")
+    body = repo / "body.md"
+    body.write_text("Summary of the change.\n")
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--check-simulated-squash",
+            f"--owner={OWNER}",
+            "--pr-number=15",
+            "--title=Ship it",
+            "--author-name",
+            OWNER_DISPLAY,
+            "--author-email",
+            OWNER_EMAIL,
+            "--body-file",
+            str(body),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
