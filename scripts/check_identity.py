@@ -11,9 +11,15 @@ git@github.com and *@example.* are allowed in file text. Paths under
 tests/ are skipped for the file-text scan so fixtures may use synthetic
 addresses; author, committer, and trailers are still checked on every commit.
 
+On push checks only, `--allow-github-squash --owner LOGIN` also accepts a
+GitHub UI squash merge: committer `GitHub <noreply@github.com>`, author
+email the owner's `users.noreply.github.com` address, subject ending in
+`(#N)`. Trailers on that commit must still be the neutral identity.
+
 Usage:
   python3 scripts/check_identity.py [BASE..HEAD]
   python3 scripts/check_identity.py origin/main..HEAD
+  python3 scripts/check_identity.py --allow-github-squash --owner LOGIN BASE..HEAD
 
 Exit 0 when clean, 1 when problems are found, 2 on usage/git errors.
 """
@@ -29,6 +35,15 @@ from pathlib import Path
 ALLOWED_NAME = "cairnkit contributors"
 ALLOWED_EMAIL = "cairnkit@users.noreply.github.com"
 ALLOWED = f"{ALLOWED_NAME} <{ALLOWED_EMAIL}>"
+
+# GitHub's squash-merge committer. Author is the person who pressed Merge.
+GITHUB_COMMITTER_NAME = "GitHub"
+GITHUB_COMMITTER_EMAIL = "noreply@github.com"
+_SQUASH_SUBJECT = re.compile(r".*\(#\d+\)\s*$")
+_OWNER_NOREPLY = re.compile(
+    r"^(?:(?P<id>\d+)\+)?(?P<login>[A-Za-z0-9-]+)@users\.noreply\.github\.com$",
+    re.I,
+)
 
 # Placeholders that docs and tests may show. Not a personal inbox.
 _GENERIC_EMAIL = re.compile(
@@ -68,6 +83,37 @@ def email_ok_in_text(email: str) -> bool:
     return bool(_GENERIC_EMAIL.match(email))
 
 
+def author_is_owner(email: str, owner: str) -> bool:
+    """True when email is the GitHub noreply address for `owner`."""
+    match = _OWNER_NOREPLY.match(email.strip())
+    if not match:
+        return False
+    return match.group("login").lower() == owner.strip().lower()
+
+
+def is_github_squash_merge(
+    email: str,
+    committer: str,
+    cemail: str,
+    body: str,
+    owner: str,
+) -> bool:
+    """True for a GitHub UI squash merge of PR #N by `owner`.
+
+    Committer is GitHub; author email is the owner's users.noreply address;
+    the subject ends with `(#N)`.
+    """
+    if not owner:
+        return False
+    subject = body.split("\n", 1)[0].rstrip()
+    return (
+        committer == GITHUB_COMMITTER_NAME
+        and cemail.lower() == GITHUB_COMMITTER_EMAIL
+        and author_is_owner(email, owner)
+        and bool(_SQUASH_SUBJECT.match(subject))
+    )
+
+
 def _parse_trailer_value(value: str) -> tuple[str, str] | None:
     match = _TRAILER_VALUE.match(value.strip())
     if not match:
@@ -82,14 +128,26 @@ def check_commit(
     committer: str,
     cemail: str,
     body: str,
+    *,
+    allow_github_squash: bool = False,
+    owner: str | None = None,
 ) -> list[str]:
-    """Return problem lines for one commit's identity and trailers."""
+    """Return problem lines for one commit's identity and trailers.
+
+    With `allow_github_squash` and `owner`, a GitHub squash-merge commit may
+    use the owner as author and GitHub as committer. Trailers still must be
+    the neutral cairnkit identity (no AI attribution).
+    """
     errors: list[str] = []
     short = sha[:7]
-    if not identity_ok(author, email):
-        errors.append(f"{short}: author {author} <{email}> (want {ALLOWED})")
-    if not identity_ok(committer, cemail):
-        errors.append(f"{short}: committer {committer} <{cemail}> (want {ALLOWED})")
+    squash = allow_github_squash and is_github_squash_merge(
+        email, committer, cemail, body, owner or ""
+    )
+    if not squash:
+        if not identity_ok(author, email):
+            errors.append(f"{short}: author {author} <{email}> (want {ALLOWED})")
+        if not identity_ok(committer, cemail):
+            errors.append(f"{short}: committer {committer} <{cemail}> (want {ALLOWED})")
     for match in _TRAILER.finditer(body):
         kind, value = match.group(1), match.group(2)
         parsed = _parse_trailer_value(value)
@@ -117,7 +175,13 @@ def check_added_text(sha: str, path: str, text: str) -> list[str]:
     return errors
 
 
-def check_range(repo: Path | str, rev_range: str) -> list[str]:
+def check_range(
+    repo: Path | str,
+    rev_range: str,
+    *,
+    allow_github_squash: bool = False,
+    owner: str | None = None,
+) -> list[str]:
     """Check every commit in rev_range. Return problem lines (empty when clean)."""
     root = Path(repo)
     listed = _run(root, "rev-list", rev_range)
@@ -142,7 +206,16 @@ def check_range(repo: Path | str, rev_range: str) -> list[str]:
             errors.append(f"{sha[:7]}: could not parse commit metadata")
             continue
         author, email, committer, cemail, body = parts
-        errors += check_commit(sha, author, email, committer, cemail, body)
+        errors += check_commit(
+            sha,
+            author,
+            email,
+            committer,
+            cemail,
+            body,
+            allow_github_squash=allow_github_squash,
+            owner=owner,
+        )
         diff = _run(root, "show", "--format=", "--unified=0", sha)
         if diff.returncode != 0:
             errors.append(f"{sha[:7]}: git show diff failed")
@@ -185,8 +258,27 @@ def main(argv: list[str] | None = None) -> int:
         default=".",
         help="git repository path (default: .)",
     )
+    parser.add_argument(
+        "--allow-github-squash",
+        action="store_true",
+        help="accept GitHub squash merges by --owner (push checks only)",
+    )
+    parser.add_argument(
+        "--owner",
+        default="",
+        help="GitHub login of the repo owner (with --allow-github-squash)",
+    )
     args = parser.parse_args(argv)
-    problems = check_range(Path(args.repo), args.range)
+    owner = args.owner or None
+    if args.allow_github_squash and not owner:
+        print("error: --allow-github-squash needs --owner LOGIN", file=sys.stderr)
+        return 2
+    problems = check_range(
+        Path(args.repo),
+        args.range,
+        allow_github_squash=args.allow_github_squash,
+        owner=owner,
+    )
     if not problems:
         print(f"identity: ok ({args.range})")
         return 0

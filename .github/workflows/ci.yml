@@ -61,10 +61,13 @@ jobs:
             BEFORE="${{ github.event.before }}"
             HEAD_SHA="${{ github.sha }}"
             ZERO="0000000000000000000000000000000000000000"
+            # Push only: GitHub squash merges use GitHub as committer and the
+            # repo owner as author. PR-range checks stay strict.
+            SQUASH=(--allow-github-squash --owner="${{ github.repository_owner }}")
             if [ "$BEFORE" = "$ZERO" ]; then
-              python3 scripts/check_identity.py "${HEAD_SHA}^!"
+              python3 scripts/check_identity.py "${SQUASH[@]}" "${HEAD_SHA}^!"
             else
-              python3 scripts/check_identity.py "${BEFORE}..${HEAD_SHA}"
+              python3 scripts/check_identity.py "${SQUASH[@]}" "${BEFORE}..${HEAD_SHA}"
             fi
           fi
 
