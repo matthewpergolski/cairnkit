@@ -26,6 +26,29 @@ SKIP_TOP = {
     "docs",
 }
 SKIP_MODULES = {"__init__", "__main__"}
+# Modules the CLI dispatches into (not shared library helpers).
+COMMAND_MODULES = frozenset(
+    {
+        "init",
+        "migrate",
+        "migrate_refs",
+        "presets",
+        "skills",
+        "update",
+        "instructions",
+        "writing",
+        "check",
+        "hooks_cmd",
+        "hookrun",
+        "load",
+        "reading",
+        "tidy",
+        "docs_cmd",
+        "refresh",
+        "autotidy",
+        "followups",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -265,16 +288,23 @@ def build_atlas(project: Project) -> list[Page]:
     ]
 
     if modules:
+        commands = [m for m in modules if m in COMMAND_MODULES]
+        library = [m for m in modules if m not in COMMAND_MODULES and m != "cli"]
         arch_lines = ["flowchart TB", "    CLI[cli] --> Commands[command modules]"]
-        for mod in modules:
-            if mod == "cli":
-                continue
+        if library:
+            arch_lines.append("    CLI --> Library[library modules]")
+        for mod in commands:
             arch_lines.append(f"    Commands --> {_node_id(mod)}[{mod}]")
-        arch_lines.append("    memory --> store")
-        arch_lines.append("    load --> memory")
+        for mod in library:
+            arch_lines.append(f"    Library --> {_node_id(mod)}[{mod}]")
+        if "memory" in modules and "store" in modules:
+            arch_lines.append("    memory --> store")
+        if "load" in modules and "memory" in modules:
+            arch_lines.append("    load --> memory")
         arch_body = (
             "# Package architecture\n\n"
-            "The `memory` / `cairnkit` CLI dispatches into small modules. "
+            "The `memory` / `cairnkit` CLI dispatches into command modules. "
+            "Shared helpers sit under library modules. "
             "Facts live outside the repo and are linked in as `memory-bank`.\n\n"
             "```mermaid\n" + "\n".join(arch_lines) + "\n```\n"
         )
