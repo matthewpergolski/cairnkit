@@ -16,10 +16,16 @@ GitHub UI squash merge: committer `GitHub <noreply@github.com>`, author
 email the owner's `users.noreply.github.com` address, subject ending in
 `(#N)`. Trailers on that commit must still be the neutral identity.
 
+On a pull request, `--check-simulated-squash` builds that squash shape from
+the PR title, number, and body and runs the push-mode check so a bad
+squash fails before it lands on main.
+
 Usage:
   python3 scripts/check_identity.py [BASE..HEAD]
   python3 scripts/check_identity.py origin/main..HEAD
   python3 scripts/check_identity.py --allow-github-squash --owner LOGIN BASE..HEAD
+  python3 scripts/check_identity.py --check-simulated-squash --owner LOGIN \
+    --pr-number N --title TITLE [--body-file PATH]
 
 Exit 0 when clean, 1 when problems are found, 2 on usage/git errors.
 """
@@ -245,6 +251,66 @@ def _skip_file_email_scan(path: str) -> bool:
     return norm == "tests" or norm.startswith("tests/")
 
 
+def owner_noreply_email(owner: str, *, github_id: str | None = None) -> str:
+    """The users.noreply.github.com address for a login (optional numeric id)."""
+    login = owner.strip()
+    if github_id:
+        return f"{github_id}+{login}@users.noreply.github.com"
+    return f"{login}@users.noreply.github.com"
+
+
+def simulate_github_squash(
+    repo: Path | str,
+    *,
+    owner: str,
+    pr_number: int,
+    title: str,
+    body: str,
+    author_name: str | None = None,
+    author_email: str | None = None,
+    tree_ish: str = "HEAD",
+    parent: str | None = None,
+) -> str:
+    """Create a dangling commit shaped like a GitHub squash merge. Return its SHA.
+
+    Author is the repo owner (noreply). Committer is GitHub. Subject is
+    ``{title} (#{pr_number})``. Does not update any branch ref.
+    """
+    root = Path(repo)
+    email = author_email or owner_noreply_email(owner)
+    name = author_name or owner
+    subject = f"{title.rstrip()} (#{int(pr_number)})"
+    message = subject if not body.strip() else f"{subject}\n\n{body.lstrip()}"
+    tree = _run(root, "rev-parse", f"{tree_ish}^{{tree}}")
+    if tree.returncode != 0:
+        raise RuntimeError(tree.stderr.strip() or "rev-parse tree failed")
+    parent_sha = parent
+    if parent_sha is None:
+        head = _run(root, "rev-parse", tree_ish)
+        if head.returncode != 0:
+            raise RuntimeError(head.stderr.strip() or "rev-parse HEAD failed")
+        parent_sha = head.stdout.strip()
+    env = {
+        **dict(__import__("os").environ),
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_COMMITTER_NAME": GITHUB_COMMITTER_NAME,
+        "GIT_COMMITTER_EMAIL": GITHUB_COMMITTER_EMAIL,
+    }
+    made = subprocess.run(
+        ["git", "commit-tree", tree.stdout.strip(), "-p", parent_sha],
+        cwd=root,
+        input=message,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    if made.returncode != 0:
+        raise RuntimeError(made.stderr.strip() or "commit-tree failed")
+    return made.stdout.strip()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -268,13 +334,94 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="GitHub login of the repo owner (with --allow-github-squash)",
     )
+    parser.add_argument(
+        "--check-simulated-squash",
+        action="store_true",
+        help="build a fake GitHub squash for a PR and run the push-mode check",
+    )
+    parser.add_argument("--pr-number", type=int, default=0, help="PR number for --check-simulated-squash")
+    parser.add_argument("--title", default="", help="PR title for --check-simulated-squash")
+    parser.add_argument(
+        "--body-file",
+        default="",
+        help="file with the PR body (for --check-simulated-squash)",
+    )
+    parser.add_argument(
+        "--author-name",
+        default="",
+        help="squash author name (default: --owner)",
+    )
+    parser.add_argument(
+        "--author-email",
+        default="",
+        help="squash author email (default: owner@users.noreply.github.com)",
+    )
+    parser.add_argument(
+        "--tree-ish",
+        default="HEAD",
+        help="tree for the simulated squash (default: HEAD)",
+    )
+    parser.add_argument(
+        "--parent",
+        default="",
+        help="parent commit of the simulated squash (default: tree-ish)",
+    )
     args = parser.parse_args(argv)
     owner = args.owner or None
+    root = Path(args.repo)
+
+    if args.check_simulated_squash:
+        if not owner or not args.pr_number or not args.title:
+            print(
+                "error: --check-simulated-squash needs --owner, --pr-number, and --title",
+                file=sys.stderr,
+            )
+            return 2
+        body = ""
+        if args.body_file:
+            try:
+                body = Path(args.body_file).read_text(encoding="utf-8")
+            except OSError as exc:
+                print(f"error: cannot read --body-file: {exc}", file=sys.stderr)
+                return 2
+        try:
+            sha = simulate_github_squash(
+                root,
+                owner=owner,
+                pr_number=args.pr_number,
+                title=args.title,
+                body=body,
+                author_name=args.author_name or None,
+                author_email=args.author_email or None,
+                tree_ish=args.tree_ish,
+                parent=args.parent or None,
+            )
+        except RuntimeError as exc:
+            print(f"error: simulate squash failed: {exc}", file=sys.stderr)
+            return 2
+        rev = f"{sha}^!"
+        problems = check_range(root, rev, allow_github_squash=True, owner=owner)
+        if not problems:
+            print(f"identity: ok (simulated squash {sha[:7]} for #{args.pr_number})")
+            return 0
+        print(
+            f"identity: {len(problems)} problem(s) in simulated squash for #{args.pr_number}",
+            file=sys.stderr,
+        )
+        for line in problems:
+            print(f"error: {line}", file=sys.stderr)
+        print(
+            "Fix: remove AI trailers from the PR body, or use the neutral identity "
+            f"({ALLOWED}) on branch commits.",
+            file=sys.stderr,
+        )
+        return 1
+
     if args.allow_github_squash and not owner:
         print("error: --allow-github-squash needs --owner LOGIN", file=sys.stderr)
         return 2
     problems = check_range(
-        Path(args.repo),
+        root,
         args.range,
         allow_github_squash=args.allow_github_squash,
         owner=owner,

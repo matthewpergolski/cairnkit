@@ -52,18 +52,37 @@ jobs:
         with:
           fetch-depth: 0
       - name: Neutral commit identity
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
+          OWNER="${{ github.repository_owner }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             python3 scripts/check_identity.py \
               "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+            # Catch push-mode squash failures before merge: build the commit
+            # GitHub would write (owner author, GitHub committer, title (#N)).
+            BODY_FILE="$(mktemp)"
+            printf '%s' "${PR_BODY:-}" >"$BODY_FILE"
+            python3 scripts/check_identity.py \
+              --check-simulated-squash \
+              --owner="$OWNER" \
+              --pr-number="${{ github.event.pull_request.number }}" \
+              --title="$PR_TITLE" \
+              --author-name="$OWNER" \
+              --author-email="${OWNER}@users.noreply.github.com" \
+              --body-file="$BODY_FILE" \
+              --tree-ish="${{ github.event.pull_request.head.sha }}" \
+              --parent="${{ github.event.pull_request.base.sha }}"
+            rm -f "$BODY_FILE"
           else
             BEFORE="${{ github.event.before }}"
             HEAD_SHA="${{ github.sha }}"
             ZERO="0000000000000000000000000000000000000000"
-            # Push only: GitHub squash merges use GitHub as committer and the
+            # Push: GitHub squash merges use GitHub as committer and the
             # repo owner as author. PR-range checks stay strict.
-            SQUASH=(--allow-github-squash --owner="${{ github.repository_owner }}")
+            SQUASH=(--allow-github-squash --owner="$OWNER")
             if [ "$BEFORE" = "$ZERO" ]; then
               python3 scripts/check_identity.py "${SQUASH[@]}" "${HEAD_SHA}^!"
             else
