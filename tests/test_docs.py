@@ -88,3 +88,10 @@ def test_docs_records_source_revision(mem: Path, repo: Path):
     assert main(["docs"]) == 0
     text = (state_dir(repo) / "README.md").read_text(encoding="utf-8")
     assert f'sourceRevision: "{head}"' in text
+
+
+def test_docs_omits_source_revision_on_template_pages(mem: Path, repo: Path):
+    assert main(["docs"]) == 0
+    for name in ("agent-session.md", "fact-lifecycle.md"):
+        text = (state_dir(repo) / name).read_text(encoding="utf-8")
+        assert "sourceRevision:" not in text
