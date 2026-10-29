@@ -73,6 +73,16 @@ def test_docs_force_overwrites(mem: Path, repo: Path):
     assert "kind: system" in text
 
 
+def test_docs_force_removes_orphan_markdown(mem: Path, repo: Path):
+    assert main(["docs"]) == 0
+    orphan = state_dir(repo) / "services" / "orphan.md"
+    orphan.parent.mkdir(parents=True)
+    orphan.write_text("stale orphan\n", encoding="utf-8")
+    assert main(["docs", "--force"]) == 0
+    assert not orphan.exists()
+    assert (state_dir(repo) / "README.md").is_file()
+
+
 def test_docs_records_source_revision(mem: Path, repo: Path):
     head = git(repo, "rev-parse", "HEAD").strip()
     assert main(["docs"]) == 0
