@@ -123,3 +123,17 @@ def test_docs_writes_architecture_page_for_cairnkit_package(mem: Path, repo: Pat
     for name in ("docs_cmd", "migrate", "check", "reading"):
         assert name in text
         assert f"src/cairnkit/{name}.py" in text
+
+
+def test_docs_architecture_keeps_helpers_out_of_commands(mem: Path, repo: Path):
+    _plant_cairnkit_package(
+        repo,
+        ["cli", "docs_cmd", "init", "store", "schema", "clock", "paths"],
+    )
+    assert main(["docs", "--force"]) == 0
+    text = (state_dir(repo) / "architecture.md").read_text(encoding="utf-8")
+    assert "Commands --> docs_cmd" in text or "Commands --> docs_cmd[" in text
+    assert "Library[" in text or "Library -->" in text
+    for helper in ("store", "schema", "clock", "paths"):
+        assert f"Commands --> {helper}" not in text
+        assert helper in text
