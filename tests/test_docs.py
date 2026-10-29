@@ -95,3 +95,31 @@ def test_docs_omits_source_revision_on_template_pages(mem: Path, repo: Path):
     for name in ("agent-session.md", "fact-lifecycle.md"):
         text = (state_dir(repo) / name).read_text(encoding="utf-8")
         assert "sourceRevision:" not in text
+
+
+def _plant_cairnkit_package(repo: Path, modules: list[str]) -> None:
+    folder = repo / "src" / "cairnkit"
+    folder.mkdir(parents=True)
+    (folder / "__init__.py").write_text("", encoding="utf-8")
+    for name in modules:
+        (folder / f"{name}.py").write_text(f"# {name}\n", encoding="utf-8")
+
+
+def test_docs_writes_architecture_page_for_cairnkit_package(mem: Path, repo: Path):
+    _plant_cairnkit_package(
+        repo,
+        ["cli", "docs_cmd", "migrate", "check", "reading", "init", "memory"],
+    )
+    assert main(["docs", "--force"]) == 0
+    root = (state_dir(repo) / "README.md").read_text(encoding="utf-8")
+    assert "Package: architecture" in root
+    arch = state_dir(repo) / "architecture.md"
+    assert arch.is_file()
+    text = arch.read_text(encoding="utf-8")
+    assert "kind: service" in text
+    assert "id: architecture" in text
+    assert "```mermaid" in text
+    assert "sourceRevision:" not in text
+    for name in ("docs_cmd", "migrate", "check", "reading"):
+        assert name in text
+        assert f"src/cairnkit/{name}.py" in text
