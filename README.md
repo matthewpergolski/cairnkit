@@ -539,6 +539,7 @@ level only. It writes nothing into a repo.
 | `memory load [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. |
+| `memory docs [--dry-run] [--force]` | you, after `memory init` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
 | `memory purge ID --reason secret --yes` | you, rarely | Removes a secret for good. |
 
 ### Where the memory lives
