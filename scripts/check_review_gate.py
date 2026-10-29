@@ -25,6 +25,8 @@ from pathlib import Path
 _HEADING_REVIEW = re.compile(r"^##\s+Review\s*$", re.M)
 _NEXT_H2 = re.compile(r"^##\s+\S", re.M)
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_HTML_TAG = re.compile(r"<[^>]+>", re.S)
+_FOOTER_PHRASE = re.compile(r"(?i)\bopen in (?:cursor|web)\b")
 _BULLET = re.compile(r"^[-*]\s+")
 # House-style Blocker / High labels only (or B1 / H1 ids).
 # Require a colon or bold wrapper so free prose like "High-priority" or
@@ -57,9 +59,15 @@ def _substantive_lines(section: str) -> list[str]:
     cleaned = _HTML_COMMENT.sub("", section)
     lines: list[str] = []
     for raw in cleaned.splitlines():
-        line = raw.strip()
-        if line:
-            lines.append(line)
+        line = _HTML_TAG.sub("", raw)
+        line = line.replace("&nbsp;", " ").strip()
+        if not line:
+            continue
+        # Cursor agent footer residue after tags are stripped (alt text only).
+        without_footer = _FOOTER_PHRASE.sub("", line).strip(" \t|-–—")
+        if not without_footer:
+            continue
+        lines.append(line)
     return lines
 
 
