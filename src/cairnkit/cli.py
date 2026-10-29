@@ -185,7 +185,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--instructions-file", help="file to write, relative to the checkout")
 
     p = sub.add_parser("add", parents=[common], help="write a new fact")
-    p.add_argument("text", help="one or two plain sentences, at most 400 characters")
+    p.add_argument("text", help="the fact, up to 2000 characters (a rule: 400)")
+    p.add_argument(
+        "--summary",
+        help="optional load line, up to 200 characters. A longer fact without it is clipped",
+    )
     p.add_argument("--kind", choices=KINDS, default="fact")
     p.add_argument("--area", required=True, help="one area of the work, for example deploy")
     p.add_argument("--basis", choices=BASES, required=True, help="seen, told or guess")
@@ -193,7 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", action="append", help="a search word (repeat for more)")
     p.add_argument("--happened-at", type=_time, help="when it became true (default: today)")
     p.add_argument("--link", action="append", help="<rel>:<id>, rel related|depends_on|...")
-    p.add_argument("--pinned", action="store_true", help="load in every session")
+    p.add_argument("--pinned", action="store_true", help="show this fact on every load")
     p.add_argument(
         "--enforced-by", metavar="TYPE:VALUE", help="rules only: the check that fails, e.g. ci:lint"
     )

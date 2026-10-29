@@ -61,7 +61,7 @@ BAD_CASES = {
     "not valid JSON": ["{not json"],
     "missing field 'area'": [{k: v for k, v in GOOD.items() if k != "area"}],
     "is not one of": [{**GOOD, "basis": "hunch"}],
-    "400": [{**GOOD, "text": "x" * 401}],
+    "2000": [{**GOOD, "text": "x" * 2001}],
     "duplicate id": [GOOD, GOOD],
     "needs superseded_by": [GOOD, change(status="superseded", reason="r")],
     "unknown fact": [GOOD, change(id="f-20261001-ffff", status="wrong", reason="r")],

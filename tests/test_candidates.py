@@ -77,7 +77,7 @@ def test_hints_for_superseded_and_held_by():
 
 
 def test_long_line_is_flagged():
-    found, _ = scan_text("a.md", "- " + "word " * 100 + "\n")
+    found, _ = scan_text("a.md", "- " + "x" * 2001 + "\n")
     assert found[0].too_long
 
 

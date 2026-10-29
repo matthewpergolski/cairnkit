@@ -144,7 +144,12 @@ def add_fact(memory: Memory, args) -> str | None:
     for other in (near[0] if near else None, kept, retired[0] if retired else None):
         if other and {"rel": "similar_to", "id": other["id"]} not in links:
             links.append({"rel": "similar_to", "id": other["id"]})
-    _check_secrets(args.text, args.source, args.reason, *(args.tag or []))
+    summary = getattr(args, "summary", None)
+    if isinstance(summary, str):
+        summary = summary.strip() or None
+    if summary and args.kind == "rule":
+        raise Refused("a rule has no summary")
+    _check_secrets(args.text, summary, args.source, args.reason, *(args.tag or []))
     fact = {
         "type": "fact",
         "id": _new_id(memory, moment.strftime("%Y%m%d")),
@@ -159,6 +164,8 @@ def add_fact(memory: Memory, args) -> str | None:
         "scope": "short" if args.short else "long",
         "writer": writer,
     }
+    if summary:
+        fact["summary"] = summary
     if running_tool():
         fact["author"] = f"agent:{running_tool()}"
     if args.tag:

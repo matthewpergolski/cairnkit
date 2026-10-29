@@ -12,7 +12,9 @@ STATUSES = ("active", "superseded", "expired", "wrong", "promoted")
 SCOPES = ("long", "short")
 RELS = ("related", "depends_on", "caused_by", "contradicts", "similar_to")
 TYPES = ("fact", "change", "tombstone")
-MAX_TEXT = 400
+MAX_TEXT = 2000  # fact body, every kind except rule
+RULE_MAX_TEXT = 400  # kind == rule; copied into the shared rules file
+MAX_SUMMARY = 200  # optional load line
 ID_RE = re.compile(r"^f-\d{8}-[0-9a-f]{4}$")
 SOURCE_RE = re.compile(r"^(default$|[a-z][a-z0-9_-]*:\S)")
 # The check that fails when a rule is broken: githook:commit-msg, lint:ruff:T201, ci:<job>.
@@ -50,6 +52,16 @@ def _check_enforced(value: object) -> list[str]:
     return []
 
 
+def _check_summary(value: object, kind: object) -> list[str]:
+    if kind == "rule":
+        return ["a rule has no summary"]
+    if not isinstance(value, str) or not value or value != value.strip():
+        return ["summary must be a non-empty string with no leading or trailing space"]
+    if len(value) > MAX_SUMMARY:
+        return [f"summary has {len(value)} characters; the limit is {MAX_SUMMARY}"]
+    return []
+
+
 def _check_fact(rec: dict) -> list[str]:
     errors = [f"missing field {name!r}" for name in FACT_REQUIRED if name not in rec]
     if "id" in rec and not ID_RE.match(str(rec["id"])):
@@ -63,10 +75,13 @@ def _check_fact(rec: dict) -> list[str]:
     if rec.get("scope", "long") not in SCOPES:
         errors.append(f"scope {rec['scope']!r} is not one of {', '.join(SCOPES)}")
     text = rec.get("text", "")
+    limit = RULE_MAX_TEXT if rec.get("kind") == "rule" else MAX_TEXT
     if not isinstance(text, str) or not text.strip():
         errors.append("text must be a non-empty string")
-    elif len(text) > MAX_TEXT:
-        errors.append(f"text has {len(text)} characters; the limit is {MAX_TEXT}")
+    elif len(text) > limit:
+        errors.append(f"text has {len(text)} characters; the limit is {limit}")
+    if "summary" in rec:
+        errors += _check_summary(rec.get("summary"), rec.get("kind"))
     if "source" in rec and not SOURCE_RE.match(str(rec["source"])):
         errors.append(f"source {rec['source']!r} is not <kind>:<value> or default")
     for name in ("happened_at", "learned_at", "expires_at"):
@@ -113,6 +128,10 @@ def _check_change(rec: dict) -> list[str]:
         errors += _check_enforced(rec["enforced_by"])
     if not any(k in rec for k in ("status", "add_links", "scope", "enforced_by")):
         errors.append("a change must set status, scope, add_links or enforced_by")
+    if "text" in rec:
+        errors.append("a change cannot set text; add a new fact with --supersedes")
+    if "summary" in rec:
+        errors.append("a change cannot set summary; add a new fact with --supersedes")
     return errors
 
 
