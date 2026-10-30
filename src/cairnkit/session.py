@@ -131,17 +131,36 @@ def _untracked_paths(root: Path) -> list[str]:
     return found
 
 
-def durable_untracked(path: str) -> bool:
-    """True when an untracked path is source worth a stop reminder."""
+def is_junk_path(path: str) -> bool:
+    """True when a path is filler (.log, caches, editor debris), tracked or not."""
     parts = PurePosixPath(path).parts
     if not parts or any(part in JUNK_DIRS for part in parts):
-        return False
+        return True
     name = parts[-1]
-    if name in JUNK_NAMES or name.endswith(JUNK_SUFFIXES):
+    return name in JUNK_NAMES or name.endswith(JUNK_SUFFIXES)
+
+
+def durable_untracked(path: str) -> bool:
+    """True when an untracked path is source worth a stop reminder."""
+    if is_junk_path(path):
         return False
+    name = PurePosixPath(path).name
     if name in SOURCE_NAMES:
         return True
     return PurePosixPath(name).suffix.lower() in SOURCE_SUFFIXES
+
+
+def _durable_tracked_paths(root: Path, memory_dir: Path | None) -> list[str]:
+    """Tracked paths that changed under HEAD, minus memory and junk."""
+    specs = _pathspecs(root, memory_dir)
+    listed = run_git(root, "diff", "--name-only", "HEAD", "--", *specs, timeout=2.0) or ""
+    paths = []
+    for path in listed.splitlines():
+        if not path or _memory_path(path, root, memory_dir) or is_junk_path(path):
+            continue
+        if path not in paths:
+            paths.append(path)
+    return paths
 
 
 @dataclass(frozen=True)
@@ -162,8 +181,12 @@ class ReminderGate:
 
     def snapshot(self, root: Path, memory_dir: Path | None = None) -> DurableSnapshot:
         head = run_git(root, "rev-parse", "HEAD", timeout=2.0) or ""
-        specs = _pathspecs(root, memory_dir)
-        tracked = run_git(root, "diff", "HEAD", "--", *specs, timeout=2.0) or ""
+        durable = _durable_tracked_paths(root, memory_dir)
+        tracked = (
+            (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "")
+            if durable
+            else ""
+        )
         untracked = tuple(
             sorted(
                 path
@@ -174,12 +197,7 @@ class ReminderGate:
         return DurableSnapshot(head, tracked, untracked)
 
     def names(self, root: Path, memory_dir: Path | None = None) -> list[str]:
-        specs = _pathspecs(root, memory_dir)
-        listed = run_git(root, "diff", "--name-only", "HEAD", "--", *specs, timeout=2.0) or ""
-        names = []
-        for path in listed.splitlines():
-            if path and not _memory_path(path, root, memory_dir) and path not in names:
-                names.append(path)
+        names = list(_durable_tracked_paths(root, memory_dir))
         for path in self.snapshot(root, memory_dir).untracked:
             if path not in names:
                 names.append(path)
