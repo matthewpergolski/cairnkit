@@ -165,7 +165,7 @@ def _candidates_for_commit(
     return out
 
 
-def near_active(memory: Memory, text: str, kind: str) -> bool:
+def near_active(memory: Memory, text: str) -> bool:
     """True when an active fact is a near or exact duplicate of text."""
     words = analyze(text)
     moment = now()
@@ -202,7 +202,7 @@ def fuller_propose(memory: Memory) -> list[Candidate]:
     collected: list[Candidate] = []
     for head in heads:
         for item in _candidates_for_commit(memory, head, origin="fuller", prefer=True):
-            if near_active(memory, item.text, item.kind):
+            if near_active(memory, item.text):
                 continue
             if item.kind not in PREFERRED and len(collected) >= MAX_FULLER // 2:
                 continue
@@ -257,7 +257,7 @@ def stop_fallback(memory: Memory, start_head: str | None) -> list[Candidate]:
     area = _area_from_paths(paths)
     items = []
     for text, kind in texts[:3]:
-        if find_secrets(text) or near_active(memory, text, kind):
+        if find_secrets(text) or near_active(memory, text):
             continue
         items.append(
             Candidate(

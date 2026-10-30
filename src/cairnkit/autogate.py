@@ -178,7 +178,7 @@ def run_gate(memory: Memory) -> list[str]:
         memory.reload()
         items = pending(memory)
         for cand in items:
-            if near_active(memory, cand.text, cand.kind):
+            if near_active(memory, cand.text):
                 with contextlib.suppress(KeyError, ValueError):
                     decide(
                         memory,

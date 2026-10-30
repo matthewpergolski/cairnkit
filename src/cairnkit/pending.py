@@ -239,14 +239,3 @@ def mark_matching(memory: Memory, text: str, fact_id: str | None) -> None:
 
 def count_pending(memory: Memory) -> int:
     return len(pending(memory))
-
-
-def undecided_line(memory: Memory) -> str | None:
-    """One load line when pending candidates need a person. Empty when none."""
-    n = count_pending(memory)
-    if not n:
-        return None
-    return (
-        f"{n} pending auto-candidate(s). Review with `memory candidates list`, "
-        "then `memory candidates accept ID` or `reject ID`."
-    )
