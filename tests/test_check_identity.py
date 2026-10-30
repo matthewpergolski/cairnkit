@@ -325,3 +325,16 @@ def test_cli_check_simulated_squash(mod, tmp_path):
         text=True,
     )
     assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_github_system_emails_in_docs_are_allowed(mod, tmp_path):
+    """Docs may name GitHub's squash committer and users.noreply forms."""
+    repo = init_repo(tmp_path / "gh-docs")
+    (repo / "note.md").write_text(
+        "Squash committer is GitHub <noreply@github.com>.\n"
+        "Owner mail looks like owner@users.noreply.github.com.\n"
+        f"Real shape: {OWNER_EMAIL}\n"
+    )
+    git(repo, "add", "note.md")
+    git(repo, "commit", "-q", "-m", "document squash identity")
+    assert mod.check_range(repo, "HEAD~1..HEAD") == []
