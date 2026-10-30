@@ -38,17 +38,18 @@ def test_pre_push_fuller_prefers_lessons_and_skips_near_active(repo, mem, capsys
         mem,
         [make_fact("f-20261001-0001", "Deploy only from a clean tree after tests pass.")],
     )
+    # Drop post-commit so draft+gate do not pre-accept before the fuller pass.
+    post = repo / ".git" / "hooks" / "post-commit"
+    if post.exists():
+        post.unlink()
     (repo / "a.txt").write_text("a\n")
     git(repo, "add", "a.txt")
     git(repo, "commit", "-q", "-m", "lesson: always pin the lockfile before release")
-    # Clear draft rows so fuller is what we assert on.
-    path = mem / "proposals" / "auto-candidates.jsonl"
-    if path.exists():
-        path.write_text("")
     (repo / "b.txt").write_text("b\n")
     git(repo, "add", "b.txt")
     # Near-dup of the active fact: fuller must skip it.
     git(repo, "commit", "-q", "-m", "lesson: deploy only from a clean tree after tests pass")
+    path = mem / "proposals" / "auto-candidates.jsonl"
     if path.exists():
         path.write_text("")
     capsys.readouterr()
