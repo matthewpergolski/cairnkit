@@ -247,12 +247,14 @@ def _prune(folder: Path) -> None:
 
 
 def start_session(memory: Memory, session_id: str) -> None:
+    head = run_git(memory.project.root, "rev-parse", "HEAD", timeout=2.0) or ""
     save_state(
         memory,
         session_id,
         {
             "started_at": stamp(now()),
             "start": fingerprint(memory.project.root, memory.dir),
+            "start_head": head,
             "gate": GATE,
         },
     )

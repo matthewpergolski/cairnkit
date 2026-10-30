@@ -21,7 +21,7 @@ from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
-from cairnkit.session import needs_reminder, reminder_text, start_session
+from cairnkit.session import load_state, needs_reminder, reminder_text, start_session
 
 NOTE_IDS = 10
 
@@ -212,6 +212,12 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
 def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     neutral = {"claude": None, "codex": "{}", "cursor": "{}", "generic": None}[agent]
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
+    # Fallback propose when this session never produced a commit.
+    if not continued:
+        with contextlib.suppress(Exception):
+            memory = Memory.open(project, flag)
+            state = load_state(memory, session_key(payload)) or {}
+            propose.run_stop_fallback(project, flag, state.get("start_head"))
     try:
         message = None if continued else stop_message(project, flag, payload)
     except Exception:
