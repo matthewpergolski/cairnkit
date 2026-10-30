@@ -4,7 +4,8 @@ commit-msg guard.
 
 Personal quiet hooks never fail git. post-commit drafts pending candidates
 fast (~1s). pre-push and post-merge run the fuller propose + auto-tidy pass
-(~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
+(~3s). post-merge first prints one line when memory exists and the atlas is stale. Each hook
+is a marked block in a shell script. A foreign hook is kept:
 the block goes right after its first line. Uninstall removes only the block.
 """
 
@@ -74,6 +75,40 @@ _QUIET_BUDGET = 3
 _POST_COMMIT_BUDGET = 1
 
 
+def _bounded_hook(event: str, seconds: int, *, keep_stdout: bool, guard: str | None = None) -> str:
+    """The timeout / gtimeout / perl / else ladder. Every branch ends in || true.
+
+    keep_stdout is required. False discards stdout. True leaves stdout on the
+    terminal and still discards stderr. Quiet hooks keep redirections on the
+    perl command, matching hooks already installed. The speaking form puts
+    redirections on the shell command so they are not perl argv.
+    """
+    py = shlex.quote(sys.executable)
+    cmd = f"{py} -m cairnkit hook {event}"
+    if keep_stdout:
+        run = f"{cmd} </dev/null 2>/dev/null"
+        perl_argv = cmd
+        perl_redir = "</dev/null 2>/dev/null"
+    else:
+        run = f"{cmd} </dev/null >/dev/null 2>&1"
+        perl_argv = run
+        perl_redir = ">/dev/null 2>&1"
+    test = guard if guard is not None else f"[ -x {py} ]"
+    return (
+        f"if {test}; then\n"
+        f"  if command -v timeout >/dev/null 2>&1; then\n"
+        f"    timeout -k 1 {seconds} {run} || true\n"
+        f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
+        f"    gtimeout -k 1 {seconds} {run} || true\n"
+        f"  elif command -v perl >/dev/null 2>&1; then\n"
+        f"    {{ perl -e 'alarm {seconds}; exec @ARGV' -- {perl_argv} || true; }} {perl_redir}\n"
+        f"  else\n"
+        f"    {run} || true\n"
+        f"  fi\n"
+        f"fi\n"
+    )
+
+
 def quiet_body(event: str, budget: int | None = None) -> str:
     """A personal hook. It never fails git, and it does not read stdin or arguments.
 
@@ -87,24 +122,8 @@ def quiet_body(event: str, budget: int | None = None) -> str:
     so git proceeds. post-commit uses a 1s shell budget; pre-push/post-merge
     use 3s.
     """
-    py = shlex.quote(sys.executable)
-    # Redirections sit on the simple command so the child inherits them under
-    # timeout, gtimeout, or perl exec.
-    run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
     seconds = _QUIET_BUDGET if budget is None else budget
-    return (
-        f"if [ -x {py} ]; then\n"
-        f"  if command -v timeout >/dev/null 2>&1; then\n"
-        f"    timeout -k 1 {seconds} {run} || true\n"
-        f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
-        f"    gtimeout -k 1 {seconds} {run} || true\n"
-        f"  elif command -v perl >/dev/null 2>&1; then\n"
-        f"    {{ perl -e 'alarm {seconds}; exec @ARGV' -- {run} || true; }} >/dev/null 2>&1\n"
-        f"  else\n"
-        f"    {run} || true\n"
-        f"  fi\n"
-        f"fi\n"
-    )
+    return _bounded_hook(event, seconds, keep_stdout=False)
 
 
 def pre_push_body() -> str:
@@ -112,7 +131,19 @@ def pre_push_body() -> str:
 
 
 def post_merge_body() -> str:
-    return quiet_body("post-merge")
+    """Speak a stale-atlas line, then the quiet tidy command.
+
+    quiet_body closes stdout, and the tidy command discards it again, so the
+    warn is its own command. The directory test skips a repo with no atlas.
+    """
+    py = shlex.quote(sys.executable)
+    speak = _bounded_hook(
+        "docs-freshness",
+        1,
+        keep_stdout=True,
+        guard=f"[ -d docs/state ] && [ -x {py} ]",
+    )
+    return speak + quiet_body("post-merge")
 
 
 def post_commit_body() -> str:

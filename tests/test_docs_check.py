@@ -24,9 +24,13 @@ def state_dir(repo):
     return repo / "docs" / "state"
 
 
-def _discards_stdout(text: str) -> bool:
-    """True when a redirect sends stdout to /dev/null (not stderr alone)."""
-    return re.search(r"(?<![0-9])>/dev/null", text) is not None
+def _hook_lines(text: str, event: str) -> list[str]:
+    return [line for line in text.splitlines() if f"hook {event}" in line]
+
+
+def _discards_stdout(line: str) -> bool:
+    """True when this command sends stdout to /dev/null (not stderr alone)."""
+    return re.search(r"(?<![0-9])>/dev/null", line) is not None
 
 
 def _split_post_merge(text: str) -> tuple[str, str]:
@@ -311,14 +315,14 @@ def test_docs_freshness_stays_quiet_when_the_compare_crashes(mem, repo, monkeypa
 def test_post_merge_body_speaks_then_stays_quiet():
     text = githook.post_merge_body()
     fresh, quiet = _split_post_merge(text)
-    assert "hook docs-freshness" in fresh
+    fresh_cmds = _hook_lines(fresh, "docs-freshness")
+    quiet_cmds = _hook_lines(quiet, "post-merge")
+    assert fresh_cmds and quiet_cmds
     assert "[ -d docs/state ]" in fresh
-    assert "2>/dev/null" in fresh
-    assert not _discards_stdout(fresh)
+    assert all("2>/dev/null" in line and not _discards_stdout(line) for line in fresh_cmds)
     assert "timeout -k 1 1 " in fresh
     assert "looks out of date" not in text
-    assert "hook post-merge" in quiet
-    assert _discards_stdout(quiet)
+    assert all(_discards_stdout(line) for line in quiet_cmds)
     assert "timeout -k 1 3 " in quiet
     assert fresh.count("|| true") == quiet.count("|| true") >= 1
     assert "docs-freshness" not in githook.pre_push_body()
@@ -339,13 +343,24 @@ def test_merge_prints_one_stale_line_and_succeeds(mem, repo, capsys):
     git(repo, "commit", "-q", "-m", "topic")
     git(repo, "checkout", "-q", "main")
     result = subprocess.run(
-        ["git", "merge", "--no-ff", "-m", "merge topic", "topic"],
+        [
+            "git",
+            "-c",
+            "core.hooksPath=.git/hooks",
+            "merge",
+            "--no-ff",
+            "-m",
+            "merge topic",
+            "topic",
+        ],
         cwd=repo,
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    said = [line for line in result.stdout.splitlines() if line.startswith("cairnkit:")]
+    # Git delivers hook stdout on the git command's stderr.
+    said = [line for line in result.stderr.splitlines() if line.startswith("cairnkit:")]
     assert said == [STALE_LINE]
+    assert STALE_LINE not in result.stdout
     assert readme.read_text(encoding="utf-8") == "stale\n"
