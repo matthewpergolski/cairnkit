@@ -290,3 +290,26 @@ def needs_reminder(memory: Memory, session_id: str) -> bool:
     state["gate"] = GATE
     save_state(memory, session_id, state)
     return True
+
+
+def note_failure(memory: Memory, session_id: str, command: str) -> str | None:
+    """Record one failed shell/tool command for the loop breaker.
+
+    `session_id` is kept for callers that key failures per session; the streak
+    itself is global to the memory folder (same command across tools).
+    Returns the nudge text when the streak hits three, else None.
+    """
+    from cairnkit import loopbreak
+
+    _ = session_id  # reserved: per-session streaks if a later harness needs them
+    return loopbreak.observe(memory, command, ok=False)
+
+
+def loop_nudge(memory: Memory) -> str | None:
+    """Nudge text when the current fail streak is at the threshold."""
+    from cairnkit import loopbreak
+
+    data = loopbreak._load(memory)
+    if int(data.get("streak", 0)) >= loopbreak.THRESHOLD and data.get("command"):
+        return loopbreak.NUDGE
+    return None

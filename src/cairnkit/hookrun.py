@@ -225,8 +225,15 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
         memory = Memory.open(project, flag)
     except MemoryMissing:
         memory = None
-    if memory is not None and needs_reminder(memory, session_key(payload)):
-        parts.append(reminder_text(memory))
+    if memory is not None:
+        with contextlib.suppress(Exception):
+            from cairnkit.session import loop_nudge
+
+            nudge = loop_nudge(memory)
+            if nudge:
+                parts.append(nudge)
+        if needs_reminder(memory, session_key(payload)):
+            parts.append(reminder_text(memory))
     return "\n\n".join(parts) or None
 
 
