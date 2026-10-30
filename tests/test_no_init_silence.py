@@ -73,7 +73,7 @@ def test_git_hooks_silent_without_init(bare, event):
 
 def test_installed_git_hooks_stay_silent_without_init(bare, monkeypatch):
     """Personal git hooks must not create a memory dir or print when fired by git."""
-    repo, before, sibling, capsys = bare
+    repo, _before, sibling, capsys = bare
     # Install without memory: hooks_cmd still writes personal git hooks for main_root.
     capsys.readouterr()
     assert main(["hooks", "install", "--agent", "generic"]) == 0
