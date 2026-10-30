@@ -32,11 +32,15 @@ def test_shared_mode_is_refused(repo, capsys):
 
 
 def test_local_write_leaves_hand_written_tracked_files_alone(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "CLAUDE.md").write_text(HAND)
     (repo / "AGENTS.md").write_text("# Agents\n\nBe kind.\n")
     assert main(["init", "--write-instructions"]) == 0
     assert (repo / "CLAUDE.md").read_text() == HAND
-    assert (repo / "AGENTS.md").read_text() == "# Agents\n\nBe kind.\n"
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith("# Agents\n\nBe kind.\n") and AGENTS_POINTER in agents
+    assert START not in agents
     assert blocks(repo)["CLAUDE.local.md"] == 1
 
 
@@ -51,10 +55,13 @@ def test_migrate_moves_block_from_claude_md(repo, capsys):
 
 
 def test_migrate_moves_block_from_agents_md(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "AGENTS.md").write_text(HAND + f"{START}\nold\n{END}\n\nAfter.\n")
     assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
-    assert text.startswith(HAND) and text.endswith("After.\n")
+    assert text.startswith(HAND) and "After.\n" in text
+    assert text.rstrip().endswith(AGENTS_POINTER)
     assert START not in text
     assert START in (repo / "CLAUDE.local.md").read_text()
 
@@ -177,12 +184,15 @@ def held_by(mem):
 
 
 def test_tidy_uses_claude_local_md(repo, mem, capsys, monkeypatch):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "CLAUDE.md").write_text(HAND)
     (repo / "AGENTS.md").write_text("# Agents\n")
     assert main(["init", "--write-instructions"]) == 0
     promote(mem, capsys, monkeypatch)
     assert (repo / "CLAUDE.md").read_text() == HAND
-    assert (repo / "AGENTS.md").read_text() == "# Agents\n"
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith("# Agents\n") and AGENTS_POINTER in agents
     assert "Never clear the dev database blind." in (repo / "CLAUDE.local.md").read_text()
     assert held_by(mem) == "CLAUDE.local.md"
 
@@ -294,11 +304,14 @@ def local_text(repo):
 
 
 def test_local_mode_imports_agents_md_when_it_is_the_only_shared_file(repo, capsys):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "AGENTS.md").write_text(HAND)
     code, out = run(["init", "--write-instructions"], capsys)
     assert code == 0
     assert local_text(repo).startswith(IMPORT + START)
-    assert (repo / "AGENTS.md").read_text() == HAND
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith(HAND.rstrip()) and AGENTS_POINTER in agents
     [note] = [x for x in out.splitlines() if "@AGENTS.md" in x]
     assert "CLAUDE.local.md" in note
     first = local_text(repo)
@@ -338,8 +351,11 @@ def test_no_import_when_claude_reads_a_claude_md_anyway(repo, home):
 
 
 def test_no_import_without_an_agents_md(repo):
+    # --write-instructions creates AGENTS.md with the Codex pointer, so the
+    # local file still needs @AGENTS.md for Claude Code to load both.
     assert main(["init", "--write-instructions"]) == 0
-    assert "@AGENTS.md" not in local_text(repo)
+    assert (repo / "AGENTS.md").is_file()
+    assert local_text(repo).startswith(IMPORT + START)
 
 
 def test_no_import_when_claude_local_md_is_agents_md(repo):
@@ -360,13 +376,20 @@ def test_dry_run_says_it_would_add_the_import_and_adds_nothing(repo, capsys):
 def test_harness_local_copies_are_written_and_excluded(repo):
     from conftest import git
 
+    from cairnkit.harness_local import AGENTS_POINTER
+
     assert main(["init", "--write-instructions"]) == 0
     for target in harness_local.TARGETS:
         path = repo / target.rel
         assert path.is_file()
         assert START in path.read_text()
         git(repo, "check-ignore", "-q", target.rel)
-    assert git(repo, "status", "--porcelain") == ""
+    assert AGENTS_POINTER in (repo / "AGENTS.md").read_text()
+    assert not (repo / "AGENTS.override.md").exists()
+    # Tracked pointer file is new; harness copies stay ignored.
+    assert "AGENTS.md" in git(repo, "status", "--porcelain")
+    assert ".cursor/rules" not in git(repo, "status", "--porcelain")
+    assert ".pi/" not in git(repo, "status", "--porcelain")
 
 
 def test_opencode_gap_is_documented():

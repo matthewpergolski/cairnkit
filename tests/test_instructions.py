@@ -29,21 +29,28 @@ def test_init_does_not_write_instructions_by_default(repo):
 
 
 def test_write_instructions_adds_one_marked_block(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "AGENTS.md").write_text("# Rules\n\nBe kind.\n")
     assert main(["init", "--write-instructions"]) == 0
     assert main(["init", "--write-instructions"]) == 0
-    assert (repo / "AGENTS.md").read_text() == "# Rules\n\nBe kind.\n"
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith("# Rules\n\nBe kind.\n")
+    assert agents.count(AGENTS_POINTER) == 1 and START not in agents
     text = (repo / "CLAUDE.local.md").read_text()
     assert text.count(START) == 1 and text.count(END) == 1
     assert "memory add" in text
 
 
 def test_write_instructions_migrates_an_old_block_out_of_tracked(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "AGENTS.md").write_text(f"top\n{START}\nold text\n{END}\nbottom\n")
     assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
     assert "old text" not in text and START not in text
-    assert text.startswith("top\n") and text.endswith("bottom\n")
+    assert text.startswith("top\n") and "bottom\n" in text
+    assert text.rstrip().endswith(AGENTS_POINTER)
     assert START in (repo / "CLAUDE.local.md").read_text()
 
 
@@ -59,17 +66,20 @@ def test_dry_run_does_not_write_instructions(repo):
 
 
 def test_default_writes_a_local_ignored_file(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "AGENTS.md").write_text("# Shared rules\n")
     git(repo, "add", "AGENTS.md")
     git(repo, "commit", "-q", "-m", "rules")
     assert main(["init", "--write-instructions"]) == 0
-    assert (repo / "AGENTS.md").read_text() == "# Shared rules\n"
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith("# Shared rules\n") and AGENTS_POINTER in agents
     local = repo / "CLAUDE.local.md"
     assert START in local.read_text()
     assert not (repo / "AGENTS.local.md").exists()
     assert "CLAUDE.local.md" in (repo / ".git" / "info" / "exclude").read_text().splitlines()
     git(repo, "check-ignore", "-q", "CLAUDE.local.md")
-    assert git(repo, "status", "--porcelain") == ""
+    assert git(repo, "status", "--porcelain").strip() == "M AGENTS.md"
 
 
 def test_local_file_can_be_chosen(repo):
@@ -79,11 +89,14 @@ def test_local_file_can_be_chosen(repo):
 
 
 def test_text_outside_the_block_is_never_changed(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     body = "# Rules\n\nKeep this.\n"
     (repo / "AGENTS.md").write_text(body + START + "\nold\n" + END + "\n\nAfter.\n")
     assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
-    assert text.startswith(body) and text.endswith("\nAfter.\n")
+    assert text.startswith(body) and "\nAfter.\n" in text
+    assert text.rstrip().endswith(AGENTS_POINTER)
     assert START not in text
 
 

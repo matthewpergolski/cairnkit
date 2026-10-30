@@ -35,9 +35,8 @@ that every contributor needs can move into an instruction file later, through
 | Place | What it holds | Tracked | Who reads it |
 |---|---|---|---|
 | `CLAUDE.md` | Hand-written project instructions. cairnkit never puts its marked block here. | Yes | Claude Code; Grok Build. |
-| `AGENTS.md` | Hand-written project instructions for tools that read `AGENTS.md`. | Yes | Codex, OpenCode, Pi, Cursor, and others that read `AGENTS.md`. |
+| `AGENTS.md` | Hand-written project instructions, plus one optional pointer line to `CLAUDE.md` / `CLAUDE.local.md`. | Yes | Codex, OpenCode, Pi, Cursor, and others that read `AGENTS.md`. |
 | `CLAUDE.local.md` | The cairnkit rules block, plus private checkout notes. | No. `.git/info/exclude`. | Claude Code; Grok Build. |
-| `AGENTS.override.md` | Untracked Codex copy of the rules block (replaces `AGENTS.md` in that directory). | No | Codex. |
 | `.cursor/rules/cairnkit.mdc` | Untracked Cursor project rule (`alwaysApply`). | No | Cursor. |
 | `.pi/APPEND_SYSTEM.md` | Untracked Pi append to the system prompt. | No | Pi (after project trust). |
 | The agent tool's user-level rules file | Your personal instructions for every project. | Outside any repo | You, in all projects. |
@@ -106,12 +105,14 @@ default. A person runs `--write-instructions` when they want the rules block:
 
 - `memory instructions --write-instructions` (local only) writes the rules
   block to `CLAUDE.local.md` and untracked harness copies
-  (`AGENTS.override.md` for Codex, `.cursor/rules/cairnkit.mdc` for Cursor,
-  `.pi/APPEND_SYSTEM.md` for Pi). Each path goes into `.git/info/exclude`.
-  It refuses a file that git tracks, and a local file that is a link to a
-  tracked file. It never writes through such a link. Older versions wrote
-  `AGENTS.local.md`. The tool does not move or delete that file. It prints a
-  note, and `memory init --refresh` keeps updating the block in it.
+  (`.cursor/rules/cairnkit.mdc` for Cursor, `.pi/APPEND_SYSTEM.md` for Pi).
+  Each harness path goes into `.git/info/exclude`. For Codex it adds one
+  generic pointer line to tracked `AGENTS.md` (create if missing; idempotent;
+  no cairnkit markers) and removes a leftover `AGENTS.override.md` if present.
+  It refuses a rules-block file that git tracks, and a local file that is a
+  link to a tracked file. It never writes through such a link. Older versions
+  wrote `AGENTS.local.md`. The tool does not move or delete that file. It
+  prints a note, and `memory init --refresh` keeps updating the block in it.
   - Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`,
     `.claude/CLAUDE.md` or `CLAUDE.local.md`. When `AGENTS.md` is a real file
     and the repo has no `CLAUDE.md` or `.claude/CLAUDE.md`, a new
@@ -177,7 +178,7 @@ Memory records what happened and what is true now.
 | Agent tool | Hook adapter in `memory` | Untracked rules path | Status |
 |---|---|---|---|
 | Claude Code | `.claude/settings.local.json` | `CLAUDE.local.md` | Built. Checked against the public docs. |
-| Codex | `.codex/hooks.json` | `AGENTS.override.md` (replaces `AGENTS.md` in that directory) | Built, **experimental**. |
+| Codex | `.codex/hooks.json` | Tracked `AGENTS.md` pointer to `CLAUDE.md` / `CLAUDE.local.md` | Built, **experimental**. |
 | Cursor | `.cursor/hooks.json` | `.cursor/rules/cairnkit.mdc` | Built, **experimental**. Cloud agents do not run `sessionStart`. |
 | Grok Build | None | `CLAUDE.local.md` (also listed in Grok's discovery names) | No hook adapter. Docs also say gitignored files are skipped during discovery while recommending `CLAUDE.local.md` in `.gitignore`; cairnkit uses `.git/info/exclude` instead. |
 | Pi | None | `.pi/APPEND_SYSTEM.md` | No hook adapter yet. |

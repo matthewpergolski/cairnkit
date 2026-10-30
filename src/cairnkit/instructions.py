@@ -219,6 +219,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             "Nothing was written. Remove the link, or pick another untracked file."
         )
         return 1
+    # Pointer before the import check so the first write already sees AGENTS.md.
+    pointer_action = None
+    removed_override = False
+    if not file:
+        pointer_action, removed_override = harness_local.ensure_agents_pointer(
+            root, dry_run=dry_run
+        )
     result = planned(target) if dry_run else write_block(target)
     if result == "broken":
         print(markers.broken_message(target, "memory instructions --write-instructions"))
@@ -233,6 +240,9 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
         )
     written = [rel]
     if not file:
+        print(f"{said}{pointer_action} the AGENTS.md pointer line ({harness_local.AGENTS_POINTER})")
+        if removed_override:
+            print(f"{said}remove stale {harness_local.STALE_OVERRIDE}")
         for harness in harness_local.TARGETS:
             path = root / harness.rel
             if is_tracked(project, harness.rel):

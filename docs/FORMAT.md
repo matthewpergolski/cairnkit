@@ -239,11 +239,12 @@ Marker rules for every block:
 ### Rules block for agents
 
 Files: `CLAUDE.local.md` (the default), untracked harness copies
-(`AGENTS.override.md`, `.cursor/rules/cairnkit.mdc`, `.pi/APPEND_SYSTEM.md`),
+(`.cursor/rules/cairnkit.mdc`, `.pi/APPEND_SYSTEM.md`),
 `AGENTS.local.md` (older versions), or an untracked file that a person names.
 Tracked `CLAUDE.md` and `AGENTS.md` never receive a new cairnkit block. A
 write or refresh moves any existing cairnkit block out of those files into
-`CLAUDE.local.md`, leaving hand-written text.
+`CLAUDE.local.md`, leaving hand-written text. `AGENTS.md` may gain one
+generic pointer line to `CLAUDE.md` / `CLAUDE.local.md` (no cairnkit markers).
 
 | | Start | End |
 |---|---|---|

@@ -22,7 +22,6 @@ STAMP = "tool-version.json"
 BLOCK_FILES = (
     "AGENTS.local.md",
     "CLAUDE.local.md",
-    "AGENTS.override.md",
     ".cursor/rules/cairnkit.mdc",
     ".pi/APPEND_SYSTEM.md",
 )

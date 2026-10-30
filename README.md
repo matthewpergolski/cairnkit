@@ -95,7 +95,7 @@ It is not:
 | Agent | What exists | Status |
 |---|---|---|
 | Claude Code | Hook adapter: `.claude/settings.local.json` (`SessionStart`, `Stop`). | Checked against the public docs. |
-| Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). Untracked rules: `AGENTS.override.md`. | **Experimental.** Project hooks run only in a trusted project. Override replaces `AGENTS.md` in that directory. |
+| Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). Tracked `AGENTS.md` pointer to `CLAUDE.md` / `CLAUDE.local.md`. | **Experimental.** Project hooks run only in a trusted project. |
 | Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). Untracked rules: `.cursor/rules/cairnkit.mdc`. | **Experimental.** Cloud agents do not run `sessionStart`. |
 | OpenCode | No hook adapter. No stable untracked project rules file. | Gap: see [docs/layering.md](docs/layering.md). |
 | Pi | No hook adapter. `--write-instructions` also writes untracked `.pi/APPEND_SYSTEM.md`. | Local rules path only. |
@@ -104,12 +104,14 @@ It is not:
 
 For an agent with no hook: run `memory instructions --write-instructions`.
 It writes the rules block only to untracked files (`CLAUDE.local.md`, plus
-harness copies such as `AGENTS.override.md`, `.cursor/rules/cairnkit.mdc`,
-and `.pi/APPEND_SYSTEM.md`, all via `.git/info/exclude`). It never writes a
-cairnkit block into tracked `CLAUDE.md` or `AGENTS.md`. Where a harness has
-no untracked load path (OpenCode today), do not fall back to a tracked write;
-connect with hooks or a local config you own. Auto-tidy after a push or merge
-still runs once hooks are installed; that does not load the memory.
+harness copies such as `.cursor/rules/cairnkit.mdc` and `.pi/APPEND_SYSTEM.md`,
+all via `.git/info/exclude`). It never writes a cairnkit block into tracked
+`CLAUDE.md` or `AGENTS.md`. For Codex it adds one generic pointer line to
+tracked `AGENTS.md` (create if missing): read `CLAUDE.md` and
+`CLAUDE.local.md` when present. Where a harness has no untracked load path
+(OpenCode today), do not fall back to a tracked rules block; connect with
+hooks or a local config you own. Auto-tidy after a push or merge still runs
+once hooks are installed; that does not load the memory.
 
 Details: [Agent hooks](#agent-hooks) and [docs/layering.md](docs/layering.md).
 
