@@ -40,18 +40,13 @@ def test_docs_writes_nessa_root_with_mermaid(mem: Path, repo: Path):
     assert "status: implemented" in text
 
 
-def test_docs_writes_lifecycle_and_session_pages(mem: Path, repo: Path):
+def test_docs_generic_default_repo_omits_cairnkit_lifecycle_pages(mem: Path, repo: Path):
+    """A throwaway project is not cairnkit: no session or fact-lifecycle pages."""
     assert main(["docs"]) == 0
     names = {p.name for p in state_dir(repo).rglob("*.md")}
     assert "README.md" in names
-    assert "fact-lifecycle.md" in names
-    assert "agent-session.md" in names
-    life = (state_dir(repo) / "fact-lifecycle.md").read_text(encoding="utf-8")
-    assert "kind: statechart" in life
-    assert "stateDiagram" in life
-    session = (state_dir(repo) / "agent-session.md").read_text(encoding="utf-8")
-    assert "kind: flow" in session
-    assert "```mermaid" in session
+    assert "fact-lifecycle.md" not in names
+    assert "agent-session.md" not in names
 
 
 def test_docs_refuses_existing_without_force(mem: Path, repo: Path, capsys):
@@ -90,18 +85,26 @@ def test_docs_records_source_revision(mem: Path, repo: Path):
     assert f'sourceRevision: "{head}"' in text
 
 
-def test_docs_omits_source_revision_on_template_pages(mem: Path, repo: Path):
+def test_docs_omits_source_revision_on_child_pages(mem: Path, repo: Path):
     assert main(["docs"]) == 0
-    for name in ("agent-session.md", "fact-lifecycle.md"):
-        text = (state_dir(repo) / name).read_text(encoding="utf-8")
-        assert "sourceRevision:" not in text
+    for path in state_dir(repo).rglob("*.md"):
+        if path.name == "README.md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "sourceRevision:" not in text, path.name
 
 
 def _plant_cairnkit_package(repo: Path, modules: list[str]) -> None:
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "cairnkit"\nversion = "0.3.0"\n'
+        'description = "A private, dated memory for any project."\n',
+        encoding="utf-8",
+    )
     folder = repo / "src" / "cairnkit"
     folder.mkdir(parents=True)
     (folder / "__init__.py").write_text("", encoding="utf-8")
-    for name in modules:
+    needed = set(modules) | {"memory", "schema", "state", "store"}
+    for name in sorted(needed):
         (folder / f"{name}.py").write_text(f"# {name}\n", encoding="utf-8")
 
 
@@ -113,6 +116,8 @@ def test_docs_writes_architecture_page_for_cairnkit_package(mem: Path, repo: Pat
     assert main(["docs", "--force"]) == 0
     root = (state_dir(repo) / "README.md").read_text(encoding="utf-8")
     assert "Package: architecture" in root
+    assert (state_dir(repo) / "agent-session.md").is_file()
+    assert (state_dir(repo) / "fact-lifecycle.md").is_file()
     arch = state_dir(repo) / "architecture.md"
     assert arch.is_file()
     text = arch.read_text(encoding="utf-8")

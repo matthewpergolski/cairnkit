@@ -20,6 +20,20 @@ def state_dir(repo):
     return repo / "docs" / "state"
 
 
+def plant_cairnkit_atlas_sources(repo) -> None:
+    """Make the throwaway repo classify as cairnkit so session/lifecycle pages exist."""
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "cairnkit"\nversion = "0.3.0"\n'
+        'description = "A private, dated memory for any project."\n',
+        encoding="utf-8",
+    )
+    folder = repo / "src" / "cairnkit"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "__init__.py").write_text("", encoding="utf-8")
+    for name in ("cli", "hookrun", "load", "schema", "state", "store", "memory", "docs_cmd"):
+        (folder / f"{name}.py").write_text(f"# {name}\n", encoding="utf-8")
+
+
 def _hook_lines(text: str, event: str) -> list[str]:
     return [line for line in text.splitlines() if f"hook {event}" in line]
 
@@ -141,7 +155,8 @@ def test_check_reports_a_body_edit(mem, repo, capsys):
 
 
 def test_check_lists_a_missing_page(mem, repo, capsys):
-    assert main(["docs"]) == 0
+    plant_cairnkit_atlas_sources(repo)
+    assert main(["docs", "--force"]) == 0
     page = state_dir(repo) / "agent-session.md"
     page.unlink()
     capsys.readouterr()
@@ -154,7 +169,8 @@ def test_check_lists_a_missing_page(mem, repo, capsys):
 
 
 def test_check_lists_changed_and_orphan_pages(mem, repo, capsys):
-    assert main(["docs"]) == 0
+    plant_cairnkit_atlas_sources(repo)
+    assert main(["docs", "--force"]) == 0
     life = state_dir(repo) / "fact-lifecycle.md"
     life.write_text("nope\n", encoding="utf-8")
     orphan = state_dir(repo) / "services" / "orphan.md"
@@ -171,7 +187,8 @@ def test_check_lists_changed_and_orphan_pages(mem, repo, capsys):
 
 
 def test_check_sorts_readme_before_lowercase_names(mem, repo, capsys):
-    assert main(["docs"]) == 0
+    plant_cairnkit_atlas_sources(repo)
+    assert main(["docs", "--force"]) == 0
     for name in ("README.md", "fact-lifecycle.md"):
         (state_dir(repo) / name).write_text("nope\n", encoding="utf-8")
     capsys.readouterr()
@@ -194,7 +211,8 @@ def test_check_ignores_non_markdown_beside_pages(mem, repo, capsys):
 
 
 def test_check_treats_a_markdown_directory_as_stale(mem, repo, capsys):
-    assert main(["docs"]) == 0
+    plant_cairnkit_atlas_sources(repo)
+    assert main(["docs", "--force"]) == 0
     page = state_dir(repo) / "agent-session.md"
     page.unlink()
     page.mkdir()
@@ -313,7 +331,8 @@ def test_hook_post_merge_does_not_print_the_docs_line(mem, repo, capsys):
 
 
 def test_installed_post_merge_warns_once_when_stale(mem, repo, capsys):
-    assert main(["docs"]) == 0
+    plant_cairnkit_atlas_sources(repo)
+    assert main(["docs", "--force"]) == 0
     readme = state_dir(repo) / "README.md"
     life = state_dir(repo) / "fact-lifecycle.md"
     readme.write_text("stale\n", encoding="utf-8")

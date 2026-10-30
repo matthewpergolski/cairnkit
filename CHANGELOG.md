@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `memory update` on a git URL detects a newer tagged release when no install
+  commit is recorded (reads the version from a `vX.Y.Z` tag at HEAD).
+
+### Changed
+
+- `memory docs` inventries the project checkout (packages, entry points, README
+  sections, import graph) instead of always describing cairnkit. Session and
+  fact-lifecycle pages stay in cairnkit's own atlas only.
+
 ## [0.3.0] - 2026-10-30
 
 ### Added
