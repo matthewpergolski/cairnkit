@@ -113,6 +113,53 @@ def test_installed_git_hooks_stay_silent_without_init(bare, monkeypatch):
     assert after_install  # install happened
 
 
+def test_installed_post_merge_stays_silent_without_init(bare):
+    repo, _before, sibling, capsys = bare
+    state = repo / "docs" / "state"
+    state.mkdir(parents=True)
+    page = state / "README.md"
+    page.write_text("old\n", encoding="utf-8")
+    capsys.readouterr()
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    hook = repo / ".git" / "hooks" / "post-merge"
+    result = subprocess.run(
+        ["sh", str(hook)],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert not sibling.exists()
+    assert page.read_text(encoding="utf-8") == "old\n"
+
+
+def test_installed_post_merge_stays_silent_when_sibling_has_no_facts(bare):
+    repo, _before, sibling, capsys = bare
+    sibling.mkdir()
+    state = repo / "docs" / "state"
+    state.mkdir(parents=True)
+    page = state / "README.md"
+    page.write_text("old\n", encoding="utf-8")
+    capsys.readouterr()
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    hook = repo / ".git" / "hooks" / "post-merge"
+    result = subprocess.run(
+        ["sh", str(hook)],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert list(sibling.iterdir()) == []
+    assert page.read_text(encoding="utf-8") == "old\n"
+
+
 def test_pre_commit_quiet_when_memory_dir_exists_without_facts(bare, capsys):
     """An empty sibling .memory (no facts/) is still uninitialized."""
     repo, before, sibling, _capsys = bare

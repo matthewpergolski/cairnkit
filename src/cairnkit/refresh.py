@@ -92,6 +92,17 @@ def _agents(project: Project) -> dict[str, list[Path]]:
     return found
 
 
+def _post_merge_lacks_docs_check(project: Project) -> bool:
+    """A local post-merge cairnkit block with no docs-check stanza."""
+    folder = githook.hooks_dir(project) if project.is_git else None
+    if folder is None or githook._inside_worktree(project, folder):
+        return False
+    path = folder / "post-merge"
+    if not _has_block(path):
+        return False
+    return not _holds(path, githook.DOCS_CHECK_MARK) or not _holds(path, "docs --check")
+
+
 def _local_hooks(project: Project) -> list[str]:
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder is None or githook._inside_worktree(project, folder):
@@ -123,16 +134,17 @@ def wrote_files(project: Project, memdir: Path) -> bool:
 
 
 def repo_line(project: Project, flag: str | None) -> str | None:
-    """One line when this repo's files come from an older memory. Never raises."""
+    """One line when repo files are older, or post-merge lacks the docs check. Never raises."""
     try:
         memdir = _memdir(project, flag)
         if memdir is None:
             return None
         version = read_stamp(memdir).get("version")
+        stale_hook = _post_merge_lacks_docs_check(project)
         if version:
-            if not is_behind(version, tool_version()):
+            if not is_behind(version, tool_version()) and not stale_hook:
                 return None
-        elif not wrote_files(project, memdir):
+        elif not wrote_files(project, memdir) and not stale_hook:
             return None
         writer = f"memory {version}" if version else "an older memory"
         return (

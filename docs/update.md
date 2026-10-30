@@ -91,13 +91,19 @@ the git hooks. It records its version in the memory folder
 (`tool-version.json`) when it writes them.
 
 When the tool is newer than that version, `memory status` and the session
-start show one line: run `memory init --refresh`. The agent runs it. That
-command rewrites these files in place. It replaces the rules block between its markers and never
+start show one line: run `memory init --refresh`. They show the same line
+when the local post-merge hook holds a cairnkit block that either lacks
+`# cairnkit:docs-check` or lacks `docs --check`, even when the recorded
+version matches. The agent runs the refresh. That command rewrites these
+files in place. It replaces the rules block between its markers and never
 adds a second block. It only touches files that already hold memory's text.
 
-This line compares version numbers. So a release that changes these files
-must raise the version in `pyproject.toml` and `__init__.py`. A test checks
-that the two match.
+The line compares version numbers, and it also reads that post-merge block.
+A release that changes these files raises the version in `__init__.py`.
+`pyproject.toml` reads that file. The docs-check stanza does not raise the
+version. Refresh reads `# cairnkit:docs-check` in the hook instead. A test
+checks that `pyproject.toml` reads the version from `__init__.py`, and that
+`docs/FORMAT.md` names that same version.
 
 `memory init --refresh` rewrites a hook that is already there. It does not
 add a missing hook. `pre-push` and `post-merge` are new. After you update,
