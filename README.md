@@ -95,8 +95,8 @@ It is not:
 | Agent | What exists | Status |
 |---|---|---|
 | Claude Code | Hook adapter: `.claude/settings.local.json` (`SessionStart`, `Stop`). | Checked against the public docs. |
-| Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). | **Experimental.** Project hooks run only in a trusted project. |
-| Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). | **Experimental.** Cloud agents do not run `sessionStart`. |
+| Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). Untracked rules: `AGENTS.override.md`. | **Experimental.** Project hooks run only in a trusted project. Override replaces `AGENTS.md` in that directory. |
+| Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). Untracked rules: `.cursor/rules/cairnkit.mdc`. | **Experimental.** Cloud agents do not run `sessionStart`. |
 | OpenCode | No hook adapter. No stable untracked project rules file. | Gap: see [docs/layering.md](docs/layering.md). |
 | Pi | No hook adapter. `--write-instructions` also writes untracked `.pi/APPEND_SYSTEM.md`. | Local rules path only. |
 | Grok Build | No hook adapter. Reads `CLAUDE.local.md` (same file Claude Code uses). | Local rules path only. |
