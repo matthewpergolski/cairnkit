@@ -302,7 +302,7 @@ def pre_commit(project: Project, flag: str | None) -> int:
             file=sys.stderr,
         )
         return 1
-    if not memdir.is_dir():
+    if not has_memory(project, flag):
         return 0
     ensure_all_linked(project, flag)
     errors = check_links(project, memdir) + check_records(Memory.open(project, flag))[0]
