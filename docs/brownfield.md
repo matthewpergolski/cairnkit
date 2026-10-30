@@ -112,16 +112,13 @@ refuses, merges, or adds a marked block.
    - A config file that git tracks is left alone. The tool prints the
      commands to add by hand, so you can agree on them with your team.
    - A file that is not valid JSON is refused. Fix it first.
-5. **If you have rules files** (`AGENTS.md` or the tool's rules file), they do
-   not change. You can add the rules block:
-   - local only: `memory init --write-instructions` (writes `CLAUDE.local.md`,
-     ignored by git);
-   - shared, only when the team opts in:
-     `memory instructions --write-instructions=shared` (a marked block in
-     `CLAUDE.md`, or in `AGENTS.md` if that is the only one; text outside the
-     markers stays as it is).
+5. **If you have rules files** (`AGENTS.md` or the tool's rules file), hand-
+   written text stays. You can add the rules block with
+   `memory init --write-instructions` (writes untracked `CLAUDE.local.md` and
+   harness copies; moves any old cairnkit block out of tracked `CLAUDE.md` /
+   `AGENTS.md`; never writes a block into those tracked files).
    Preset rules live in memory once you add them (`memory init --preset NAME`).
-   You do not need either step for them to load.
+   You do not need that step for them to load.
    To add a preset to a memory that exists: `memory preset add dev --dry-run`,
    then `memory preset add dev`. It adds only the missing rules. It skips a
    rule that a person ended and a rule with the same text as one you have.
@@ -136,7 +133,7 @@ refuses, merges, or adds a marked block.
    in with `--commit-msg-guard=shared` (tracked hooks in `.githooks/`).
    That set does not include the tidy hooks.
 7. Check: `git status`, `memory check`, then start an agent session.
-8. Durable lessons move into the shared rules file only through `memory tidy`
+8. Durable lessons move into the local rules file only through `memory tidy`
    proposals that you approve.
 
 To undo: `memory hooks uninstall` removes only what the tool added. The

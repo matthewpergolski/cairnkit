@@ -114,10 +114,11 @@ def query_terms(query: str) -> list[str]:
 
 
 def fact_text(state: dict) -> str:
-    """The text of a fact that search reads: id, text, area, tags and the reasons of changes."""
+    """The text of a fact that search reads: id, summary, body, area, tags, change reasons."""
     return " ".join(
         [
             state.get("id", ""),
+            state.get("summary", "") or "",
             state.get("text", ""),
             state.get("area", ""),
             " ".join(state.get("tags", [])),

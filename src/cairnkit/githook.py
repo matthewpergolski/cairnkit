@@ -1,9 +1,11 @@
 """Git hooks: the pre-commit memory guard, the post-checkout link for a new
-worktree, personal pre-push and post-merge tidy hooks, and the opt-in
+worktree, personal pre-push / post-merge / post-commit hooks, and the opt-in
 commit-msg guard.
 
-Each hook is a marked block in a shell script. A foreign hook is kept: the
-block goes right after its first line. Uninstall removes only the block.
+Personal quiet hooks never fail git. post-commit drafts pending candidates
+fast (~1s). pre-push and post-merge run the fuller propose + auto-tidy pass
+(~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
+the block goes right after its first line. Uninstall removes only the block.
 """
 
 from __future__ import annotations
@@ -66,12 +68,13 @@ def pre_commit_body(shared: bool) -> str:
     return f"if [ -x {py} ]; then {py} -m cairnkit hook pre-commit || exit 1; fi\n"
 
 
-# Wall-clock bound for quiet git hooks. Matches hookrun.GIT_HOOK_BUDGET: the
+# Wall-clock bound for quiet git hooks. Matches hookrun budgets: the
 # in-process SIGALRM only starts after import, so the shell must bound start too.
 _QUIET_BUDGET = 3
+_POST_COMMIT_BUDGET = 1
 
 
-def quiet_body(event: str) -> str:
+def quiet_body(event: str, budget: int | None = None) -> str:
     """A personal hook. It never fails git, and it does not read stdin or arguments.
 
     Bounds hung process start with timeout/gtimeout when present, else perl's
@@ -81,21 +84,22 @@ def quiet_body(event: str) -> str:
     of those tools, the command runs unbounded. Stdout and stderr go to
     /dev/null so a missing package or early failure stays silent. Stdin is
     /dev/null so a pre-push ref list is not eaten. Always ends with || true
-    so git proceeds.
+    so git proceeds. post-commit uses a 1s shell budget; pre-push/post-merge
+    use 3s.
     """
     py = shlex.quote(sys.executable)
     # Redirections sit on the simple command so the child inherits them under
     # timeout, gtimeout, or perl exec.
     run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
-    budget = _QUIET_BUDGET
+    seconds = _QUIET_BUDGET if budget is None else budget
     return (
         f"if [ -x {py} ]; then\n"
         f"  if command -v timeout >/dev/null 2>&1; then\n"
-        f"    timeout -k 1 {budget} {run} || true\n"
+        f"    timeout -k 1 {seconds} {run} || true\n"
         f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
-        f"    gtimeout -k 1 {budget} {run} || true\n"
+        f"    gtimeout -k 1 {seconds} {run} || true\n"
         f"  elif command -v perl >/dev/null 2>&1; then\n"
-        f"    {{ perl -e 'alarm {budget}; exec @ARGV' -- {run} || true; }} >/dev/null 2>&1\n"
+        f"    {{ perl -e 'alarm {seconds}; exec @ARGV' -- {run} || true; }} >/dev/null 2>&1\n"
         f"  else\n"
         f"    {run} || true\n"
         f"  fi\n"
@@ -109,6 +113,10 @@ def pre_push_body() -> str:
 
 def post_merge_body() -> str:
     return quiet_body("post-merge")
+
+
+def post_commit_body() -> str:
+    return quiet_body("post-commit", budget=_POST_COMMIT_BUDGET)
 
 
 def post_checkout_body(shared: bool) -> str:

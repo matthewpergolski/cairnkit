@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-MAX_FACT_CHARS = 400
+from cairnkit.schema import MAX_TEXT
 
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(\S.*)$")
 DATED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\b")
@@ -97,7 +97,7 @@ def _make(file: str, number: int, heading: str, text: str) -> Candidate:
         text=text,
         kind=kind_for(file, heading),
         happened_at=found.group(1) if found else None,
-        too_long=len(text) > MAX_FACT_CHARS,
+        too_long=len(text) > MAX_TEXT,
     )
     held = HELD_BY_RE.search(text)
     if held:

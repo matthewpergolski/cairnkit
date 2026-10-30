@@ -14,30 +14,24 @@ import json
 import signal
 import sys
 
-from cairnkit import autotidy, followups, skills, usage
+from cairnkit import autogate, autotidy, followups, loopbreak, propose, skills, usage
 from cairnkit.check import check_links, check_records
+from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
-from cairnkit.session import needs_reminder, start_session
+from cairnkit.session import load_state, needs_reminder, reminder_text, start_session
 
 NOTE_IDS = 10
+# Agents that need a JSON empty object when memory exists but there is nothing to say.
+JSON_NEUTRAL = frozenset({"codex", "cursor"})
 
-RULES_SHORT = """\
-Memory rules: record what a later session needs with `memory add` (decisions,
-traps, lessons: long-term; working notes: `--short --until-merged`). To change
-a fact, add a newer one (`--supersedes ID`) or mark it `expired` or `wrong`
-with `memory change`. Never store secrets. Never edit memory files by hand.
-Run `memory instructions` for the full rules."""
 
-REMINDER = """\
-Before you finish: you changed the work in this session and wrote no memory.
-Record what a later session needs, then finish:
-- a decision, trap or lesson: `memory add "..." --kind decision|trap|lesson --area AREA --basis seen|told|guess --source commit:HASH|file:PATH`
-- a working note for this branch: `memory add "..." --short --until-merged --area AREA --basis seen --source session:DATE`
-- a fact that is now wrong or replaced: `memory change ID --status wrong|expired --reason "..."` or `memory add "..." --supersedes ID`
-If nothing is worth recording, say so and finish."""  # noqa: E501
+def has_memory(project: Project, flag: str | None) -> bool:
+    """True only when `memory init` has created a facts folder. Never creates paths."""
+    memdir, _ = resolve_memory_dir(project, flag)
+    return (memdir / "facts").is_dir()
 
 
 def read_payload() -> dict:
@@ -108,10 +102,12 @@ def auto_retire_note(project: Project, flag: str | None) -> str:
 
 # A git hook must not make push or merge wait. Past this, the step is skipped.
 GIT_HOOK_BUDGET = 3
+# post-commit must stay under ~1s wall clock. Draft propose only.
+POST_COMMIT_BUDGET = 1.0
 
 
 class _OverBudget(Exception):
-    """The git-hook tidy step used its time budget."""
+    """The git-hook step used its time budget."""
 
 
 def _over_budget(_signum, _frame):
@@ -135,13 +131,33 @@ def _time_budget(seconds: float):
         signal.signal(signal.SIGALRM, previous)
 
 
-def git_event(project: Project, flag: str | None) -> int:
-    """Auto-tidy after a push or a merge. Always exits 0. Prints nothing."""
+def _run_autogate(project: Project, flag: str | None, *, force: bool = False) -> None:
+    """Quality-gate pending candidates. force=True on git events; else cadence."""
+    with contextlib.suppress(Exception):
+        memory = Memory.open(project, flag)
+        if force or autogate.should_run(memory, new_pending=0):
+            autogate.run_gate(memory)
+
+
+def git_event(project: Project, flag: str | None, *, fuller: bool = True) -> int:
+    """Propose pending candidates, quality-gate, and auto-tidy. Always exits 0.
+
+    fuller=True (pre-push / post-merge): richer propose + gate + tidy, 3s budget.
+    fuller=False (post-commit): draft propose + gate, 1s budget.
+    """
+    budget = GIT_HOOK_BUDGET if fuller else POST_COMMIT_BUDGET
     try:
-        with _time_budget(GIT_HOOK_BUDGET):
+        with _time_budget(budget):
             sink = io.StringIO()
             with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                gated_auto_tidy(project, flag, count_session=False)
+                if fuller:
+                    propose.run_fuller(project, flag)
+                    _run_autogate(project, flag, force=True)
+                    gated_auto_tidy(project, flag, count_session=False)
+                else:
+                    propose.run_draft(project, flag)
+                    _run_autogate(project, flag, force=True)
+                    gated_auto_tidy(project, flag, count_session=False)
     except (Exception, SystemExit):
         pass
     return 0
@@ -169,10 +185,22 @@ def skills_note(project: Project, flag: str | None) -> str:
     return ""
 
 
+def _pending_hygiene(project: Project, flag: str | None) -> str:
+    try:
+        line = autogate.hygiene_pending_line(Memory.open(project, flag))
+        return (line + "\n\n") if line else ""
+    except Exception:
+        return ""
+
+
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
+    if not has_memory(project, flag):
+        return 0
     note = auto_retire_note(project, flag) + skills_note(project, flag)
+    note += _pending_hygiene(project, flag)
     refresh_followups(project, flag)
     compact_usage(project, flag)
+    _run_autogate(project, flag, force=False)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         run_load(project, flag, None, 600, agent=agent, record=True)
@@ -207,21 +235,42 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
         memory = Memory.open(project, flag)
     except MemoryMissing:
         memory = None
-    if memory is not None and needs_reminder(memory, session_key(payload)):
-        parts.append(REMINDER)
+    if memory is not None:
+        with contextlib.suppress(Exception):
+            from cairnkit.session import loop_nudge
+
+            nudge = loop_nudge(memory)
+            if nudge:
+                parts.append(nudge)
+        if needs_reminder(memory, session_key(payload)):
+            parts.append(reminder_text(memory))
     return "\n\n".join(parts) or None
 
 
 def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
-    neutral = {"claude": None, "codex": "{}", "cursor": "{}", "generic": None}[agent]
+    if not has_memory(project, flag):
+        return 0
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
+    # A long session still retires clear cases when the tidy state is old.
+    if not continued:
+        with contextlib.suppress(Exception):
+            memory = Memory.open(project, flag)
+            if memory.config.get("auto_tidy") != "off" and autotidy.periodic_due(memory):
+                gated_auto_tidy(project, flag, count_session=False)
+                autotidy.mark_tidied(memory)
+    # Fallback propose when this session never produced a commit.
+    if not continued:
+        with contextlib.suppress(Exception):
+            memory = Memory.open(project, flag)
+            state = load_state(memory, session_key(payload)) or {}
+            propose.run_stop_fallback(project, flag, state.get("start_head"))
     try:
         message = None if continued else stop_message(project, flag, payload)
     except Exception:
         message = None
     if message is None:
-        if neutral:
-            print(neutral)
+        if agent in JSON_NEUTRAL:
+            print("{}")
         return 0
     if agent in ("claude", "codex"):
         print(json.dumps({"decision": "block", "reason": message}))
@@ -253,7 +302,7 @@ def pre_commit(project: Project, flag: str | None) -> int:
             file=sys.stderr,
         )
         return 1
-    if not memdir.is_dir():
+    if not has_memory(project, flag):
         return 0
     ensure_all_linked(project, flag)
     errors = check_links(project, memdir) + check_records(Memory.open(project, flag))[0]
@@ -273,9 +322,35 @@ def post_checkout(project: Project, flag: str | None) -> int:
     return 0
 
 
+def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
+    """Loop breaker after a shell/tool run. Always exits 0. Agent-shaped nudge."""
+    if not has_memory(project, flag):
+        return 0
+    nudge = None
+    with contextlib.suppress(Exception):
+        parsed = loopbreak.command_from_payload(payload)
+        if parsed is not None:
+            command, ok = parsed
+            nudge = loopbreak.observe(Memory.open(project, flag), command, ok=ok)
+    if not nudge:
+        if agent in JSON_NEUTRAL:
+            print("{}")
+        return 0
+    if agent in ("claude", "codex"):
+        print(json.dumps({"decision": "block", "reason": nudge}))
+        return 0
+    if agent == "cursor":
+        print(json.dumps({"followup_message": nudge}))
+        return 0
+    print(nudge, file=sys.stderr)
+    return 0
+
+
 def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     if event in ("pre-push", "post-merge"):
-        return git_event(project, flag)
+        return git_event(project, flag, fuller=True)
+    if event == "post-commit":
+        return git_event(project, flag, fuller=False)
     if event == "pre-commit":
         return pre_commit(project, flag)
     if event == "post-checkout":
@@ -283,4 +358,6 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     payload = read_payload()
     if event == "session-start":
         return session_start(project, flag, agent, payload)
+    if event in ("after-shell", "post-tool"):
+        return after_shell(project, flag, agent, payload)
     return stop(project, flag, agent, payload)

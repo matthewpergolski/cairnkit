@@ -1,15 +1,18 @@
 """Hook adapters: write each agent tool's local hook config.
 
-Formats follow each tool's public hook docs (checked 2026-10-22):
+Formats follow each tool's public hook docs (checked 2026-10-22, loop
+breaker events rechecked 2026-10-30):
 
-- Claude Code: `.claude/settings.local.json`, events `SessionStart` and `Stop`.
-  SessionStart stdout is added to the context. A Stop hook that prints
-  `{"decision": "block", "reason": ...}` makes the agent continue.
-- Codex: `.codex/hooks.json`, same shape. Stop must print JSON on exit 0.
-  Project hooks run only in a trusted project, after review in `/hooks`.
+- Claude Code: `.claude/settings.local.json`, events `SessionStart`, `Stop`,
+  and `PostToolUse` (loop breaker). SessionStart stdout is added to the
+  context. A Stop hook that prints `{"decision": "block", "reason": ...}`
+  makes the agent continue.
+- Codex: `.codex/hooks.json`, same NestedAdapter shape including
+  `PostToolUse`. Stop must print JSON on exit 0. Project hooks run only in
+  a trusted project, after review in `/hooks`.
 - Cursor: `.cursor/hooks.json` (`version: 1`), events `sessionStart`
-  (JSON `additional_context`) and `stop` (JSON `followup_message`, capped by
-  `loop_limit`).
+  (JSON `additional_context`), `stop` (JSON `followup_message`, capped by
+  `loop_limit`), and `afterShellExecution` (loop breaker).
 
 The core never depends on these tools. Only this module names them.
 """
@@ -66,9 +69,17 @@ class NestedAdapter(Adapter):
     def _groups(self) -> dict[str, dict]:
         start = {"type": "command", "command": hook_command("session-start", self.name)}
         stop = {"type": "command", "command": hook_command("stop", self.name), "timeout": 30}
+        after = {
+            "type": "command",
+            "command": hook_command("after-shell", self.name),
+            "timeout": 5,
+        }
         return {
             "SessionStart": {"matcher": self.start_matcher, "hooks": [{**start, "timeout": 10}]},
             "Stop": {"hooks": [stop]},
+            # Loop breaker: shell/tool failures. Matcher left open so Bash and
+            # similar tools are included; the hook ignores non-command payloads.
+            "PostToolUse": {"hooks": [after]},
         }
 
     def remove(self, data: dict) -> dict:
@@ -121,6 +132,9 @@ class CursorAdapter(Adapter):
         )
         hooks.setdefault("stop", []).append(
             {"command": hook_command("stop", "cursor"), "timeout": 30, "loop_limit": 1}
+        )
+        hooks.setdefault("afterShellExecution", []).append(
+            {"command": hook_command("after-shell", "cursor"), "timeout": 5}
         )
         return data
 
@@ -262,5 +276,7 @@ def generic_help() -> str:
         "      exits 1 with a message on stderr when the agent must fix or record\n"
         "      something before it finishes; give that message back to the agent.\n"
         "Or add to the agent's instructions: run `memory load` at session start,\n"
-        "and `memory check --strict` before you finish."
+        "and `memory check --strict` before you finish.\n"
+        "This adapter cannot see a failed command. If a failure was recorded, "
+        "stop still says to stop, run `memory check`, and ask."
     )

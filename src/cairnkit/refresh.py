@@ -18,7 +18,13 @@ from cairnkit.paths import Project, resolve_memory_dir
 from cairnkit.skills import is_behind
 
 STAMP = "tool-version.json"
-BLOCK_FILES = ("AGENTS.md", "AGENTS.local.md", "CLAUDE.md", "CLAUDE.local.md")
+# Untracked block homes only. Tracked CLAUDE.md / AGENTS.md are migrated out, not refreshed.
+BLOCK_FILES = (
+    "AGENTS.local.md",
+    "CLAUDE.local.md",
+    ".cursor/rules/cairnkit.mdc",
+    ".pi/APPEND_SYSTEM.md",
+)
 COMMAND = "memory init --refresh"
 
 
@@ -69,7 +75,10 @@ def _has_block(path: Path) -> bool:
 
 
 def _block_paths(project: Project, memdir: Path) -> list[Path]:
-    rels = sorted(set(BLOCK_FILES) | set(read_stamp(memdir).get("blocks") or []))
+    # Include legacy CLAUDE.md / AGENTS.md so wrote_files still sees old installs.
+    rels = sorted(
+        set(BLOCK_FILES) | {"CLAUDE.md", "AGENTS.md"} | set(read_stamp(memdir).get("blocks") or [])
+    )
     return [checkout / rel for checkout in project.checkouts for rel in rels]
 
 
@@ -87,7 +96,14 @@ def _local_hooks(project: Project) -> list[str]:
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder is None or githook._inside_worktree(project, folder):
         return []
-    names = ("pre-commit", "post-checkout", "pre-push", "post-merge", "commit-msg")
+    names = (
+        "pre-commit",
+        "post-checkout",
+        "pre-push",
+        "post-merge",
+        "post-commit",
+        "commit-msg",
+    )
     return [h for h in names if _has_block(folder / h)]
 
 
@@ -136,7 +152,15 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         return 1
     steps: list[str] = []
     broken: list[Path] = []
+    migrate_steps, migrate_broken = instructions.migrate_shared_blocks(
+        project, dry_run, checkouts=project.checkouts
+    )
+    steps += migrate_steps
+    broken += migrate_broken
+    shared_names = {"CLAUDE.md", "AGENTS.md"}
     for path in _block_paths(project, memdir):
+        if path.name in shared_names:
+            continue  # migrated above; never refresh a tracked shared file in place
         result = instructions.replace_block(path, dry_run)
         if result == "updated":
             steps.append(f"update the rules block in {path}")
@@ -153,6 +177,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         "post-checkout": githook.post_checkout_body(shared=False),
         "pre-push": githook.pre_push_body(),
         "post-merge": githook.post_merge_body(),
+        "post-commit": githook.post_commit_body(),
     }
     hooks = _local_hooks(project)
     broken += githook.broken_paths(project, hooks)

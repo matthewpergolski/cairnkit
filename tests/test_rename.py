@@ -44,19 +44,23 @@ def test_both_console_scripts_run_the_same_cli():
     assert scripts["cairnkit"] == scripts["memory"] == "cairnkit.cli:main"
 
 
-def test_write_instructions_replaces_an_old_marker_block_with_one_new_block(repo):
+def test_write_instructions_migrates_an_old_marker_block_out_of_tracked(repo):
     agents = repo / "AGENTS.md"
     agents.write_text(f"top\n\n{old_rules_block()}\nbottom\n")
     for _ in range(2):
-        assert main(["instructions", "--write-instructions", "shared"]) == 0
+        assert main(["instructions", "--write-instructions"]) == 0
     text = agents.read_text()
     assert OLD_START not in text and OLD_END not in text
-    assert text.count(instructions.START) == 1 and text.count(instructions.END) == 1
+    assert instructions.START not in text
     assert "Old text." not in text
-    assert text.startswith("top\n\n") and text.endswith("\nbottom\n")
+    assert text.startswith("top\n\n")
+    assert "\nbottom\n" in text
+    assert "Old text." not in text
+    local = (repo / "CLAUDE.local.md").read_text()
+    assert local.count(instructions.START) == 1 and instructions.block() in local
 
 
-def test_refresh_replaces_an_old_marker_block_in_place(repo):
+def test_refresh_migrates_an_old_marker_block_out_of_tracked(repo):
     assert main(["init"]) == 0
     agents = repo / "AGENTS.md"
     agents.write_text(f"# Team\n\n{old_rules_block()}\nMore.\n")
@@ -64,9 +68,7 @@ def test_refresh_replaces_an_old_marker_block_in_place(repo):
     assert refresh.repo_line(project, None)  # an old block is found
     assert main(["init", "--refresh"]) == 0
     first = agents.read_text()
-    assert OLD_START not in first
-    assert first.count(instructions.START) == 1
-    assert instructions.block() in first
+    assert OLD_START not in first and instructions.START not in first
     assert first.startswith("# Team\n\n") and first.endswith("\nMore.\n")
     assert main(["init", "--refresh"]) == 0
     assert agents.read_text() == first
@@ -76,7 +78,7 @@ def test_an_old_and_a_new_block_together_are_refused(repo, capsys):
     agents = repo / "AGENTS.md"
     text = old_rules_block() + "\n" + instructions.block()
     agents.write_text(text)
-    assert main(["instructions", "--write-instructions", "shared"]) == 1
+    assert main(["instructions", "--write-instructions"]) == 1
     assert agents.read_text() == text
     assert "by hand" in capsys.readouterr().out
 

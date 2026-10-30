@@ -68,17 +68,18 @@ def test_second_run_does_nothing(mem, capsys, monkeypatch):
     assert (mem / "auto-tidy.log").read_text() == log
 
 
-def test_near_duplicate_is_not_retired(mem, capsys, monkeypatch):
+def test_near_duplicate_with_a_different_meaning_is_not_retired(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(
         mem,
         [
             make_fact(A, "The cache must be warmed before the release job runs."),
-            make_fact(B, "The cache must be warmed before the release job runs now."),
+            make_fact(B, "The cache must not be warmed before the release job runs."),
         ],
     )
     auto(capsys)
     assert status_of(mem, A)["status"] == "active"
+    assert status_of(mem, B)["status"] == "active"
     assert not (mem / "facts" / "auto-tidy.jsonl").exists()
 
 

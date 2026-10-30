@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import followups, install_source, refresh, skills, usage
+from cairnkit import followups, hygiene, install_source, refresh, scenarios, skills, usage
 from cairnkit.clock import now
+from cairnkit.discover import DISCOVER
 from cairnkit.init import link_here
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import (
@@ -91,18 +92,38 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     words = branch_words(branch)
 
     used_at = usage.last_used(memory)
+    groups = scenarios.group_scenarios(long, moment, areas, words, used_at)
+    scenario_budget = max(budget // 3, 1) if budget else 0
+    scenarios_shown = []
+    used = 0
+    covered: set[str] = set()
+    for group in groups:
+        cost = scenarios.scenario_cost(group)
+        if budget and used + cost > scenario_budget and scenarios_shown:
+            continue
+        if budget and used + cost > budget:
+            continue
+        scenarios_shown.append(group)
+        used += cost
+        covered.update(group.ids)
+
     short_budget = max(budget // 4, 1) if budget else 0
     short_shown = pick(short, short_budget, moment, areas, words, used_at)
     if short and not short_shown:
         short_shown = short[:1]
-    # Rules are always shown and do not use the budget. Only short-term facts do.
-    used = sum(words_in(render(s)) for s in short_shown)
+    used += sum(words_in(render(s)) for s in short_shown)
+    # Prefer uncovered long facts for remaining bullets; pinned always included.
+    long_rest = [s for s in long if s["id"] not in covered or s.get("pinned")]
     long_budget = max(budget - used, 1) if budget else 0
-    long_shown = pick(long, long_budget, moment, areas, words, used_at)
+    long_shown = pick(long_rest, long_budget, moment, areas, words, used_at)
+    folded = len(covered - {s["id"] for s in long_shown})
 
     out = [f"# Project memory ({memory.dir})"]
     if memory.errors:
         out.append(f"warning: {len(memory.errors)} bad line(s) skipped; run `memory check`")
+    stale = hygiene.hygiene_line(memory)
+    if stale:
+        out.append(stale)
     if _followup_pending(memory):
         out.append(f"Migration follow-up pending: see {LINK_NAME}/proposals/migrate-followups.md")
     tidy_line = followups.pending_line(memory)
@@ -118,14 +139,23 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out.append("## Advisory rules")
         out += [render(s) for s in advisory]
     out.append(FRAME_HEADER)
+    pinned = [s for s in long_shown if s.get("pinned")]
+    if pinned:
+        out.append("## Pinned")
+        out += [render(s) for s in sorted(pinned, key=lambda s: s.get("learned_at", ""))]
+    if scenarios_shown:
+        out.append("## Scenarios")
+        for group in scenarios_shown:
+            out += scenarios.render_scenario(group)
     if short_shown:
         out.append(f"## Short-term (branch {branch or writer})")
         out += [render(s) for s in sorted(short_shown, key=lambda s: s.get("learned_at", ""))]
+    long_bullets = [s for s in long_shown if not s.get("pinned")]
     out.append("## Long-term")
-    if not long_shown:
-        out.append("(no active long-term facts)")
+    if not long_bullets:
+        out.append("(no active long-term facts)" if not long_shown else "(covered in scenarios)")
     current = None
-    for state in sorted(long_shown, key=lambda s: (s.get("area", ""), s.get("happened_at", ""))):
+    for state in sorted(long_bullets, key=lambda s: (s.get("area", ""), s.get("happened_at", ""))):
         if state.get("area") != current:
             current = state.get("area")
             out.append(f"### {clean(current)}")
@@ -139,12 +169,14 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             out.append(f"## Branch notes (branches/{branch}.md)")
             out += [f"- [branch] {clean(x)}" for x in branch_note]
     out.append(FRAME_FOOTER)
-    hidden = len(short) + len(long) - len(short_shown) - len(long_shown)
+    hidden = len(short) + len(long) - len(short_shown) - len(long_shown) - folded
     shown = len(rules) + len(short_shown) + len(long_shown)
-    out.append(
-        f"{shown} fact(s) shown; {hidden} active fact(s) not shown. "
-        "Search: `memory search WORDS` (add --all for history)."
-    )
+    parts = [f"{shown} fact(s) shown"]
+    if folded:
+        parts.append(f"{folded} folded into scenarios")
+    if hidden > 0:
+        parts.append(f"{hidden} active fact(s) not shown")
+    out.append("; ".join(parts) + f". Open one with `memory show ID`. {DISCOVER}")
     if explain:
         shown_ids = {s["id"] for s in short_shown + long_shown}
         out += _explain(short + long, shown_ids, moment, areas, words, used_at)

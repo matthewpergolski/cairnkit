@@ -47,6 +47,7 @@ from cairnkit.migrate_refs import (
     write_text,
 )
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
+from cairnkit.schema import MAX_TEXT
 
 OLD_SUFFIX = ".memory-old"
 CANDIDATES_FILE = "proposals/migrate-candidates.jsonl"
@@ -291,7 +292,10 @@ def _report_counts(
         print(f"{n} worktree-only line(s) from {name} (in the worklist, tier worktree-only)")
     long_ones = sum(c.too_long for c in found)
     if long_ones:
-        print(f"{long_ones} candidate(s) are over 400 characters: split them before `memory add`.")
+        print(
+            f"{long_ones} candidate(s) are over {MAX_TEXT} characters: "
+            "split them before `memory add`."
+        )
 
 
 def repo_files(project: Project, docs: list[str]) -> list[str]:

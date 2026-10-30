@@ -12,7 +12,14 @@ from cairnkit.clock import parse_time
 from cairnkit.schema import BASES, KINDS, STATUSES
 
 # The agent tools the hook command knows. Kept here so building the parser imports no adapter.
-AGENTS = ("claude", "codex", "cursor", "generic")
+AGENTS = ("claude", "codex", "cursor", "generic", "opencode", "pi", "grok")
+
+# Keep discoverability copy in --help without importing cairnkit.discover at parse time.
+_DISCOVER_EPILOG = (
+    "Look up: `memory search WORDS`. Read one: `memory show ID`. "
+    "Pin for every session: `--pinned`. Link: `memory change ID --link related:OTHER`. "
+    "Clean up: `memory tidy`."
+)
 
 
 def _time(value: str) -> str:
@@ -26,7 +33,7 @@ def _time(value: str) -> str:
 def build_parser() -> argparse.ArgumentParser:
     # Two commands run this: cairnkit, and its short name memory.
     prog = "cairnkit" if Path(sys.argv[0]).name == "cairnkit" else "memory"
-    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__, epilog=_DISCOVER_EPILOG)
     parser.add_argument("--version", action="version", version=f"{prog} {__version__}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--path", help="memory folder (else MEMORY_DIR, .memory-path, default)")
@@ -51,12 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         const="local",
         choices=("local", "shared"),
-        help="add the agent rules block: local (default; CLAUDE.local.md, ignored by git) "
-        "or shared (the tracked CLAUDE.md or AGENTS.md the repo has; CLAUDE.md if neither)",
+        help="add the agent rules block to CLAUDE.local.md (ignored by git), plus untracked "
+        "harness copies; moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. "
+        "shared is refused",
     )
     p.add_argument(
         "--instructions-file",
-        help="file for --write-instructions, relative to the checkout",
+        help="untracked file for --write-instructions, relative to the checkout",
     )
 
     p.add_argument(
@@ -179,13 +187,20 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         const="local",
         choices=("local", "shared"),
-        help="write the block: local (CLAUDE.local.md, ignored) or shared (the tracked "
-        "CLAUDE.md or AGENTS.md the repo has; CLAUDE.md if neither)",
+        help="write the block to CLAUDE.local.md (ignored) and untracked harness copies; "
+        "moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. shared is refused",
     )
-    p.add_argument("--instructions-file", help="file to write, relative to the checkout")
+    p.add_argument(
+        "--instructions-file",
+        help="untracked file to write, relative to the checkout",
+    )
 
     p = sub.add_parser("add", parents=[common], help="write a new fact")
-    p.add_argument("text", help="one or two plain sentences, at most 400 characters")
+    p.add_argument("text", help="the fact, up to 2000 characters (a rule: 400)")
+    p.add_argument(
+        "--summary",
+        help="optional load line, up to 200 characters. A longer fact without it is clipped",
+    )
     p.add_argument("--kind", choices=KINDS, default="fact")
     p.add_argument("--area", required=True, help="one area of the work, for example deploy")
     p.add_argument("--basis", choices=BASES, required=True, help="seen, told or guess")
@@ -193,7 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", action="append", help="a search word (repeat for more)")
     p.add_argument("--happened-at", type=_time, help="when it became true (default: today)")
     p.add_argument("--link", action="append", help="<rel>:<id>, rel related|depends_on|...")
-    p.add_argument("--pinned", action="store_true", help="load in every session")
+    p.add_argument("--pinned", action="store_true", help="show this fact on every load")
     p.add_argument(
         "--enforced-by", metavar="TYPE:VALUE", help="rules only: the check that fails, e.g. ci:lint"
     )
@@ -243,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument(
         "--no-git-hook",
         action="store_true",
-        help="skip the git pre-commit, post-checkout, pre-push and post-merge hooks",
+        help="skip the git pre-commit, post-checkout, pre-push, post-merge and post-commit hooks",
     )
     h.add_argument(
         "--commit-msg-guard",
@@ -260,9 +275,45 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("hook", parents=[common])
     p.add_argument(
         "event",
-        choices=("session-start", "stop", "pre-commit", "post-checkout", "pre-push", "post-merge"),
+        choices=(
+            "session-start",
+            "stop",
+            "pre-commit",
+            "post-checkout",
+            "pre-push",
+            "post-merge",
+            "post-commit",
+            "after-shell",
+            "post-tool",
+        ),
     )
     p.add_argument("--agent", default="generic", choices=AGENTS)
+
+    p = sub.add_parser(
+        "candidates",
+        parents=[common],
+        help="list, accept or dismiss pending auto-proposed fact candidates",
+    )
+    p.add_argument(
+        "--accept", dest="accept_id", metavar="ID", help="write this candidate as a fact"
+    )
+    p.add_argument("--dismiss", dest="dismiss_id", metavar="ID", help="drop this candidate")
+    p.add_argument("--area", help="override the stored area")
+    p.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
+    p.add_argument("--kind", choices=KINDS, help="override the stored kind")
+    p.add_argument("--source", help="override the stored source")
+    p.add_argument("--reason", help="why a candidate was dismissed")
+    cand_sub = p.add_subparsers(dest="candidates_command", metavar="ACTION", required=False)
+    cand_sub.add_parser("list", help="show pending auto-candidates")
+    h = cand_sub.add_parser("accept", help="write a pending candidate as a real fact")
+    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
+    h.add_argument("--area", help="override the stored area")
+    h.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
+    h.add_argument("--kind", choices=KINDS, help="override the stored kind")
+    h.add_argument("--source", help="override the stored source")
+    h = cand_sub.add_parser("reject", help="dismiss a pending candidate")
+    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
+    h.add_argument("--reason", help="why it was dismissed")
 
     p = sub.add_parser("load", parents=[common], help="print the facts for this session")
     p.add_argument("--area", help="only this area (and pinned facts)")
@@ -332,6 +383,7 @@ def run(args) -> int:
     from cairnkit import presets as presets_module
     from cairnkit import skills as skills_module
     from cairnkit.autotidy import run_auto
+    from cairnkit.candidates_cmd import run_candidates
     from cairnkit.check import run_check
     from cairnkit.docs_cmd import run_docs
     from cairnkit.hookrun import run_hook
@@ -432,6 +484,8 @@ def run(args) -> int:
         return run_load(project, args.path, args.area, max(args.budget, 0), args.explain)
     try:
         memory = _open(project, args)
+        if args.command == "candidates":
+            return run_candidates(memory, args)
         if args.command == "add":
             new = add_fact(memory, args)
             if new:

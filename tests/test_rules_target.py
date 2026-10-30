@@ -1,14 +1,14 @@
-"""Where the rules block goes: CLAUDE.local.md for local, the file the repo has for shared."""
+"""Rules block stays in CLAUDE.local.md; tracked files are never written."""
 
 import pytest
 from conftest import make_fact, write_facts
 
-from cairnkit import instructions
+from cairnkit import harness_local, instructions
 from cairnkit.cli import main
 
 START = instructions.START
 END = instructions.END
-FILES = ("CLAUDE.md", "AGENTS.md", "CLAUDE.local.md", "AGENTS.local.md")
+FILES = ("CLAUDE.md", "AGENTS.md", "CLAUDE.local.md", "AGENTS.local.md", *harness_local.rels())
 HAND = "# Team rules\n\nUse uv.\n"
 
 
@@ -23,66 +23,64 @@ def run(args, capsys):
     return code, capsys.readouterr().out
 
 
-def test_an_empty_repo_gets_claude_md_and_a_pointer(repo, capsys):
+def test_shared_mode_is_refused(repo, capsys):
     code, out = run(["init", "--write-instructions=shared"], capsys)
-    assert code == 0
-    assert blocks(repo) == {"CLAUDE.md": 1, "AGENTS.md": 0}
-    pointer = (repo / "AGENTS.md").read_text()
-    assert "CLAUDE.md" in pointer and "CLAUDE.local.md" in pointer
-    assert len(pointer.splitlines()) <= 5
-    assert "CLAUDE.md" in out and "AGENTS.md" in out
-
-
-def test_a_repo_with_only_agents_md_keeps_it_as_the_home(repo):
-    (repo / "AGENTS.md").write_text(HAND)
-    assert main(["init", "--write-instructions=shared"]) == 0
-    assert blocks(repo) == {"AGENTS.md": 1}
+    assert code == 1
+    assert "error:" in out and "shared" in out.lower()
     assert not (repo / "CLAUDE.md").exists()
-    assert (repo / "AGENTS.md").read_text().startswith(HAND)
+    assert not (repo / "CLAUDE.local.md").exists()
 
 
-def test_a_repo_with_only_claude_md_gets_no_agents_md(repo):
-    (repo / "CLAUDE.md").write_text(HAND)
-    assert main(["instructions", "--write-instructions=shared"]) == 0
-    assert blocks(repo) == {"CLAUDE.md": 1}
-    assert not (repo / "AGENTS.md").exists()
-    assert (repo / "CLAUDE.md").read_text().startswith(HAND)
+def test_local_write_leaves_hand_written_tracked_files_alone(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
 
-
-def test_with_both_the_block_goes_to_claude_md_and_agents_md_is_not_edited(repo, capsys):
     (repo / "CLAUDE.md").write_text(HAND)
     (repo / "AGENTS.md").write_text("# Agents\n\nBe kind.\n")
-    code, out = run(["init", "--write-instructions=shared"], capsys)
+    assert main(["init", "--write-instructions"]) == 0
+    assert (repo / "CLAUDE.md").read_text() == HAND
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith("# Agents\n\nBe kind.\n") and AGENTS_POINTER in agents
+    assert START not in agents
+    assert blocks(repo)["CLAUDE.local.md"] == 1
+
+
+def test_migrate_moves_block_from_claude_md(repo, capsys):
+    (repo / "CLAUDE.md").write_text(HAND + f"{START}\nold\n{END}\n")
+    code, out = run(["init", "--write-instructions"], capsys)
     assert code == 0
-    assert blocks(repo) == {"CLAUDE.md": 1, "AGENTS.md": 0}
-    assert (repo / "AGENTS.md").read_text() == "# Agents\n\nBe kind.\n"
-    [hint] = [line for line in out.splitlines() if line.startswith("hint:")]
-    assert "AGENTS.md" in hint and "CLAUDE.md" in hint
-
-
-def test_no_hint_when_agents_md_already_mentions_claude_md(repo, capsys):
-    (repo / "CLAUDE.md").write_text(HAND)
-    (repo / "AGENTS.md").write_text("Rules live in CLAUDE.md.\n")
-    _, out = run(["init", "--write-instructions=shared"], capsys)
-    assert "hint:" not in out
-    assert (repo / "AGENTS.md").read_text() == "Rules live in CLAUDE.md.\n"
-
-
-def test_a_block_already_in_agents_md_is_refreshed_there_not_copied(repo):
-    (repo / "CLAUDE.md").write_text(HAND)
-    (repo / "AGENTS.md").write_text(f"# Agents\n\n{START}\nold text\n{END}\n")
-    assert main(["init", "--write-instructions=shared"]) == 0
-    assert blocks(repo) == {"CLAUDE.md": 0, "AGENTS.md": 1}
-    assert "old text" not in (repo / "AGENTS.md").read_text()
+    assert "remove the rules block from" in out and "CLAUDE.md" in out
     assert (repo / "CLAUDE.md").read_text() == HAND
+    assert START not in (repo / "CLAUDE.md").read_text()
+    assert instructions.block() in (repo / "CLAUDE.local.md").read_text()
 
 
-def test_instructions_file_overrides_the_choice(repo):
-    (repo / "CLAUDE.md").write_text(HAND)
-    assert main(["init", "--write-instructions=shared", "--instructions-file", "docs/R.md"]) == 0
+def test_migrate_moves_block_from_agents_md(repo):
+    from cairnkit.harness_local import AGENTS_POINTER
+
+    (repo / "AGENTS.md").write_text(HAND + f"{START}\nold\n{END}\n\nAfter.\n")
+    assert main(["init", "--write-instructions"]) == 0
+    text = (repo / "AGENTS.md").read_text()
+    assert text.startswith(HAND) and "After.\n" in text
+    assert text.rstrip().endswith(AGENTS_POINTER)
+    assert START not in text
+    assert START in (repo / "CLAUDE.local.md").read_text()
+
+
+def test_instructions_file_must_be_untracked(repo):
+    (repo / "docs").mkdir()
+    (repo / "docs" / "R.md").write_text(HAND)
+    from conftest import git
+
+    git(repo, "add", "docs/R.md")
+    git(repo, "commit", "-q", "-m", "track")
+    assert main(["init", "--write-instructions", "--instructions-file", "docs/R.md"]) == 1
+    assert (repo / "docs" / "R.md").read_text() == HAND
+
+
+def test_instructions_file_untracked_is_allowed(repo):
+    assert main(["init", "--write-instructions", "--instructions-file", "docs/R.md"]) == 0
     assert START in (repo / "docs" / "R.md").read_text()
-    assert (repo / "CLAUDE.md").read_text() == HAND
-    assert not (repo / "AGENTS.md").exists()
+    assert not (repo / "CLAUDE.local.md").exists()
 
 
 SETUPS = {
@@ -96,53 +94,30 @@ SETUPS = {
 
 @pytest.mark.parametrize("setup", sorted(SETUPS))
 @pytest.mark.parametrize("command", ["init", "instructions"])
-def test_the_block_appears_once_in_the_repo_and_does_not_grow(repo, setup, command):
+def test_the_block_appears_once_in_local_and_does_not_grow(repo, setup, command):
     for name, text in SETUPS[setup].items():
         (repo / name).write_text(text)
     assert main(["init"]) == 0
-    args = [command, "--write-instructions=shared"]
+    args = [command, "--write-instructions"]
     assert main(args) == 0
-    first = {n: (repo / n).read_text() for n in FILES if (repo / n).exists()}
-    assert sum(blocks(repo).values()) == 1
+    first = (repo / "CLAUDE.local.md").read_text()
+    assert first.count(START) == 1
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        if (repo / name).exists():
+            assert START not in (repo / name).read_text()
     for _ in range(2):
         assert main(args) == 0
         assert main(["init", "--refresh"]) == 0
-    assert {n: (repo / n).read_text() for n in FILES if (repo / n).exists()} == first
-    assert all(t.count(END) <= 1 for t in first.values())
+    assert (repo / "CLAUDE.local.md").read_text() == first
 
 
-@pytest.mark.parametrize("setup", sorted(SETUPS))
-def test_local_and_shared_blocks_stay_in_separate_files_and_do_not_grow(repo, setup):
-    for name, text in SETUPS[setup].items():
-        (repo / name).write_text(text)
-    assert main(["init"]) == 0
-    assert main(["init", "--write-instructions"]) == 0
-    assert main(["init", "--write-instructions=shared"]) == 0
-    first = {n: (repo / n).read_text() for n in FILES if (repo / n).exists()}
-    count = blocks(repo)
-    assert count["CLAUDE.local.md"] == 1
-    assert sum(v for k, v in count.items() if k != "CLAUDE.local.md") == 1
-    for _ in range(2):
-        assert main(["init", "--write-instructions"]) == 0
-        assert main(["init", "--write-instructions=shared"]) == 0
-        assert main(["init", "--refresh"]) == 0
-    assert {n: (repo / n).read_text() for n in FILES if (repo / n).exists()} == first
-
-
-def test_dry_run_says_what_it_found_and_would_do_and_writes_nothing(repo, capsys):
-    (repo / "AGENTS.md").write_text(HAND)
-    code, out = run(["init", "--dry-run", "--write-instructions=shared"], capsys)
+def test_dry_run_migrates_nothing_and_writes_nothing(repo, capsys):
+    (repo / "AGENTS.md").write_text(HAND + f"{START}\nold\n{END}\n")
+    code, out = run(["init", "--dry-run", "--write-instructions"], capsys)
     assert code == 0
     assert "would" in out and "AGENTS.md" in out
-    assert (repo / "AGENTS.md").read_text() == HAND
-    assert not (repo / "CLAUDE.md").exists()
-
-
-def test_dry_run_in_an_empty_repo_plans_both_files_and_creates_none(repo, capsys):
-    _, out = run(["init", "--dry-run", "--write-instructions=shared"], capsys)
-    assert "would create the rules block in" in out and "would create" in out
-    assert "AGENTS.md" in out
-    assert not (repo / "CLAUDE.md").exists() and not (repo / "AGENTS.md").exists()
+    assert (repo / "AGENTS.md").read_text() == HAND + f"{START}\nold\n{END}\n"
+    assert not (repo / "CLAUDE.local.md").exists()
 
 
 def test_the_report_names_the_files_it_found(repo, capsys):
@@ -170,16 +145,19 @@ def test_no_note_without_an_old_block(repo, capsys):
     assert "AGENTS.local.md" not in out
 
 
-def test_refresh_still_updates_old_and_new_block_files_in_place(repo):
+def test_refresh_migrates_tracked_then_updates_local(repo):
     assert main(["init"]) == 0
     old = f"# Mine\n\n{START}\nold\n{END}\n"
-    for name in ("CLAUDE.local.md", "AGENTS.local.md", "AGENTS.md"):
-        (repo / name).write_text(old)
+    (repo / "CLAUDE.local.md").write_text(old)
+    (repo / "AGENTS.local.md").write_text(old)
+    (repo / "AGENTS.md").write_text(old)
     assert main(["init", "--refresh"]) == 0
-    for name in ("CLAUDE.local.md", "AGENTS.local.md", "AGENTS.md"):
+    for name in ("CLAUDE.local.md", "AGENTS.local.md"):
         text = (repo / name).read_text()
         assert text.startswith("# Mine\n\n") and instructions.block() in text
         assert text.count(START) == 1
+    assert (repo / "AGENTS.md").read_text() == "# Mine\n\n"
+    assert START not in (repo / "AGENTS.md").read_text()
 
 
 def rule_fact(mem):
@@ -205,27 +183,18 @@ def held_by(mem):
     return read_jsonl(mem / "facts" / "tidy.jsonl")[-1]["held_by"]
 
 
-def test_tidy_uses_claude_md_when_it_exists(repo, mem, capsys, monkeypatch):
+def test_tidy_uses_claude_local_md(repo, mem, capsys, monkeypatch):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "CLAUDE.md").write_text(HAND)
     (repo / "AGENTS.md").write_text("# Agents\n")
+    assert main(["init", "--write-instructions"]) == 0
     promote(mem, capsys, monkeypatch)
-    assert "Never clear the dev database blind." in (repo / "CLAUDE.md").read_text()
-    assert (repo / "AGENTS.md").read_text() == "# Agents\n"
-    assert held_by(mem) == "CLAUDE.md"
-
-
-def test_tidy_uses_agents_md_when_it_is_the_only_file(repo, mem, capsys, monkeypatch):
-    (repo / "AGENTS.md").write_text(HAND)
-    promote(mem, capsys, monkeypatch)
-    assert "Never clear the dev database blind." in (repo / "AGENTS.md").read_text()
-    assert not (repo / "CLAUDE.md").exists()
-    assert held_by(mem) == "AGENTS.md"
-
-
-def test_tidy_defaults_to_claude_md_when_neither_exists(repo, mem, capsys, monkeypatch):
-    promote(mem, capsys, monkeypatch)
-    assert "Never clear the dev database blind." in (repo / "CLAUDE.md").read_text()
-    assert held_by(mem) == "CLAUDE.md"
+    assert (repo / "CLAUDE.md").read_text() == HAND
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith("# Agents\n") and AGENTS_POINTER in agents
+    assert "Never clear the dev database blind." in (repo / "CLAUDE.local.md").read_text()
+    assert held_by(mem) == "CLAUDE.local.md"
 
 
 def test_tidy_keeps_a_rules_file_the_config_sets(repo, mem, capsys, monkeypatch):
@@ -235,6 +204,25 @@ def test_tidy_keeps_a_rules_file_the_config_sets(repo, mem, capsys, monkeypatch)
     assert "Never clear" in (repo / "docs" / "RULES.md").read_text()
     assert (repo / "CLAUDE.md").read_text() == HAND
     assert held_by(mem) == "docs/RULES.md"
+
+
+def test_tidy_refuses_a_tracked_rules_file(repo, mem, capsys, monkeypatch):
+    from conftest import git
+
+    (mem / "config.toml").write_text('rules_file = "CLAUDE.md"\n')
+    (repo / "CLAUDE.md").write_text(HAND)
+    git(repo, "add", "CLAUDE.md")
+    git(repo, "commit", "-q", "-m", "track")
+    monkeypatch.setenv("MEMORY_NOW", "2026-10-20T12:00:00+00:00")
+    rule_fact(mem)
+    _, out = run(["tidy"], capsys)
+    import re
+
+    [pid] = re.findall(r"\bp-[0-9a-f]{6}\b", out)
+    code, out = run(["tidy", "--apply", pid], capsys)
+    assert code == 1
+    assert "tracked" in out
+    assert (repo / "CLAUDE.md").read_text() == HAND
 
 
 def test_a_new_memory_does_not_pin_the_rules_file(repo):
@@ -252,18 +240,6 @@ def test_the_help_names_the_new_files(capsys):
             main([command, "--help"])
     out = capsys.readouterr().out
     assert "CLAUDE.local.md" in out and "AGENTS.local.md" not in out
-
-
-def test_a_claude_md_that_links_to_agents_md_is_one_file(repo, capsys):
-    (repo / "AGENTS.md").write_text(HAND)
-    (repo / "CLAUDE.md").symlink_to("AGENTS.md")
-    _, out = run(["init", "--write-instructions=shared"], capsys)
-    assert (repo / "AGENTS.md").read_text().count(START) == 1
-    assert (repo / "CLAUDE.md").is_symlink()
-    assert "hint:" not in out and "note:" not in out
-    _, out = run(["init", "--write-instructions=shared"], capsys)
-    assert (repo / "AGENTS.md").read_text().count(START) == 1
-    assert "note:" not in out
 
 
 def tracked(repo, *names):
@@ -294,32 +270,16 @@ def test_local_mode_follows_a_link_to_an_untracked_file(repo):
     assert (repo / "CLAUDE.local.md").is_symlink()
 
 
-@pytest.mark.parametrize("mode", ["local", "shared"])
 @pytest.mark.parametrize("name", ["CLAUDE.md", "AGENTS.md", "CLAUDE.local.md"])
-def test_a_symlink_loop_is_an_error_and_nothing_is_written(repo, capsys, mode, name):
+def test_a_symlink_loop_is_an_error_and_nothing_is_written(repo, capsys, name):
     assert main(["init"]) == 0
     (repo / name).symlink_to(name)
     before = sorted(p.name for p in repo.iterdir())
-    code, out = run(["instructions", f"--write-instructions={mode}"], capsys)
+    code, out = run(["instructions", "--write-instructions"], capsys)
     assert code == 1
     assert "error:" in out and name in out and "loop" in out
     assert "Traceback" not in out
     assert sorted(p.name for p in repo.iterdir()) == before
-
-
-@pytest.mark.parametrize(
-    ("link", "target"), [("CLAUDE.md", "AGENTS.md"), ("AGENTS.md", "CLAUDE.md")]
-)
-def test_a_dangling_link_between_the_two_files_ends_with_one_block(repo, capsys, link, target):
-    (repo / link).symlink_to(target)
-    for _ in range(2):
-        code, out = run(["init", "--write-instructions=shared"], capsys)
-        assert code == 0
-        assert "Traceback" not in out
-        assert (repo / link).is_symlink()
-        assert (repo / target).is_file()
-        assert (repo / "CLAUDE.md").read_text() == (repo / "AGENTS.md").read_text()
-        assert (repo / "CLAUDE.md").read_text().count(START) == 1
 
 
 def outside(tmp_path, text=HAND):
@@ -327,33 +287,6 @@ def outside(tmp_path, text=HAND):
     far.mkdir()
     (far / "rules.md").write_text(text)
     return far / "rules.md"
-
-
-@pytest.mark.parametrize("name", ["CLAUDE.md", "AGENTS.md"])
-def test_shared_mode_refuses_a_link_that_leaves_the_repo(repo, tmp_path, capsys, name):
-    far = outside(tmp_path)
-    (repo / name).symlink_to(far)
-    code, out = run(["init", "--write-instructions=shared"], capsys)
-    assert code == 1
-    assert "error:" in out and name in out and "outside the repo" in out
-    assert far.read_text() == HAND
-    assert (repo / name).is_symlink()
-
-
-def test_shared_mode_refuses_a_dangling_link_that_leaves_the_repo(repo, tmp_path, capsys):
-    far = tmp_path / "elsewhere" / "missing.md"
-    (repo / "CLAUDE.md").symlink_to(far)
-    code, out = run(["init", "--write-instructions=shared"], capsys)
-    assert code == 1 and "outside the repo" in out
-    assert not far.exists()
-
-
-def test_shared_mode_refuses_an_instructions_file_outside_the_repo(repo, tmp_path, capsys):
-    code, out = run(
-        ["init", "--write-instructions=shared", "--instructions-file", "../far.md"], capsys
-    )
-    assert code == 1 and "outside the repo" in out
-    assert not (tmp_path / "far.md").exists()
 
 
 def test_local_mode_may_use_a_link_that_leaves_the_repo(repo, tmp_path):
@@ -371,11 +304,14 @@ def local_text(repo):
 
 
 def test_local_mode_imports_agents_md_when_it_is_the_only_shared_file(repo, capsys):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "AGENTS.md").write_text(HAND)
     code, out = run(["init", "--write-instructions"], capsys)
     assert code == 0
     assert local_text(repo).startswith(IMPORT + START)
-    assert (repo / "AGENTS.md").read_text() == HAND
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith(HAND.rstrip()) and AGENTS_POINTER in agents
     [note] = [x for x in out.splitlines() if "@AGENTS.md" in x]
     assert "CLAUDE.local.md" in note
     first = local_text(repo)
@@ -415,8 +351,11 @@ def test_no_import_when_claude_reads_a_claude_md_anyway(repo, home):
 
 
 def test_no_import_without_an_agents_md(repo):
+    # --write-instructions creates AGENTS.md with the Codex pointer, so the
+    # local file still needs @AGENTS.md for Claude Code to load both.
     assert main(["init", "--write-instructions"]) == 0
-    assert "@AGENTS.md" not in local_text(repo)
+    assert (repo / "AGENTS.md").is_file()
+    assert local_text(repo).startswith(IMPORT + START)
 
 
 def test_no_import_when_claude_local_md_is_agents_md(repo):
@@ -424,16 +363,6 @@ def test_no_import_when_claude_local_md_is_agents_md(repo):
     (repo / "CLAUDE.local.md").symlink_to("AGENTS.md")
     assert main(["init", "--write-instructions"]) == 0
     assert "@AGENTS.md" not in (repo / "AGENTS.md").read_text()
-
-
-def test_shared_mode_never_writes_the_import(repo):
-    (repo / "AGENTS.md").write_text(HAND)
-    assert main(["init", "--write-instructions=shared"]) == 0
-    assert "@AGENTS.md" not in (repo / "AGENTS.md").read_text()
-    assert "@AGENTS.md" not in instructions.block()
-    from cairnkit import rules_target
-
-    assert "@AGENTS.md" not in rules_target.POINTER
 
 
 def test_dry_run_says_it_would_add_the_import_and_adds_nothing(repo, capsys):
@@ -444,20 +373,25 @@ def test_dry_run_says_it_would_add_the_import_and_adds_nothing(repo, capsys):
     assert not (repo / "CLAUDE.local.md").exists()
 
 
-def test_a_link_between_the_two_files_is_reported_as_one_file(repo, capsys):
-    (repo / "AGENTS.md").write_text(HAND)
-    (repo / "CLAUDE.md").symlink_to("AGENTS.md")
-    _, out = run(["init", "--write-instructions=shared"], capsys)
-    [found] = [x for x in out.splitlines() if x.startswith("found:")]
-    assert "same file" in found
-    assert "Only CLAUDE.md exists" not in out and "Only AGENTS.md exists" not in out
+def test_harness_local_copies_are_written_and_excluded(repo):
+    from conftest import git
+
+    from cairnkit.harness_local import AGENTS_POINTER
+
+    assert main(["init", "--write-instructions"]) == 0
+    for target in harness_local.TARGETS:
+        path = repo / target.rel
+        assert path.is_file()
+        assert START in path.read_text()
+        git(repo, "check-ignore", "-q", target.rel)
+    assert AGENTS_POINTER in (repo / "AGENTS.md").read_text()
+    assert not (repo / "AGENTS.override.md").exists()
+    # Tracked pointer file is new; harness copies stay ignored.
+    assert "AGENTS.md" in git(repo, "status", "--porcelain")
+    assert ".cursor/rules" not in git(repo, "status", "--porcelain")
+    assert ".pi/" not in git(repo, "status", "--porcelain")
 
 
-def test_the_both_files_hint_tells_how_to_load_the_agents_md_instructions(repo, capsys):
-    (repo / "CLAUDE.md").write_text(HAND)
-    (repo / "AGENTS.md").write_text("# Agents\n\nBe kind.\n")
-    _, out = run(["init", "--write-instructions=shared"], capsys)
-    [hint] = [x for x in out.splitlines() if x.startswith("hint:")]
-    assert "@AGENTS.md" in hint and "top of CLAUDE.md" in hint
-    assert "only read AGENTS.md" in hint
-    assert (repo / "CLAUDE.md").read_text().startswith(HAND)
+def test_opencode_gap_is_documented():
+    assert "OpenCode" in harness_local.OPENCODE_GAP
+    assert "tracked" in harness_local.OPENCODE_GAP.lower()

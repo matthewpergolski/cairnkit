@@ -52,7 +52,7 @@ def test_earlier_bytes_never_change(mem, capsys):
 
 
 def test_refuses_long_text_and_secrets(mem, capsys):
-    assert main(["add", "x" * 401, *BASE]) != 0
+    assert main(["add", "x" * 2001, *BASE]) != 0
     assert main(["add", "Key is AKIAABCDEFGHIJKLMNOP now.", *BASE]) != 0
     assert "secret" in capsys.readouterr().err.lower()
     assert not (mem / "facts" / "main.jsonl").exists()

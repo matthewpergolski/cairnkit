@@ -61,12 +61,16 @@ def test_kind_rule_can_be_added(mem, capsys):
     assert main(args) == 0
 
 
-def test_instructions_command_writes_the_shared_block(repo, capsys):
+def test_instructions_command_writes_the_local_block(repo, capsys):
+    from cairnkit.harness_local import AGENTS_POINTER
+
     (repo / "AGENTS.md").write_text("# Team rules\n\nUse tabs.\n")
-    assert main(["instructions", "--write-instructions=shared"]) == 0
-    assert main(["instructions", "--write-instructions=shared"]) == 0
-    text = (repo / "AGENTS.md").read_text()
-    assert text.startswith("# Team rules\n\nUse tabs.\n")
+    assert main(["instructions", "--write-instructions"]) == 0
+    assert main(["instructions", "--write-instructions"]) == 0
+    agents = (repo / "AGENTS.md").read_text()
+    assert agents.startswith("# Team rules\n\nUse tabs.\n")
+    assert agents.count(AGENTS_POINTER) == 1
+    text = (repo / "CLAUDE.local.md").read_text()
     assert text.count(START) == 1
     assert "Co-authored-by" in text and "Generated with" in text
 

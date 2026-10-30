@@ -95,25 +95,23 @@ It is not:
 | Agent | What exists | Status |
 |---|---|---|
 | Claude Code | Hook adapter: `.claude/settings.local.json` (`SessionStart`, `Stop`). | Checked against the public docs. |
-| Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). | **Experimental.** Project hooks run only in a trusted project. |
-| Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). | **Experimental.** Cloud agents do not run `sessionStart`. |
-| OpenCode | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
-| Pi | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
-| Grok Build | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
+| Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). Tracked `AGENTS.md` pointer to `CLAUDE.md` / `CLAUDE.local.md`. | **Experimental.** Project hooks run only in a trusted project. |
+| Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). Untracked rules: `.cursor/rules/cairnkit.mdc`. | **Experimental.** Cloud agents do not run `sessionStart`. |
+| OpenCode | No hook adapter. No stable untracked project rules file. | Gap: see [docs/layering.md](docs/layering.md). |
+| Pi | No hook adapter. `--write-instructions` also writes untracked `.pi/APPEND_SYSTEM.md`. | Local rules path only. |
+| Grok Build | No hook adapter. Reads `CLAUDE.local.md` (same file Claude Code uses). | Local rules path only. |
 | Any other agent | `memory hooks install --agent generic` prints the two commands to connect by hand. | Manual. |
 
-For an agent with no hook, such as OpenCode, Pi or Grok Build:
-
-1. Run `memory instructions --write-instructions=shared`. It writes the rules
-   block into the tracked file your repo has: `CLAUDE.md`, or `AGENTS.md` if
-   that is the only one. In a repo with neither, it creates `CLAUDE.md` and a
-   short `AGENTS.md` that points to it. (Plain `--write-instructions` writes
-   `CLAUDE.local.md`, which these tools may not read.)
-2. Make sure `AGENTS.md` exists and points to the file that holds the block.
-   Then add this line to that file by hand, outside the markers:
-   "Run `memory load` at session start." The block itself says that a hook
-   runs `memory load`, and these tools have no hook. Auto-tidy still runs
-   after a push or a merge. That does not load the memory.
+For an agent with no hook: run `memory instructions --write-instructions`.
+It writes the rules block only to untracked files (`CLAUDE.local.md`, plus
+harness copies such as `.cursor/rules/cairnkit.mdc` and `.pi/APPEND_SYSTEM.md`,
+all via `.git/info/exclude`). It never writes a cairnkit block into tracked
+`CLAUDE.md` or `AGENTS.md`. For Codex it adds one generic pointer line to
+tracked `AGENTS.md` (create if missing): read `CLAUDE.md` and
+`CLAUDE.local.md` when present. Where a harness has no untracked load path
+(OpenCode today), do not fall back to a tracked rules block; connect with
+hooks or a local config you own. Auto-tidy after a push or merge still runs
+once hooks are installed; that does not load the memory.
 
 Details: [Agent hooks](#agent-hooks) and [docs/layering.md](docs/layering.md).
 
@@ -290,10 +288,14 @@ file: the agent checks whether the text is true now. The old fact is not
 reopened and its history stays. The write never fails because of it.
 
 **The load stays small.** `memory load` prints the rules first. They do not use
-the word budget. Then it fills the budget with the facts of the best rank. The
-rank is recency, kind, area, branch and use. A fact that you or an agent looked
-up lately with `memory show` or `memory search` ranks higher; a guess that
-nobody touches fades. `memory load --explain` prints each score.
+the word budget. Then it prints pinned facts and compact scenario lines (facts
+that share an area or tag, each line citing source fact ids), then fills the
+rest of the budget with the best-ranked remaining facts. A fact may carry an
+optional `--summary` so the load line stays short while the body can be longer
+(up to 2000 characters; rules stay at 400). Rank is still recency, kind, area,
+branch and use, with BM25 search for on-demand recall. Stale or missing-source
+facts get a one-line nudge toward `memory tidy`. Look up: `memory search`,
+`memory show`, `--pinned`, `--link`, `memory tidy`.
 
 ## Why
 
@@ -402,24 +404,17 @@ no check fails when one is broken. `memory load` shows the two groups apart.
 
 Once you add a preset, its rules live in memory. Every session loads them
 first. Nothing is written to a tracked file. An instruction for every
-contributor still belongs in `CLAUDE.md` or `AGENTS.md` (see the next section).
+contributor still belongs in hand-written `CLAUDE.md` or `AGENTS.md` (see the
+next section). The cairnkit rules block itself stays local:
+`memory instructions --write-instructions` writes `CLAUDE.local.md` (and
+untracked harness copies) and moves any old cairnkit block out of tracked
+files. Cloning a repo never needs cairnkit for those files; the only
+committed cairnkit output is optional Nessa Docs pages under `docs/state/`.
 
-The memory is private, so people who clone the project do not see these
-facts. A team that wants to share the rules can opt in. Neither step is part
-of the normal setup:
-
-- `memory instructions --write-instructions=shared` writes the rules block into
-  the tracked `CLAUDE.md`, or into `AGENTS.md` if that is the only one the repo
-  has, between marker lines. Text outside the markers never changes. In a repo
-  with neither file it creates `CLAUDE.md` and a short `AGENTS.md` that only
-  points to it. It edits an existing `AGENTS.md` only when that is the repo's
-  only rules file (it appends the block) or already holds a block (it
-  refreshes it). With both files, `AGENTS.md` is not touched. It never writes
-  through a link that leaves the repo.
-- `memory hooks install --commit-msg-guard=shared` writes tracked hooks in
-  `.githooks/`. The commit-msg hook refuses AI attribution lines. It needs
-  only `sh` and `grep`. Each clone runs `git config core.hooksPath .githooks`
-  once.
+`memory hooks install --commit-msg-guard=shared` still writes tracked hooks in
+`.githooks/` when a team opts in. The commit-msg hook refuses AI attribution
+lines. It needs only `sh` and `grep`. Each clone runs
+`git config core.hooksPath .githooks` once.
 
 A rule that a tool checks is better than a note anywhere. See
 [docs/greenfield.md](docs/greenfield.md#where-does-each-rule-go).
@@ -436,7 +431,7 @@ Ask one question about each line: is it an **instruction** or a **fact**?
 
 People write the instruction files. A template repo can own them. `memory`
 does not change them unless a person runs
-`memory instructions --write-instructions local|shared` (or one of the few
+`memory instructions --write-instructions` (or one of the few
 commands listed on the page below). The rules about memory itself ship inside
 the tool.
 
@@ -526,7 +521,7 @@ level only. It writes nothing into a repo.
 
 | Command | Who | What it does |
 |---|---|---|
-| `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local\|shared]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. With `--write-instructions`, also writes the rules block: local to `CLAUDE.local.md`, shared to the `CLAUDE.md` or `AGENTS.md` the repo has. |
+| `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. With `--write-instructions`, writes the rules block to untracked `CLAUDE.local.md` (and harness copies) and moves any cairnkit block out of tracked `CLAUDE.md` / `AGENTS.md`. `shared` is refused. |
 | `memory migrate [--yes] [--fix-references] [--from DIR] [--path DIR] [--preset NAME ...] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`. `--untrack` stages the removal of a tracked old folder; nothing is committed. `--fix-references` rewrites exact old paths (`memory-bank/X` to `memory-bank/notes/X`) in top-level and `docs/` `*.md` files and adds the memory hooks where a hook runs the old checker (working tree only, never committed). What is left goes to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds you until it is done. |
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--adopt\|--all] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Status includes installed/available skill counts. Plan by default; `--yes` acts. `--adopt` (or `--all`) replaces same-named folders so every pstack skill is installed. |
@@ -574,7 +569,14 @@ changes. Add `--gitignore` to also write the lines to `.gitignore`.
 | Claude Code | `.claude/settings.local.json` | `SessionStart`: stdout goes into the context | `Stop`: `{"decision": "block"}` makes the agent continue once | Checked against the public docs |
 | Codex | `.codex/hooks.json` | `SessionStart`: stdout goes into the context | `Stop`: JSON `{"decision": "block"}` | **Experimental.** Project hooks run only in a trusted project, after you review them in `/hooks`. |
 | Cursor | `.cursor/hooks.json` | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | **Experimental.** Cloud agents do not run `sessionStart`. |
-| Generic | none | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | Connect by hand |
+| Generic | none | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | Connect by hand. No per-command hook. |
+
+A repeated failing command is a loop. After the same command fails 3 times,
+`stop` says to stop, run `memory check`, and ask. Claude Code and Codex see
+the failure on `PostToolUse`. Cursor sees it on `afterShellExecution`.
+OpenCode, Pi, and Grok Build have no hook adapter, so they cannot observe a
+command failure. The generic adapter cannot either. `stop` still shows the
+nudge when something else recorded the streak.
 
 Rules for every adapter:
 

@@ -28,7 +28,7 @@ def test_building_the_parser_imports_only_light_modules():
 
 
 def test_agent_choices():
-    assert AGENTS == ("claude", "codex", "cursor", "generic")
+    assert AGENTS == ("claude", "codex", "cursor", "generic", "opencode", "pi", "grok")
     args = build_parser().parse_args(["hook", "stop", "--agent", "codex"])
     assert args.agent == "codex"
     with pytest.raises(SystemExit):

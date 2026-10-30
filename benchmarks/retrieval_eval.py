@@ -71,6 +71,7 @@ CONTROLS = ("oracle", "inverted", "mismatched-query")
 LOAD_SYSTEMS = ("cairnkit", "newest-first", "random-fill")
 RANDOM_SEEDS = 20
 ID_IN_LINE = re.compile(r"^- \[(f-\d{8}-[0-9a-f]{4})\]")
+ID_ANY = re.compile(r"f-\d{8}-[0-9a-f]{4}")
 
 
 def read_probes(path: Path) -> list[dict]:
@@ -370,12 +371,25 @@ def pinned_environment(now: str):
 
 
 def loaded_ids(memory: Memory, budget: int) -> list[str]:
-    """The ids that `memory load --budget N` shows, read from its output."""
+    """The ids that `memory load --budget N` shows, read from its output.
+
+    Bullet lines (`- [id] …`) and scenario lines (ids listed after `|`) both count.
+    """
     ids = []
+    seen: set[str] = set()
     for line in build_output(memory, None, budget):
         found = ID_IN_LINE.match(line)
         if found:
-            ids.append(found.group(1))
+            fid = found.group(1)
+            if fid not in seen:
+                ids.append(fid)
+                seen.add(fid)
+            continue
+        if line.startswith("- ") and "|" in line:
+            for fid in ID_ANY.findall(line):
+                if fid not in seen:
+                    ids.append(fid)
+                    seen.add(fid)
     return ids
 
 

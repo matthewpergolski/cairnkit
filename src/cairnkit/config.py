@@ -11,7 +11,7 @@ AUTO_TIDY_MODES = ("auto", "report", "on", "off")
 DEFAULTS = {
     "short_term_days": 14,
     "areas": {},
-    "rules_file": None,  # unset: rules_target.shared_file picks it
+    "rules_file": None,  # unset: CLAUDE.local.md
     "auto_tidy": "auto",
     "skills_check": True,
     "skills_auto_update": False,
