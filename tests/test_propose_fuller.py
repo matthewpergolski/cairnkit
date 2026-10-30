@@ -8,9 +8,9 @@ import json
 from conftest import git
 
 from cairnkit.cli import main
-from cairnkit.session import load_state, start_session
 from cairnkit.memory import Memory
 from cairnkit.paths import find_project
+from cairnkit.session import load_state, start_session
 
 
 def install(capsys):

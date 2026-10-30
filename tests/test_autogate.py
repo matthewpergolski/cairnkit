@@ -11,7 +11,6 @@ from cairnkit.memory import Memory
 from cairnkit.paths import find_project
 from cairnkit.pending import Candidate, add_candidates, fold, pending
 
-
 NOW = "2026-10-20T12:00:00+00:00"
 LATER = "2026-10-20T12:35:00+00:00"
 
@@ -63,7 +62,12 @@ def test_quality_gate_leaves_short_or_ungrounded_pending(repo, mem, monkeypatch)
                 kind="lesson",
                 source="session:2026-10-20",
             ),
-            cand(id="c-20261020-dddd", text="fact: something plain that is long enough to pass length", kind="fact", source="commit:abc1234"),
+            cand(
+                id="c-20261020-dddd",
+                text="fact: something plain that is long enough to pass length",
+                kind="fact",
+                source="commit:abc1234",
+            ),
         ],
     )
     memory = Memory.open(find_project(), None)
