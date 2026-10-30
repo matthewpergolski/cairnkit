@@ -143,17 +143,30 @@ def readme_sections(root: Path, limit: int = 8) -> tuple[ReadmeSection, ...]:
     return tuple(found)
 
 
+def _script_tables(project: dict) -> list[dict]:
+    tables: list[dict] = []
+    groups = project.get("entry-points")
+    if isinstance(groups, dict) and isinstance(groups.get("console_scripts"), dict):
+        tables.append(groups["console_scripts"])
+    scripts = project.get("scripts")
+    if isinstance(scripts, dict):
+        tables.append(scripts)
+    return tables
+
+
 def entry_points(root: Path) -> tuple[EntryPoint, ...]:
     data = _read_pyproject(root)
     project = data.get("project") if isinstance(data.get("project"), dict) else {}
-    scripts = project.get("scripts") if isinstance(project.get("scripts"), dict) else {}
+    merged: dict[str, str] = {}
+    for table in _script_tables(project):
+        for name, target in table.items():
+            if isinstance(target, str) and ":" in target:
+                merged[str(name)] = target.strip()
     found: list[EntryPoint] = []
-    for name in sorted(scripts):
-        target = scripts[name]
-        if not isinstance(target, str) or ":" not in target:
-            continue
+    for name in sorted(merged):
+        target = merged[name]
         module = target.split(":", 1)[0].strip()
-        found.append(EntryPoint(name=str(name), target=target.strip(), module=module))
+        found.append(EntryPoint(name=name, target=target, module=module))
     return tuple(found)
 
 
@@ -163,7 +176,7 @@ def detect_project_kind(root: Path) -> ProjectKind:
     if str(project.get("name") or "") == "cairnkit":
         return ProjectKind.CAIRNKIT
     folder = root / "src" / "cairnkit"
-    if folder.is_dir():
+    if folder.is_dir() and (folder / "__init__.py").is_file():
         stems = {p.stem for p in folder.glob("*.py")}
         if stems >= CAIRNKIT_STEMS:
             return ProjectKind.CAIRNKIT
@@ -179,74 +192,60 @@ def revision(root: Path) -> str | None:
     return None
 
 
+def _primary_src_root(root: Path, project_name: str) -> str | None:
+    src = root / "src"
+    if not src.is_dir():
+        return None
+    try:
+        children = sorted(src.iterdir(), key=lambda path: path.name.lower())
+    except OSError:
+        return None
+    packages = [
+        child.name
+        for child in children
+        if child.is_dir() and not child.is_symlink() and (child / "__init__.py").is_file()
+    ]
+    if not packages:
+        return None
+    chosen = project_name if project_name in packages else packages[0]
+    return f"src/{chosen}"
+
+
 def inventory(root: Path) -> ProjectInventory:
     name, summary = read_name(root)
     from cairnkit.docs_modules import discover_modules
 
-    modules = discover_modules(root)
-    primary = None
-    if modules:
-        # First package under src/
-        src = root / "src"
-        if src.is_dir():
-            for child in sorted(src.iterdir(), key=lambda p: p.name.lower()):
-                if child.is_dir() and (child / "__init__.py").is_file():
-                    primary = f"src/{child.name}"
-                    break
     return ProjectInventory(
         kind=detect_project_kind(root),
         project_name=name,
         summary=summary,
         revision=revision(root),
         layout_entries=top_entries(root),
-        python_modules=modules,
+        python_modules=discover_modules(root),
         entry_points=entry_points(root),
         readme_sections=readme_sections(root),
-        primary_src_root=primary,
+        primary_src_root=_primary_src_root(root, name),
     )
 
 
-def key_modules(inv: ProjectInventory, limit: int = 16) -> tuple[PythonModule, ...]:
-    if not inv.python_modules:
-        return ()
-    entry_mods = {ep.module for ep in inv.entry_points}
-    selected: list[PythonModule] = []
-    for mod in inv.python_modules:
-        if mod.qualname in entry_mods or mod.qualname.rsplit(".", 1)[0] in entry_mods:
-            selected.append(mod)
-            continue
-        if mod.imported_by_count >= 1:
-            selected.append(mod)
-            continue
-        # Immediate package children always count for multi-module pipelines
-        if mod.package and mod.qualname.count(".") == 1:
-            selected.append(mod)
-    # Stable unique by qualname
-    seen: set[str] = set()
-    ordered: list[PythonModule] = []
-    for mod in sorted(selected, key=lambda m: m.qualname):
-        if mod.qualname in seen:
-            continue
-        seen.add(mod.qualname)
-        ordered.append(mod)
-    return tuple(ordered[:limit])
+def page_qualnames(inv: ProjectInventory, limit: int = 16) -> tuple[str, ...]:
+    by_qual = {mod.qualname: mod for mod in inv.python_modules}
+    chosen = {mod.qualname for mod in inv.python_modules if mod.imported_by_count >= 2}
+    chosen.update(point.module for point in inv.entry_points if point.module in by_qual)
+    if inv.primary_src_root:
+        package = inv.primary_src_root.rsplit("/", 1)[-1]
+        for mod in inv.python_modules:
+            parts = mod.qualname.split(".")
+            if len(parts) >= 3 and parts[0] == package:
+                chosen.add(f"{parts[0]}.{parts[1]}")
+
+    def sort_key(qual: str) -> tuple[str, str]:
+        mod = by_qual.get(qual)
+        return (qual, mod.rel_path if mod else qual)
+
+    return tuple(sorted(chosen, key=sort_key)[:limit])
 
 
 def node_id(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_]", "", name.replace("-", "_").replace(".", "_"))
     return cleaned or "Part"
-
-
-def package_edges(modules: tuple[PythonModule, ...]) -> tuple[tuple[str, str], ...]:
-    """Directed edges between leaf module names (last qualname segment) via imports."""
-    by_qual = {m.qualname: m for m in modules}
-    edges: set[tuple[str, str]] = set()
-    for mod in modules:
-        src = mod.qualname.rsplit(".", 1)[-1]
-        for target in mod.imports_internal:
-            if target not in by_qual:
-                continue
-            dst = target.rsplit(".", 1)[-1]
-            if src != dst:
-                edges.add((src, dst))
-    return tuple(sorted(edges))

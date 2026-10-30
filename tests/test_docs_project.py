@@ -21,11 +21,7 @@ def _write(path: Path, text: str) -> None:
 
 def _pyproject(name: str, description: str, scripts: str = "") -> str:
     return (
-        "[project]\n"
-        f'name = "{name}"\n'
-        'version = "0.1.0"\n'
-        f'description = "{description}"\n'
-        f"{scripts}"
+        f'[project]\nname = "{name}"\nversion = "0.1.0"\ndescription = "{description}"\n{scripts}'
     )
 
 
