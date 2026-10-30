@@ -51,10 +51,12 @@ _OWNER_NOREPLY = re.compile(
     re.I,
 )
 
-# Placeholders that docs and tests may show. Not a personal inbox.
+# Placeholders and GitHub system addresses that docs may show. Not a personal inbox.
 _GENERIC_EMAIL = re.compile(
     r"^(?:"
     r"git@github\.com|"
+    r"noreply@github\.com|"
+    r"(?:\d+\+)?[A-Za-z0-9-]+@users\.noreply\.github\.com|"
     r"[A-Za-z0-9._%+\-]+@example\.(?:com|org|net|invalid)"
     r")$",
     re.I,
