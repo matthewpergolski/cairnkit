@@ -68,18 +68,16 @@ class Page:
 
 @dataclass(frozen=True)
 class Absent:
-    """No markdown under docs/state. The project has not adopted the atlas."""
+    pass
 
 
 @dataclass(frozen=True)
 class Current:
-    """Rendered pages match their files once sourceRevision lines are dropped."""
+    pass
 
 
 @dataclass(frozen=True)
 class Stale:
-    """Repo-relative paths that differ. Non-empty, unique, and sorted."""
-
     changed: tuple[str, ...]
 
     def __post_init__(self) -> None:
@@ -385,7 +383,6 @@ def _prune_orphan_markdown(root: Path, pages: list[Page], *, dry_run: bool) -> l
     return removed
 
 
-# The root page stores HEAD in this field. A later commit is not an atlas edit.
 _SOURCE_REVISION_LINE = re.compile(r"^sourceRevision:[^\n]*\n", re.MULTILINE)
 _UNREADABLE = object()
 
@@ -395,7 +392,6 @@ def _strip_source_revision(text: str) -> str:
 
 
 def _state_markdown(root: Path) -> dict[str, object] | None:
-    """Repo-relative path to stripped text. None when docs/state has no markdown."""
     state = root / STATE_DIR
     if not state.is_dir():
         return None
@@ -413,11 +409,6 @@ def _state_markdown(root: Path) -> dict[str, object] | None:
 
 
 def atlas_freshness(project: Project) -> AtlasFreshness:
-    """In-memory atlas versus docs/state markdown. Writes nothing.
-
-    Does not open Memory. Drops sourceRevision lines before comparing.
-    No markdown under docs/state is Absent, not Stale.
-    """
     disk = _state_markdown(project.root)
     if disk is None:
         return Absent()
@@ -434,7 +425,6 @@ def atlas_freshness(project: Project) -> AtlasFreshness:
 
 
 def run_docs_check(project: Project) -> int:
-    """Absent and Current exit 0 with no output. Stale prints paths and exits 1."""
     result = atlas_freshness(project)
     if isinstance(result, Stale):
         for path in result.changed:

@@ -114,7 +114,6 @@ def test_installed_git_hooks_stay_silent_without_init(bare, monkeypatch):
 
 
 def test_installed_post_merge_stays_silent_without_init(bare):
-    """The generated post-merge script prints nothing when memory was never created."""
     repo, _before, sibling, capsys = bare
     state = repo / "docs" / "state"
     state.mkdir(parents=True)
@@ -138,7 +137,6 @@ def test_installed_post_merge_stays_silent_without_init(bare):
 
 
 def test_installed_post_merge_stays_silent_when_sibling_has_no_facts(bare):
-    """An empty sibling `.memory` is still uninitialized, even with a stale atlas."""
     repo, _before, sibling, capsys = bare
     sibling.mkdir()
     state = repo / "docs" / "state"

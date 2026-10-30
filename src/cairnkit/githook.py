@@ -4,10 +4,8 @@ commit-msg guard.
 
 Personal quiet hooks never fail git. post-commit drafts pending candidates
 fast (~1s). pre-push and post-merge run the fuller propose + auto-tidy pass
-(~3s). post-merge first runs ``docs --check`` in its own command and may
-print one line when memory exists and the atlas is stale. Each hook is a
-marked block in a shell script. A foreign hook is kept: the block goes right
-after its first line. Uninstall removes only the block.
+(~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
+the block goes right after its first line. Uninstall removes only the block.
 """
 
 from __future__ import annotations
@@ -76,40 +74,6 @@ _QUIET_BUDGET = 3
 _POST_COMMIT_BUDGET = 1
 
 
-def _bounded_hook(event: str, seconds: int, *, keep_stdout: bool, guard: str | None = None) -> str:
-    """The timeout / gtimeout / perl / else ladder. Every branch ends in || true.
-
-    keep_stdout is required. False discards stdout. True leaves stdout on the
-    terminal and still discards stderr. Quiet hooks keep redirections on the
-    perl command, matching hooks already installed. The speaking form puts
-    redirections on the shell command so they are not perl argv.
-    """
-    py = shlex.quote(sys.executable)
-    cmd = f"{py} -m cairnkit hook {event}"
-    if keep_stdout:
-        run = f"{cmd} </dev/null 2>/dev/null"
-        perl_argv = cmd
-        perl_redir = "</dev/null 2>/dev/null"
-    else:
-        run = f"{cmd} </dev/null >/dev/null 2>&1"
-        perl_argv = run
-        perl_redir = ">/dev/null 2>&1"
-    test = guard if guard is not None else f"[ -x {py} ]"
-    return (
-        f"if {test}; then\n"
-        f"  if command -v timeout >/dev/null 2>&1; then\n"
-        f"    timeout -k 1 {seconds} {run} || true\n"
-        f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
-        f"    gtimeout -k 1 {seconds} {run} || true\n"
-        f"  elif command -v perl >/dev/null 2>&1; then\n"
-        f"    {{ perl -e 'alarm {seconds}; exec @ARGV' -- {perl_argv} || true; }} {perl_redir}\n"
-        f"  else\n"
-        f"    {run} || true\n"
-        f"  fi\n"
-        f"fi\n"
-    )
-
-
 def quiet_body(event: str, budget: int | None = None) -> str:
     """A personal hook. It never fails git, and it does not read stdin or arguments.
 
@@ -123,8 +87,22 @@ def quiet_body(event: str, budget: int | None = None) -> str:
     so git proceeds. post-commit uses a 1s shell budget; pre-push/post-merge
     use 3s.
     """
+    py = shlex.quote(sys.executable)
     seconds = _QUIET_BUDGET if budget is None else budget
-    return _bounded_hook(event, seconds, keep_stdout=False)
+    run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
+    return (
+        f"if [ -x {py} ]; then\n"
+        f"  if command -v timeout >/dev/null 2>&1; then\n"
+        f"    timeout -k 1 {seconds} {run} || true\n"
+        f"  elif command -v gtimeout >/dev/null 2>&1; then\n"
+        f"    gtimeout -k 1 {seconds} {run} || true\n"
+        f"  elif command -v perl >/dev/null 2>&1; then\n"
+        f"    {{ perl -e 'alarm {seconds}; exec @ARGV' -- {run} || true; }} >/dev/null 2>&1\n"
+        f"  else\n"
+        f"    {run} || true\n"
+        f"  fi\n"
+        f"fi\n"
+    )
 
 
 def pre_push_body() -> str:
@@ -159,17 +137,6 @@ def _docs_check_script() -> str:
 
 
 def docs_check_stanza() -> str:
-    """Shell for post-merge. One stdout line when memory exists and the atlas is stale.
-
-    ``docs --check`` owns the comparison. This stanza only gates on
-    ``has_memory``, bounds the command, and maps exit 1 plus non-empty stdout
-    to ``DOCS_CHECK_WARN``. The check's stdout is not printed. Its stderr is
-    discarded, and so is this command's stderr, so a missing module stays
-    quiet. The page list never reaches the terminal. No ``docs/state``, no
-    memory, a current atlas, a probe error, or a timeout prints nothing.
-    The timed command ends in ``|| true``. The first line is
-    ``DOCS_CHECK_MARK`` so refresh can see a block from before this stanza.
-    """
     py = shlex.quote(sys.executable)
     seconds = _DOCS_CHECK_BUDGET
     script = _docs_check_script()
@@ -198,11 +165,6 @@ def docs_check_stanza() -> str:
 
 
 def post_merge_body() -> str:
-    """The docs check, then the quiet tidy command.
-
-    quiet_body closes stdout, so the check is its own command. Sharing that
-    redirect would hide the one line this hook exists to print.
-    """
     return docs_check_stanza() + quiet_body("post-merge")
 
 

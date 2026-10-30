@@ -1,9 +1,3 @@
-"""`memory docs --check` and the post-merge freshness line.
-
-The check owns the comparison. The post-merge shell runs that command and
-maps a stale result to one line. It never fails git and never writes.
-"""
-
 from __future__ import annotations
 
 import os
@@ -30,8 +24,7 @@ def _hook_lines(text: str, event: str) -> list[str]:
     return [line for line in text.splitlines() if f"hook {event}" in line]
 
 
-def _discards_stdout(line: str) -> bool:
-    """True when this command sends stdout to /dev/null (not stderr alone)."""
+def _redirects_stdout_to_devnull(line: str) -> bool:
     return re.search(r"(?<![0-9])>/dev/null", line) is not None
 
 
@@ -281,13 +274,15 @@ def test_post_merge_body_shells_out_to_docs_check():
     assert "docs-freshness" not in text
     check_lines = [line for line in fresh.splitlines() if "docs --check" in line]
     assert check_lines
-    assert all("2>/dev/null" in line and not _discards_stdout(line) for line in check_lines)
+    assert all(
+        "2>/dev/null" in line and not _redirects_stdout_to_devnull(line) for line in check_lines
+    )
     warn_lines = [line for line in fresh.splitlines() if STALE_LINE in line]
     assert warn_lines
     assert all("/dev/null" not in line for line in warn_lines)
     quiet_cmds = _hook_lines(quiet, "post-merge")
     assert quiet_cmds
-    assert all(_discards_stdout(line) for line in quiet_cmds)
+    assert all(_redirects_stdout_to_devnull(line) for line in quiet_cmds)
     assert "timeout -k 1 3 " in quiet
     assert "docs --check" not in quiet
     for body in (
@@ -302,7 +297,6 @@ def test_post_merge_body_shells_out_to_docs_check():
 
 
 def test_hook_post_merge_does_not_print_the_docs_line(mem, repo, capsys):
-    """The warning is the shell stanza, not `memory hook post-merge`."""
     assert main(["docs"]) == 0
     readme = state_dir(repo) / "README.md"
     readme.write_text("stale\n", encoding="utf-8")
@@ -350,7 +344,6 @@ def test_installed_post_merge_is_silent_without_state(mem, repo, capsys):
 
 
 def test_post_merge_follows_memory_dir(mem, repo, capsys, tmp_path):
-    """MEMORY_DIR wins over the sibling folder. A hardcoded sibling path would warn."""
     assert main(["docs"]) == 0
     readme = state_dir(repo) / "README.md"
     readme.write_text("stale\n", encoding="utf-8")
