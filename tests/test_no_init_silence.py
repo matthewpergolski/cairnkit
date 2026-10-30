@@ -18,7 +18,20 @@ GIT_EVENTS = ("post-commit", "pre-push", "post-merge")
 
 
 def _snapshot(root: Path) -> set[str]:
-    return {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
+    """Repo file paths, ignoring ephemeral git lock files.
+
+    macOS CI can create and drop `.git/objects/maintenance.lock` while a test
+    runs, which is not a hook write.
+    """
+    out: set[str] = set()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(".git/") and rel.endswith(".lock"):
+            continue
+        out.add(rel)
+    return out
 
 
 def _run_hook(repo: Path, event: str, agent: str, payload: str = "{}") -> tuple[int, str, str]:
