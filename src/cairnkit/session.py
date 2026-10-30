@@ -183,9 +183,7 @@ class ReminderGate:
         head = run_git(root, "rev-parse", "HEAD", timeout=2.0) or ""
         durable = _durable_tracked_paths(root, memory_dir)
         tracked = (
-            (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "")
-            if durable
-            else ""
+            (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "") if durable else ""
         )
         untracked = tuple(
             sorted(
