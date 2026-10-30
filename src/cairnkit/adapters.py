@@ -276,5 +276,7 @@ def generic_help() -> str:
         "      exits 1 with a message on stderr when the agent must fix or record\n"
         "      something before it finishes; give that message back to the agent.\n"
         "Or add to the agent's instructions: run `memory load` at session start,\n"
-        "and `memory check --strict` before you finish."
+        "and `memory check --strict` before you finish.\n"
+        "This adapter cannot see a failed command. If a failure was recorded, "
+        "stop still says to stop, run `memory check`, and ask."
     )

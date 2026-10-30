@@ -12,6 +12,9 @@ Harness coverage (wired where the adapter schema allows):
 - Codex: same NestedAdapter `PostToolUse` shape as Claude.
 - Gap: the generic agent has no after-shell / PostToolUse hook surface, so
   the loop breaker does not run there (stop reminder only).
+- Gap: OpenCode, Pi, and Grok Build have no hook adapter, so they cannot
+  observe a command failure. Stop still shows the nudge when something else
+  recorded the streak.
 """
 
 from __future__ import annotations
@@ -27,8 +30,7 @@ LOCK_NAME = ".loop-breaker.lock"
 THRESHOLD = 3
 NUDGE = (
     "The same command failed 3 times in a row. Stop retrying it. "
-    "Check project memory (`memory search` / `memory load`), fix the cause, "
-    "or ask the person what to do next."
+    "Run `memory check`, then fix the cause or ask the person what to do next."
 )
 
 

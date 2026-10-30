@@ -569,7 +569,14 @@ changes. Add `--gitignore` to also write the lines to `.gitignore`.
 | Claude Code | `.claude/settings.local.json` | `SessionStart`: stdout goes into the context | `Stop`: `{"decision": "block"}` makes the agent continue once | Checked against the public docs |
 | Codex | `.codex/hooks.json` | `SessionStart`: stdout goes into the context | `Stop`: JSON `{"decision": "block"}` | **Experimental.** Project hooks run only in a trusted project, after you review them in `/hooks`. |
 | Cursor | `.cursor/hooks.json` | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | **Experimental.** Cloud agents do not run `sessionStart`. |
-| Generic | none | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | Connect by hand |
+| Generic | none | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | Connect by hand. No per-command hook. |
+
+A repeated failing command is a loop. After the same command fails 3 times,
+`stop` says to stop, run `memory check`, and ask. Claude Code and Codex see
+the failure on `PostToolUse`. Cursor sees it on `afterShellExecution`.
+OpenCode, Pi, and Grok Build have no hook adapter, so they cannot observe a
+command failure. The generic adapter cannot either. `stop` still shows the
+nudge when something else recorded the streak.
 
 Rules for every adapter:
 

@@ -285,7 +285,8 @@ once.
 
 ### Git hooks
 
-Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `commit-msg`
+Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge`, `post-commit`
+and `commit-msg`
 in the hooks folder that git uses (`git rev-parse --git-path hooks`).
 The shared option writes `commit-msg`, `pre-commit` and `post-checkout` into
 `.githooks/`. It does not write `pre-push` or `post-merge`. Those two stay
@@ -308,6 +309,9 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   Shared: `memory hook pre-commit`, run only when `memory` is on `PATH`.
 - `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
+- `post-commit`: the same quiet shape as `pre-push`, with a 1 second bound
+  (`timeout -k 1 1`, or `perl` `alarm 1`). It drafts pending candidates from
+  the commit just made. It ends with `|| true`. Not part of the shared option.
 - `pre-push` / `post-merge`: a short shell block. When `PY` is executable it
   runs `PY -m cairnkit hook EVENT` with stdin, stdout and stderr on `/dev/null`,
   under a few-second wall-clock bound (`timeout` / `gtimeout` when present,
@@ -328,12 +332,14 @@ prints the commands instead. Each file is added to `.git/info/exclude`.
 
 | Agent | File | Events |
 |---|---|---|
-| Claude Code | `.claude/settings.local.json` | `hooks.SessionStart[]`: `{"matcher": "startup\|resume\|clear\|compact", "hooks": [{"type": "command", "command": CMD, "timeout": 10}]}`; `hooks.Stop[]`: `{"hooks": [{"type": "command", "command": CMD, "timeout": 30}]}` |
-| Codex | `.codex/hooks.json` | the same shape, matcher `startup\|resume` |
-| Cursor | `.cursor/hooks.json` | `version: 1`; `hooks.sessionStart[]`: `{"command": CMD, "timeout": 10}`; `hooks.stop[]`: `{"command": CMD, "timeout": 30, "loop_limit": 1}` |
+| Claude Code | `.claude/settings.local.json` | `hooks.SessionStart[]`: `{"matcher": "startup\|resume\|clear\|compact", "hooks": [{"type": "command", "command": CMD, "timeout": 10}]}`; `hooks.Stop[]`: `{"hooks": [{"type": "command", "command": CMD, "timeout": 30}]}`; `hooks.PostToolUse[]` for `after-shell` |
+| Codex | `.codex/hooks.json` | the same shape, matcher `startup\|resume`, plus `PostToolUse` |
+| Cursor | `.cursor/hooks.json` | `version: 1`; `hooks.sessionStart[]`: `{"command": CMD, "timeout": 10}`; `hooks.stop[]`: `{"command": CMD, "timeout": 30, "loop_limit": 1}`; `hooks.afterShellExecution[]` for `after-shell` |
 
 `CMD` is `PY -m cairnkit hook EVENT --agent AGENT`, with `EVENT`
-`session-start` or `stop`. A hook entry belongs to the tool when its command
+`session-start`, `stop`, or `after-shell`. Claude Code and Codex also install
+`PostToolUse` for `after-shell`. Cursor also installs `afterShellExecution`
+for `after-shell`. A hook entry belongs to the tool when its command
 holds `cairnkit hook`, or the old `project_memory hook`. Install first removes
 the entries that belong to the tool, then adds new ones, so a hook is never
 written twice. Other entries stay.
@@ -361,11 +367,21 @@ The session key is `session_id`, else `conversation_id`, else `default`.
   For `cursor` it prints `{"additional_context": TEXT}`. It always exits 0.
 - `stop`: when `stop_hook_active` is true or `loop_count` is above 0, it says
   nothing more. Else, when `memory check --strict` finds a problem, or the
-  session changed the work and wrote no fact, it asks the agent to continue:
+  session changed the work and wrote no fact, it asks the agent to continue.
+  When the same command has failed 3 times in a row, the message also says
+  to stop, run `memory check`, and ask. Output is
   `{"decision": "block", "reason": TEXT}` for `claude` and `codex`,
   `{"followup_message": TEXT}` for `cursor`, and TEXT on stderr with exit 1
   for `generic`. With nothing to say it prints nothing (`claude`, `generic`)
   or `{}` (`codex`, `cursor`), and exits 0.
+- `post-commit`: drafts pending candidates from the commit just made, then
+  runs the candidate quality gate and the same auto-tidy step as `pre-push`.
+  It prints nothing and always exits 0. The shell bounds it to about 1 second.
+  With no memory folder it does nothing.
+- `after-shell` and `post-tool`: record one shell or tool result for the loop
+  breaker. On the third identical failure the hook returns the same nudge as
+  `stop`. A payload with no command, or a command and no outcome (`exit_code`,
+  `status`, or `error`), is ignored. The hook always exits 0.
 - `pre-commit`: exits 1 when a staged path is `memory-bank`, `.memory-path`
   or inside the memory folder, or when `memory check` finds an error. With no
   memory folder it exits 0.
@@ -383,7 +399,25 @@ The session key is `session_id`, else `conversation_id`, else `default`.
   `git push --no-verify` skips the pre-push hook, as git does for every
   pre-push hook. Before the gate they only report. After the gate they retire.
   The same lock, and the same retire id, keep one retire when a session start
-  runs at the same time.
+  runs at the same time. They also draft pending candidates from recent
+  commits (lessons, decisions, traps) before that tidy step.
+
+### Loop breaker
+
+`<memory>/.loop-breaker.json` stores `command` and `streak`. It is safe to
+delete. `session.note_failure` records one failed command. The third identical
+failure makes `stop`, and `after-shell` when an adapter can see the failure,
+tell the agent to stop, run `memory check`, and ask.
+
+| Agent | Sees a command failure |
+|---|---|
+| Claude Code | Yes. `PostToolUse` runs `memory hook after-shell`. |
+| Codex | Yes. The same `PostToolUse` shape. |
+| Cursor | Yes. `afterShellExecution` runs `memory hook after-shell`. |
+| Generic | No per-command hook. `stop` still shows the nudge when a failure was recorded another way. |
+| OpenCode | No hook adapter. It cannot observe a command failure. |
+| Pi | No hook adapter. It cannot observe a command failure. |
+| Grok Build | No hook adapter. It cannot observe a command failure. |
 
 ## 8. Install record and update receipt
 
