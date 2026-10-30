@@ -12,6 +12,16 @@ bash scripts/install-verify-pre-push.sh   # optional: local pre-push runs verify
 The optional pre-push hook lives under `.git/hooks/` and keeps a cairnkit
 marked tidy block when one is already there, so the two chain.
 
+## Changelog and releases
+
+Feature and fix PRs add one-line notes under `## Unreleased` in
+`CHANGELOG.md` (Keep a Changelog headings: Added, Changed, Fixed). A release
+PR renames that section to a version and date, leaves an empty
+`## Unreleased` on top, and bumps `__version__` in `src/cairnkit/__init__.py`
+(and `docs/FORMAT.md` to match). Before 1.0, minor bumps cover features and
+patch bumps cover fixes. Do not tag from the PR; tagging follows after the
+release lands on `main`.
+
 ## Rules
 
 1. **Write a failing test first.** Each feature and each bug fix starts with
