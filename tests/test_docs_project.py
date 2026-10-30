@@ -91,11 +91,21 @@ def plant_docsearch(repo: Path) -> None:
         "from docsearch.judge import score\n"
         "from docsearch.decider import choose\n",
     )
-    _write(pkg / "notes.py", '"""Scratch notes that nothing imports."""\ndef scratch():\n    return None\n')
+    _write(
+        pkg / "notes.py",
+        '"""Scratch notes that nothing imports."""\ndef scratch():\n    return None\n',
+    )
 
 
 def _forbid_cairnkit(repo: Path) -> None:
-    banned = ("agent-session", "fact-lifecycle", "fact store", "memory session", "memory-bank", "cairnkit")
+    banned = (
+        "agent-session",
+        "fact-lifecycle",
+        "fact store",
+        "memory session",
+        "memory-bank",
+        "cairnkit",
+    )
     for path in state_dir(repo).rglob("*.md"):
         text = path.read_text(encoding="utf-8").lower()
         for word in banned:
