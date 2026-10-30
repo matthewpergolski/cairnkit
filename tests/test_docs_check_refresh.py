@@ -40,3 +40,35 @@ def test_repo_line_when_post_merge_lacks_docs_check_marker(repo):
     assert githook.DOCS_CHECK_MARK in text
     assert "docs --check" in text
     assert refresh.repo_line(project, None) is None
+
+
+def _stamp_current(repo) -> None:
+    _stamp_path(repo).write_text(
+        json.dumps({"version": __version__, "at": "2026-10-30T00:00:00+00:00", "blocks": []})
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_post_merge(repo, body: str):
+    hook = repo / ".git" / "hooks" / "post-merge"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(f"#!/bin/sh\n{githook.START}\n{body}{githook.END}\n")
+    return hook
+
+
+def test_repo_line_when_the_marker_is_present_but_the_command_is_not(repo):
+    assert main(["init"]) == 0
+    _write_post_merge(repo, f"{githook.DOCS_CHECK_MARK}\necho quiet\n")
+    _stamp_current(repo)
+    line = refresh.repo_line(find_project(), None)
+    assert line and "memory init --refresh" in line
+
+
+def test_repo_line_when_the_command_is_present_but_the_marker_is_not(repo):
+    assert main(["init"]) == 0
+    _write_post_merge(repo, 'echo "docs --check"\n')
+    _stamp_current(repo)
+    line = refresh.repo_line(find_project(), None)
+    assert line and "memory init --refresh" in line
+    assert githook.DOCS_CHECK_MARK not in (repo / ".git" / "hooks" / "post-merge").read_text()

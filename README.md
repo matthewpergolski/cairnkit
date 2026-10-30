@@ -137,9 +137,10 @@ and `memory update` does not pull it.
 
 `memory status` and the session start show one line when the source is
 newer. They show another line when this repo's hooks and rules block come
-from an older version. Then run `memory init --refresh`. It rewrites them in
-place. Each repo catches up the next time it is used. An update never touches
-memory folders. Details: [docs/update.md](docs/update.md).
+from an older version, or when the local post-merge hook holds a cairnkit
+block that has no docs check. Then run `memory init --refresh`. It rewrites
+them in place. Each repo catches up the next time it is used. An update
+never touches memory folders. Details: [docs/update.md](docs/update.md).
 
 An install from before the rename to cairnkit (`project-memory`) cannot
 update itself, and its hooks call the old tool. Move it in this order:

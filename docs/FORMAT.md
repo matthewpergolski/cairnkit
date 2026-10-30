@@ -373,9 +373,9 @@ When `version` is lower than the running tool, the session start prints one
 line that asks for `memory init --refresh`. The same line appears when the
 local `post-merge` hook holds a cairnkit block that either lacks
 `# cairnkit:docs-check` or lacks `docs --check`, even when `version` equals
-the running tool. A release that changes a block or hook raises the version,
-except this post-merge docs check. The comment in the hook is the signal,
-so that addition does not raise the version.
+the running tool. A release that changes a block or hook raises the version.
+This post-merge docs check does not. Refresh reads the comment
+`# cairnkit:docs-check` in the hook.
 
 ## 7. The hook commands
 

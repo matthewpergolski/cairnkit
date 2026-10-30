@@ -134,7 +134,7 @@ def wrote_files(project: Project, memdir: Path) -> bool:
 
 
 def repo_line(project: Project, flag: str | None) -> str | None:
-    """One line when this repo's files come from an older memory. Never raises."""
+    """One line when repo files are older, or post-merge lacks the docs check. Never raises."""
     try:
         memdir = _memdir(project, flag)
         if memdir is None:
