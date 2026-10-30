@@ -270,6 +270,7 @@ def _run_hook(hook, repo, env=None):
 def test_post_merge_body_shells_out_to_docs_check():
     text = githook.post_merge_body()
     fresh, quiet = _split_post_merge(text)
+    assert githook.DOCS_CHECK_MARK in fresh
     assert "docs --check" in fresh
     assert STALE_LINE in fresh
     assert "|| true" in fresh

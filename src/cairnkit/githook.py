@@ -131,6 +131,8 @@ def pre_push_body() -> str:
     return quiet_body("pre-push")
 
 
+# refresh.repo_line nudges when a post-merge block lacks this line.
+DOCS_CHECK_MARK = "# cairnkit:docs-check"
 DOCS_CHECK_WARN = "cairnkit: docs/state looks out of date; run memory docs --force"
 _DOCS_CHECK_BUDGET = 1
 _HAS_MEMORY_PROBE = (
@@ -165,13 +167,15 @@ def docs_check_stanza() -> str:
     discarded, and so is this command's stderr, so a missing module stays
     quiet. The page list never reaches the terminal. No ``docs/state``, no
     memory, a current atlas, a probe error, or a timeout prints nothing.
-    The timed command ends in ``|| true``.
+    The timed command ends in ``|| true``. The first line is
+    ``DOCS_CHECK_MARK`` so refresh can see a block from before this stanza.
     """
     py = shlex.quote(sys.executable)
     seconds = _DOCS_CHECK_BUDGET
     script = _docs_check_script()
     run = f'sh -c "$_cairnkit_docs_check" sh {py} </dev/null 2>/dev/null'
     return (
+        f"{DOCS_CHECK_MARK}\n"
         f"if [ -d docs/state ] && [ -x {py} ]; then\n"
         "  _cairnkit_docs_check=$(cat <<'CAIRNKIT_DOCS_CHECK'\n"
         f"{script}"

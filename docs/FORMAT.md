@@ -2,7 +2,7 @@
 
 This page specifies the files that cairnkit reads and writes. It is precise
 enough to write another implementation of the `memory` command in another
-language. It describes version 0.2.1.
+language. It describes version 0.2.0.
 
 For what each kind and scope means, see [memory-types.md](memory-types.md).
 
@@ -321,13 +321,16 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   with `|| true`. It does not read the hook arguments. It never fails the
   push. Not part of the shared option.
 - `post-merge`: that same quiet tidy block, after a docs check that runs
-  only when `docs/state` is a directory and `PY` is executable. The check
-  asks `PY -c` whether `has_memory(find_project(), None)` is true, and
-  discards that probe's stdout and stderr. A false or failed probe skips
-  the rest. Otherwise it runs `PY -m cairnkit docs --check`, captures that
-  command's stdout, and discards its stderr. The bound is 1 second
-  (`timeout -k 1 1`, or `gtimeout`, or `perl` `alarm 1`). When the check
-  exits 1 and the captured stdout is not empty, the hook prints
+  only when `docs/state` is a directory and `PY` is executable. The docs
+  check half begins with the line `# cairnkit:docs-check` so
+  `memory init --refresh` can tell an older post-merge body apart without a
+  package version bump. The check asks `PY -c` whether
+  `has_memory(find_project(), None)` is true, and discards that probe's
+  stdout and stderr. A false or failed probe skips the rest. Otherwise it
+  runs `PY -m cairnkit docs --check`, captures that command's stdout, and
+  discards its stderr. The bound is 1 second (`timeout -k 1 1`, or
+  `gtimeout`, or `perl` `alarm 1`). When the check exits 1 and the captured
+  stdout is not empty, the hook prints
   `cairnkit: docs/state looks out of date; run memory docs --force`
   on its own stdout. It does not print the page list. The timed command
   ends with `|| true`. The hook writes nothing and never fails the merge.
@@ -367,8 +370,12 @@ and hooks of this repo:
 
 `blocks` lists the files that got a rules block, relative to the checkout.
 When `version` is lower than the running tool, the session start prints one
-line that asks for `memory init --refresh`. A release that changes any block
-or hook raises the version.
+line that asks for `memory init --refresh`. The same line appears when the
+local `post-merge` hook holds a cairnkit block that either lacks
+`# cairnkit:docs-check` or lacks `docs --check`, even when `version` equals
+the running tool. A release that changes a block or hook raises the version,
+except this post-merge docs check. The comment in the hook is the signal,
+so that addition does not raise the version.
 
 ## 7. The hook commands
 
