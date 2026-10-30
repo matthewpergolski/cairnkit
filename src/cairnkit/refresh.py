@@ -18,7 +18,14 @@ from cairnkit.paths import Project, resolve_memory_dir
 from cairnkit.skills import is_behind
 
 STAMP = "tool-version.json"
-BLOCK_FILES = ("AGENTS.md", "AGENTS.local.md", "CLAUDE.md", "CLAUDE.local.md")
+# Untracked block homes only. Tracked CLAUDE.md / AGENTS.md are migrated out, not refreshed.
+BLOCK_FILES = (
+    "AGENTS.local.md",
+    "CLAUDE.local.md",
+    "AGENTS.override.md",
+    ".cursor/rules/cairnkit.mdc",
+    ".pi/APPEND_SYSTEM.md",
+)
 COMMAND = "memory init --refresh"
 
 
@@ -69,7 +76,10 @@ def _has_block(path: Path) -> bool:
 
 
 def _block_paths(project: Project, memdir: Path) -> list[Path]:
-    rels = sorted(set(BLOCK_FILES) | set(read_stamp(memdir).get("blocks") or []))
+    # Include legacy CLAUDE.md / AGENTS.md so wrote_files still sees old installs.
+    rels = sorted(
+        set(BLOCK_FILES) | {"CLAUDE.md", "AGENTS.md"} | set(read_stamp(memdir).get("blocks") or [])
+    )
     return [checkout / rel for checkout in project.checkouts for rel in rels]
 
 
@@ -136,7 +146,15 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         return 1
     steps: list[str] = []
     broken: list[Path] = []
+    migrate_steps, migrate_broken = instructions.migrate_shared_blocks(
+        project, dry_run, checkouts=project.checkouts
+    )
+    steps += migrate_steps
+    broken += migrate_broken
+    shared_names = {"CLAUDE.md", "AGENTS.md"}
     for path in _block_paths(project, memdir):
+        if path.name in shared_names:
+            continue  # migrated above; never refresh a tracked shared file in place
         result = instructions.replace_block(path, dry_run)
         if result == "updated":
             steps.append(f"update the rules block in {path}")

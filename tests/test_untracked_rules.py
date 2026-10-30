@@ -26,9 +26,11 @@ def test_write_instructions_never_puts_a_block_in_tracked_files(repo):
 
 def test_shared_mode_is_gone(repo, capsys):
     code = main(["init", "--write-instructions=shared"])
-    assert code != 0
-    assert START not in ((repo / "CLAUDE.md").read_text() if (repo / "CLAUDE.md").exists() else "")
-    assert not (repo / "CLAUDE.md").exists() or START not in (repo / "CLAUDE.md").read_text()
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "error:" in out and "shared" in out.lower()
+    assert not (repo / "CLAUDE.md").exists()
+    assert not (repo / "CLAUDE.local.md").exists()
 
 
 def test_migrate_moves_block_out_of_tracked_files_into_local(repo):

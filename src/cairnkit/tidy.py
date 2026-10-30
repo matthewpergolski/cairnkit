@@ -17,7 +17,7 @@ from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
-from cairnkit.rules_target import shared_file
+from cairnkit.rules_target import LOCAL
 from cairnkit.schema import validate_record
 from cairnkit.similar import exact_key
 from cairnkit.state import effective_status
@@ -124,7 +124,7 @@ def build_proposals(memory: Memory, days: int) -> list[Proposal]:
 
     linked = {link["id"] for s in states.values() for link in s.get("links", [])}
     linked |= {s["id"] for s in states.values() if s.get("links")}
-    rules_file = memory.config.get("rules_file") or shared_file(memory.project.root)
+    rules_file = memory.config.get("rules_file") or LOCAL
     for state in sorted(active, key=lambda s: s["id"]):
         if state.get("scope", "long") != "long":
             continue
@@ -144,7 +144,7 @@ def build_proposals(memory: Memory, days: int) -> list[Proposal]:
                 "id": state["id"],
                 "status": "promoted",
                 "held_by": rules_file,
-                "reason": f"Moved into the shared rules file {rules_file}.",
+                "reason": f"Moved into the local rules file {rules_file}.",
             }
             proposals.append(
                 Proposal(
@@ -237,17 +237,28 @@ def run_tidy(memory: Memory, days: int, apply: list[str] | None) -> int:
                 print(f"error: {pid}: {'; '.join(problems)}")
                 return 1
             records.append(record)
+    from cairnkit.ignore import exclude, is_tracked
+
     rule_files = [
-        (memory.project.root / by_id[pid].changes[0]["held_by"], by_id[pid].rule_text)
+        (by_id[pid].changes[0]["held_by"], by_id[pid].rule_text)
         for pid in apply
         if by_id[pid].rule_text
     ]
-    for path, _ in rule_files:
+    for rel, _ in rule_files:
+        if is_tracked(memory.project, rel):
+            print(
+                f"error: {rel} is tracked by git. Set rules_file in config.toml to an "
+                f"untracked file such as {LOCAL}. Nothing was applied."
+            )
+            return 1
+        path = memory.project.root / rel
         if rules_block_broken(path):
             print(markers.broken_message(path, "memory tidy --apply"))
             return 1
-    for path, text in rule_files:
+    for rel, text in rule_files:
+        path = memory.project.root / rel
         add_rule(path, text)
+        exclude(memory.project, [rel])
     append_records(memory.writer_file(WRITER), records)
     print(f"applied {len(apply)} proposal(s): {len(records)} change record(s)")
     return 0

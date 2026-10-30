@@ -97,23 +97,19 @@ It is not:
 | Claude Code | Hook adapter: `.claude/settings.local.json` (`SessionStart`, `Stop`). | Checked against the public docs. |
 | Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). | **Experimental.** Project hooks run only in a trusted project. |
 | Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). | **Experimental.** Cloud agents do not run `sessionStart`. |
-| OpenCode | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
-| Pi | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
-| Grok Build | No hook adapter. It reads `AGENTS.md`. After `memory hooks install`, auto-tidy still runs after a push or a merge. | Not built. Set up the rules block by hand (below). |
+| OpenCode | No hook adapter. No stable untracked project rules file. | Gap: see [docs/layering.md](docs/layering.md). |
+| Pi | No hook adapter. `--write-instructions` also writes untracked `.pi/APPEND_SYSTEM.md`. | Local rules path only. |
+| Grok Build | No hook adapter. Reads `CLAUDE.local.md` (same file Claude Code uses). | Local rules path only. |
 | Any other agent | `memory hooks install --agent generic` prints the two commands to connect by hand. | Manual. |
 
-For an agent with no hook, such as OpenCode, Pi or Grok Build:
-
-1. Run `memory instructions --write-instructions=shared`. It writes the rules
-   block into the tracked file your repo has: `CLAUDE.md`, or `AGENTS.md` if
-   that is the only one. In a repo with neither, it creates `CLAUDE.md` and a
-   short `AGENTS.md` that points to it. (Plain `--write-instructions` writes
-   `CLAUDE.local.md`, which these tools may not read.)
-2. Make sure `AGENTS.md` exists and points to the file that holds the block.
-   Then add this line to that file by hand, outside the markers:
-   "Run `memory load` at session start." The block itself says that a hook
-   runs `memory load`, and these tools have no hook. Auto-tidy still runs
-   after a push or a merge. That does not load the memory.
+For an agent with no hook: run `memory instructions --write-instructions`.
+It writes the rules block only to untracked files (`CLAUDE.local.md`, plus
+harness copies such as `AGENTS.override.md`, `.cursor/rules/cairnkit.mdc`,
+and `.pi/APPEND_SYSTEM.md`, all via `.git/info/exclude`). It never writes a
+cairnkit block into tracked `CLAUDE.md` or `AGENTS.md`. Where a harness has
+no untracked load path (OpenCode today), do not fall back to a tracked write;
+connect with hooks or a local config you own. Auto-tidy after a push or merge
+still runs once hooks are installed; that does not load the memory.
 
 Details: [Agent hooks](#agent-hooks) and [docs/layering.md](docs/layering.md).
 
@@ -402,24 +398,17 @@ no check fails when one is broken. `memory load` shows the two groups apart.
 
 Once you add a preset, its rules live in memory. Every session loads them
 first. Nothing is written to a tracked file. An instruction for every
-contributor still belongs in `CLAUDE.md` or `AGENTS.md` (see the next section).
+contributor still belongs in hand-written `CLAUDE.md` or `AGENTS.md` (see the
+next section). The cairnkit rules block itself stays local:
+`memory instructions --write-instructions` writes `CLAUDE.local.md` (and
+untracked harness copies) and moves any old cairnkit block out of tracked
+files. Cloning a repo never needs cairnkit for those files; the only
+committed cairnkit output is optional Nessa Docs pages under `docs/state/`.
 
-The memory is private, so people who clone the project do not see these
-facts. A team that wants to share the rules can opt in. Neither step is part
-of the normal setup:
-
-- `memory instructions --write-instructions=shared` writes the rules block into
-  the tracked `CLAUDE.md`, or into `AGENTS.md` if that is the only one the repo
-  has, between marker lines. Text outside the markers never changes. In a repo
-  with neither file it creates `CLAUDE.md` and a short `AGENTS.md` that only
-  points to it. It edits an existing `AGENTS.md` only when that is the repo's
-  only rules file (it appends the block) or already holds a block (it
-  refreshes it). With both files, `AGENTS.md` is not touched. It never writes
-  through a link that leaves the repo.
-- `memory hooks install --commit-msg-guard=shared` writes tracked hooks in
-  `.githooks/`. The commit-msg hook refuses AI attribution lines. It needs
-  only `sh` and `grep`. Each clone runs `git config core.hooksPath .githooks`
-  once.
+`memory hooks install --commit-msg-guard=shared` still writes tracked hooks in
+`.githooks/` when a team opts in. The commit-msg hook refuses AI attribution
+lines. It needs only `sh` and `grep`. Each clone runs
+`git config core.hooksPath .githooks` once.
 
 A rule that a tool checks is better than a note anywhere. See
 [docs/greenfield.md](docs/greenfield.md#where-does-each-rule-go).
@@ -436,7 +425,7 @@ Ask one question about each line: is it an **instruction** or a **fact**?
 
 People write the instruction files. A template repo can own them. `memory`
 does not change them unless a person runs
-`memory instructions --write-instructions local|shared` (or one of the few
+`memory instructions --write-instructions` (or one of the few
 commands listed on the page below). The rules about memory itself ship inside
 the tool.
 
@@ -526,7 +515,7 @@ level only. It writes nothing into a repo.
 
 | Command | Who | What it does |
 |---|---|---|
-| `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local\|shared]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. With `--write-instructions`, also writes the rules block: local to `CLAUDE.local.md`, shared to the `CLAUDE.md` or `AGENTS.md` the repo has. |
+| `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. With `--write-instructions`, writes the rules block to untracked `CLAUDE.local.md` (and harness copies) and moves any cairnkit block out of tracked `CLAUDE.md` / `AGENTS.md`. `shared` is refused. |
 | `memory migrate [--yes] [--fix-references] [--from DIR] [--path DIR] [--preset NAME ...] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`. `--untrack` stages the removal of a tracked old folder; nothing is committed. `--fix-references` rewrites exact old paths (`memory-bank/X` to `memory-bank/notes/X`) in top-level and `docs/` `*.md` files and adds the memory hooks where a hook runs the old checker (working tree only, never committed). What is left goes to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds you until it is done. |
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--adopt\|--all] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Status includes installed/available skill counts. Plan by default; `--yes` acts. `--adopt` (or `--all`) replaces same-named folders so every pstack skill is installed. |

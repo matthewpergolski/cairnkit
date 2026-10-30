@@ -32,9 +32,9 @@ CONFIG = """\
 # Days until a short-term fact expires, when it has no expires_at.
 short_term_days = 14
 
-# The shared, tracked rules file. `memory tidy` proposes durable facts for it.
-# Unset, it is CLAUDE.md if the repo has one, else AGENTS.md, else CLAUDE.md.
-# rules_file = "CLAUDE.md"
+# The untracked rules file. `memory tidy` proposes durable facts for it.
+# Unset, it is CLAUDE.local.md. Must stay out of git.
+# rules_file = "CLAUDE.local.md"
 
 # What the session-start hook does with facts that are clearly redundant (exact
 # repeats, ended short-term facts). The same step runs after a git push or

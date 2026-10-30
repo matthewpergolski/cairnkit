@@ -198,9 +198,10 @@ def test_apply_unknown_id_writes_nothing(mem, capsys, monkeypatch):
     assert not (mem / "facts" / "tidy.jsonl").exists()
 
 
-def test_pinned_long_fact_is_proposed_for_the_shared_rules(repo, mem, capsys, monkeypatch):
+def test_pinned_long_fact_is_proposed_for_the_local_rules(repo, mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
-    (repo / "AGENTS.md").write_text("# Rules\n\nKeep this line.\n")
+    (repo / "CLAUDE.local.md").write_text("# Rules\n\nKeep this line.\n")
+    (repo / "AGENTS.md").write_text("# Agents\n")
     write_facts(
         mem,
         [
@@ -213,11 +214,12 @@ def test_pinned_long_fact_is_proposed_for_the_shared_rules(repo, mem, capsys, mo
     assert "rule" in out
     [pid] = ids(out)
     assert main(["tidy", "--apply", pid]) == 0
-    text = (repo / "AGENTS.md").read_text()
+    text = (repo / "CLAUDE.local.md").read_text()
     assert text.startswith("# Rules\n\nKeep this line.\n")
     assert "Never clear the dev database blind." in text
+    assert (repo / "AGENTS.md").read_text() == "# Agents\n"
     last = read_jsonl(mem / "facts" / "tidy.jsonl")[-1]
-    assert last["status"] == "promoted" and last["held_by"] == "AGENTS.md"
+    assert last["status"] == "promoted" and last["held_by"] == "CLAUDE.local.md"
     capsys.readouterr()
     assert main(["check"]) == 0
 
@@ -237,15 +239,15 @@ def test_apply_refuses_a_broken_rules_block_and_changes_nothing(
 ):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     text = BROKEN_RULES[case]
-    (repo / "AGENTS.md").write_text(text)
+    (repo / "CLAUDE.local.md").write_text(text)
     fact = make_fact("f-20261001-0001", "Never clear the dev database blind.", pinned=True)
     write_facts(mem, [{**fact, "kind": "trap"}])
     _, out = tidy(capsys)
     [pid] = ids(out)
     code, out = tidy(capsys, "--apply", pid)
     assert code == 1
-    assert "AGENTS.md" in out and "by hand" in out
-    assert (repo / "AGENTS.md").read_text() == text
+    assert "CLAUDE.local.md" in out and "by hand" in out
+    assert (repo / "CLAUDE.local.md").read_text() == text
     assert not (mem / "facts" / "tidy.jsonl").exists()
 
 

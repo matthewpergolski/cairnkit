@@ -30,26 +30,25 @@ def test_init_does_not_write_instructions_by_default(repo):
 
 def test_write_instructions_adds_one_marked_block(repo):
     (repo / "AGENTS.md").write_text("# Rules\n\nBe kind.\n")
-    assert main(["init", "--write-instructions=shared"]) == 0
-    assert main(["init", "--write-instructions=shared"]) == 0
-    text = (repo / "AGENTS.md").read_text()
-    assert text.startswith("# Rules\n\nBe kind.\n")
+    assert main(["init", "--write-instructions"]) == 0
+    assert main(["init", "--write-instructions"]) == 0
+    assert (repo / "AGENTS.md").read_text() == "# Rules\n\nBe kind.\n"
+    text = (repo / "CLAUDE.local.md").read_text()
     assert text.count(START) == 1 and text.count(END) == 1
     assert "memory add" in text
 
 
-def test_write_instructions_replaces_an_old_block(repo):
+def test_write_instructions_migrates_an_old_block_out_of_tracked(repo):
     (repo / "AGENTS.md").write_text(f"top\n{START}\nold text\n{END}\nbottom\n")
-    assert main(["init", "--write-instructions=shared"]) == 0
+    assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
-    assert "old text" not in text
+    assert "old text" not in text and START not in text
     assert text.startswith("top\n") and text.endswith("bottom\n")
+    assert START in (repo / "CLAUDE.local.md").read_text()
 
 
 def test_instructions_file_can_be_chosen(repo):
-    assert (
-        main(["init", "--write-instructions=shared", "--instructions-file", "docs/RULES.md"]) == 0
-    )
+    assert main(["init", "--write-instructions", "--instructions-file", "docs/RULES.md"]) == 0
     assert START in (repo / "docs" / "RULES.md").read_text()
 
 
@@ -82,9 +81,10 @@ def test_local_file_can_be_chosen(repo):
 def test_text_outside_the_block_is_never_changed(repo):
     body = "# Rules\n\nKeep this.\n"
     (repo / "AGENTS.md").write_text(body + START + "\nold\n" + END + "\n\nAfter.\n")
-    assert main(["init", "--write-instructions=shared"]) == 0
+    assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
     assert text.startswith(body) and text.endswith("\nAfter.\n")
+    assert START not in text
 
 
 def test_local_mode_refuses_a_tracked_file(repo):

@@ -34,9 +34,12 @@ that every contributor needs can move into an instruction file later, through
 
 | Place | What it holds | Tracked | Who reads it |
 |---|---|---|---|
-| `CLAUDE.md` | The project's instructions. Write them once, here. This is the default home of the rules block. | Yes | Claude Code. |
-| `AGENTS.md` | A short file that points at `CLAUDE.md`, for the agent tools that read `AGENTS.md`. A project that already keeps its instructions here can keep them here. | Yes | Every agent tool that reads `AGENTS.md`. |
-| `CLAUDE.local.md` | Private instructions for this checkout: a local port, a local path, a test device. | No. Keep it out of git, for example in `.git/info/exclude`. | Claude Code, in this checkout. |
+| `CLAUDE.md` | Hand-written project instructions. cairnkit never puts its marked block here. | Yes | Claude Code; Grok Build. |
+| `AGENTS.md` | Hand-written project instructions for tools that read `AGENTS.md`. | Yes | Codex, OpenCode, Pi, Cursor, and others that read `AGENTS.md`. |
+| `CLAUDE.local.md` | The cairnkit rules block, plus private checkout notes. | No. `.git/info/exclude`. | Claude Code; Grok Build. |
+| `AGENTS.override.md` | Untracked Codex copy of the rules block (replaces `AGENTS.md` in that directory). | No | Codex. |
+| `.cursor/rules/cairnkit.mdc` | Untracked Cursor project rule (`alwaysApply`). | No | Cursor. |
+| `.pi/APPEND_SYSTEM.md` | Untracked Pi append to the system prompt. | No | Pi (after project trust). |
 | The agent tool's user-level rules file | Your personal instructions for every project. | Outside any repo | You, in all projects. |
 | Memory (`memory-bank`, a link to `../<project>.memory/`) | Facts: dated, replaceable, searchable, private. | Never | You and your agents, in this project. |
 
@@ -99,15 +102,16 @@ not change it. It prints the lines to add by hand.
 ### What memory does not change
 
 `memory` does not write `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` by
-default. These commands write an instruction file. A person runs each one:
+default. A person runs `--write-instructions` when they want the rules block:
 
-- `memory instructions --write-instructions local` writes the rules block to
-  `CLAUDE.local.md`, which Claude Code reads. The tool adds that file to
-  `.git/info/exclude`. It refuses a file that git tracks, and a
-  `CLAUDE.local.md` that is a link to a tracked file. It never writes through
-  such a link. Older versions wrote `AGENTS.local.md`. The tool does not move
-  or delete that file. It prints a note, and `memory init --refresh` keeps
-  updating the block in it.
+- `memory instructions --write-instructions` (local only) writes the rules
+  block to `CLAUDE.local.md` and untracked harness copies
+  (`AGENTS.override.md` for Codex, `.cursor/rules/cairnkit.mdc` for Cursor,
+  `.pi/APPEND_SYSTEM.md` for Pi). Each path goes into `.git/info/exclude`.
+  It refuses a file that git tracks, and a local file that is a link to a
+  tracked file. It never writes through such a link. Older versions wrote
+  `AGENTS.local.md`. The tool does not move or delete that file. It prints a
+  note, and `memory init --refresh` keeps updating the block in it.
   - Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`,
     `.claude/CLAUDE.md` or `CLAUDE.local.md`. When `AGENTS.md` is a real file
     and the repo has no `CLAUDE.md` or `.claude/CLAUDE.md`, a new
@@ -116,45 +120,26 @@ default. These commands write an instruction file. A person runs each one:
     prints a note. A later local write adds the line to an older file that
     lacks it. `memory init --refresh` and later writes keep it, and never add
     it twice. The tool does not add it when `CLAUDE.local.md` is `AGENTS.md`
-    itself. It never puts the line in the shared block or in the pointer
-    `AGENTS.md`.
-- `memory instructions --write-instructions shared` writes the rules block to
-  one tracked file, picked by what the repo has:
-  - `CLAUDE.md`, if it exists (also when `AGENTS.md` exists);
-  - else `AGENTS.md`, if it exists;
-  - else it creates `CLAUDE.md`, and a short `AGENTS.md` that only says the
-    project rules live in `CLAUDE.md`.
-
-  A file that already holds a block keeps it: the block is refreshed there.
-  The block sits between the marker lines `<!-- cairnkit:start -->` and
-  `<!-- cairnkit:end -->`. The first run adds the block at the end of the
-  file. Each later run replaces the block in place. It never adds a second
-  block. Text outside the markers does not change. The tool edits an existing
-  `AGENTS.md` in two cases only: it is the only rules file (the block is
-  appended), or it already holds a block (the block is refreshed). In a repo
-  with both files, `AGENTS.md` is not touched. If it does not mention
-  `CLAUDE.md`, the tool prints a hint: add `@AGENTS.md` at the top of
-  `CLAUDE.md` if Claude Code should load those instructions, because Claude
-  Code skips `AGENTS.md` when a `CLAUDE.md` exists. Tools that read only
-  `AGENTS.md` will not see the block unless `AGENTS.md` points to `CLAUDE.md`.
-  The tool never edits a hand-written `CLAUDE.md` outside the block.
-  - A shared write refuses a file that resolves outside the repo, for example
-    a `CLAUDE.md` that is a link to a file in your home folder. It prints an
-    error and writes nothing.
-  - If `CLAUDE.md` and `AGENTS.md` are one file (one links to the other), the
-    tool treats them as one rules file. A symlink loop is an error, and
-    nothing is written.
-- Both modes print which of `CLAUDE.md`, `AGENTS.md` and `CLAUDE.local.md` they
-  found and where the block goes, also with `--dry-run`.
-- `--instructions-file PATH` picks another file for either mode. It overrides
-  the choice above.
-- `memory init --write-instructions local|shared` does the same at init.
-- `memory init --refresh` replaces the rules block in place in each file that
-  already holds it. It never adds a block. See [Updating memory](update.md).
+    itself.
+  - Any cairnkit block already in tracked `CLAUDE.md` or `AGENTS.md` is moved
+    out into `CLAUDE.local.md`. Hand-written text outside the markers stays.
+  - `--write-instructions=shared` is refused. Cloning never needs cairnkit for
+    instruction files; the only committed cairnkit output is optional Nessa
+    Docs pages under `docs/state/`.
+  - **OpenCode gap:** OpenCode has no stable untracked project rules file. It
+    loads committed `AGENTS.md` and optional `instructions` paths from
+    `opencode.json`. Do not fall back to a tracked cairnkit write.
+- `--instructions-file PATH` picks another untracked file. Tracked paths are
+  refused.
+- `memory init --write-instructions` does the same at init.
+- `memory init --refresh` moves cairnkit blocks out of tracked `CLAUDE.md` /
+  `AGENTS.md`, then replaces the block in place in each untracked file that
+  already holds it. It never adds a block to a tracked shared file. See
+  [Updating memory](update.md).
 - `memory tidy --apply ID`, for a rule proposal, adds one line to a second
-  marked block (`<!-- cairnkit:rules:start -->`) in the shared rules
-  file. Unless `rules_file` in `config.toml` names one, that is `CLAUDE.md`
-  if the repo has it, else `AGENTS.md`, else `CLAUDE.md`.
+  marked block (`<!-- cairnkit:rules:start -->`) in the local rules file.
+  Unless `rules_file` in `config.toml` names one, that is `CLAUDE.local.md`.
+  A tracked `rules_file` is refused.
 - `memory migrate --yes --fix-references` rewrites exact old memory paths in
   the top-level `*.md` files and in `docs/`. These can include `CLAUDE.md` and
   `AGENTS.md`. It changes the working tree only. It never commits.
@@ -179,32 +164,31 @@ Memory is the piece that you add to a project made from the template:
 4. Do not commit the memory. Facts, notes and status stay untracked. Only the
    instruction files and the preset file are tracked.
 5. When an agent tool has no hook adapter, run
-   `memory instructions --write-instructions shared`. Then add one line to
-   `AGENTS.md`, outside the markers: "Run `memory load` at session start."
-   (see [What each agent tool reads](#what-each-agent-tool-reads)).
+   `memory instructions --write-instructions` so the untracked local files
+   hold the rules block. Tell the agent (in hand-written instructions or the
+   local file) to run `memory load` at session start when the harness has no
+   hook (see [What each agent tool reads](#what-each-agent-tool-reads)).
 
 So the template and memory do not overlap. The template says how to work.
 Memory records what happened and what is true now.
 
 ## What each agent tool reads
 
-| Agent tool | Hook adapter in `memory` | How it learns about memory | Status |
+| Agent tool | Hook adapter in `memory` | Untracked rules path | Status |
 |---|---|---|---|
-| Claude Code | `.claude/settings.local.json` | The session-start hook. | Built. Checked against the public docs. |
-| Codex | `.codex/hooks.json` | The session-start hook. | Built, **experimental**. Project hooks run only in a trusted project, after you review them in `/hooks`. |
-| Cursor | `.cursor/hooks.json` | The session-start hook. | Built, **experimental**. Cloud agents do not run `sessionStart`. |
-| Grok CLI | None | Its docs say that it reads `.cursor/hooks.json` and `~/.claude/settings.json`, and that it has its own `.grok/hooks/`. Whether it runs the Cursor hooks that `memory` writes is not known. | **Not verified here. Not built.** |
-| Pi | None | Only the rules block in `AGENTS.md`. Auto-tidy still runs after a push or a merge once `memory hooks install` has run. | No hook adapter yet. |
-| OpenCode | None | The same as Pi. | No hook adapter yet. |
-| Any other tool | None. `memory hooks install --agent generic` prints the commands to connect by hand. | The commands, or the rules block. | Connect by hand. |
+| Claude Code | `.claude/settings.local.json` | `CLAUDE.local.md` | Built. Checked against the public docs. |
+| Codex | `.codex/hooks.json` | `AGENTS.override.md` (replaces `AGENTS.md` in that directory) | Built, **experimental**. |
+| Cursor | `.cursor/hooks.json` | `.cursor/rules/cairnkit.mdc` | Built, **experimental**. Cloud agents do not run `sessionStart`. |
+| Grok Build | None | `CLAUDE.local.md` (also listed in Grok's discovery names) | No hook adapter. Docs also say gitignored files are skipped during discovery while recommending `CLAUDE.local.md` in `.gitignore`; cairnkit uses `.git/info/exclude` instead. |
+| Pi | None | `.pi/APPEND_SYSTEM.md` | No hook adapter yet. |
+| OpenCode | None | **Gap:** no stable untracked project rules file without a tracked `opencode.json` `instructions` entry or a plugin. | No hook adapter. Do not write a tracked cairnkit block. |
+| Any other tool | None. `memory hooks install --agent generic` prints the commands to connect by hand. | Connect by hand. | Manual. |
 
 A tool without a hook gets memory only when its instructions tell it to run
 `memory load`. The rules block says that a hook runs `memory load`, and it
-tells the agent to run `memory check --strict` before it finishes. A tool
-with no hook does not run `memory load` by itself. So add the line
-"Run `memory load` at session start." to `AGENTS.md`, outside the markers.
-Auto-tidy still runs after a push or a merge. That step does not load the
-memory. The git hooks are personal to this clone.
+tells the agent to run `memory check --strict` before it finishes. Auto-tidy
+still runs after a push or a merge. That step does not load the memory. The
+git hooks are personal to this clone.
 
 ## Built
 

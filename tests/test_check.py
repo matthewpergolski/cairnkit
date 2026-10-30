@@ -163,14 +163,13 @@ def test_other_words_or_facts_are_not_flagged(repo, mem, capsys, records):
 
 
 def test_the_block_that_memory_writes_is_not_a_duplicate(repo, capsys):
-    assert main(["init", "--preset", "commits", "--write-instructions=shared"]) == 0
-    assert "cairnkit:start" in (repo / "CLAUDE.md").read_text()
+    assert main(["init", "--preset", "commits", "--write-instructions"]) == 0
+    assert "cairnkit:start" in (repo / "CLAUDE.local.md").read_text()
     capsys.readouterr()
     assert main(["check", "--strict"]) == 0, capsys.readouterr().out
     from cairnkit.rules import GUARDED
 
-    with (repo / "AGENTS.md").open("a") as fh:
-        fh.write(f"\n- {GUARDED}\n")
+    (repo / "AGENTS.md").write_text(f"# Agents\n\n- {GUARDED}\n")
     lines = (repo / "AGENTS.md").read_text().splitlines()
     capsys.readouterr()
     assert main(["check", "--strict"]) == 1
@@ -180,13 +179,15 @@ def test_the_block_that_memory_writes_is_not_a_duplicate(repo, capsys):
 
 
 def test_a_start_marker_without_an_end_runs_to_the_end_of_the_file(repo, capsys):
-    from cairnkit.instructions import END
+    from cairnkit.instructions import END, START
     from cairnkit.rules import GUARDED
 
-    assert main(["init", "--preset", "commits", "--write-instructions=shared"]) == 0
-    agents = repo / "AGENTS.md"
-    text = agents.read_text().replace(END + "\n", "")
-    agents.write_text(f"# Agents\n\n- {GUARDED}\n\n{text}")
+    assert main(["init", "--preset", "commits", "--write-instructions"]) == 0
+    local = repo / "CLAUDE.local.md"
+    text = local.read_text().replace(END + "\n", "")
+    local.write_text(text)
+    agents = f"# Agents\n\n- {GUARDED}\n\n{START}\ntruncated from a lost end\n"
+    (repo / "AGENTS.md").write_text(agents)
     capsys.readouterr()
     assert main(["check", "--strict"]) == 1
     out = capsys.readouterr().out

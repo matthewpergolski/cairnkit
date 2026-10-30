@@ -15,25 +15,28 @@ def stamp(repo):
     return json.loads((repo.parent / "proj.memory" / refresh.STAMP).read_text())
 
 
-def test_refresh_replaces_the_rules_block_once_and_the_file_does_not_grow(repo, capsys):
+def test_refresh_migrates_tracked_blocks_and_leaves_hand_written_text(repo, capsys):
     assert main(["init"]) == 0
     agents = repo / "AGENTS.md"
     agents.write_text(f"# Team rules\n\nUse uv.\n\n{OLD_BLOCK}\nMore team text.\n")
     claude = repo / "CLAUDE.md"
     claude.write_text("@AGENTS.md\n")
+    local = repo / "CLAUDE.local.md"
+    local.write_text(f"# Mine\n\n{OLD_BLOCK}")
     assert main(["init", "--refresh"]) == 0
     first = agents.read_text()
-    assert first.count(instructions.START) == 1
-    assert first.count(instructions.END) == 1
-    assert instructions.block() in first
+    assert instructions.START not in first
     assert "Old text." not in first
     assert first.startswith("# Team rules\n\nUse uv.\n\n")
     assert first.endswith("\nMore team text.\n")
+    assert local.read_text().startswith("# Mine\n\n")
+    assert instructions.block() in local.read_text()
     for _ in range(2):
         assert main(["init", "--refresh"]) == 0
         assert agents.read_text() == first
     assert claude.read_text() == "@AGENTS.md\n"  # no markers: never appended
-    assert "update the rules block" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "remove the rules block" in out and "update the rules block" in out
 
 
 def test_refresh_leaves_a_broken_block_alone_and_says_so(repo, capsys):
@@ -74,7 +77,7 @@ def test_refresh_dry_run_changes_nothing(repo, capsys):
     agents.write_text(OLD_BLOCK)
     assert main(["init", "--refresh", "--dry-run"]) == 0
     assert agents.read_text() == OLD_BLOCK
-    assert "would update the rules block" in capsys.readouterr().out
+    assert "would remove the rules block" in capsys.readouterr().out
     assert not (repo.parent / "proj.memory" / refresh.STAMP).exists()
 
 
@@ -84,13 +87,16 @@ def test_refresh_needs_a_memory(repo, capsys):
 
 
 def test_writing_the_block_or_hooks_records_the_tool_version(repo):
+    from cairnkit import harness_local
+
     assert main(["init"]) == 0
     assert main(["instructions", "--write-instructions", "local"]) == 0
     record = stamp(repo)
     assert record["version"] == __version__
-    assert record["blocks"] == ["CLAUDE.local.md"]
+    expected = sorted(["CLAUDE.local.md", *harness_local.rels()])
+    assert record["blocks"] == expected
     assert main(["hooks", "install", "--agent", "claude"]) == 0
-    assert stamp(repo)["blocks"] == ["CLAUDE.local.md"]
+    assert stamp(repo)["blocks"] == expected
 
 
 def test_repo_line_shows_when_the_files_are_older_than_the_tool(repo, monkeypatch):
@@ -143,12 +149,11 @@ def test_write_instructions_refuses_a_lost_end_marker(repo, capsys):
     text = f"# Team\n\n{instructions.START}\nOld text, the end marker is lost.\n"
     agents.write_text(text)
     for _ in range(2):
-        assert main(["instructions", "--write-instructions", "shared"]) == 1
+        assert main(["instructions", "--write-instructions"]) == 1
         assert agents.read_text() == text
     assert "by hand" in capsys.readouterr().out
-    assert (
-        main(["instructions", "--write-instructions", "shared", "--instructions-file", "X.md"]) == 0
-    )
+    agents.write_text("# Team\n")  # clear the broken block so a custom file can write
+    assert main(["instructions", "--write-instructions", "--instructions-file", "X.md"]) == 0
     assert (repo / "X.md").read_text().count(instructions.START) == 1
 
 

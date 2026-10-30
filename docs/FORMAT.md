@@ -206,7 +206,7 @@ A reader computes the status of a fact; it does not only read it:
 
 ```toml
 short_term_days = 14          # end of a short-term fact with no expires_at
-# rules_file = "CLAUDE.md"    # shared rules file for `memory tidy`; unset: CLAUDE.md, else AGENTS.md
+# rules_file = "CLAUDE.local.md"  # untracked rules file for `memory tidy`; unset: CLAUDE.local.md
 auto_tidy = "auto"            # "auto", "report" (only say), "on" (retire) or "off"
 skills_check = true           # false: no advisory line about the pstack skills (also init, migrate)
 skills_auto_update = false    # true: session start installs or updates pstack (user level)
@@ -237,12 +237,12 @@ Marker rules for every block:
 
 ### Rules block for agents
 
-Files: `CLAUDE.md`, `AGENTS.md`, `CLAUDE.local.md` (the local default),
-`AGENTS.local.md` (older versions), or a file that a person names.
-
-Shared mode picks the file: one that already holds a block, else `CLAUDE.md`
-if it exists, else `AGENTS.md` if it exists, else a new `CLAUDE.md` plus a
-short `AGENTS.md` that points to it. Local mode writes `CLAUDE.local.md`.
+Files: `CLAUDE.local.md` (the default), untracked harness copies
+(`AGENTS.override.md`, `.cursor/rules/cairnkit.mdc`, `.pi/APPEND_SYSTEM.md`),
+`AGENTS.local.md` (older versions), or an untracked file that a person names.
+Tracked `CLAUDE.md` and `AGENTS.md` never receive a new cairnkit block. A
+write or refresh moves any existing cairnkit block out of those files into
+`CLAUDE.local.md`, leaving hand-written text.
 
 | | Start | End |
 |---|---|---|
@@ -251,7 +251,8 @@ short `AGENTS.md` that points to it. Local mode writes `CLAUDE.local.md`.
 
 The block is the start marker line, the text of `memory instructions`, and
 the end marker line. A new block goes at the end of the file, after one blank
-line. `memory init --refresh` only replaces a block that exists.
+line. `memory init --refresh` only replaces a block that exists in an
+untracked file; it migrates blocks out of tracked shared files.
 
 A reader that looks for hand-written rules in these files skips the block,
 from a line that is a start marker to the line that is its end marker. A start
@@ -259,8 +260,8 @@ marker with no end marker runs to the end of the file.
 
 ### Rules block of `memory tidy`
 
-File: `rules_file` from `config.toml`. Unset, it is `CLAUDE.md` if it exists,
-else `AGENTS.md` if it exists, else `CLAUDE.md`.
+File: `rules_file` from `config.toml`. Unset, it is `CLAUDE.local.md`. A
+tracked path is refused.
 
 | | Start | End |
 |---|---|---|
