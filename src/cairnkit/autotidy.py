@@ -16,8 +16,10 @@ What it retires:
   is in no checkout of the project.
 
 What it never touches: rules, pinned facts, and a fact that a person set back
-to active. A near duplicate and a stale long fact need judgment, so they stay
-with `memory tidy`.
+to active. A near duplicate is retired only when the word overlap is at least
+the near threshold and the counts of numbers, negations and opposites match.
+Otherwise it stays for `memory tidy`. A stale long fact is listed in
+`proposals/stale-pending.md` and is not expired here.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
-from cairnkit.similar import exact_key
+from cairnkit.similar import analyze, exact_key, similarity
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, locked
 
@@ -152,7 +154,83 @@ def find(memory: Memory) -> list[Retirement]:
             found.append(
                 Retirement(old["id"], "duplicate", "superseded", reason, text, newest["id"])
             )
+            taken.add(old["id"])
+    found.extend(_near_duplicates(candidates, taken))
     return sorted(found, key=lambda r: r.id)
+
+
+def _near_duplicates(candidates: list[dict], taken: set[str]) -> list[Retirement]:
+    """Supersede the older fact when similarity passes and the meaning counts match."""
+    pools: dict[tuple, list[dict]] = {}
+    for state in candidates:
+        if state["id"] in taken:
+            continue
+        pools.setdefault((state.get("kind"), state["scope"]), []).append(state)
+    extra: list[Retirement] = []
+    for group in pools.values():
+        ordered = sorted(group, key=lambda s: (s.get("learned_at", ""), s["id"]))
+        words = {s["id"]: analyze(str(s.get("text", ""))) for s in ordered}
+        used: set[str] = set()
+        for i, older in enumerate(ordered):
+            if older["id"] in used:
+                continue
+            best: tuple[float, dict] | None = None
+            for newer in ordered[i + 1 :]:
+                if exact_key(str(older.get("text", ""))) == exact_key(str(newer.get("text", ""))):
+                    continue
+                if outranks(older, newer):
+                    continue
+                score = similarity(words[older["id"]], words[newer["id"]])
+                if score is None:
+                    continue
+                if best is None or score > best[0]:
+                    best = (score, newer)
+            if best is None:
+                continue
+            score, newer = best
+            text = " ".join(str(older.get("text", "")).split())[:SNIPPET]
+            reason = f"similar_to {newer['id']} ({score:.0%} the same words)."
+            extra.append(
+                Retirement(older["id"], "near-duplicate", "superseded", reason, text, newer["id"])
+            )
+            used.add(older["id"])
+    return extra
+
+
+def note_stale(memory: Memory, days: int = 90) -> None:
+    """Rewrite the stale-fact proposal. Do not expire the facts."""
+    moment = now()
+    linked = {link["id"] for s in memory.states.values() for link in s.get("links", [])}
+    linked |= {s["id"] for s in memory.states.values() if s.get("links")}
+    rows = []
+    for state in sorted(memory.states.values(), key=lambda s: s["id"]):
+        if state.get("status") != "active" or state.get("pinned"):
+            continue
+        if state.get("scope", "long") != "long" or state["id"] in linked:
+            continue
+        try:
+            age = (moment - parse_time(state["learned_at"])).total_seconds() / 86400
+        except (KeyError, ValueError, TypeError):
+            continue
+        if age > days:
+            rows.append(state)
+    path = memory.dir / "proposals" / "stale-pending.md"
+    if not rows:
+        if path.exists():
+            path.unlink()
+        return
+    path.parent.mkdir(exist_ok=True)
+    lines = [
+        "# Stale facts pending review",
+        "",
+        "Auto-tidy did not expire these. Run `memory tidy` and approve any expire.",
+        "",
+    ]
+    for state in rows:
+        text = " ".join(str(state.get("text", "")).split())[:SNIPPET]
+        lines.append(f"- {state['id']}: {text}")
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_log(memory: Memory, found: list[Retirement], at: str) -> None:
@@ -184,25 +262,27 @@ def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
     with locked(memory.dir / LOCK_NAME):
         memory.reload()
         found = find(memory)
-        if not found:
-            return found
-        at = stamp(now())
-        records = []
-        for item in found:
-            rec = item.record(at)
-            problems = validate_record(rec)
-            if problems:
-                raise ValueError(f"{item.id}: {'; '.join(problems)}")
-            records.append(rec)
-        append_records(memory.writer_file(WRITER), records)
-        write_log(memory, found, at)
-    memory.reload()
+        if found:
+            at = stamp(now())
+            records = []
+            for item in found:
+                rec = item.record(at)
+                problems = validate_record(rec)
+                if problems:
+                    raise ValueError(f"{item.id}: {'; '.join(problems)}")
+                records.append(rec)
+            append_records(memory.writer_file(WRITER), records)
+            write_log(memory, found, at)
+    note_stale(memory)
+    if found:
+        memory.reload()
     return found
 
 
 def report(memory: Memory) -> list[Retirement]:
     """Say what `retire` would do. Log it once per distinct report. Change no fact."""
     found = find(memory)
+    note_stale(memory)
     if not found:
         return found
     line = f"would retire {len(found)}: {', '.join(item.id for item in found)}"
@@ -332,6 +412,57 @@ def release(memory: Memory) -> None:
             memory,
             {"started_at": moment, "sessions": 0, "on": False, "released_at": moment},
         )
+
+
+def periodic_due(memory: Memory) -> bool:
+    """True when pending candidates piled up, or the tidy state is older than a day."""
+    data = _state(memory)
+    every_days = memory.config.get("tidy_every_days", 1)
+    batch = memory.config.get("tidy_candidate_batch", 3)
+    try:
+        every_days = float(every_days)
+    except (TypeError, ValueError):
+        every_days = 1
+    try:
+        batch = int(batch)
+    except (TypeError, ValueError):
+        batch = 3
+    mark = data.get("last_tidy_at")
+    if _pending_since(memory, mark if isinstance(mark, str) else None) >= batch:
+        return True
+    moment = _age_days(data, memory)
+    return moment is not None and moment >= every_days
+
+
+def _pending_since(memory: Memory, mark: str | None) -> int:
+    from cairnkit.pending import pending as pending_rows
+
+    count = 0
+    for cand in pending_rows(memory):
+        when = cand.created_at
+        if not mark or (when and when > mark):
+            count += 1
+    return count
+
+
+def _age_days(data: dict, memory: Memory) -> float | None:
+    mark = data.get("last_tidy_at") or data.get("started_at")
+    if isinstance(mark, str) and mark:
+        try:
+            return (now() - parse_time(mark)).total_seconds() / 86400
+        except (ValueError, TypeError):
+            return None
+    path = memory.dir / STATE_NAME
+    if not path.exists():
+        return None
+    return (now().timestamp() - path.stat().st_mtime) / 86400
+
+
+def mark_tidied(memory: Memory) -> None:
+    with locked(memory.dir / LOCK_NAME):
+        data = _state(memory)
+        data["last_tidy_at"] = stamp(now())
+        _save(memory, data)
 
 
 def run_auto(memory: Memory, dry_run: bool) -> int:

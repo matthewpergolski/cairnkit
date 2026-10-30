@@ -251,6 +251,13 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not has_memory(project, flag):
         return 0
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
+    # A long session still retires clear cases when the tidy state is old.
+    if not continued:
+        with contextlib.suppress(Exception):
+            memory = Memory.open(project, flag)
+            if memory.config.get("auto_tidy") != "off" and autotidy.periodic_due(memory):
+                gated_auto_tidy(project, flag, count_session=False)
+                autotidy.mark_tidied(memory)
     # Fallback propose when this session never produced a commit.
     if not continued:
         with contextlib.suppress(Exception):

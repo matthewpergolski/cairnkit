@@ -79,8 +79,7 @@ def test_a_stale_long_fact_is_not_expired_and_is_proposed(mem, capsys, monkeypat
 
 def test_stop_tidies_when_the_tidy_state_is_old(repo, mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
-    config = mem / "config.toml"
-    config.write_text(config.read_text() + '\nauto_tidy = "on"\n')
+    (mem / "config.toml").write_text('auto_tidy = "on"\n')
     write_facts(
         mem,
         [
