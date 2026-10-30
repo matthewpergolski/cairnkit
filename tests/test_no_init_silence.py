@@ -98,3 +98,20 @@ def test_installed_git_hooks_stay_silent_without_init(bare, monkeypatch):
     # Only the committed note and hook scripts / exclude may differ from bare.
     assert sibling.as_posix() not in _snapshot(repo)
     assert after_install  # install happened
+
+
+def test_pre_commit_quiet_when_memory_dir_exists_without_facts(bare, capsys):
+    """An empty sibling .memory (no facts/) is still uninitialized."""
+    repo, before, sibling, _capsys = bare
+    sibling.mkdir()
+    assert not (sibling / "facts").exists()
+    (repo / "x.txt").write_text("x\n")
+    subprocess.run(["git", "add", "x.txt"], cwd=repo, check=True)
+    capsys.readouterr()
+    code = main(["hook", "pre-commit"])
+    out = capsys.readouterr()
+    assert code == 0
+    assert out.out == "" and out.err == ""
+    assert list(sibling.iterdir()) == []
+    # Only the staged file may be new under the repo.
+    assert sibling.as_posix() not in {str(p) for p in before}
