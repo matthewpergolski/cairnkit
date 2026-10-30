@@ -174,7 +174,6 @@ def test_update_twice_changes_nothing_the_second_time(machine, monkeypatch, caps
     assert len(machine.uv_calls()) == calls
 
 
-
 def test_git_url_with_no_recorded_commit_detects_newer_tagged_version(machine, monkeypatch, capsys):
     """Installed 0.2.0, no install commit recorded: remote HEAD tagged 0.3.0 must count as newer.
 
@@ -211,10 +210,7 @@ def test_git_url_with_no_recorded_commit_detects_newer_tagged_version(machine, m
 def test_git_latest_reads_version_from_tag_at_head(monkeypatch):
     """ls-remote tags that point at HEAD supply the remote version (e.g. only v0.3.0 exists)."""
     head = "59ab9f88b7f29ceb609caf84cc550af96456f1e5"
-    tags = (
-        f"{head}\trefs/tags/v0.3.0\n"
-        f"cccccccccccccccccccccccccccccccccccccccc\trefs/tags/other\n"
-    )
+    tags = f"{head}\trefs/tags/v0.3.0\ncccccccccccccccccccccccccccccccccccccccc\trefs/tags/other\n"
     calls: list[list[str]] = []
 
     def fake_git(args, timeout=3.0):
@@ -226,7 +222,9 @@ def test_git_latest_reads_version_from_tag_at_head(monkeypatch):
         return None
 
     monkeypatch.setattr(install_source, "git", fake_git)
-    found = install_source.latest(install_source.Source("https://github.com/example/cairnkit", "git"))
+    found = install_source.latest(
+        install_source.Source("https://github.com/example/cairnkit", "git")
+    )
     assert found.commit == head
     assert found.version == "0.3.0"
     assert any(c[:2] == ["ls-remote", "--tags"] for c in calls)
