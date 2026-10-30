@@ -70,6 +70,45 @@ def test_load_prints_scenario_with_source_fact_ids(mem, capsys, monkeypatch):
     assert "deploy" in out.lower() or "cache" in out.lower()
 
 
+def test_load_does_not_print_a_pinned_fact_twice(mem, capsys, monkeypatch):
+    """Pinned facts stay under ## Pinned and are left out of ## Scenarios."""
+    monkeypatch.setenv("MEMORY_NOW", NOW)
+    write_facts(
+        mem,
+        [
+            make_fact(
+                "f-20261001-p001",
+                "Pinned cache rule for deploy.",
+                area="deploy",
+                tags=["cache"],
+                pinned=True,
+                summary="Pinned cache rule.",
+            ),
+            make_fact(
+                "f-20261001-0002",
+                "Bake serves both cache keys for one hour.",
+                area="deploy",
+                tags=["cache"],
+                summary="Bake serves both cache keys briefly.",
+            ),
+            make_fact(
+                "f-20261001-0003",
+                "Warm the cache before the cutover.",
+                area="deploy",
+                tags=["cache"],
+                summary="Warm the cache first.",
+            ),
+        ],
+    )
+    out = load(capsys, "--budget", "200")
+    assert "## Pinned" in out
+    assert out.count("f-20261001-p001") == 1
+    if "## Scenarios" in out:
+        scenario = out.split("## Scenarios", 1)[1]
+        scenario = scenario.split("## ", 1)[0]
+        assert "f-20261001-p001" not in scenario
+
+
 def test_load_footer_names_show_pinned_link_and_tidy(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(mem, [make_fact("f-20261001-0001", "One fact.")])

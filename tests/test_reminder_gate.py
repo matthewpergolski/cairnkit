@@ -38,6 +38,21 @@ def test_stop_stays_quiet_for_junk_and_untracked_noise(repo, mem, capsys, monkey
     assert "block" not in out
 
 
+def test_stop_stays_quiet_when_a_tracked_junk_file_changes(repo, mem, capsys, monkeypatch):
+    """Tracked .log edits use the same junk filter as untracked paths."""
+    import subprocess
+
+    (repo / "debug.log").write_text("noise\n")
+    subprocess.run(["git", "add", "debug.log"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "track log"], cwd=repo, check=True)
+    start(capsys, monkeypatch)
+    (repo / "debug.log").write_text("noise\nmore\n")
+    code, out, _ = stop(capsys, monkeypatch)
+    assert code == 0
+    assert "block" not in out
+    assert "debug.log" not in out
+
+
 def test_stop_names_a_tracked_edit_and_says_you_can_finish(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "README.md").write_text("changed\n")
