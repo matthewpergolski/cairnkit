@@ -20,7 +20,7 @@ from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
-from cairnkit.session import needs_reminder, start_session
+from cairnkit.session import needs_reminder, reminder_text, start_session
 
 NOTE_IDS = 10
 
@@ -30,14 +30,6 @@ traps, lessons: long-term; working notes: `--short --until-merged`). To change
 a fact, add a newer one (`--supersedes ID`) or mark it `expired` or `wrong`
 with `memory change`. Never store secrets. Never edit memory files by hand.
 Run `memory instructions` for the full rules."""
-
-REMINDER = """\
-Before you finish: you changed the work in this session and wrote no memory.
-Record what a later session needs, then finish:
-- a decision, trap or lesson: `memory add "..." --kind decision|trap|lesson --area AREA --basis seen|told|guess --source commit:HASH|file:PATH`
-- a working note for this branch: `memory add "..." --short --until-merged --area AREA --basis seen --source session:DATE`
-- a fact that is now wrong or replaced: `memory change ID --status wrong|expired --reason "..."` or `memory add "..." --supersedes ID`
-If nothing is worth recording, say so and finish."""  # noqa: E501
 
 
 def read_payload() -> dict:
@@ -208,7 +200,7 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
     except MemoryMissing:
         memory = None
     if memory is not None and needs_reminder(memory, session_key(payload)):
-        parts.append(REMINDER)
+        parts.append(reminder_text(memory))
     return "\n\n".join(parts) or None
 
 
