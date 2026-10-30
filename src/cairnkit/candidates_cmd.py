@@ -51,13 +51,27 @@ def run_accept(
     if cand is None or cand.status != "pending":
         print(f"error: no pending candidate {cand_id}", file=sys.stderr)
         return 1
+    use_area = (area or cand.area or "").strip()
+    use_basis = (basis or cand.basis or "").strip()
+    use_source = (source or cand.source or "").strip()
+    missing = [
+        name
+        for name, value in (("area", use_area), ("basis", use_basis), ("source", use_source))
+        if not value
+    ]
+    if missing:
+        print(
+            f"error: {cand_id} needs {', '.join(missing)} before it can be accepted",
+            file=sys.stderr,
+        )
+        return 1
     args = SimpleNamespace(
         text=cand.text,
-        summary=None,
+        summary=cand.summary,
         kind=kind or cand.kind,
-        area=area or cand.area or "general",
-        basis=basis,
-        source=source or cand.source,
+        area=use_area,
+        basis=use_basis,
+        source=use_source,
         tag=None,
         happened_at=None,
         link=None,
@@ -83,9 +97,26 @@ def run_accept(
 
 
 def run_candidates(memory: Memory, args: argparse.Namespace) -> int:
-    if args.candidates_command == "list":
+    accept_id = getattr(args, "accept_id", None)
+    dismiss_id = getattr(args, "dismiss_id", None)
+    if accept_id and dismiss_id:
+        print("error: pass only one of --accept and --dismiss", file=sys.stderr)
+        return 1
+    if accept_id:
+        return run_accept(
+            memory,
+            accept_id,
+            area=args.area,
+            basis=args.basis,
+            kind=args.kind,
+            source=args.source,
+        )
+    if dismiss_id:
+        return run_reject(memory, dismiss_id, getattr(args, "reason", None))
+    command = getattr(args, "candidates_command", None)
+    if command in (None, "list"):
         return run_list(memory)
-    if args.candidates_command == "reject":
+    if command == "reject":
         return run_reject(memory, args.id, args.reason)
     return run_accept(
         memory,

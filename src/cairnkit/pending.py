@@ -32,6 +32,8 @@ class Candidate:
     status: str = "pending"
     origin: str = "draft"
     area: str | None = None
+    basis: str = "guess"
+    summary: str | None = None
     created_at: str = ""
     commit: str | None = None
     paths: list[str] = field(default_factory=list)
@@ -40,7 +42,9 @@ class Candidate:
 
     def record(self) -> dict:
         data = {"type": "candidate", **asdict(self)}
-        return {k: v for k, v in data.items() if v is not None and v != []}
+        if data.get("created_at"):
+            data["at"] = data["created_at"]
+        return {k: v for k, v in data.items() if v is not None and v != [] and v != ""}
 
 
 def _path(memory: Memory) -> Path:
@@ -99,8 +103,10 @@ def fold(memory: Memory) -> dict[str, Candidate]:
                 source=str(rec.get("source", "")),
                 status=str(rec.get("status", "pending")),
                 origin=str(rec.get("origin", "draft")),
-                area=rec.get("area"),
-                created_at=str(rec.get("created_at", "")),
+                area=rec.get("area") or None,
+                basis=str(rec.get("basis") or "guess"),
+                summary=rec.get("summary") or None,
+                created_at=str(rec.get("created_at") or rec.get("at") or ""),
                 commit=rec.get("commit"),
                 paths=list(rec.get("paths") or []),
                 fact_id=rec.get("fact_id"),
@@ -181,6 +187,22 @@ def decide(
     if cand_id not in states:
         raise KeyError(cand_id)
     cand = states[cand_id]
+    if cand.status == status:
+        if fact_id and not cand.fact_id:
+            append(
+                memory,
+                [
+                    {
+                        "type": "decision",
+                        "id": cand_id,
+                        "status": status,
+                        "at": stamp(now()),
+                        "fact_id": fact_id,
+                    }
+                ],
+            )
+            cand.fact_id = fact_id
+        return cand
     if cand.status != "pending":
         raise ValueError(f"{cand_id} is already {cand.status}")
     rec = {
@@ -198,6 +220,21 @@ def decide(
     cand.fact_id = fact_id
     cand.reason = reason
     return cand
+
+
+def _text_key(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def mark_matching(memory: Memory, text: str, fact_id: str | None) -> None:
+    """Accept every pending candidate whose text is this fact. Safe to repeat."""
+    key = _text_key(text)
+    if not key:
+        return
+    for cand in list(fold(memory).values()):
+        if cand.status != "pending" or _text_key(cand.text) != key:
+            continue
+        decide(memory, cand.id, "accepted", fact_id=fact_id)
 
 
 def count_pending(memory: Memory) -> int:

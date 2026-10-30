@@ -292,18 +292,25 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "candidates",
         parents=[common],
-        help="list, accept or reject pending auto-proposed fact candidates",
+        help="list, accept or dismiss pending auto-proposed fact candidates",
     )
-    cand_sub = p.add_subparsers(dest="candidates_command", metavar="ACTION", required=True)
+    p.add_argument(
+        "--accept", dest="accept_id", metavar="ID", help="write this candidate as a fact"
+    )
+    p.add_argument("--dismiss", dest="dismiss_id", metavar="ID", help="drop this candidate")
+    p.add_argument("--area", help="override the stored area")
+    p.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
+    p.add_argument("--kind", choices=KINDS, help="override the stored kind")
+    p.add_argument("--source", help="override the stored source")
+    p.add_argument("--reason", help="why a candidate was dismissed")
+    cand_sub = p.add_subparsers(dest="candidates_command", metavar="ACTION", required=False)
     cand_sub.add_parser("list", help="show pending auto-candidates")
     h = cand_sub.add_parser("accept", help="write a pending candidate as a real fact")
     h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
-    h.add_argument("--area", help="area (default: the candidate's area or general)")
-    h.add_argument(
-        "--basis", choices=BASES, default="seen", help="seen, told or guess (default: seen)"
-    )
-    h.add_argument("--kind", choices=KINDS, help="override the candidate kind")
-    h.add_argument("--source", help="override source (default: the candidate's source)")
+    h.add_argument("--area", help="override the stored area")
+    h.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
+    h.add_argument("--kind", choices=KINDS, help="override the stored kind")
+    h.add_argument("--source", help="override the stored source")
     h = cand_sub.add_parser("reject", help="dismiss a pending candidate")
     h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
     h.add_argument("--reason", help="why it was dismissed")

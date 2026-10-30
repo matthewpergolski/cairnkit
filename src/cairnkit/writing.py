@@ -12,6 +12,7 @@ from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, merged_checker, writer_name
+from cairnkit.pending import mark_matching
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_secrets
 from cairnkit.selection import clean
@@ -124,6 +125,7 @@ def add_fact(memory: Memory, args) -> str | None:
             old = match[0]
             if old.get("kind") == "rule" or old.get("pinned"):
                 print(f"already exists: {old['id']} says this. Nothing written.")
+                mark_matching(memory, args.text, old["id"])
                 return None
             if outranks(old, mine):
                 kept = old
@@ -233,6 +235,7 @@ def add_fact(memory: Memory, args) -> str | None:
             f"memory change {old['id']} --status superseded --superseded-by {fact['id']} "
             f'--reason "..."'
         )
+    mark_matching(memory, fact["text"], fact["id"])
     return fact["id"]
 
 

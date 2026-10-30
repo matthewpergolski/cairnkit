@@ -65,8 +65,11 @@ def test_dismiss_drops_the_candidate_from_the_list(mem, capsys):
     seed(mem)
     capsys.readouterr()
     assert main(["candidates", "--dismiss", CID]) == 0
+    capsys.readouterr()
     assert main(["candidates"]) == 0
-    assert CID not in capsys.readouterr().out
+    listed = capsys.readouterr().out
+    assert "No pending" in listed
+    assert CID not in listed
 
 
 def test_accept_writes_the_stored_basis_area_and_source(mem, capsys):

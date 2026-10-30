@@ -133,7 +133,7 @@ def _accept(memory: Memory, cand) -> str | None:
         summary=None,
         kind=cand.kind,
         area=cand.area or "general",
-        basis="seen",
+        basis=getattr(cand, "basis", None) or "guess",
         source=cand.source,
         tag=None,
         happened_at=None,
