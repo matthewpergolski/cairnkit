@@ -66,6 +66,31 @@ class Page:
     source_revision: str | None = None
 
 
+@dataclass(frozen=True)
+class Absent:
+    """No markdown under docs/state. The project has not adopted the atlas."""
+
+
+@dataclass(frozen=True)
+class Current:
+    """Rendered pages match their files once sourceRevision lines are dropped."""
+
+
+@dataclass(frozen=True)
+class Stale:
+    """Repo-relative paths that differ. Non-empty, unique, and sorted."""
+
+    changed: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        ordered = tuple(sorted(set(self.changed)))
+        if not ordered or ordered != self.changed:
+            raise ValueError("Stale.changed must be non-empty, unique, and sorted")
+
+
+AtlasFreshness = Absent | Current | Stale
+
+
 def _yaml_scalar(value: object) -> str:
     if value is None:
         return "null"
@@ -358,6 +383,64 @@ def _prune_orphan_markdown(root: Path, pages: list[Page], *, dry_run: bool) -> l
             except OSError:
                 pass
     return removed
+
+
+# The root page stores HEAD in this field. A later commit is not an atlas edit.
+_SOURCE_REVISION_LINE = re.compile(r"^sourceRevision:[^\n]*\n", re.MULTILINE)
+_UNREADABLE = object()
+
+
+def _strip_source_revision(text: str) -> str:
+    return _SOURCE_REVISION_LINE.sub("", text)
+
+
+def _state_markdown(root: Path) -> dict[str, object] | None:
+    """Repo-relative path to stripped text. None when docs/state has no markdown."""
+    state = root / STATE_DIR
+    if not state.is_dir():
+        return None
+    paths = sorted(state.rglob("*.md"))
+    if not paths:
+        return None
+    found: dict[str, object] = {}
+    for path in paths:
+        rel = path.relative_to(root).as_posix()
+        try:
+            found[rel] = _strip_source_revision(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError):
+            found[rel] = _UNREADABLE
+    return found or None
+
+
+def atlas_freshness(project: Project) -> AtlasFreshness:
+    """In-memory atlas versus docs/state markdown. Writes nothing.
+
+    Does not open Memory. Drops sourceRevision lines before comparing.
+    No markdown under docs/state is Absent, not Stale.
+    """
+    disk = _state_markdown(project.root)
+    if disk is None:
+        return Absent()
+    fresh = {
+        (STATE_DIR / page.state_path).as_posix(): _strip_source_revision(render_page(page))
+        for page in build_atlas(project)
+    }
+    changed = tuple(
+        sorted(rel for rel in set(fresh) | set(disk) if fresh.get(rel) != disk.get(rel))
+    )
+    if not changed:
+        return Current()
+    return Stale(changed)
+
+
+def run_docs_check(project: Project) -> int:
+    """Absent and Current exit 0 with no output. Stale prints paths and exits 1."""
+    result = atlas_freshness(project)
+    if isinstance(result, Stale):
+        for path in result.changed:
+            print(path)
+        return 1
+    return 0
 
 
 def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> int:

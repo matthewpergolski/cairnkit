@@ -368,6 +368,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="overwrite an existing docs/state atlas",
     )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="compare docs/state with a fresh atlas and write nothing",
+    )
     return parser
 
 
@@ -385,7 +390,7 @@ def run(args) -> int:
     from cairnkit.autotidy import run_auto
     from cairnkit.candidates_cmd import run_candidates
     from cairnkit.check import run_check
-    from cairnkit.docs_cmd import run_docs
+    from cairnkit.docs_cmd import run_docs, run_docs_check
     from cairnkit.hookrun import run_hook
     from cairnkit.hooks_cmd import run_install, run_uninstall
     from cairnkit.init import run_init
@@ -405,6 +410,10 @@ def run(args) -> int:
         return run_update(args.source, args.check, args.dry_run)
     project = find_project()
     if args.command == "docs":
+        if args.check and (args.dry_run or args.force):
+            return fail("--check cannot be combined with --dry-run or --force")
+        if args.check:
+            return run_docs_check(project)
         return run_docs(project, args.path, args.dry_run, args.force)
     if args.command == "instructions":
         if args.write_instructions:
