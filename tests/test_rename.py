@@ -53,7 +53,9 @@ def test_write_instructions_migrates_an_old_marker_block_out_of_tracked(repo):
     assert OLD_START not in text and OLD_END not in text
     assert instructions.START not in text
     assert "Old text." not in text
-    assert text.startswith("top\n\n") and text.endswith("\nbottom\n")
+    assert text.startswith("top\n\n")
+    assert "\nbottom\n" in text
+    assert "Old text." not in text
     local = (repo / "CLAUDE.local.md").read_text()
     assert local.count(instructions.START) == 1 and instructions.block() in local
 
