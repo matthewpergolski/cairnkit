@@ -14,7 +14,7 @@ import json
 import signal
 import sys
 
-from cairnkit import autogate, autotidy, followups, propose, skills, usage
+from cairnkit import autogate, autotidy, followups, loopbreak, propose, skills, usage
 from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
@@ -297,6 +297,29 @@ def post_checkout(project: Project, flag: str | None) -> int:
     return 0
 
 
+def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
+    """Loop breaker after a shell/tool run. Always exits 0. Agent-shaped nudge."""
+    neutral = {"claude": None, "codex": "{}", "cursor": "{}", "generic": None}[agent]
+    nudge = None
+    with contextlib.suppress(Exception):
+        parsed = loopbreak.command_from_payload(payload)
+        if parsed is not None:
+            command, ok = parsed
+            nudge = loopbreak.observe(Memory.open(project, flag), command, ok=ok)
+    if not nudge:
+        if neutral:
+            print(neutral)
+        return 0
+    if agent in ("claude", "codex"):
+        print(json.dumps({"decision": "block", "reason": nudge}))
+        return 0
+    if agent == "cursor":
+        print(json.dumps({"followup_message": nudge}))
+        return 0
+    print(nudge, file=sys.stderr)
+    return 0
+
+
 def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     if event in ("pre-push", "post-merge"):
         return git_event(project, flag, fuller=True)
@@ -309,4 +332,6 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     payload = read_payload()
     if event == "session-start":
         return session_start(project, flag, agent, payload)
+    if event in ("after-shell", "post-tool"):
+        return after_shell(project, flag, agent, payload)
     return stop(project, flag, agent, payload)

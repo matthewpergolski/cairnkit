@@ -283,6 +283,8 @@ def build_parser() -> argparse.ArgumentParser:
             "pre-push",
             "post-merge",
             "post-commit",
+            "after-shell",
+            "post-tool",
         ),
     )
     p.add_argument("--agent", default="generic", choices=AGENTS)
