@@ -187,7 +187,11 @@ def draft_from_head(memory: Memory) -> list[Candidate]:
     if not head:
         return []
     items = _candidates_for_commit(memory, head, origin="draft", prefer=False)
-    return add_candidates(memory, items[:MAX_DRAFT])
+    added = add_candidates(memory, items[:MAX_DRAFT])
+    from cairnkit import autogate
+
+    autogate.note_pending(memory, len(added))
+    return added
 
 
 def fuller_propose(memory: Memory) -> list[Candidate]:
@@ -207,7 +211,11 @@ def fuller_propose(memory: Memory) -> list[Candidate]:
                 break
         if len(collected) >= MAX_FULLER:
             break
-    return add_candidates(memory, collected)
+    added = add_candidates(memory, collected)
+    from cairnkit import autogate
+
+    autogate.note_pending(memory, len(added))
+    return added
 
 
 def _dirty_paths(root: Path) -> list[str]:

@@ -14,7 +14,7 @@ import json
 import signal
 import sys
 
-from cairnkit import autotidy, followups, propose, skills, usage
+from cairnkit import autogate, autotidy, followups, propose, skills, usage
 from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
@@ -123,11 +123,19 @@ def _time_budget(seconds: float):
         signal.signal(signal.SIGALRM, previous)
 
 
-def git_event(project: Project, flag: str | None, *, fuller: bool = True) -> int:
-    """Propose pending candidates and auto-tidy. Always exits 0. Prints nothing.
+def _run_autogate(project: Project, flag: str | None, *, force: bool = False) -> None:
+    """Quality-gate pending candidates. force=True on git events; else cadence."""
+    with contextlib.suppress(Exception):
+        memory = Memory.open(project, flag)
+        if force or autogate.should_run(memory, new_pending=0):
+            autogate.run_gate(memory)
 
-    fuller=True (pre-push / post-merge): richer propose + tidy, 3s budget.
-    fuller=False (post-commit): draft propose only, 1s budget.
+
+def git_event(project: Project, flag: str | None, *, fuller: bool = True) -> int:
+    """Propose pending candidates, quality-gate, and auto-tidy. Always exits 0.
+
+    fuller=True (pre-push / post-merge): richer propose + gate + tidy, 3s budget.
+    fuller=False (post-commit): draft propose + gate, 1s budget.
     """
     budget = GIT_HOOK_BUDGET if fuller else POST_COMMIT_BUDGET
     try:
@@ -136,9 +144,12 @@ def git_event(project: Project, flag: str | None, *, fuller: bool = True) -> int
             with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
                 if fuller:
                     propose.run_fuller(project, flag)
+                    _run_autogate(project, flag, force=True)
                     gated_auto_tidy(project, flag, count_session=False)
                 else:
                     propose.run_draft(project, flag)
+                    _run_autogate(project, flag, force=True)
+                    gated_auto_tidy(project, flag, count_session=False)
     except (Exception, SystemExit):
         pass
     return 0
@@ -166,10 +177,20 @@ def skills_note(project: Project, flag: str | None) -> str:
     return ""
 
 
+def _pending_hygiene(project: Project, flag: str | None) -> str:
+    try:
+        line = autogate.hygiene_pending_line(Memory.open(project, flag))
+        return (line + "\n\n") if line else ""
+    except Exception:
+        return ""
+
+
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     note = auto_retire_note(project, flag) + skills_note(project, flag)
+    note += _pending_hygiene(project, flag)
     refresh_followups(project, flag)
     compact_usage(project, flag)
+    _run_autogate(project, flag, force=False)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         run_load(project, flag, None, 600, agent=agent, record=True)
