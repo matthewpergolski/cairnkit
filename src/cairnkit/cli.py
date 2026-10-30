@@ -254,7 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument(
         "--no-git-hook",
         action="store_true",
-        help="skip the git pre-commit, post-checkout, pre-push and post-merge hooks",
+        help="skip the git pre-commit, post-checkout, pre-push, post-merge and post-commit hooks",
     )
     h.add_argument(
         "--commit-msg-guard",
@@ -271,9 +271,36 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("hook", parents=[common])
     p.add_argument(
         "event",
-        choices=("session-start", "stop", "pre-commit", "post-checkout", "pre-push", "post-merge"),
+        choices=(
+            "session-start",
+            "stop",
+            "pre-commit",
+            "post-checkout",
+            "pre-push",
+            "post-merge",
+            "post-commit",
+        ),
     )
     p.add_argument("--agent", default="generic", choices=AGENTS)
+
+    p = sub.add_parser(
+        "candidates",
+        parents=[common],
+        help="list, accept or reject pending auto-proposed fact candidates",
+    )
+    cand_sub = p.add_subparsers(dest="candidates_command", metavar="ACTION", required=True)
+    cand_sub.add_parser("list", help="show pending auto-candidates")
+    h = cand_sub.add_parser("accept", help="write a pending candidate as a real fact")
+    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
+    h.add_argument("--area", help="area (default: the candidate's area or general)")
+    h.add_argument(
+        "--basis", choices=BASES, default="seen", help="seen, told or guess (default: seen)"
+    )
+    h.add_argument("--kind", choices=KINDS, help="override the candidate kind")
+    h.add_argument("--source", help="override source (default: the candidate's source)")
+    h = cand_sub.add_parser("reject", help="dismiss a pending candidate")
+    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
+    h.add_argument("--reason", help="why it was dismissed")
 
     p = sub.add_parser("load", parents=[common], help="print the facts for this session")
     p.add_argument("--area", help="only this area (and pinned facts)")
@@ -343,6 +370,7 @@ def run(args) -> int:
     from cairnkit import presets as presets_module
     from cairnkit import skills as skills_module
     from cairnkit.autotidy import run_auto
+    from cairnkit.candidates_cmd import run_candidates
     from cairnkit.check import run_check
     from cairnkit.docs_cmd import run_docs
     from cairnkit.hookrun import run_hook
@@ -443,6 +471,8 @@ def run(args) -> int:
         return run_load(project, args.path, args.area, max(args.budget, 0), args.explain)
     try:
         memory = _open(project, args)
+        if args.command == "candidates":
+            return run_candidates(memory, args)
         if args.command == "add":
             new = add_fact(memory, args)
             if new:

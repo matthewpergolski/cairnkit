@@ -14,7 +14,7 @@ import json
 import signal
 import sys
 
-from cairnkit import autotidy, followups, skills, usage
+from cairnkit import autotidy, followups, propose, skills, usage
 from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
@@ -94,10 +94,12 @@ def auto_retire_note(project: Project, flag: str | None) -> str:
 
 # A git hook must not make push or merge wait. Past this, the step is skipped.
 GIT_HOOK_BUDGET = 3
+# post-commit must stay under ~1s wall clock. Draft propose only.
+POST_COMMIT_BUDGET = 1.0
 
 
 class _OverBudget(Exception):
-    """The git-hook tidy step used its time budget."""
+    """The git-hook step used its time budget."""
 
 
 def _over_budget(_signum, _frame):
@@ -121,13 +123,22 @@ def _time_budget(seconds: float):
         signal.signal(signal.SIGALRM, previous)
 
 
-def git_event(project: Project, flag: str | None) -> int:
-    """Auto-tidy after a push or a merge. Always exits 0. Prints nothing."""
+def git_event(project: Project, flag: str | None, *, fuller: bool = True) -> int:
+    """Propose pending candidates and auto-tidy. Always exits 0. Prints nothing.
+
+    fuller=True (pre-push / post-merge): richer propose + tidy, 3s budget.
+    fuller=False (post-commit): draft propose only, 1s budget.
+    """
+    budget = GIT_HOOK_BUDGET if fuller else POST_COMMIT_BUDGET
     try:
-        with _time_budget(GIT_HOOK_BUDGET):
+        with _time_budget(budget):
             sink = io.StringIO()
             with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                gated_auto_tidy(project, flag, count_session=False)
+                if fuller:
+                    propose.run_fuller(project, flag)
+                    gated_auto_tidy(project, flag, count_session=False)
+                else:
+                    propose.run_draft(project, flag)
     except (Exception, SystemExit):
         pass
     return 0
@@ -261,7 +272,9 @@ def post_checkout(project: Project, flag: str | None) -> int:
 
 def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     if event in ("pre-push", "post-merge"):
-        return git_event(project, flag)
+        return git_event(project, flag, fuller=True)
+    if event == "post-commit":
+        return git_event(project, flag, fuller=False)
     if event == "pre-commit":
         return pre_commit(project, flag)
     if event == "post-checkout":
