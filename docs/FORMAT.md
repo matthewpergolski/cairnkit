@@ -474,7 +474,7 @@ User-level skill markers (not in the memory folder; under
 
 - a line that is not valid JSON, a missing field, or a value that is not allowed;
 - a duplicate fact id;
-- text longer than 400 characters;
+- text longer than 2000 characters (400 for `kind` `rule`);
 - text that looks like a secret (keys, tokens, passwords, private keys) in any field;
 - a change to an unknown fact;
 - `superseded_by` or a link to an unknown fact;
