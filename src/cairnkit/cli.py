@@ -12,7 +12,7 @@ from cairnkit.clock import parse_time
 from cairnkit.schema import BASES, KINDS, STATUSES
 
 # The agent tools the hook command knows. Kept here so building the parser imports no adapter.
-AGENTS = ("claude", "codex", "cursor", "generic")
+AGENTS = ("claude", "codex", "cursor", "generic", "opencode", "pi", "grok")
 
 # Keep discoverability copy in --help without importing cairnkit.discover at parse time.
 _DISCOVER_EPILOG = (

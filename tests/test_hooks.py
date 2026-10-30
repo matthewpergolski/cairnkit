@@ -49,9 +49,9 @@ def test_session_start_is_json_for_cursor(mem, capsys, monkeypatch):
 
 
 def test_session_start_without_memory_never_fails(repo, capsys, monkeypatch):
-    code, out, _ = run_hook(capsys, monkeypatch, "session-start", "cursor", {})
+    code, out, err = run_hook(capsys, monkeypatch, "session-start", "cursor", {})
     assert code == 0
-    assert "not loaded" in json.loads(out)["additional_context"]
+    assert out == "" and err == ""
 
 
 # --- stop ---------------------------------------------------------------

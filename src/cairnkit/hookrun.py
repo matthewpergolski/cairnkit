@@ -24,6 +24,14 @@ from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, ru
 from cairnkit.session import load_state, needs_reminder, reminder_text, start_session
 
 NOTE_IDS = 10
+# Agents that need a JSON empty object when memory exists but there is nothing to say.
+JSON_NEUTRAL = frozenset({"codex", "cursor"})
+
+
+def has_memory(project: Project, flag: str | None) -> bool:
+    """True only when `memory init` has created a facts folder. Never creates paths."""
+    memdir, _ = resolve_memory_dir(project, flag)
+    return (memdir / "facts").is_dir()
 
 
 def read_payload() -> dict:
@@ -186,6 +194,8 @@ def _pending_hygiene(project: Project, flag: str | None) -> str:
 
 
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
+    if not has_memory(project, flag):
+        return 0
     note = auto_retire_note(project, flag) + skills_note(project, flag)
     note += _pending_hygiene(project, flag)
     refresh_followups(project, flag)
@@ -238,7 +248,8 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
 
 
 def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
-    neutral = {"claude": None, "codex": "{}", "cursor": "{}", "generic": None}[agent]
+    if not has_memory(project, flag):
+        return 0
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
     # Fallback propose when this session never produced a commit.
     if not continued:
@@ -251,8 +262,8 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     except Exception:
         message = None
     if message is None:
-        if neutral:
-            print(neutral)
+        if agent in JSON_NEUTRAL:
+            print("{}")
         return 0
     if agent in ("claude", "codex"):
         print(json.dumps({"decision": "block", "reason": message}))
@@ -306,7 +317,8 @@ def post_checkout(project: Project, flag: str | None) -> int:
 
 def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     """Loop breaker after a shell/tool run. Always exits 0. Agent-shaped nudge."""
-    neutral = {"claude": None, "codex": "{}", "cursor": "{}", "generic": None}[agent]
+    if not has_memory(project, flag):
+        return 0
     nudge = None
     with contextlib.suppress(Exception):
         parsed = loopbreak.command_from_payload(payload)
@@ -314,8 +326,8 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
             command, ok = parsed
             nudge = loopbreak.observe(Memory.open(project, flag), command, ok=ok)
     if not nudge:
-        if neutral:
-            print(neutral)
+        if agent in JSON_NEUTRAL:
+            print("{}")
         return 0
     if agent in ("claude", "codex"):
         print(json.dumps({"decision": "block", "reason": nudge}))
