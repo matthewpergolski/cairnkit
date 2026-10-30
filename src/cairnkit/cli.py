@@ -58,12 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         const="local",
         choices=("local", "shared"),
-        help="add the agent rules block: local (default; CLAUDE.local.md, ignored by git) "
-        "or shared (the tracked CLAUDE.md or AGENTS.md the repo has; CLAUDE.md if neither)",
+        help="add the agent rules block to CLAUDE.local.md (ignored by git), plus untracked "
+        "harness copies; moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. "
+        "shared is refused",
     )
     p.add_argument(
         "--instructions-file",
-        help="file for --write-instructions, relative to the checkout",
+        help="untracked file for --write-instructions, relative to the checkout",
     )
 
     p.add_argument(
@@ -186,10 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         const="local",
         choices=("local", "shared"),
-        help="write the block: local (CLAUDE.local.md, ignored) or shared (the tracked "
-        "CLAUDE.md or AGENTS.md the repo has; CLAUDE.md if neither)",
+        help="write the block to CLAUDE.local.md (ignored) and untracked harness copies; "
+        "moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. shared is refused",
     )
-    p.add_argument("--instructions-file", help="file to write, relative to the checkout")
+    p.add_argument(
+        "--instructions-file",
+        help="untracked file to write, relative to the checkout",
+    )
 
     p = sub.add_parser("add", parents=[common], help="write a new fact")
     p.add_argument("text", help="the fact, up to 2000 characters (a rule: 400)")

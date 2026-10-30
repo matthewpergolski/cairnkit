@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from cairnkit import markers
@@ -68,12 +67,12 @@ def block() -> str:
     return f"{START}\n{text()}{END}\n"
 
 
-def write_block(path: Path) -> str:
+def write_block(path: Path, *, prefix: str = "") -> str:
     """Add or replace the marked block in path. Return what happened."""
     new = block()
     if not path.exists():
         path.resolve().parent.mkdir(parents=True, exist_ok=True)  # a dangling link: its target
-        path.write_text(new)
+        path.write_text(prefix + new)
         return "created"
     old = path.read_text(encoding="utf-8")
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
@@ -89,6 +88,27 @@ def write_block(path: Path) -> str:
     sep = "" if old.endswith("\n\n") else ("\n" if old.endswith("\n") else "\n\n")
     path.write_text(old + sep + new)
     return "appended"
+
+
+def remove_block(path: Path, dry_run: bool = False) -> str:
+    """Remove the one marked block. Hand-written text outside it stays.
+
+    Return missing, broken, unchanged or removed.
+    """
+    try:
+        old = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return "missing"
+    found, (start_mark, end_mark) = markers.find(old, PAIRS)
+    if found != "ok":
+        return found
+    start, end = old.find(start_mark), old.find(end_mark)
+    updated = old[:start] + old[end + len(end_mark) :].removeprefix("\n")
+    if updated == old:
+        return "unchanged"
+    if not dry_run:
+        path.write_text(updated, encoding="utf-8")
+    return "removed"
 
 
 def replace_block(path: Path, dry_run: bool = False) -> str:
@@ -123,13 +143,44 @@ def planned(path: Path) -> str:
     return "broken" if found == "broken" else "append"
 
 
-def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> int:
-    """Write the block. Mode `local` uses an ignored file; `shared` a tracked one."""
+def migrate_shared_blocks(
+    project, dry_run: bool = False, checkouts: list[Path] | None = None
+) -> tuple[list[str], list[Path]]:
+    """Move cairnkit blocks out of CLAUDE.md / AGENTS.md. Leave hand-written text.
+
+    Return (step messages, broken paths).
+    """
     from cairnkit import rules_target
+
+    steps: list[str] = []
+    broken: list[Path] = []
+    for checkout in checkouts if checkouts is not None else [project.root]:
+        for name in rules_target.SHARED:
+            path = checkout / name
+            if not path.is_file() or rules_target.is_loop(path):
+                continue
+            result = remove_block(path, dry_run=dry_run)
+            if result == "broken":
+                broken.append(path)
+            elif result == "removed":
+                steps.append(f"remove the rules block from {path}")
+    return steps, broken
+
+
+def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> int:
+    """Write the block to an untracked local file. Never write a tracked rules file."""
+    from cairnkit import harness_local, rules_target
     from cairnkit.ignore import exclude, is_tracked
 
     said = "would " if dry_run else ""
     root = project.root
+    if mode == "shared":
+        print(
+            "error: shared rules blocks are no longer written into tracked CLAUDE.md or "
+            "AGENTS.md. Use --write-instructions (local). It writes CLAUDE.local.md and "
+            "moves any cairnkit block out of those tracked files."
+        )
+        return 1
     looped = rules_target.loops(root, file)
     for name in looped:
         print(f"error: {name} is a symlink loop. Remove or fix the link. Nothing was written.")
@@ -140,34 +191,32 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     if rules_target.same_file(root):
         found += " (CLAUDE.md and AGENTS.md are the same file)"
     print("found: " + found)
-    choice = None
+
+    migrate_steps, broken = migrate_shared_blocks(project, dry_run)
+    for step in migrate_steps:
+        print(said + step)
+    for path in broken:
+        print(markers.broken_message(path, "memory instructions --write-instructions"))
+    if broken:
+        return 1
+
     if file:
         rel, why = file, f"--instructions-file: the block goes to {file}."
-    elif mode == "local":
+    else:
         rel, why = (
             rules_target.LOCAL,
             f"Local mode: the block goes to {rules_target.LOCAL}, kept out of git.",
         )
-    else:
-        choice = rules_target.choose_shared(root)
-        rel, why = choice.rel, choice.reason
     print(why)
     target = root / rel
-    if mode == "local" and is_tracked(project, rel):
-        print(f"error: {rel} is tracked by git; use --write-instructions=shared for it")
+    if is_tracked(project, rel):
+        print(f"error: {rel} is tracked by git; pick an untracked file with --instructions-file")
         return 1
     real = rules_target.link_target(root, rel)
-    if mode == "shared" and real is None:
-        print(
-            f"error: {rel} resolves to {(root / rel).resolve()}, outside the repo. "
-            "Nothing was written. A tracked rules file must stay inside the repo: replace the "
-            "link with a real file, or pick another with --instructions-file."
-        )
-        return 1
-    if mode == "local" and real not in (None, rel) and is_tracked(project, real):
+    if real not in (None, rel) and is_tracked(project, real):
         print(
             f"error: {rel} is a link to {real}, which is tracked by git. "
-            f"Nothing was written. Remove the link, or use --write-instructions=shared."
+            "Nothing was written. Remove the link, or pick another untracked file."
         )
         return 1
     result = planned(target) if dry_run else write_block(target)
@@ -182,25 +231,38 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             f"{said}add {rules_target.IMPORT} at the top of {rel}. Claude Code skips AGENTS.md "
             f"when {rel} exists, so the import makes it load both."
         )
+    written = [rel]
+    if not file:
+        for harness in harness_local.TARGETS:
+            path = root / harness.rel
+            if is_tracked(project, harness.rel):
+                print(f"note: {harness.rel} is tracked; skipped the {harness.harness} local copy")
+                continue
+            real_h = rules_target.link_target(root, harness.rel)
+            if real_h not in (None, harness.rel) and is_tracked(project, real_h):
+                print(
+                    f"note: {harness.rel} links to tracked {real_h}; "
+                    f"skipped the {harness.harness} local copy"
+                )
+                continue
+            if dry_run:
+                action = planned(path)
+                print(f"{said}{action} the rules block in {path} ({harness.harness})")
+            else:
+                action = write_block(path, prefix=harness.prefix if not path.exists() else "")
+                if action == "broken":
+                    print(markers.broken_message(path, "memory instructions --write-instructions"))
+                    return 1
+                print(f"{said}{action} the rules block in {path} ({harness.harness})")
+            written.append(harness.rel)
     if not dry_run:
         from cairnkit.refresh import record
 
-        record(project, None, rel)
-    if choice and choice.pointer:
-        pointer = root / "AGENTS.md"
-        if os.path.lexists(pointer) or pointer.resolve() == target.resolve():
-            print(
-                f"AGENTS.md already exists or is the same file as {rel}, so no pointer is written"
-            )
-        else:
-            if not dry_run:
-                pointer.write_text(rules_target.POINTER, encoding="utf-8")
-            print(f"{said}create {pointer}, which only points to {rel}")
-    if mode == "local":
-        for step in exclude(project, [rel], dry_run):
-            print(said + step)
-    for note in choice.notes if choice else ():
-        print(note)
+        for name in written:
+            record(project, None, name)
+    exclude_lines = list(dict.fromkeys(written))
+    for step in exclude(project, exclude_lines, dry_run):
+        print(said + step)
     old = root / rules_target.OLD_LOCAL
     if rel != rules_target.OLD_LOCAL and rules_target.holds_block(old):
         print(

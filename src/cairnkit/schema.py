@@ -119,7 +119,7 @@ def _check_change(rec: dict) -> list[str]:
         if status == "superseded" and not rec.get("superseded_by"):
             errors.append("status 'superseded' needs superseded_by")
         if status == "promoted" and not rec.get("held_by"):
-            errors.append("status 'promoted' needs held_by (the tracked file that holds it)")
+            errors.append("status 'promoted' needs held_by (the rules file that holds it)")
     if rec.get("scope") is not None and rec["scope"] not in SCOPES:
         errors.append(f"scope {rec['scope']!r} is not one of {', '.join(SCOPES)}")
     if "add_links" in rec:
