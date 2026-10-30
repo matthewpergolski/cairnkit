@@ -113,53 +113,46 @@ def pre_push_body() -> str:
 DOCS_CHECK_MARK = "# cairnkit:docs-check"
 DOCS_CHECK_WARN = "cairnkit: docs/state looks out of date; run memory docs --force"
 _DOCS_CHECK_BUDGET = 1
-_HAS_MEMORY_PROBE = (
-    "from cairnkit.paths import find_project; "
-    "from cairnkit.hookrun import has_memory; "
-    "import sys; "
-    "sys.exit(0 if has_memory(find_project(), None) else 1)"
-)
 
 
-def _docs_check_script() -> str:
-    return (
-        "py=$1\n"
-        f'if ! "$py" -c "{_HAS_MEMORY_PROBE}" >/dev/null 2>&1; then\n'
-        "  exit 0\n"
-        "fi\n"
-        "status=0\n"
-        'out=$("$py" -m cairnkit docs --check 2>/dev/null) || status=$?\n'
-        'if [ "$status" -eq 1 ] && [ -n "$out" ]; then\n'
-        f'  echo "{DOCS_CHECK_WARN}"\n'
-        "fi\n"
-        "exit 0\n"
+def _docs_check_python() -> str:
+    # Timed child must be PY itself (quiet_body pattern). A nested `sh -c`
+    # under timeout orphans the hung interpreter on macOS after the bound.
+    # Same compare as `docs --check`; print only the one warn line when stale.
+    # One physical shell line (via exec of a small block) so redirects stay
+    # on the timeout/gtimeout line with the PY path.
+    block = (
+        "from cairnkit.paths import find_project\n"
+        "from cairnkit.hookrun import has_memory\n"
+        "from cairnkit.docs_cmd import Stale, atlas_freshness\n"
+        "p = find_project()\n"
+        "if not has_memory(p, None):\n"
+        "    raise SystemExit(0)\n"
+        "r = atlas_freshness(p)\n"
+        f"if isinstance(r, Stale):\n"
+        f"    print({DOCS_CHECK_WARN!r})\n"
     )
+    return f"exec({block!r})"
 
 
 def docs_check_stanza() -> str:
     py = shlex.quote(sys.executable)
     seconds = _DOCS_CHECK_BUDGET
-    script = _docs_check_script()
-    run = f'sh -c "$_cairnkit_docs_check" sh {py} </dev/null 2>/dev/null'
+    run = f"{py} -c {shlex.quote(_docs_check_python())}"
     return (
         f"{DOCS_CHECK_MARK}\n"
+        f"# same compare as memory docs --check\n"
         f"if [ -d docs/state ] && [ -x {py} ]; then\n"
-        "  _cairnkit_docs_check=$(cat <<'CAIRNKIT_DOCS_CHECK'\n"
-        f"{script}"
-        "CAIRNKIT_DOCS_CHECK\n"
-        ")\n"
         "  if command -v timeout >/dev/null 2>&1; then\n"
-        f"    timeout -k 1 {seconds} {run} || true\n"
+        f"    timeout -k 1 {seconds} {run} </dev/null 2>/dev/null || true\n"
         "  elif command -v gtimeout >/dev/null 2>&1; then\n"
-        f"    gtimeout -k 1 {seconds} {run} || true\n"
+        f"    gtimeout -k 1 {seconds} {run} </dev/null 2>/dev/null || true\n"
         "  elif command -v perl >/dev/null 2>&1; then\n"
-        "    { perl -e 'alarm "
-        f'{seconds}; exec @ARGV\' -- sh -c "$_cairnkit_docs_check" sh {py} || true; }} '
+        f"    {{ perl -e 'alarm {seconds}; exec @ARGV' -- {run} || true; }} "
         "</dev/null 2>/dev/null\n"
         "  else\n"
-        f"    {run} || true\n"
+        f"    {run} </dev/null 2>/dev/null || true\n"
         "  fi\n"
-        "  unset _cairnkit_docs_check\n"
         "fi\n"
     )
 

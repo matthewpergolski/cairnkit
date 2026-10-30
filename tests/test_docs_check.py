@@ -265,6 +265,7 @@ def test_post_merge_body_shells_out_to_docs_check():
     fresh, quiet = _split_post_merge(text)
     assert githook.DOCS_CHECK_MARK in fresh
     assert "docs --check" in fresh
+    assert "atlas_freshness" in fresh
     assert STALE_LINE in fresh
     assert "|| true" in fresh
     assert "has_memory" in fresh
@@ -272,19 +273,21 @@ def test_post_merge_body_shells_out_to_docs_check():
     assert "[ -d docs/state ]" in fresh
     assert "timeout -k 1 1 " in fresh
     assert "docs-freshness" not in text
-    check_lines = [line for line in fresh.splitlines() if "docs --check" in line]
-    assert check_lines
-    assert all(
-        "2>/dev/null" in line and not _redirects_stdout_to_devnull(line) for line in check_lines
-    )
+    # Bound must parent PY directly; nested `sh -c` orphans hung starts on macOS.
+    timed = [line for line in fresh.splitlines() if "timeout -k 1 1 " in line]
+    assert timed
+    assert all(" sh -c " not in line for line in timed)
+    assert all("2>/dev/null" in line and not _redirects_stdout_to_devnull(line) for line in timed)
     warn_lines = [line for line in fresh.splitlines() if STALE_LINE in line]
     assert warn_lines
-    assert all("/dev/null" not in line for line in warn_lines)
+    # Warn text lives inside the timed PY -c; stderr may go to /dev/null, stdout must not.
+    assert all(not _redirects_stdout_to_devnull(line) for line in warn_lines)
     quiet_cmds = _hook_lines(quiet, "post-merge")
     assert quiet_cmds
     assert all(_redirects_stdout_to_devnull(line) for line in quiet_cmds)
     assert "timeout -k 1 3 " in quiet
     assert "docs --check" not in quiet
+    assert "atlas_freshness" not in quiet
     for body in (
         githook.pre_push_body(),
         githook.post_commit_body(),

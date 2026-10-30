@@ -324,17 +324,18 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   only when `docs/state` is a directory and `PY` is executable. The docs
   check half begins with the line `# cairnkit:docs-check` so
   `memory init --refresh` can tell an older post-merge body apart without a
-  package version bump. The check asks `PY -c` whether
-  `has_memory(find_project(), None)` is true, and discards that probe's
-  stdout and stderr. A false or failed probe skips the rest. Otherwise it
-  runs `PY -m cairnkit docs --check`, captures that command's stdout, and
-  discards its stderr. The bound is 1 second (`timeout -k 1 1`, or
-  `gtimeout`, or `perl` `alarm 1`). When the check exits 1 and the captured
-  stdout is not empty, the hook prints
+  package version bump. A comment names `docs --check` for that same
+  refresh scan. The timed child is `PY -c` directly (same bound pattern as
+  the quiet hooks: `timeout -k 1 1`, or `gtimeout`, or `perl` `alarm`+
+  `exec`), so a hung start is not left orphaned under a nested shell.
+  That `-c` asks `has_memory(find_project(), None)`, then runs the same
+  compare as `memory docs --check` via `atlas_freshness`. When the result
+  is stale, it prints
   `cairnkit: docs/state looks out of date; run memory docs --force`
-  on its own stdout. It does not print the page list. The timed command
-  ends with `|| true`. The hook writes nothing and never fails the merge.
-  Not part of the shared option.
+  on its own stdout. It does not print the page list. Stderr of the timed
+  child goes to `/dev/null`. The timed command ends with `|| true`. The
+  hook writes nothing and never fails the merge. Not part of the shared
+  option.
 - `commit-msg` (opt-in): a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
@@ -409,9 +410,10 @@ The session key is `session_id`, else `conversation_id`, else `default`.
   They do not count as a session start. The tidy command prints nothing
   (including when the interpreter lacks cairnkit). They always exit 0. With no
   memory folder the tidy does nothing. Before the tidy command, the
-  `post-merge` shell runs `PY -m cairnkit docs --check`, as the post-merge
-  block above describes. When that check exits 1 and its stdout
-  is not empty, the shell prints one line on stdout. The tidy command's
+  `post-merge` shell runs the docs-check half described above (timed
+  `PY -c` with the same compare as `memory docs --check`). When that
+  compare is stale, the shell prints one warn line on stdout. The tidy
+  command's
   shell bounds hung process start to a few seconds when
   `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`).
   The perl command runs in a group that discards output, so the shell's
