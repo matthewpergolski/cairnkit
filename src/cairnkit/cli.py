@@ -14,6 +14,13 @@ from cairnkit.schema import BASES, KINDS, STATUSES
 # The agent tools the hook command knows. Kept here so building the parser imports no adapter.
 AGENTS = ("claude", "codex", "cursor", "generic")
 
+# Keep discoverability copy in --help without importing cairnkit.discover at parse time.
+_DISCOVER_EPILOG = (
+    "Look up: `memory search WORDS`. Read one: `memory show ID`. "
+    "Pin for every session: `--pinned`. Link: `memory change ID --link related:OTHER`. "
+    "Clean up: `memory tidy`."
+)
+
 
 def _time(value: str) -> str:
     try:
@@ -26,7 +33,7 @@ def _time(value: str) -> str:
 def build_parser() -> argparse.ArgumentParser:
     # Two commands run this: cairnkit, and its short name memory.
     prog = "cairnkit" if Path(sys.argv[0]).name == "cairnkit" else "memory"
-    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__, epilog=_DISCOVER_EPILOG)
     parser.add_argument("--version", action="version", version=f"{prog} {__version__}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--path", help="memory folder (else MEMORY_DIR, .memory-path, default)")

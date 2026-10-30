@@ -290,10 +290,14 @@ file: the agent checks whether the text is true now. The old fact is not
 reopened and its history stays. The write never fails because of it.
 
 **The load stays small.** `memory load` prints the rules first. They do not use
-the word budget. Then it fills the budget with the facts of the best rank. The
-rank is recency, kind, area, branch and use. A fact that you or an agent looked
-up lately with `memory show` or `memory search` ranks higher; a guess that
-nobody touches fades. `memory load --explain` prints each score.
+the word budget. Then it prints pinned facts and compact scenario lines (facts
+that share an area or tag, each line citing source fact ids), then fills the
+rest of the budget with the best-ranked remaining facts. A fact may carry an
+optional `--summary` so the load line stays short while the body can be longer
+(up to 2000 characters; rules stay at 400). Rank is still recency, kind, area,
+branch and use, with BM25 search for on-demand recall. Stale or missing-source
+facts get a one-line nudge toward `memory tidy`. Look up: `memory search`,
+`memory show`, `--pinned`, `--link`, `memory tidy`.
 
 ## Why
 

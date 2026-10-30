@@ -16,6 +16,7 @@ import sys
 
 from cairnkit import autotidy, followups, skills, usage
 from cairnkit.check import check_links, check_records
+from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
@@ -23,13 +24,6 @@ from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, ru
 from cairnkit.session import needs_reminder, reminder_text, start_session
 
 NOTE_IDS = 10
-
-RULES_SHORT = """\
-Memory rules: record what a later session needs with `memory add` (decisions,
-traps, lessons: long-term; working notes: `--short --until-merged`). To change
-a fact, add a newer one (`--supersedes ID`) or mark it `expired` or `wrong`
-with `memory change`. Never store secrets. Never edit memory files by hand.
-Run `memory instructions` for the full rules."""
 
 
 def read_payload() -> dict:

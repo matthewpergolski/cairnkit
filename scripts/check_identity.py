@@ -339,8 +339,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="build a fake GitHub squash for a PR and run the push-mode check",
     )
-    parser.add_argument("--pr-number", type=int, default=0, help="PR number for --check-simulated-squash")
-    parser.add_argument("--title", default="", help="PR title for --check-simulated-squash")
+    parser.add_argument(
+        "--pr-number",
+        type=int,
+        default=0,
+        help="PR number for --check-simulated-squash",
+    )
+    parser.add_argument(
+        "--title",
+        default="",
+        help="PR title for --check-simulated-squash",
+    )
     parser.add_argument(
         "--body-file",
         default="",

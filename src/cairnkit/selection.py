@@ -84,6 +84,14 @@ def clean(value: object) -> str:
     return " ".join(str(value).split())
 
 
+def load_text(state: dict) -> str:
+    """The short line load shows: summary when set, else the body."""
+    summary = state.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        return summary.strip()
+    return str(state.get("text", ""))
+
+
 def render(state: dict) -> str:
     extra = ""
     if state.get("scope") == "short":
@@ -94,7 +102,7 @@ def render(state: dict) -> str:
     if state.get("enforced_by"):
         extra += f"; enforced by {state['enforced_by']}"
     return (
-        f"- [{state['id']}] {clean(state.get('text', ''))} "
+        f"- [{state['id']}] {clean(load_text(state))} "
         f"({state.get('happened_at', '?')}; {state.get('basis', '?')}{extra})"
     )
 

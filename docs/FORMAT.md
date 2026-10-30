@@ -115,7 +115,8 @@ hex characters. A new id must not exist in any fact file.
 | `type` | yes | `"fact"` |
 | `id` | yes | `f-YYYYMMDD-xxxx`: the date it was learned and 4 random hex characters. Never reused. |
 | `kind` | yes | `rule`, `decision`, `event`, `trap`, `preference`, `lesson` or `fact`. `memory load` shows `rule` facts first. |
-| `text` | yes | One or two plain sentences. At most 400 characters. |
+| `text` | yes | The fact body. At most 2000 characters (400 for `kind` `rule`). |
+| `summary` | no | Short load line. At most 200 characters. Not for rules. Load shows this instead of the full body when set. |
 | `area` | yes | One area of the work, for example `deploy` or `database`. |
 | `tags` | no | A list of words for search and ranking. |
 | `happened_at` | yes | When it happened or became true. A date (`2026-10-03`) or a date-time. |
