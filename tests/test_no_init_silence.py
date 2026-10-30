@@ -14,7 +14,7 @@ from cairnkit.cli import main
 
 AGENTS = ("claude", "codex", "cursor", "generic", "opencode", "pi", "grok")
 SESSION_EVENTS = ("session-start", "stop", "after-shell")
-GIT_EVENTS = ("post-commit", "pre-push", "post-merge", "docs-freshness")
+GIT_EVENTS = ("post-commit", "pre-push", "post-merge")
 
 
 def _snapshot(root: Path) -> set[str]:
@@ -113,25 +113,6 @@ def test_installed_git_hooks_stay_silent_without_init(bare, monkeypatch):
     assert after_install  # install happened
 
 
-def test_docs_freshness_silent_without_init_when_atlas_exists(bare):
-    """A docs/state page with no facts/ must not warn and must not be rewritten."""
-    repo, _before, sibling, capsys = bare
-    state = repo / "docs" / "state"
-    state.mkdir(parents=True)
-    page = state / "README.md"
-    page.write_text("old\n", encoding="utf-8")
-    before = _snapshot(repo)
-    capsys.readouterr()
-    code = main(["hook", "docs-freshness"])
-    out = capsys.readouterr()
-    assert code == 0
-    assert out.out == ""
-    assert out.err == ""
-    assert not sibling.exists()
-    assert _snapshot(repo) == before
-    assert page.read_text(encoding="utf-8") == "old\n"
-
-
 def test_installed_post_merge_stays_silent_without_init(bare):
     """The generated post-merge script prints nothing when memory was never created."""
     repo, _before, sibling, capsys = bare
@@ -153,6 +134,31 @@ def test_installed_post_merge_stays_silent_without_init(bare):
     assert result.stdout == ""
     assert result.stderr == ""
     assert not sibling.exists()
+    assert page.read_text(encoding="utf-8") == "old\n"
+
+
+def test_installed_post_merge_stays_silent_when_sibling_has_no_facts(bare):
+    """An empty sibling `.memory` is still uninitialized, even with a stale atlas."""
+    repo, _before, sibling, capsys = bare
+    sibling.mkdir()
+    state = repo / "docs" / "state"
+    state.mkdir(parents=True)
+    page = state / "README.md"
+    page.write_text("old\n", encoding="utf-8")
+    capsys.readouterr()
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    hook = repo / ".git" / "hooks" / "post-merge"
+    result = subprocess.run(
+        ["sh", str(hook)],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert list(sibling.iterdir()) == []
     assert page.read_text(encoding="utf-8") == "old\n"
 
 

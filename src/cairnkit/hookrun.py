@@ -346,30 +346,7 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
     return 0
 
 
-ATLAS_STALE_LINE = "cairnkit: docs/state looks out of date; run memory docs --force"
-
-
-def warn_atlas_stale(project: Project, flag: str | None) -> int:
-    """Always 0. One stdout line when memory exists and the atlas is stale.
-
-    Absent and Current print nothing. A crash prints nothing. Nothing is written.
-    """
-    try:
-        if not has_memory(project, flag):
-            return 0
-        from cairnkit.docs_cmd import Stale, atlas_freshness
-
-        result = atlas_freshness(project)
-        if isinstance(result, Stale):
-            print(ATLAS_STALE_LINE)
-    except (Exception, SystemExit):
-        return 0
-    return 0
-
-
 def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
-    if event == "docs-freshness":
-        return warn_atlas_stale(project, flag)
     if event in ("pre-push", "post-merge"):
         return git_event(project, flag, fuller=True)
     if event == "post-commit":

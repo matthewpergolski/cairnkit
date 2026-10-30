@@ -282,7 +282,6 @@ def build_parser() -> argparse.ArgumentParser:
             "post-checkout",
             "pre-push",
             "post-merge",
-            "docs-freshness",
             "post-commit",
             "after-shell",
             "post-tool",

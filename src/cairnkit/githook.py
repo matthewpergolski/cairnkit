@@ -4,9 +4,10 @@ commit-msg guard.
 
 Personal quiet hooks never fail git. post-commit drafts pending candidates
 fast (~1s). pre-push and post-merge run the fuller propose + auto-tidy pass
-(~3s). post-merge first prints one line when memory exists and the atlas is stale. Each hook
-is a marked block in a shell script. A foreign hook is kept:
-the block goes right after its first line. Uninstall removes only the block.
+(~3s). post-merge first runs ``docs --check`` in its own command and may
+print one line when memory exists and the atlas is stale. Each hook is a
+marked block in a shell script. A foreign hook is kept: the block goes right
+after its first line. Uninstall removes only the block.
 """
 
 from __future__ import annotations
@@ -130,20 +131,75 @@ def pre_push_body() -> str:
     return quiet_body("pre-push")
 
 
-def post_merge_body() -> str:
-    """Speak a stale-atlas line, then the quiet tidy command.
+DOCS_CHECK_WARN = "cairnkit: docs/state looks out of date; run memory docs --force"
+_DOCS_CHECK_BUDGET = 1
+_HAS_MEMORY_PROBE = (
+    "from cairnkit.paths import find_project; "
+    "from cairnkit.hookrun import has_memory; "
+    "import sys; "
+    "sys.exit(0 if has_memory(find_project(), None) else 1)"
+)
 
-    quiet_body closes stdout, and the tidy command discards it again, so the
-    warn is its own command. The directory test skips a repo with no atlas.
+
+def _docs_check_script() -> str:
+    return (
+        "py=$1\n"
+        f'if ! "$py" -c "{_HAS_MEMORY_PROBE}" >/dev/null 2>&1; then\n'
+        "  exit 0\n"
+        "fi\n"
+        "status=0\n"
+        'out=$("$py" -m cairnkit docs --check 2>/dev/null) || status=$?\n'
+        'if [ "$status" -eq 1 ] && [ -n "$out" ]; then\n'
+        f'  echo "{DOCS_CHECK_WARN}"\n'
+        "fi\n"
+        "exit 0\n"
+    )
+
+
+def docs_check_stanza() -> str:
+    """Shell for post-merge. One stdout line when memory exists and the atlas is stale.
+
+    ``docs --check`` owns the comparison. This stanza only gates on
+    ``has_memory``, bounds the command, and maps exit 1 plus non-empty stdout
+    to ``DOCS_CHECK_WARN``. The check's stdout is not printed. Its stderr is
+    discarded, and so is this command's stderr, so a missing module stays
+    quiet. The page list never reaches the terminal. No ``docs/state``, no
+    memory, a current atlas, a probe error, or a timeout prints nothing.
+    The timed command ends in ``|| true``.
     """
     py = shlex.quote(sys.executable)
-    speak = _bounded_hook(
-        "docs-freshness",
-        1,
-        keep_stdout=True,
-        guard=f"[ -d docs/state ] && [ -x {py} ]",
+    seconds = _DOCS_CHECK_BUDGET
+    script = _docs_check_script()
+    run = f'sh -c "$_cairnkit_docs_check" sh {py} </dev/null 2>/dev/null'
+    return (
+        f"if [ -d docs/state ] && [ -x {py} ]; then\n"
+        "  _cairnkit_docs_check=$(cat <<'CAIRNKIT_DOCS_CHECK'\n"
+        f"{script}"
+        "CAIRNKIT_DOCS_CHECK\n"
+        ")\n"
+        "  if command -v timeout >/dev/null 2>&1; then\n"
+        f"    timeout -k 1 {seconds} {run} || true\n"
+        "  elif command -v gtimeout >/dev/null 2>&1; then\n"
+        f"    gtimeout -k 1 {seconds} {run} || true\n"
+        "  elif command -v perl >/dev/null 2>&1; then\n"
+        "    { perl -e 'alarm "
+        f'{seconds}; exec @ARGV\' -- sh -c "$_cairnkit_docs_check" sh {py} || true; }} '
+        "</dev/null 2>/dev/null\n"
+        "  else\n"
+        f"    {run} || true\n"
+        "  fi\n"
+        "  unset _cairnkit_docs_check\n"
+        "fi\n"
     )
-    return speak + quiet_body("post-merge")
+
+
+def post_merge_body() -> str:
+    """The docs check, then the quiet tidy command.
+
+    quiet_body closes stdout, so the check is its own command. Sharing that
+    redirect would hide the one line this hook exists to print.
+    """
+    return docs_check_stanza() + quiet_body("post-merge")
 
 
 def post_commit_body() -> str:
