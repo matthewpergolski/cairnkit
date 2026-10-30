@@ -2,7 +2,7 @@
 
 This page specifies the files that cairnkit reads and writes. It is precise
 enough to write another implementation of the `memory` command in another
-language. It describes version 0.2.0.
+language. It describes version 0.2.1.
 
 For what each kind and scope means, see [memory-types.md](memory-types.md).
 
@@ -312,14 +312,22 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
 - `post-commit`: the same quiet shape as `pre-push`, with a 1 second bound
   (`timeout -k 1 1`, or `perl` `alarm 1`). It drafts pending candidates from
   the commit just made. It ends with `|| true`. Not part of the shared option.
-- `pre-push` / `post-merge`: a short shell block. When `PY` is executable it
-  runs `PY -m cairnkit hook EVENT` with stdin, stdout and stderr on `/dev/null`,
+- `pre-push`: a short shell block. When `PY` is executable it
+  runs `PY -m cairnkit hook pre-push` with stdin, stdout and stderr on `/dev/null`,
   under a few-second wall-clock bound (`timeout` / `gtimeout` when present,
   else `perl` `alarm`+`exec`, which ships on macOS and Linux). The perl
   command runs in a group that discards output, so the shell's alarm line is
   not printed. With none of those tools the command runs unbounded. It ends
   with `|| true`. It does not read the hook arguments. It never fails the
-  push or the merge. Not part of the shared option.
+  push. Not part of the shared option.
+- `post-merge`: that same quiet tidy block, after a command that runs only
+  when `docs/state` is a directory. The command is
+  `PY -m cairnkit hook docs-freshness` with stdin and stderr on `/dev/null`
+  and stdout kept. Its bound is 1 second (`timeout -k 1 1`, or `perl`
+  `alarm 1`). It ends with `|| true`. When `facts/` exists and the atlas
+  differs, it prints
+  `cairnkit: docs/state looks out of date; run memory docs --force`.
+  It writes nothing and never fails the merge. Not part of the shared option.
 - `commit-msg` (opt-in): a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
@@ -386,10 +394,18 @@ The session key is `session_id`, else `conversation_id`, else `default`.
   or inside the memory folder, or when `memory check` finds an error. With no
   memory folder it exits 0.
 - `post-checkout`: makes the `memory-bank` link in a new worktree.
+- `docs-freshness`: compares `docs/state` to a fresh atlas and writes nothing.
+  With no `facts/` directory, or when the atlas is missing or current, it
+  prints nothing. When the atlas differs it prints
+  `cairnkit: docs/state looks out of date; run memory docs --force` on stdout.
+  It always exits 0. A crash prints nothing and exits 0.
 - `pre-push` and `post-merge`: run the same auto-tidy step as `session-start`.
-  They do not count as a session start. They print nothing (including when the
-  interpreter lacks cairnkit). They always exit 0. With no memory folder they
-  do nothing. The shell bounds hung process start to a few seconds when
+  They do not count as a session start. The tidy command prints nothing
+  (including when the interpreter lacks cairnkit). They always exit 0. With no
+  memory folder the tidy does nothing. `post-merge` runs `docs-freshness`
+  first, with stdout kept, stderr discarded, a 1 second bound, and `|| true`.
+  That command runs only when `docs/state` is a directory. The tidy command's
+  shell bounds hung process start to a few seconds when
   `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`).
   The perl command runs in a group that discards output, so the shell's
   alarm line is not printed. Without any of those the start is unbounded.
