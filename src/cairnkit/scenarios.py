@@ -47,6 +47,8 @@ def group_scenarios(
     for state in states:
         if state.get("scope", "long") != "long" or state.get("kind") == "rule":
             continue
+        if state.get("pinned"):
+            continue  # pinned facts print once under ## Pinned
         if not _fresh_enough(state, moment):
             continue
         area = str(state.get("area") or "general")
