@@ -199,3 +199,58 @@ def test_install_wires_the_failure_and_prompt_events(repo, mem):
     assert main(["hooks", "install", "--agent", "cursor"]) == 0
     cursor = json.loads((repo / ".cursor" / "hooks.json").read_text())["hooks"]
     assert {"postToolUseFailure", "preCompact"} <= set(cursor)
+
+
+def test_a_stored_trap_for_a_staged_file_reaches_git_output(repo, mem, capsys):
+    write_facts(
+        mem, [make_fact("f-20261001-0001", "Retries double bill.", kind="trap", area="pay")]
+    )
+    folder = repo / "pay"
+    folder.mkdir()
+    (folder / "x.py").write_text("x\n")
+    git(repo, "add", "pay/x.py")
+    capsys.readouterr()
+    assert main(["hook", "pre-commit"]) == 0
+    assert "Retries double bill." in capsys.readouterr().err
+
+
+def test_a_trap_in_another_area_says_nothing_at_commit(repo, mem, capsys):
+    write_facts(
+        mem, [make_fact("f-20261001-0001", "Retries double bill.", kind="trap", area="pay")]
+    )
+    (repo / "x.py").write_text("x\n")
+    git(repo, "add", "x.py")
+    capsys.readouterr()
+    assert main(["hook", "pre-commit"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_a_subagent_gets_the_load_and_writes_no_state(repo, mem, capsys, monkeypatch):
+    write_facts(mem, [make_fact("f-20261001-0001", "A stored fact.")])
+    out = hook(capsys, monkeypatch, "subagent-start", {"session_id": "sub"})
+    context = json.loads(out)["hookSpecificOutput"]
+    assert context["hookEventName"] == "SubagentStart"
+    assert "A stored fact." in context["additionalContext"]
+    assert not (mem / ".sessions" / "sub.json").exists()
+
+
+def test_native_memory_is_named_once_and_copied_never(repo, mem, capsys, monkeypatch):
+    from pathlib import Path
+
+    from cairnkit import native
+
+    store = native._claude_store(repo)
+    store.mkdir(parents=True)
+    (store / "MEMORY.md").write_text("- index\n")
+    (store / "note.md").write_text("A native note.\n")
+    assert str(store).startswith(str(Path.home()))
+    before = facts_on_disk(mem)
+    assert "1 new note" in start(capsys, monkeypatch)
+    assert "new note" not in start(capsys, monkeypatch)
+    (store / "two.md").write_text("Another.\n")
+    assert "1 new note" in start(capsys, monkeypatch)
+    assert facts_on_disk(mem) == before
+
+
+def test_no_native_memory_says_nothing(repo, mem, capsys, monkeypatch):
+    assert "new note" not in start(capsys, monkeypatch)
