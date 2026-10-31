@@ -270,6 +270,62 @@ def content_id(folder: Path) -> str:
     return digest.hexdigest()
 
 
+_TAG_AT = re.compile(r"^([0-9a-f]+)\s+refs/tags/(v?\d+(?:\.\d+)*)(?:\^{})?$", re.I)
+
+
+def _tag_version(raw: str) -> tuple[tuple[int, ...], str]:
+    number = raw[1:] if raw.lower().startswith("v") else raw
+    return tuple(int(part) for part in number.split(".")), number
+
+
+def _release_tags(out: str) -> list[tuple[str, str]]:
+    """Pairs of (commit, dotted version) from `git ls-remote --tags` lines."""
+    found: list[tuple[str, str]] = []
+    for line in out.splitlines():
+        match = _TAG_AT.match(line.strip())
+        if not match:
+            continue
+        _, number = _tag_version(match.group(2))
+        found.append((match.group(1), number))
+    return found
+
+
+def _best_version(tags: list[tuple[str, str]], commit: str | None = None) -> str | None:
+    best: tuple[int, ...] | None = None
+    chosen: str | None = None
+    for tag_commit, number in tags:
+        if commit is not None and tag_commit != commit:
+            continue
+        key, _ = _tag_version(number)
+        if best is None or key > best:
+            best, chosen = key, number
+    return chosen
+
+
+def version_at_commit(spec: str, commit: str, timeout: float = 3.0) -> str | None:
+    """The release version of tags that point at commit, or None.
+
+    `git ls-remote --tags` lists lightweight tags and the peeled commit of annotated
+    tags (`refs/tags/vX.Y.Z^{}`). Only tags whose object is `commit` count. When
+    several match, the highest dotted version wins. A missing older tag (for
+    example only `v0.3.0` exists, no `v0.2.0`) does not block reading the version
+    at HEAD. When no release tag points at commit, callers may fall back to the
+    highest remote release tag.
+    """
+    out = git(["ls-remote", "--tags", spec], timeout)
+    if not out or not commit:
+        return None
+    return _best_version(_release_tags(out), commit)
+
+
+def highest_release_version(spec: str, timeout: float = 3.0) -> str | None:
+    """The highest `vX.Y.Z` / `X.Y.Z` tag on the remote, or None."""
+    out = git(["ls-remote", "--tags", spec], timeout)
+    if not out:
+        return None
+    return _best_version(_release_tags(out))
+
+
 def latest(source: Source, timeout: float = 3.0) -> Latest:
     """The newest commit and version at the source. Raise SourceError."""
     if source.kind == "folder":
@@ -290,7 +346,11 @@ def latest(source: Source, timeout: float = 3.0) -> Latest:
             f"Could not reach {source.spec}.",
             "Check the network and the URL. Then run `memory update` again.",
         )
-    return Latest(out.split()[0], None)
+    commit = out.split()[0]
+    tags_out = git(["ls-remote", "--tags", source.spec], timeout) or ""
+    tags = _release_tags(tags_out)
+    version = _best_version(tags, commit) or _best_version(tags)
+    return Latest(commit, version)
 
 
 def dirty(folder: Path) -> bool:
