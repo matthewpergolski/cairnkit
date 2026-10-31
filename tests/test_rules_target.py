@@ -183,48 +183,6 @@ def held_by(mem):
     return read_jsonl(mem / "facts" / "tidy.jsonl")[-1]["held_by"]
 
 
-def test_tidy_uses_claude_local_md(repo, mem, capsys, monkeypatch):
-    from cairnkit.harness_local import AGENTS_POINTER
-
-    (repo / "CLAUDE.md").write_text(HAND)
-    (repo / "AGENTS.md").write_text("# Agents\n")
-    assert main(["init", "--write-instructions"]) == 0
-    promote(mem, capsys, monkeypatch)
-    assert (repo / "CLAUDE.md").read_text() == HAND
-    agents = (repo / "AGENTS.md").read_text()
-    assert agents.startswith("# Agents\n") and AGENTS_POINTER in agents
-    assert "Never clear the dev database blind." in (repo / "CLAUDE.local.md").read_text()
-    assert held_by(mem) == "CLAUDE.local.md"
-
-
-def test_tidy_keeps_a_rules_file_the_config_sets(repo, mem, capsys, monkeypatch):
-    (mem / "config.toml").write_text('rules_file = "docs/RULES.md"\n')
-    (repo / "CLAUDE.md").write_text(HAND)
-    promote(mem, capsys, monkeypatch)
-    assert "Never clear" in (repo / "docs" / "RULES.md").read_text()
-    assert (repo / "CLAUDE.md").read_text() == HAND
-    assert held_by(mem) == "docs/RULES.md"
-
-
-def test_tidy_refuses_a_tracked_rules_file(repo, mem, capsys, monkeypatch):
-    from conftest import git
-
-    (mem / "config.toml").write_text('rules_file = "CLAUDE.md"\n')
-    (repo / "CLAUDE.md").write_text(HAND)
-    git(repo, "add", "CLAUDE.md")
-    git(repo, "commit", "-q", "-m", "track")
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-20T12:00:00+00:00")
-    rule_fact(mem)
-    _, out = run(["tidy"], capsys)
-    import re
-
-    [pid] = re.findall(r"\bp-[0-9a-f]{6}\b", out)
-    code, out = run(["tidy", "--apply", pid], capsys)
-    assert code == 1
-    assert "tracked" in out
-    assert (repo / "CLAUDE.md").read_text() == HAND
-
-
 def test_a_new_memory_does_not_pin_the_rules_file(repo):
     from cairnkit.config import load_config
 

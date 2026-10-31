@@ -71,24 +71,3 @@ def test_migrate_leaves_hand_written_content_when_block_was_only_addition(repo):
     assert text.rstrip().endswith(AGENTS_POINTER)
     assert START not in text
     assert START in (repo / "CLAUDE.local.md").read_text()
-
-
-def test_tidy_promotes_into_local_not_tracked(repo, mem, capsys, monkeypatch):
-    from conftest import make_fact, write_facts
-
-    (repo / "CLAUDE.md").write_text(HAND)
-    git(repo, "add", "CLAUDE.md")
-    git(repo, "commit", "-q", "-m", "claude")
-    assert main(["init", "--write-instructions"]) == 0
-    fact = make_fact("f-20261001-0001", "Never clear the dev database blind.", pinned=True)
-    write_facts(mem, [{**fact, "kind": "trap"}])
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-20T12:00:00+00:00")
-    out = capsys.readouterr()
-    assert main(["tidy"]) == 0
-    out = capsys.readouterr().out
-    import re
-
-    [pid] = re.findall(r"\bp-[0-9a-f]{6}\b", out)
-    assert main(["tidy", "--apply", pid]) == 0
-    assert (repo / "CLAUDE.md").read_text() == HAND
-    assert "Never clear the dev database blind." in (repo / "CLAUDE.local.md").read_text()

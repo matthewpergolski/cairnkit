@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cairnkit import __version__, adapters, githook, instruction_files, instructions, refresh, tidy
+from cairnkit import __version__, adapters, githook, instruction_files, instructions, refresh
 from cairnkit.cli import main
 from cairnkit.paths import find_project
 
@@ -32,7 +32,6 @@ def old_rules_block(body: str = "Old text.") -> str:
 
 def test_new_markers_name_cairnkit():
     assert instructions.START == "<!-- cairnkit:start -->"
-    assert tidy.RULES_START == "<!-- cairnkit:rules:start -->"
     assert githook.START == "# >>> cairnkit >>>"
     assert "-m cairnkit hook" in adapters.hook_command("stop", "claude")
 
@@ -90,18 +89,6 @@ def test_an_old_block_is_skipped_when_reading_hand_written_rules(repo):
     texts = [" ".join(w for s in i.sentences for w in s) for i in instruction_files.items(repo)]
     assert any("staging server" in t for t in texts)
     assert not any("always write a fact" in t for t in texts)
-
-
-def test_tidy_adds_a_rule_inside_an_old_block_and_renames_its_markers(tmp_path):
-    path = tmp_path / "AGENTS.md"
-    path.write_text(f"top\n{OLD_RULES_START}\n## Rules\n\n- One.\n{OLD_RULES_END}\nbottom\n")
-    tidy.add_rule(path, "Two.")
-    tidy.add_rule(path, "Two.")
-    text = path.read_text()
-    assert OLD_RULES_START not in text and OLD_RULES_END not in text
-    assert text.count(tidy.RULES_START) == 1 and text.count(tidy.RULES_END) == 1
-    assert text.count("- Two.\n") == 1 and "- One.\n" in text
-    assert text.startswith("top\n") and text.endswith("bottom\n")
 
 
 def test_git_hook_with_old_markers_gets_one_new_block(repo, capsys):

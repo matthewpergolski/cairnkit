@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 from conftest import add_worktree, read_jsonl
@@ -91,22 +91,12 @@ def test_change_rules(repo, mem, capsys):
     assert recs[-1]["add_links"] == [{"rel": "related", "id": fid}]
 
 
-def test_short_term_fact_gets_expiry(mem, capsys, monkeypatch):
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-01T12:00:00-05:00")
+def test_short_term_fact_ends_with_its_branch_not_by_the_clock(mem, capsys):
     add(capsys, "Working note.", "--short")
     [rec] = read_jsonl(mem / "facts" / "main.jsonl")
     assert rec["scope"] == "short"
-    learned = datetime.fromisoformat(rec["learned_at"])
-    assert datetime.fromisoformat(rec["expires_at"]) - learned == timedelta(days=14)
-
-
-def test_short_term_days_comes_from_config(mem, capsys, monkeypatch):
-    cfg = mem / "config.toml"
-    cfg.write_text(cfg.read_text().replace("short_term_days = 14", "short_term_days = 3"))
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-01T12:00:00-05:00")
-    add(capsys, "Working note.", "--short")
-    [rec] = read_jsonl(mem / "facts" / "main.jsonl")
-    assert rec["expires_at"].startswith("2026-10-04")
+    assert rec["until_branch_merged"] == "main"
+    assert "expires_at" not in rec
 
 
 def test_until_merged_uses_current_branch(repo, mem, capsys, monkeypatch):

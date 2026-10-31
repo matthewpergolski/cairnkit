@@ -80,8 +80,7 @@ def test_budget_is_held_and_pinned_always_shown(mem, capsys, monkeypatch):
     assert "Pinned rule." in out
     words = sum(len(line.split()) for line in lines)
     assert words <= 60 + 10
-    # Budget still drops facts: either "not shown" or folded into a scenario line.
-    assert "not shown" in out or "folded into scenarios" in out
+    assert "not shown" in out
     assert "memory search" in out or "memory show" in out
 
 

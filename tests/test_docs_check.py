@@ -308,7 +308,6 @@ def test_post_merge_body_shells_out_to_docs_check():
     assert "atlas_freshness" not in quiet
     for body in (
         githook.pre_push_body(),
-        githook.post_commit_body(),
         githook.post_checkout_body(False),
         githook.post_checkout_body(True),
     ):

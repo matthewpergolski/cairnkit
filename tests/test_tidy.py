@@ -1,6 +1,5 @@
 import re
 
-import pytest
 from conftest import make_fact, read_jsonl, write_facts
 
 from cairnkit.cli import main
@@ -134,29 +133,6 @@ def test_superseded_chain(mem, capsys, monkeypatch):
     assert last["id"] == "f-20261001-0001" and last["superseded_by"] == "f-20261001-0003"
 
 
-def test_stale_long_fact_without_links(mem, capsys, monkeypatch):
-    monkeypatch.setenv("MEMORY_NOW", NOW)
-    write_facts(
-        mem,
-        [
-            make_fact(
-                "f-20260101-0001", "Old lonely fact.", learned_at="2026-01-01T00:00:00+00:00"
-            ),
-            make_fact(
-                "f-20260101-0002",
-                "Old linked fact.",
-                learned_at="2026-01-01T00:00:00+00:00",
-                links=[{"rel": "related", "id": "f-20261001-0003"}],
-            ),
-            make_fact("f-20261001-0003", "New fact.", learned_at="2026-10-01T00:00:00+00:00"),
-        ],
-    )
-    _, out = tidy(capsys)
-    assert "f-20260101-0001" in out and "f-20260101-0002" not in out
-    _, out = tidy(capsys, "--days", "365")
-    assert "f-20260101-0001" not in out
-
-
 def test_apply_writes_only_approved_changes(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(
@@ -164,9 +140,8 @@ def test_apply_writes_only_approved_changes(mem, capsys, monkeypatch):
         [
             make_fact("f-20261001-0001", "Same text.", learned_at="2026-10-01T00:00:00+00:00"),
             make_fact("f-20261002-0002", "Same text.", learned_at="2026-10-02T00:00:00+00:00"),
-            make_fact(
-                "f-20260101-0003", "Old lonely fact.", learned_at="2026-01-01T00:00:00+00:00"
-            ),
+            make_fact("f-20261003-0003", "Other text.", learned_at="2026-10-03T00:00:00+00:00"),
+            make_fact("f-20261004-0004", "Other text.", learned_at="2026-10-04T00:00:00+00:00"),
         ],
     )
     _, out = tidy(capsys)
@@ -196,66 +171,3 @@ def test_apply_unknown_id_writes_nothing(mem, capsys, monkeypatch):
     )
     assert main(["tidy", "--apply", "p-000000"]) == 1
     assert not (mem / "facts" / "tidy.jsonl").exists()
-
-
-def test_pinned_long_fact_is_proposed_for_the_local_rules(repo, mem, capsys, monkeypatch):
-    monkeypatch.setenv("MEMORY_NOW", NOW)
-    (repo / "CLAUDE.local.md").write_text("# Rules\n\nKeep this line.\n")
-    (repo / "AGENTS.md").write_text("# Agents\n")
-    write_facts(
-        mem,
-        [
-            make_fact(
-                "f-20261001-0001", "Never clear the dev database blind.", pinned=True, kind="trap"
-            )
-        ],
-    )
-    _, out = tidy(capsys)
-    assert "rule" in out
-    [pid] = ids(out)
-    assert main(["tidy", "--apply", pid]) == 0
-    text = (repo / "CLAUDE.local.md").read_text()
-    assert text.startswith("# Rules\n\nKeep this line.\n")
-    assert "Never clear the dev database blind." in text
-    assert (repo / "AGENTS.md").read_text() == "# Agents\n"
-    last = read_jsonl(mem / "facts" / "tidy.jsonl")[-1]
-    assert last["status"] == "promoted" and last["held_by"] == "CLAUDE.local.md"
-    capsys.readouterr()
-    assert main(["check"]) == 0
-
-
-BROKEN_RULES = {
-    "lost end": "# Rules\n\n<!-- cairnkit:rules:start -->\n- Old rule.\n",
-    "old and new": (
-        "<!-- project-memory:rules:start -->\n- A.\n<!-- project-memory:rules:end -->\n"
-        "<!-- cairnkit:rules:start -->\n- B.\n<!-- cairnkit:rules:end -->\n"
-    ),
-}
-
-
-@pytest.mark.parametrize("case", sorted(BROKEN_RULES))
-def test_apply_refuses_a_broken_rules_block_and_changes_nothing(
-    case, repo, mem, capsys, monkeypatch
-):
-    monkeypatch.setenv("MEMORY_NOW", NOW)
-    text = BROKEN_RULES[case]
-    (repo / "CLAUDE.local.md").write_text(text)
-    fact = make_fact("f-20261001-0001", "Never clear the dev database blind.", pinned=True)
-    write_facts(mem, [{**fact, "kind": "trap"}])
-    _, out = tidy(capsys)
-    [pid] = ids(out)
-    code, out = tidy(capsys, "--apply", pid)
-    assert code == 1
-    assert "CLAUDE.local.md" in out and "by hand" in out
-    assert (repo / "CLAUDE.local.md").read_text() == text
-    assert not (mem / "facts" / "tidy.jsonl").exists()
-
-
-def test_add_rule_refuses_a_broken_block(tmp_path):
-    from cairnkit import tidy as tidy_module
-
-    for text in BROKEN_RULES.values():
-        path = tmp_path / "AGENTS.md"
-        path.write_text(text)
-        assert tidy_module.add_rule(path, "Two.") is False
-        assert path.read_text() == text

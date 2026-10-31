@@ -59,24 +59,6 @@ def test_a_near_pair_with_a_different_meaning_stays_active(mem, capsys, monkeypa
     assert status_of(B)["status"] == "active"
 
 
-def test_a_stale_long_fact_is_not_expired_and_is_proposed(mem, capsys, monkeypatch):
-    monkeypatch.setenv("MEMORY_NOW", NOW)
-    write_facts(
-        mem,
-        [
-            make_fact(
-                A,
-                "An old unlinked fact about deploys.",
-                learned_at="2026-01-01T00:00:00+00:00",
-            )
-        ],
-    )
-    auto(capsys)
-    assert status_of(A)["status"] == "active"
-    proposal = (mem / "proposals" / "stale-pending.md").read_text()
-    assert A in proposal
-
-
 def test_stop_tidies_when_the_tidy_state_is_old(repo, mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     (mem / "config.toml").write_text('auto_tidy = "on"\n')
