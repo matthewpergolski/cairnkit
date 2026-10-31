@@ -262,6 +262,22 @@ def test_git_latest_uses_highest_remote_tag_when_head_has_none(monkeypatch):
     assert not install_source.is_newer(source, "0.3.0", tagged, found)
 
 
+def test_git_url_does_not_roll_back_to_an_older_release_tag():
+    """Installed 0.3.1 must not treat a remote v0.3.0 tag as an update."""
+    source = install_source.Source("https://github.com/example/cairnkit", "git")
+    older = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    newer = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    found = install_source.Latest(
+        older, "0.3.0", install_source.Release("v0.3.0", "0.3.0", older)
+    )
+    assert not install_source.is_newer(source, "0.3.1", newer, found)
+    assert install_source.is_newer(source, "0.2.0", newer, found)
+    same = install_source.Latest(
+        older, "0.3.1", install_source.Release("v0.3.1", "0.3.1", older)
+    )
+    assert install_source.is_newer(source, "0.3.1", newer, same)
+
+
 def test_git_url_no_recorded_commit_detects_newer_when_head_untagged(machine, monkeypatch, capsys):
     """Installed 0.2.0, no commit: untagged HEAD with remote v0.3.0 still reports an update."""
     url = "https://github.com/example/cairnkit"
