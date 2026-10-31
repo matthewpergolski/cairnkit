@@ -184,7 +184,7 @@ def test_a_new_memory_does_not_pin_the_rules_file(repo):
     assert main(["init"]) == 0
     text = (repo.parent / "proj.memory" / "config.toml").read_text()
     assert not any(x.startswith("rules_file") for x in text.splitlines())
-    assert load_config(repo.parent / "proj.memory")["rules_file"] is None
+    assert "rules_file" not in load_config(repo.parent / "proj.memory")
 
 
 def test_the_help_names_the_new_files(capsys):
