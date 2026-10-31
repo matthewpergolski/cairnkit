@@ -99,6 +99,22 @@ def _install_guard(
     return steps
 
 
+def githook_connected(project: Project) -> bool:
+    """True when the memory git hooks run here."""
+    folder = githook.hooks_dir(project) if project.is_git else None
+    path = folder / "pre-commit" if folder else None
+    return bool(path and path.is_file() and githook.holds_block(path.read_text(errors="replace")))
+
+
+def sync_guard_only(project: Project, flag: str | None) -> None:
+    """A rule added after setup gets its check now, with no second setup step."""
+    guard, tool_added, remove = _plan_guard(project, flag, None, True)
+    for step in _install_guard(project, flag, guard, tool_added, remove, False):
+        print(step)
+    for step in _sync_rules(project, flag, False):
+        print(step)
+
+
 def _print_summary(
     project: Project, names: list[str], guard: str | None, git_hook: bool, steps: list[str]
 ) -> None:

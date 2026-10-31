@@ -18,6 +18,7 @@ from cairnkit.paths import (
     Project,
     current_branch,
     default_branch,
+    earlier_names,
     merged_checker,
     run_git,
     writer_name,
@@ -82,9 +83,11 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     if area:
         states = [s for s in states if s.get("area") == area or s.get("pinned")]
 
+    names = {branch} | earlier_names(root, branch)
+
     def mine(state: dict) -> bool:
         owner = state.get("until_branch_merged")
-        return owner == branch if owner else state.get("writer") == writer
+        return owner in names if owner else state.get("writer") == writer
 
     rules = [s for s in states if s.get("kind") == "rule"]
     states = [s for s in states if s.get("kind") != "rule"]

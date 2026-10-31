@@ -94,6 +94,22 @@ the use of places with a signal were tested, and 1/3 with no signal was chosen.
 corrects shows more often, because a trap holds its area's place. Real-agent tests must include
 the old-fact cases, and a trap that must always load uses `--pinned`.
 
+A later change gave a further gain. A changed file that matches no fact is no longer a signal, so
+the area places stay in use for it. The paired difference over 30 seeds is +.097 (standard error
+.003) on old facts, +.080 (.007) on a busy area, and +.041 (.005) on the wrong trap, which is a
+cost. This gain comes from one load in the fixture, so treat it as weak evidence.
+
+| Share of needed facts shown | Final `dev` | 0.3.1 |
+|---|---:|---:|
+| Vacation | .82 | .59 |
+| Busy day | .98 | .68 |
+| Long session | .83 | .09 |
+| Mixed work | .67 | .13 |
+| Old facts | .77 | .60 |
+| Old facts, busy area | .51 | .57 |
+| Old trap, no signal | .97 | .37 |
+| Wrong trap shown (lower is better) | .90 | .55 |
+
 ## Results: other costs
 
 | Measure | Result |
@@ -151,6 +167,20 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
 - `fixture_replay.py` and `clockcheck.py` were run again and gave the numbers on this page.
 - These numbers come from commit `2326ea0`. Later commits remove folding, so the folding
   rows run only at that commit.
+
+## Tests after this record
+
+- **Real agents.** A real Claude Code run answered with a word that only the memory held, and its
+  failure hook counted 3 failed commands. Pi and OpenCode ran `session-start` in the real tools.
+- **Agent eval kit.** `evals/agents/run.py` compares `dev` with 0.3.1. With a fake local provider,
+  the stored fact reached the model request from Claude Code, Pi and OpenCode. Codex and Grok read
+  as `not-connected`, inferred from their trust steps. Cursor has no fake path. The scenarios for
+  old facts, for a wrong trap and for capture have no real model run yet.
+- **Session start.** With 2000 facts, the median wall time fell from 48.2 seconds to 1.42 seconds
+  on a loaded computer. Run `benchmarks/session_start_time.py` to measure it again.
+- **Secret scan.** On a hand-written set, 0 of 23 ordinary lines are refused (22 before), and 29 of
+  29 secrets are refused. Six word-shaped values are accepted misses, such as
+  `password=correct.horse.battery`.
 
 ## Limits
 

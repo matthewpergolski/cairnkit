@@ -15,7 +15,17 @@ import os
 import signal
 import sys
 
-from cairnkit import autotidy, followups, legacy, loopbreak, native, signals, skills, usage
+from cairnkit import (
+    adapters,
+    autotidy,
+    followups,
+    legacy,
+    loopbreak,
+    native,
+    signals,
+    skills,
+    usage,
+)
 from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
@@ -332,11 +342,16 @@ def pre_commit(project: Project, flag: str | None) -> int:
 
 
 def post_checkout(project: Project, flag: str | None) -> int:
-    """After `git worktree add`: link the new checkout. Never fails the git command."""
+    """After `git worktree add`: link the new checkout, and connect its agents. Never fails git."""
     with contextlib.suppress(Exception):
         line = ensure_linked(project, project.root, flag)
         if line:
             print(line)
+        if project.root != project.main_root:
+            # Each checkout has its own agent files. Connect what the main checkout connects.
+            for name, adapter in adapters.ADAPTERS.items():
+                if adapters.holds_ours(project.main_root / adapter.rel):
+                    adapters.apply(project, name, True, False, checkouts=[project.root])
     return 0
 
 

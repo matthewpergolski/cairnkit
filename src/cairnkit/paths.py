@@ -126,6 +126,19 @@ def writer_name(root: Path) -> str:
     return safe or "main"
 
 
+def earlier_names(root: Path, branch: str | None) -> set[str]:
+    """The names this branch had before `git branch -m`, from its reflog."""
+    if not branch:
+        return set()
+    log = run_git(root, "reflog", "show", "--format=%gs", f"refs/heads/{branch}", timeout=1.0) or ""
+    prefix = "Branch: renamed refs/heads/"
+    return {
+        line[len(prefix) :].split(" to ", 1)[0]
+        for line in log.splitlines()
+        if line.startswith(prefix)
+    }
+
+
 def default_branch(root: Path) -> str | None:
     """The branch that work merges into: origin's HEAD, else main, else master."""
     remote = run_git(root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")

@@ -5,7 +5,7 @@ kind: system
 status: implemented
 summary: "A private, dated memory for any project. It lives outside the repo and is linked in."
 parent: null
-sourceRevision: "99bbbd53f583c30a3c7e71ac34bf5cd67a25d8cf"
+sourceRevision: "f86a6f3fd715e1e0972d3d201d54db65d1043690"
 sources:
   - README.md
   - pyproject.toml
@@ -36,6 +36,7 @@ flowchart LR
     MemorySession --> FactStore
     subgraph Layout[Top-level layout]
         benchmarks[benchmarks]
+        evals[evals]
         scripts[scripts]
         src[src]
         tests[tests]

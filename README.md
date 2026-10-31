@@ -107,7 +107,7 @@ complete. Remove a row in the change that fixes it.
 | Goal | What happens today |
 |---|---|
 | Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`, and `memory init` says so. |
-| Setup is one step | `memory init` connects only the agent tools that it finds at that time. A tool that you install later has no adapter until `memory init` runs again. A new worktree gets the `memory-bank` link, but it gets no agent hook files until `memory init` runs again. |
+| Setup is one step | `memory init` connects only the agent tools that it finds at that time. A tool that you install later has no adapter until `memory init` runs again. |
 | Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo, the git hooks are not written. |
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
@@ -117,10 +117,10 @@ complete. Remove a row in the change that fixes it.
 | Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news after a `bash` tool and at idle. |
 | Capture | A fact that the agent never writes is lost. The tool names events and reminds the agent once at stop. It cannot make the agent write. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
-| Forget correctly | A branch with no commits of its own reads as merged when its base branch moves on, so its live notes end. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. |
+| Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A stale note on such a branch stays. A false end would be worse. |
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
 | Look for secrets | `memory check` reads only `*.md` files in `notes/` and `branches/`, and a hit there is a warning. `memory add` does not see these files. |
-| Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. After `memory preset add commits`, the guard waits for the next `memory init`. Nothing checks pull request text for AI attribution. |
+| Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. |
 | No work for the developer | The session start can print a line about the optional pstack skills, for 3 sessions per version pair. When a newer tool exists, the session start says "Tell the owner". Nothing installs the update by itself. |
 
 ## Install

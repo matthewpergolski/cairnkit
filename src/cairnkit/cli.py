@@ -411,7 +411,10 @@ def run(args) -> int:
             return presets_module.run_list()
         if args.preset_command == "show":
             return presets_module.run_show(args.name, project if args.detect else None)
-        return presets_module.run_add(project, args.path, args.names, args.dry_run, args.file)
+        code = presets_module.run_add(project, args.path, args.names, args.dry_run, args.file)
+        if code == 0 and not args.dry_run and hooks_cmd.githook_connected(project):
+            hooks_cmd.sync_guard_only(project, args.path)
+        return code
     if args.command == "init" and args.refresh:
         return run_refresh(project, args.path, args.dry_run)
     if args.command in ("init", "migrate"):

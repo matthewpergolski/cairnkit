@@ -47,6 +47,14 @@ def hook_command(event: str, agent: str) -> str:
     return f"{shlex.quote(sys.executable)} -m cairnkit hook {event} --agent {agent}"
 
 
+def holds_ours(path: Path) -> bool:
+    """True when the agent file at path holds a memory hook."""
+    try:
+        return any(mark in path.read_text(encoding="utf-8") for mark in MARKS)
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def _ours(handler: dict) -> bool:
     command = str(handler.get("command", ""))
     return any(mark in command for mark in MARKS)
