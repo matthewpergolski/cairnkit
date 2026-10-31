@@ -16,15 +16,30 @@ The README has the short table. This page has the detail.
 
 | Term | In `memory` | Loaded by `memory load`? | How it ends |
 |---|---|---|---|
-| Long-term | A fact with `scope: long`. This is the default. | Yes. Rules: all of them, first. Pinned facts: always. Other facts: the best scores (recency, kind, area, branch, and use), within the word budget (default 600 words). Rules do not use the budget. `memory load --explain` prints each score. | A status change. `memory tidy` proposes `expired` for a long-term fact older than 90 days with no links. |
-| Short-term | A fact with `scope: short` (`memory add --short` or `--until-merged`). | Yes, for the current branch only, in about a quarter of the budget. | Read as `expired` after `expires_at` (default 14 days), or when its branch is merged or deleted. The read computes it; `memory tidy --auto` also writes it as `expired`, with a log line. `memory keep ID` makes it long-term. |
+| Long-term | A fact with `scope: long`. This is the default. | Yes. Rules: all of them, first. Pinned facts: always. Other facts: the best ranks, within the word budget (default 600 words). Rules do not use the budget. `memory load --explain` prints each part of the rank. | A recorded event: a newer fact replaces it, or an agent ends it. Age ends nothing. A source file that is gone ends nothing: the load names the fact to the agent. |
+| Short-term | A fact with `scope: short` (`memory add --short` or `--until-merged`). | Yes, for the current branch only, in a quarter of the budget. | It reads as `expired` when its branch reads as merged, or after `--expires DATE` when an agent set one. The read computes it. Auto-tidy also writes it as `expired`, with a log line. Auto-tidy also ends a note whose `file:` source is in no checkout. An agent can end a note at any time. `memory keep ID` makes it long-term. |
 | Short-term prose | `branches/<branch>.md`. | The first 8 lines, on that branch only. | It does not end by itself. Delete or rewrite the file when the branch is done. |
 | Current status | `notes/status.md`. | The first 8 lines, on every branch. | Rewrite it. Do not append. |
 | Archive | Every fact and change in `facts/*.jsonl`. | No. Use `memory search WORDS --all` or `memory show ID`. | It does not end. Only `memory purge` removes a fact. |
 
-A short-term fact with `--until-merged` shows on the branch it names. A
-short-term fact without it shows to the writer that wrote it (the branch
-name, or `MEMORY_WRITER`).
+`--short` in a git repo ends with the current branch. `--short --expires DATE` ends
+on that date and has no branch. Outside git, or on a detached HEAD, `--short` alone
+has no end. An agent ends that note. `--expires` without `--short` has no effect.
+
+A branch reads as merged in these cases. The default branch is `origin/HEAD`, else
+`main`, else `master`.
+
+- Its tip is in the default branch, and its tip is not the tip of the default branch.
+- A merge of its tip into the default branch changes nothing, which shows a squash
+  merge. This needs git 2.38 or later.
+- The branch is in no ref. A remote copy counts as a ref, so a branch with only a
+  remote copy is open work.
+
+The default branch itself never reads as merged. A repo with no default branch reads
+no branch as merged.
+
+A short-term fact with a branch shows on that branch. A short-term fact with no
+branch shows to the writer that wrote it (the branch name, or `MEMORY_WRITER`).
 
 ## Episodic and semantic
 
@@ -50,9 +65,30 @@ Every fact has `happened_at` (when it became true) and `learned_at` (when it
 was written). For an event, `happened_at` is the date of the event. For a
 semantic fact, it is the date the fact became true.
 
-The score adds: how new the fact is (half-life 30 days), a match with the
-areas of the files that this branch changed, and a match between tags and
-branch-name words.
+## How a fact gets its place in the load
+
+`memory load` prints the rules, the pinned facts, the short-term facts for this
+branch, and then the best-ranked long-term facts. A fact that does not fit stays
+active and searchable.
+
+The rank is the sum of seven parts. `memory load --explain` prints each one.
+
+| Part | Value | When |
+|---|---|---|
+| recency | 2.0, halved every 30 days since `learned_at` | Always. It only orders facts. It ends nothing. |
+| kind | 1.0 | A trap or a preference. |
+| area | 3.0 | The area or a tag matches a part of a file that the work changed. |
+| mention | 1.5 | No area matches, and the text or the source names a changed file or folder. |
+| trap | 2.0 | A trap with an area or a mention match. |
+| branch | 2.0 for each word, at most 2 words | A word of the branch name matches a tag or the area. |
+| use | 1.5, halved every 14 days since the last lookup | An agent looked up the fact on purpose. |
+
+The work is the set of uncommitted changes and the diff of the branch against the
+default branch. When that set is empty, the load has no signal. Then one third of the
+budget keeps one place for each area, best area first. A trap holds the place when
+the area has one. With a signal, the rank alone decides.
+[The test record](forgetting-tests.md#results-one-place-for-each-area) gives the
+numbers and the cost. A trap that must always load uses `--pinned`.
 
 ## Enforced and advisory rules
 
@@ -79,12 +115,12 @@ A rule with no `enforced_by` is **advisory**: it is prose only.
   rules break most often.
 
 The `commits` rule against AI co-author trailers is enforced by
-`githook:commit-msg` only when git runs the commit-msg guard: the local
-guard, or the shared `.githooks/` guard with `core.hooksPath` set.
-`memory hooks install` and `memory hooks uninstall` update it with a change
-record. They never change a value that a person set. The other `commits`
-rules stay advisory: they also cover pull requests, docs and wording, which no
-hook can check.
+`githook:commit-msg` only when git runs the commit-msg guard. `memory init` and
+`memory hooks install` add the guard when the memory holds a rule against AI
+attribution. They update the rule with a change record. `memory hooks uninstall`
+marks it advisory again. They never change a value that a person set. The other
+`commits` rules stay advisory: they also cover pull requests, docs and wording, which
+no hook can check.
 
 A preset rule with `enforce_when` is marked enforced only when CI, or a git
 hook that git runs, calls the check. A config file alone is not enough, and
@@ -111,13 +147,13 @@ flowchart TB
 
 | Step | Command | Notes |
 |---|---|---|
-| Extract | `memory add` | The agent writes the fact. The tool does not extract facts from a transcript, but the `post-commit` hook drafts candidates from commits (see [the goal](../README.md#the-goal)). The tool refuses text that looks like a secret. |
+| Extract | `memory add` | The agent writes the fact. The tool does not extract facts from a transcript or a commit. It names events to the agent (see [the goal](../README.md#the-goal)). The tool refuses text that looks like a secret. |
 | Store | (automatic) | One JSON line per record, in `facts/<writer>.jsonl`. Append only. |
 | Retrieve | `memory load`, `memory search`, `memory show` | `memory load` is the session-start step. `memory search` ranks facts by BM25 over any word of the query (`--strict`: every word). When no whole word matches, it tries the start of longer words (`deploy` finds "deployment") and says so. It also finds lines in `notes/`, after the facts. `memory search --all` also finds facts that ended. |
-| Update | `memory add --supersedes ID`, `memory change ID`, `memory keep ID` | Each adds a change record. The old state stays in the archive. `memory add` never refuses. It supersedes an exact repeat by itself, and it links a near repeat to the old fact with `similar_to`. An exact repeat of a rule or a pinned fact writes nothing. A `told` fact is never superseded by a fact with another basis; the new fact is written beside it. The same words as a retired fact are written with a `similar_to` link and a note. |
-| Forget | `memory change ID --status expired\|wrong --reason ...` | The fact leaves the load. The archive keeps it with its reason. Short-term facts also end by date or merge, computed at read time. |
-| Review | `memory tidy`, `memory tidy --apply ID ...` | Proposes stale facts and rules for the shared rules file. A person approves each one. Similar pairs go to the agent as a task in `proposals/tidy-followups.md`. |
-| Clean-up | `memory tidy --auto` (also the session-start hook, and after a push or a merge) | Retires exact duplicates and ended short-term facts (`auto_tidy = "auto"` reports first, then turns on). A push or a merge uses the same gate and does not count as a session start. The git hooks are personal, not shared. A change record and a log line for each, with the undo command. Never a rule or a pinned fact. |
+| Update | `memory add --supersedes ID`, `memory change ID`, `memory keep ID` | Each adds a change record. The old state stays in the archive. `memory add` never refuses a repeat. It supersedes an exact repeat by itself, and it links a near repeat to the old fact with `similar_to`. It names up to 3 facts in the same area that may now be stale, and it ends none. An exact repeat of a rule or a pinned fact writes nothing. A `told` fact is never superseded by a fact with another basis; the new fact is written beside it. The same words as a retired fact are written with a `similar_to` link and a note. |
+| Forget | `memory change ID --status expired\|wrong --reason ...` | The fact leaves the load. The archive keeps it with its reason. Short-term facts also end by merge or by a date that an agent set, computed at read time. |
+| Review | `memory tidy`, `memory tidy --apply ID ...` | Lists exact repeats, pinned short-term notes that ended, and chains of superseded facts. An agent applies the ones it chooses. Similar pairs go to the agent as a task in `proposals/tidy-followups.md`. |
+| Clean-up | `memory tidy --auto` (also the session-start and stop hooks, and after a push or a merge) | Retires exact and near repeats, ended short-term facts, and short-term facts whose source file is gone (`auto_tidy = "auto"` reports first, then turns on). A push or a merge uses the same gate and does not count as a session start. The git hooks are personal, not shared. A change record and a log line for each, with the undo command. Never a rule or a pinned fact. |
 | Delete | `memory purge ID --reason secret --yes` | The only real deletion. It leaves a tombstone with no content. |
 
 ### Replace or narrow
@@ -147,8 +183,7 @@ Every fact has a `basis`:
 Write `seen` only for what you observed. `memory load` shows the basis on
 each line, so the next session knows how far to trust the fact. A change
 record cannot change the basis. To confirm a guess, add a new fact with
-`--basis seen` and `--supersedes` the guess. `memory tidy` never proposes a
-`guess` fact for the shared rules file.
+`--basis seen` and `--supersedes` the guess.
 
 ## Where it works
 
@@ -160,9 +195,8 @@ record cannot change the basis. To confirm a guess, add a new fact with
 - Each branch writes to its own file (`facts/<branch>.jsonl`), so two agents
   on two branches do not conflict. Every reader merges all files.
 - Short-term facts and `branches/<branch>.md` load only on their branch.
-- Every agent tool on the same computer reads the same memory: the tools
-  connected with `memory hooks install`, and any agent whose instructions
-  tell it to run `memory load`.
+- Every agent tool on the same computer reads the same memory: the tools with an
+  adapter, and any agent whose instructions tell it to run `memory load`.
 - The memory is a local folder. A clone on a different computer has no
   memory folder unless you copy or sync it there and point `--path` or
   `MEMORY_DIR` at it.
@@ -180,10 +214,10 @@ record cannot change the basis. To confirm a guess, add a new fact with
   project and its memory folder, and changes nothing. Run `memory init` in
   the project folder to change the setup.
 - `--path` and `MEMORY_DIR` still choose the memory folder.
-- There is no branch. The writer is `main` (or `MEMORY_WRITER`). `--short`
-  works with its end date. `--until-merged` is refused: it needs a git repo.
-  `branches/*.md` notes do not load.
-- There is no ranking by changed files or branch name. Facts are ranked by
-  age and kind only.
+- There is no branch. The writer is `main` (or `MEMORY_WRITER`). `--short` has no
+  end unless an agent sets `--expires DATE` or ends the note. `--until-merged` is
+  refused: it needs a git repo. `branches/*.md` notes do not load.
+- There is no signal from changed files or a branch name. So one third of the budget
+  keeps one place for each area, and the other facts rank by recency, kind and use.
 - There are no git hooks and no `.git/info/exclude`. Agent hooks still work.
   With no commit-msg guard, every `commits` rule is advisory.

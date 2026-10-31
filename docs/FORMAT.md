@@ -2,7 +2,8 @@
 
 This page specifies the files that cairnkit reads and writes. It is precise
 enough to write another implementation of the `memory` command in another
-language. It describes version 0.3.1.
+language. It describes version 0.3.1. It also includes the changes under
+`Unreleased` in [CHANGELOG.md](../CHANGELOG.md), which are on the `dev` branch.
 
 For what each kind and scope means, see [memory-types.md](memory-types.md).
 
@@ -56,16 +57,21 @@ before the home folder and the file system root.
   notes/status.md               prose: where things stand now
   notes/**                      other prose notes (read by `memory search`, never parsed)
   branches/<branch>.md          working notes for one branch
+  notes/**                      other prose notes (read by `memory search`, never parsed)
+  branches/<branch>.md          working notes for one branch
   proposals/<date>.md           output of `memory tidy`
   proposals/tidy-followups.md   the agent task for similar pairs (rebuilt; removed when empty)
   proposals/migrate-candidates.jsonl   output of `memory migrate`
-  proposals/migrate-followups.md       the agent task of `memory migrate --fix-references`
-  auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, push, merge)
+  proposals/migrate-followups.md       the agent task of `memory migrate`
+  auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
   .auto-tidy-state.json         the state of `auto_tidy = "auto"` (safe to delete)
   .auto-tidy.lock               the lock for a retire
+  .loop-breaker.json            the last command and its fail streak (safe to delete)
+  .loop-breaker.lock            the lock for that file
+  .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
   .skills-advisory.json         how often the pstack line was shown (safe to delete)
 ```
 
@@ -123,11 +129,11 @@ hex characters. A new id must not exist in any fact file.
 | `learned_at` | yes | When it was written. A date-time with an offset. |
 | `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. |
 | `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. A `told` fact is never superseded or retired by a fact with another basis. |
-| `author` | no | `agent:<tool>` (`claude`, `codex` or `cursor`) when the tool could tell that an agent wrote the fact. Absent otherwise, and in older facts. |
+| `author` | no | `agent:<tool>` (`claude`, `codex`, `cursor`, `opencode`, `pi` or `grok`) when the tool could tell that an agent wrote the fact. Absent otherwise, and in older facts. |
 | `status` | yes | Always `active` in a fact record. Changes set other values. |
 | `scope` | no | `long` (default) or `short`. |
-| `expires_at` | no | Short-term only. The date-time when the fact ends. Default: `learned_at` + `short_term_days` (14) from `config.toml`. |
-| `until_branch_merged` | no | Short-term only. The fact ends when this branch is merged into the default branch, or when the branch is deleted. |
+| `expires_at` | no | The date-time when the fact ends. Present only when an agent passed `--expires`. It counts only with `scope: short`. There is no default. |
+| `until_branch_merged` | no | Short-term only. The fact ends when this branch reads as merged (section 4). `--short` sets it to the current branch unless `--expires` is given. |
 | `links` | no | A list of `{"rel": ..., "id": ...}`. `rel` is `related`, `depends_on`, `caused_by`, `contradicts` or `similar_to`. |
 | `pinned` | no | `true` loads the fact in every session. Use it rarely. |
 | `enforced_by` | no | Rules only. The check that fails when the rule is broken, as `<type>:<value>`: `githook:commit-msg`, `lint:ruff:T201`, `test:tests/test_x.py`, `ci:<job>`. No spaces, at most 120 characters after the colon. A rule without it is advisory. |
@@ -146,10 +152,12 @@ A change does not edit the fact. It adds a new state.
 | `status` | no | The new status. |
 | `reason` | with `status` | Why. |
 | `superseded_by` | with `superseded` | The id of the newer fact. |
-| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must exist. |
+| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must exist when the change is written. Later, `memory check` accepts a path that exists here or in the history of any branch. |
 | `scope` | no | `long` or `short`. `memory keep` writes `"scope": "long"`. |
 | `add_links` | no | Links to add. |
 | `enforced_by` | no | Rules only. A `<type>:<value>` string sets it. `null` clears it (the rule is advisory again). |
+| `cid` | no | A hash that auto-tidy writes. Two sessions that write the same change write it once. A reader applies only the first change with a `cid`. |
+| `case` | no | Auto-tidy only. Why it retired the fact: `duplicate`, `near-duplicate`, `ended`, `file-gone` or `mined`. |
 | `writer` | yes | The writer name. |
 
 A change must set at least one of `status`, `scope`, `add_links` or
@@ -159,9 +167,9 @@ A change must set at least one of `status`, `scope`, `add_links` or
 
 | Status | Meaning | Loaded? |
 |---|---|---|
-| `active` | True now, as far as we know. | Yes |
+| `active` | True now, as far as we know. | Yes, within the word budget |
 | `superseded` | A newer fact replaces it. | No |
-| `expired` | It was true, and it stopped being true by time. A short-term fact that has ended also reads as `expired` (computed, not written). | No |
+| `expired` | It stopped being true. An agent ended it, or auto-tidy wrote a short-term note as ended. A short-term fact that has ended also reads as `expired` (computed, not written). A long-term fact never expires by itself. | No |
 | `wrong` | It was never true, or it was a bad guess. | No |
 | `promoted` | A tracked file in the project now holds it. | No |
 
@@ -190,24 +198,33 @@ A tombstone holds no content.
 
 More examples: [tests/fixtures/example-facts.jsonl](../tests/fixtures/example-facts.jsonl).
 
-
 ## 4. Short-term facts and computed state
 
 A reader computes the status of a fact; it does not only read it:
 
 - Fold: start with the fact record. Apply each change record for its id in
   order of `at`. A later value wins. `add_links` adds to `links`.
-- A short-term fact (`scope: short`) whose `expires_at` is past, or whose
-  `until_branch_merged` branch is merged into the default branch or deleted,
-  reads as `expired`. Nothing is written. `memory tidy --auto` may write the
-  change later.
-- The default branch is `origin/HEAD`, else `main`, else `master`.
+- A short-term fact (`scope: short`) reads as `expired` when its `expires_at` is
+  past, or when its `until_branch_merged` branch reads as merged. Nothing is written.
+  Auto-tidy may write the change later.
+- A long-term fact never reads as `expired` by itself, also when it holds
+  `expires_at`.
+- The default branch is `origin/HEAD`, else `main`, else `master`. A repo with no
+  default branch reads no branch as merged, and the default branch itself never reads
+  as merged.
+- A branch with a local copy reads as merged when its tip is not the tip of the
+  default branch and one of these is true: the tip is an ancestor of the default
+  branch, or `git merge-tree --write-tree BASE TIP` gives the tree of the default
+  branch (a squash merge; git 2.38 or later).
+- A branch with no local copy reads as merged only when no ref in `refs/remotes`
+  has that name.
+
+A short-term fact loads when `until_branch_merged` is the current branch. With no
+such field, it loads when `writer` is the current writer.
 
 ## 5. `config.toml`
 
 ```toml
-short_term_days = 14          # end of a short-term fact with no expires_at
-# rules_file = "CLAUDE.local.md"  # untracked rules file for `memory tidy`; unset: CLAUDE.local.md
 auto_tidy = "auto"            # "auto", "report" (only say), "on" (retire) or "off"
 skills_check = true           # false: no advisory line about the pstack skills (also init, migrate)
 skills_auto_update = false    # true: session start installs or updates pstack (user level)
@@ -219,6 +236,9 @@ skills_auto_update = false    # true: session start installs or updates pstack (
 [commit_msg_guard]            # extended regular expressions, matched without case
 patterns = ["^co-authored-by:.*(some-tool)", "^generated with "]
 ```
+
+A file from an older version may hold `short_term_days` or `rules_file`. The tool
+uses neither.
 
 ## 6. Text that the tool writes into repo files
 
@@ -242,9 +262,8 @@ Files: `CLAUDE.local.md` (the default), untracked harness copies
 (`.cursor/rules/cairnkit.mdc`, `.pi/APPEND_SYSTEM.md`),
 `AGENTS.local.md` (older versions), or an untracked file that a person names.
 Tracked `CLAUDE.md` and `AGENTS.md` never receive a new cairnkit block. A
-write or refresh moves any existing cairnkit block out of those files into
-`CLAUDE.local.md`, leaving hand-written text. `AGENTS.md` may gain one
-generic pointer line to `CLAUDE.md` / `CLAUDE.local.md` (no cairnkit markers).
+write or refresh changes no tracked file. It removes an old block from an untracked file, and it
+writes the rules to `CLAUDE.local.md`. An old block in a tracked file stays, with a note.
 
 | | Start | End |
 |---|---|---|
@@ -260,37 +279,13 @@ A reader that looks for hand-written rules in these files skips the block,
 from a line that is a start marker to the line that is its end marker. A start
 marker with no end marker runs to the end of the file.
 
-### Rules block of `memory tidy`
-
-File: `rules_file` from `config.toml`. Unset, it is `CLAUDE.local.md`. A
-tracked path is refused.
-
-| | Start | End |
-|---|---|---|
-| New | `<!-- cairnkit:rules:start -->` | `<!-- cairnkit:rules:end -->` |
-| Old | `<!-- project-memory:rules:start -->` | `<!-- project-memory:rules:end -->` |
-
-A new block is:
-
-```
-<!-- cairnkit:rules:start -->
-## Rules learned from project memory
-
-- RULE TEXT
-<!-- cairnkit:rules:end -->
-```
-
-An approved rule adds one line `- RULE TEXT` right before the end marker,
-once.
-
 ### Git hooks
 
-Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge`, `post-commit`
-and `commit-msg`
+Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `commit-msg`
 in the hooks folder that git uses (`git rev-parse --git-path hooks`).
-The shared option writes `commit-msg`, `pre-commit` and `post-checkout` into
-`.githooks/`. It does not write `pre-push` or `post-merge`. Those two stay
-in this clone.
+When that folder is inside a checkout (`core.hooksPath` points into the repo), the
+tool writes nothing and says so. Install and refresh remove a `post-commit` block
+that 0.3.1 wrote.
 
 | | Start | End |
 |---|---|---|
@@ -306,59 +301,65 @@ removes the file when only `#!/bin/sh` is left.
 Block bodies (`PY` is the full path of the Python that runs the tool):
 
 - `pre-commit`: `if [ -x PY ]; then PY -m cairnkit hook pre-commit || exit 1; fi`.
-  Shared: `memory hook pre-commit`, run only when `memory` is on `PATH`.
 - `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
-- `post-commit`: the same quiet shape as `pre-push`, with a 1 second bound
-  (`timeout -k 1 1`, or `perl` `alarm 1`). It drafts pending candidates from
-  the commit just made. It ends with `|| true`. Not part of the shared option.
 - `pre-push`: a short shell block. When `PY` is executable it
   runs `PY -m cairnkit hook pre-push` with stdin, stdout and stderr on `/dev/null`,
-  under a few-second wall-clock bound (`timeout` / `gtimeout` when present,
+  under a wall-clock bound of 3 seconds (`timeout` / `gtimeout` when present,
   else `perl` `alarm`+`exec`, which ships on macOS and Linux). The perl
   command runs in a group that discards output, so the shell's alarm line is
   not printed. With none of those tools the command runs unbounded. It ends
-  with `|| true`. It does not read the hook arguments. It never fails the
-  push. Not part of the shared option.
+  with `|| true`. It does not read the hook arguments. It never fails the push.
 - `post-merge`: that same quiet tidy block, after a docs check that runs
   only when `docs/state` is a directory and `PY` is executable. The docs
   check half begins with the line `# cairnkit:docs-check` so
   `memory init --refresh` can tell an older post-merge body apart without a
   package version bump. A comment names `docs --check` for that same
-  refresh scan. The timed child is `PY -c` directly (same bound pattern as
-  the quiet hooks: `timeout -k 1 1`, or `gtimeout`, or `perl` `alarm`+
-  `exec`), so a hung start is not left orphaned under a nested shell.
+  refresh scan. The timed child is `PY -c` directly (same pattern as
+  the quiet hooks, with a bound of 3 seconds), so a hung start is not left orphaned
+  under a nested shell.
   That `-c` asks `has_memory(find_project(), None)`, then runs the same
   compare as `memory docs --check` via `atlas_freshness`. When the result
   is stale, it prints
   `cairnkit: docs/state looks out of date; run memory docs --force`
   on its own stdout. It does not print the page list. Stderr of the timed
   child goes to `/dev/null`. The timed command ends with `|| true`. The
-  hook writes nothing and never fails the merge. Not part of the shared
-  option.
-- `commit-msg` (opt-in): a comment line that starts with
+  hook writes nothing and never fails the merge.
+- `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
-  match prints the line and exits 1.
+  match prints the line and exits 1. It installs when an active rule fact matches
+  `attribution`, `co-author` or `generated with` (no case), or with
+  `--commit-msg-guard`.
 
 ### Agent hooks
 
 Files that git does not track. A tracked file is never written; the tool
 prints the commands instead. Each file is added to `.git/info/exclude`.
 
-| Agent | File | Events |
-|---|---|---|
-| Claude Code | `.claude/settings.local.json` | `hooks.SessionStart[]`: `{"matcher": "startup\|resume\|clear\|compact", "hooks": [{"type": "command", "command": CMD, "timeout": 10}]}`; `hooks.Stop[]`: `{"hooks": [{"type": "command", "command": CMD, "timeout": 30}]}`; `hooks.PostToolUse[]` for `after-shell` |
-| Codex | `.codex/hooks.json` | the same shape, matcher `startup\|resume`, plus `PostToolUse` |
-| Cursor | `.cursor/hooks.json` | `version: 1`; `hooks.sessionStart[]`: `{"command": CMD, "timeout": 10}`; `hooks.stop[]`: `{"command": CMD, "timeout": 30, "loop_limit": 1}`; `hooks.afterShellExecution[]` for `after-shell` |
+`CMD` is `PY -m cairnkit hook EVENT --agent AGENT`. A timeout is in seconds.
 
-`CMD` is `PY -m cairnkit hook EVENT --agent AGENT`, with `EVENT`
-`session-start`, `stop`, or `after-shell`. Claude Code and Codex also install
-`PostToolUse` for `after-shell`. Cursor also installs `afterShellExecution`
-for `after-shell`. A hook entry belongs to the tool when its command
-holds `cairnkit hook`, or the old `project_memory hook`. Install first removes
-the entries that belong to the tool, then adds new ones, so a hook is never
-written twice. Other entries stay.
+| Agent | File | Events and hook events |
+|---|---|---|
+| Claude Code | `.claude/settings.local.json` | `SessionStart` (matcher `startup\|resume\|clear\|compact`, timeout 10): `session-start`. `Stop` (timeout 30): `stop`. `PostToolUse` and `PostToolUseFailure` (timeout 5): `after-shell`. `UserPromptSubmit` (timeout 5): `prompt`. `SubagentStart` (timeout 10): `subagent-start`. |
+| Codex | `.codex/hooks.json` | The same shape, with no `PostToolUseFailure`. |
+| Grok Build | `.grok/hooks/cairnkit.json` | The same shape as Claude Code. |
+| Cursor | `.cursor/hooks.json` | `version: 1`. `hooks.sessionStart[]` (timeout 10): `session-start`. `hooks.stop[]` (timeout 30, `loop_limit: 1`): `stop`. `hooks.afterShellExecution[]` and `hooks.postToolUseFailure[]` (timeout 5): `after-shell`. `hooks.preCompact[]` (timeout 5): `pre-compact`. |
+
+A JSON entry has the shape `{"matcher": ..., "hooks": [{"type": "command", "command":
+CMD, "timeout": N}]}`, except in Cursor, where an entry is `{"command": CMD, "timeout":
+N}`. A hook entry belongs to the tool when its command holds `cairnkit hook`, or the
+old `project_memory hook`. Install first removes the entries that belong to the tool,
+then adds new ones, so a hook is never written twice. Other entries stay.
+
+Pi and OpenCode load code, so the tool owns one generated file for each. The first
+line holds `cairnkit hook`. A file with that path and without that text is not
+changed.
+
+| Agent | File | Tool events and hook events |
+|---|---|---|
+| Pi | `.pi/extensions/cairnkit.ts` | `session_start` and `session_compact`: `session-start`, held until the next prompt. `before_agent_start`: `prompt`, then returns a hidden message with the held load and the news. `tool_result` for `bash`: `after-shell`. `agent_end`: `stop`, sent once as a follow-up that starts a turn. |
+| OpenCode | `.opencode/plugins/cairnkit.js` | `session.created` and `session.compacted`: `session-start`, sent with `noReply`. `session.idle`: `stop`, sent once as a prompt. `tool.execute.after` for `bash`: `after-shell`, sent with `noReply`. |
 
 ### `tool-version.json`
 
@@ -381,68 +382,85 @@ This post-merge docs check does not. Refresh reads the comment
 ## 7. The hook commands
 
 `memory hook EVENT --agent AGENT` reads a JSON object on stdin (or nothing).
-The session key is `session_id`, else `conversation_id`, else `default`.
+The session key is `session_id`, else `conversation_id`, else `default`. When the
+environment holds `GROK_HOOK_EVENT`, the agent is `grok`, because Grok Build also runs
+a project's Claude Code and Cursor hooks. With no memory folder, each event does
+nothing and exits 0, except that `pre-commit` still refuses a private memory path.
 
-- `session-start`: prints the output of `memory load` and a short rules text.
-  For `cursor` it prints `{"additional_context": TEXT}`. It always exits 0.
+- `session-start`: ends the facts that the 0.3.1 commit miner wrote, and removes its
+  files. Runs the auto-tidy step. Names new native memory notes. Prints the output of
+  `memory load` and a short rules text. For `cursor` it prints
+  `{"additional_context": TEXT}`. For `grok` it holds the text in the session file,
+  prints `{"systemMessage": "Project memory is ready."}`, and the next `after-shell`
+  gives the text. A payload with `source: compact` keeps the same session. It always
+  exits 0.
 - `stop`: when `stop_hook_active` is true or `loop_count` is above 0, it says
-  nothing more. Else, when `memory check --strict` finds a problem, or the
-  session changed the work and wrote no fact, it asks the agent to continue.
-  When the same command has failed 3 times in a row, the message also says
-  to stop, run `memory check`, and ask. Output is
-  `{"decision": "block", "reason": TEXT}` for `claude` and `codex`,
-  `{"followup_message": TEXT}` for `cursor`, and TEXT on stderr with exit 1
-  for `generic`. With nothing to say it prints nothing (`claude`, `generic`)
-  or `{}` (`codex`, `cursor`), and exits 0.
-- `post-commit`: drafts pending candidates from the commit just made, then
-  runs the candidate quality gate and the same auto-tidy step as `pre-push`.
-  It prints nothing and always exits 0. The shell bounds it to about 1 second.
-  With no memory folder it does nothing.
+  nothing more. Else it runs auto-tidy when the last tidy is more than one day old.
+  Then it builds a message from these parts: problems from `memory check --strict`,
+  the loop nudge, the news (see `prompt`), and the events of this session. The events
+  are a command that failed at least twice and then passed, a command that failed at
+  least twice and has not passed, and a revert since the session started. Each event
+  is named once. With no event, and when the work changed and no fact was written, the
+  message reminds the agent once for each state of the work. Output is
+  `{"decision": "block", "reason": TEXT}` for `claude`, `codex` and `grok`,
+  `{"followup_message": TEXT}` for `cursor`, TEXT on stdout with exit 0 for `pi` and
+  `opencode`, and TEXT on stderr with exit 1 for `generic`. With nothing to say it
+  prints nothing, or `{}` for `codex` and `cursor`, and exits 0.
+- `prompt`: prints the news on stdout. The news is a compaction notice, up to 5 facts
+  that another branch or auto-tidy wrote or ended since the load, and up to 5 stored
+  facts that match files changed since the load, traps first. Each item is named once.
+  It always exits 0.
 - `after-shell` and `post-tool`: record one shell or tool result for the loop
-  breaker. On the third identical failure the hook returns the same nudge as
-  `stop`. A payload with no command, or a command and no outcome (`exit_code`,
-  `status`, or `error`), is ignored. The hook always exits 0.
-- `pre-commit`: exits 1 when a staged path is `memory-bank`, `.memory-path`
-  or inside the memory folder, or when `memory check` finds an error. With no
-  memory folder it exits 0.
+  breaker and for the events of `stop`. Then they add the same news as `prompt`, and
+  the load that `grok` holds. The third identical failure adds the nudge. The output is
+  `{"hookSpecificOutput": {"hookEventName": EVENT, "additionalContext": TEXT}}` for
+  `claude`, `codex` and `grok`, `{"additional_context": TEXT, "followup_message": TEXT}`
+  for `cursor`, and TEXT on stdout for `pi` and `opencode`. A payload with no command, or
+  a command and no outcome, is not counted. The hook always exits 0.
+- `subagent-start`: prints `{"hookSpecificOutput": {"hookEventName": "SubagentStart",
+  "additionalContext": TEXT}}`, where TEXT is a load of 300 words. It writes nothing.
+- `pre-compact`: marks the session as compacted, so that the next news says so.
+- `pre-commit`: exits 1 only when a staged path is `memory-bank`, `.memory-path`
+  or inside the memory folder. Else it prints each stored trap (up to 3) that matches
+  the staged files on stderr, and exits 0. A problem in the memory never stops a commit.
 - `post-checkout`: makes the `memory-bank` link in a new worktree.
 - `pre-push` and `post-merge`: run the same auto-tidy step as `session-start`.
+  `post-commit` does the same, for a hook that 0.3.1 wrote.
   They do not count as a session start. The tidy command prints nothing
   (including when the interpreter lacks cairnkit). They always exit 0. With no
   memory folder the tidy does nothing. Before the tidy command, the
   `post-merge` shell runs the docs-check half described above (timed
   `PY -c` with the same compare as `memory docs --check`). When that
   compare is stale, the shell prints one warn line on stdout. The tidy
-  command's
-  shell bounds hung process start to a few seconds when
+  command's shell bounds hung process start to 3 seconds when
   `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`).
   The perl command runs in a group that discards output, so the shell's
   alarm line is not printed. Without any of those the start is unbounded.
-  Once cairnkit is running, an in-process budget of a few seconds stops a
-  slow tidy and leaves the memory as it is. A held tidy lock can add up to about three seconds to a push or a
-  merge before that budget stops the wait.
+  Once cairnkit is running, an in-process budget of 3 seconds stops a
+  slow tidy and leaves the memory as it is. A held tidy lock can add up to about
+  three seconds to a push or a merge before that budget stops the wait.
   `git push --no-verify` skips the pre-push hook, as git does for every
   pre-push hook. Before the gate they only report. After the gate they retire.
   The same lock, and the same retire id, keep one retire when a session start
-  runs at the same time. They also draft pending candidates from recent
-  commits (lessons, decisions, traps) before that tidy step.
+  runs at the same time.
 
 ### Loop breaker
 
 `<memory>/.loop-breaker.json` stores `command` and `streak`. It is safe to
-delete. `session.note_failure` records one failed command. The third identical
-failure makes `stop`, and `after-shell` when an adapter can see the failure,
-tell the agent to stop, run `memory check`, and ask.
+delete. A pass or a different command resets the streak. The third identical failure
+makes `after-shell` add the nudge when an adapter can see the failure, and `stop`
+shows it while the streak stands. The nudge says to stop retrying, find the cause,
+search the memory, or ask the person.
 
 | Agent | Sees a command failure |
 |---|---|
-| Claude Code | Yes. `PostToolUse` runs `memory hook after-shell`. |
-| Codex | Yes. The same `PostToolUse` shape. |
-| Cursor | Yes. `afterShellExecution` runs `memory hook after-shell`. |
-| Generic | No per-command hook. `stop` still shows the nudge when a failure was recorded another way. |
-| OpenCode | No hook adapter. It cannot observe a command failure. |
-| Pi | No hook adapter. It cannot observe a command failure. |
-| Grok Build | No hook adapter. It cannot observe a command failure. |
+| Claude Code | Yes. `PostToolUseFailure` runs `memory hook after-shell`. `PostToolUse` fires only on a success. |
+| Codex | Yes. `PostToolUse` fires for each result. The exit code is in the text of the result. |
+| Cursor | Yes. `postToolUseFailure` runs `memory hook after-shell`. `afterShellExecution` has no exit code, so it says nothing about the outcome. |
+| Grok Build | The same events as Claude Code. Not checked in a real run. |
+| Pi | Yes, for `bash`, from `tool_result`. Not checked in a real run. |
+| OpenCode | Yes, for `bash`, from `tool.execute.after`. Not checked in a real run. |
+| Generic | No per-command hook, so it cannot report a command. `stop` still shows the nudge when a failure was recorded another way. |
 
 ## 8. Install record and update receipt
 
@@ -466,6 +484,11 @@ remote has no release tag, `source` is `git+<url>` with no tag. The record
 counts only when its source is the current source and its version is the
 running version. Parsing the record and parsing the current source give the
 same source. A pin on the uv receipt does not make them different.
+
+The channel is in `$XDG_CONFIG_HOME/cairnkit/channel`, else
+`~/.config/cairnkit/channel`. It holds `stable` or `dev`. `memory update --channel`
+writes it. With no file, an install pinned to `@dev` is on `dev`, and any other
+install is on `stable`.
 
 The user cache is `$XDG_CACHE_HOME/cairnkit`, else `~/.cache/cairnkit`:
 
@@ -503,13 +526,14 @@ User-level skill markers (not in the memory folder; under
 - a line that is not valid JSON, a missing field, or a value that is not allowed;
 - a duplicate fact id;
 - text longer than 2000 characters (400 for `kind` `rule`);
-- text that looks like a secret (keys, tokens, passwords, private keys) in any field;
+- text that looks like a secret (keys, tokens, passwords, private keys, payment keys,
+  bearer tokens, named secrets such as `CRON_SECRET=`, secrets in URLs) in any field;
 - a change to an unknown fact;
 - `superseded_by` or a link to an unknown fact;
-- `held_by` that does not exist;
+- `held_by` that does not exist here or in the history of any branch;
 - a missing, broken or wrong `memory-bank` link, or a real folder in its place, in any checkout.
 
 A writer name that differs from the file name is a warning, not an error.
 So is an active rule fact that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md`
-already says in the same words. `--strict` makes each warning an error.
-
+already says in the same words. So is a `*.md` file in `notes/` or `branches/` that
+holds a secret shape. `--strict` makes each warning an error.

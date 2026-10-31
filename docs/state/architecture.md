@@ -7,10 +7,8 @@ summary: "CLI entry points and the main cairnkit modules."
 parent: cairnkit
 sources:
   - src/cairnkit/adapters.py
-  - src/cairnkit/autogate.py
   - src/cairnkit/autotidy.py
   - src/cairnkit/candidates.py
-  - src/cairnkit/candidates_cmd.py
   - src/cairnkit/check.py
   - src/cairnkit/cli.py
   - src/cairnkit/clock.py
@@ -33,27 +31,27 @@ sources:
   - src/cairnkit/install_source.py
   - src/cairnkit/instruction_files.py
   - src/cairnkit/instructions.py
+  - src/cairnkit/legacy.py
   - src/cairnkit/load.py
   - src/cairnkit/loopbreak.py
   - src/cairnkit/markers.py
   - src/cairnkit/memory.py
   - src/cairnkit/migrate.py
   - src/cairnkit/migrate_refs.py
+  - src/cairnkit/native.py
   - src/cairnkit/paths.py
-  - src/cairnkit/pending.py
   - src/cairnkit/presets.py
   - src/cairnkit/progress.py
-  - src/cairnkit/propose.py
   - src/cairnkit/ranking.py
   - src/cairnkit/reading.py
   - src/cairnkit/refresh.py
   - src/cairnkit/rules.py
   - src/cairnkit/rules_target.py
-  - src/cairnkit/scenarios.py
   - src/cairnkit/schema.py
   - src/cairnkit/secretscan.py
   - src/cairnkit/selection.py
   - src/cairnkit/session.py
+  - src/cairnkit/signals.py
   - src/cairnkit/similar.py
   - src/cairnkit/skills.py
   - src/cairnkit/state.py
@@ -92,9 +90,7 @@ flowchart TB
     Commands --> update[update]
     Commands --> writing[writing]
     Library --> adapters[adapters]
-    Library --> autogate[autogate]
     Library --> candidates[candidates]
-    Library --> candidates_cmd[candidates_cmd]
     Library --> clock[clock]
     Library --> config[config]
     Library --> detect[detect]
@@ -109,21 +105,21 @@ flowchart TB
     Library --> ignore[ignore]
     Library --> install_source[install_source]
     Library --> instruction_files[instruction_files]
+    Library --> legacy[legacy]
     Library --> loopbreak[loopbreak]
     Library --> markers[markers]
     Library --> memory[memory]
+    Library --> native[native]
     Library --> paths[paths]
-    Library --> pending[pending]
     Library --> progress[progress]
-    Library --> propose[propose]
     Library --> ranking[ranking]
     Library --> rules[rules]
     Library --> rules_target[rules_target]
-    Library --> scenarios[scenarios]
     Library --> schema[schema]
     Library --> secretscan[secretscan]
     Library --> selection[selection]
     Library --> session[session]
+    Library --> signals[signals]
     Library --> similar[similar]
     Library --> state[state]
     Library --> store[store]

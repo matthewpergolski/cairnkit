@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Each path that wrote to a tracked file: `--gitignore`, `--commit-msg-guard=shared`, the
   `AGENTS.md` pointer and `memory migrate --fix-references`. Migrate now lists old paths in the
-  agent task. `memory init --refresh` no longer rewrites `.githooks/`.
+  agent task. `memory init --refresh` no longer rewrites `.githooks/`, and no command removes an
+  old block from a tracked `CLAUDE.md` or `AGENTS.md`: it writes `CLAUDE.local.md` and says so.
 - Scenario folding in `memory load`. Each fact that loads now shows its text.
 - The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
   writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session

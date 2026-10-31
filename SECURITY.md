@@ -21,8 +21,10 @@ These parts are the most important to report:
 
 - A secret that `memory check` or `memory add` does not find.
 - A way for `memory purge` to leave the purged text on disk.
-- A hook or a block that writes into a file that git tracks without a
-  person asking for it.
+- A hook, an adapter or a setup step that writes into a file that git tracks.
+- A generated adapter file (`.pi/extensions/cairnkit.ts`,
+  `.opencode/plugins/cairnkit.js`) that runs anything other than the tool's own hook
+  command.
 - A stored note that the tool prints as an instruction instead of data.
 - `memory update` installing code that is not the checked commit.
 
@@ -32,6 +34,7 @@ These parts are the most important to report:
   - The update check (session start, `memory status`, `memory update
     --check`): `git ls-remote` on the git URL you installed from. A local
     folder is read with local git only.
+    On the `dev` channel, it reads the `dev` branch of that URL.
   - `memory update`: fetches the checked commit from that git URL. Its
     `uv build` can download build tools from PyPI.
   - The pstack skills check (session start, `memory check`, `memory init`,

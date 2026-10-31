@@ -1,4 +1,12 @@
-# Retrieval benchmarks
+# Benchmarks
+
+This folder holds two benchmarks. Neither one asks a model anything.
+
+- `retrieval_eval.py` scores `memory search` and `memory load` on probe questions.
+- `forgetting/` replays synthetic project histories through the real load under each
+  forgetting policy. See [Forgetting benchmark](#forgetting-benchmark).
+
+## Retrieval benchmark
 
 `retrieval_eval.py` scores `memory search` and `memory load` on probe
 questions. It uses only the standard library and cairnkit. It reads a memory
@@ -15,7 +23,7 @@ A run takes about 2 seconds. `--json` prints JSON. `--seed` changes the random
 baseline. `--no-load` skips the load part. The tests run the same code in
 about 4 seconds (`tests/test_coding_benchmark.py`, `tests/test_retrieval_eval.py`).
 
-## What it shows and what it does not
+### What it shows and what it does not
 
 It is a retrieval benchmark on synthetic project notes. It is not an
 end-to-end agent run. It does not ask a model anything.
@@ -27,7 +35,7 @@ questions, and the questions were not held out, so a change tuned on them
 would look better than it is. A group of fewer than 10 questions is flagged as
 unreliable, and the report says so.
 
-## Files
+### Files
 
 - `fixtures/synthetic/`: 13 facts and 14 questions. It is the first harness
   check and it is easy.
@@ -52,7 +60,7 @@ required.
 - 26 of the 58 questions share at most one word with their answer, so a
   plain word match is not enough.
 
-## Numbers
+### Numbers
 
 Search ranks the facts for each question. A rate is over the probes it can be
 measured on.
@@ -84,7 +92,7 @@ The report also splits search by probe kind and by how many words the question
 shares with its answer, and gives a paired bootstrap 95% interval (2000
 resamples of the probes) of the difference between two systems.
 
-## Results at the freeze (58 questions, 101 active facts, seed 0)
+### Results at the freeze (58 questions, 101 active facts, seed 0)
 
 | System | any@1 | any@5 |
 | --- | --- | --- |
@@ -112,3 +120,31 @@ resamples of the probes) of the difference between two systems.
   random fill. At `--budget 1200` it is 0.74 against 0.62 and 0.69.
   It never loaded a stale fact, because the stale facts are the older ones and
   load prefers newer facts.
+
+`gold@load` counts a fact by its id. [The test record](../docs/forgetting-tests.md#limits)
+found at commit `2326ea0` that `.48` also counted facts that showed only an id, and that
+text alone scored `.45`. Each fact that loads now shows its text.
+
+## Forgetting benchmark
+
+[The test record](../docs/forgetting-tests.md) holds the question, the method, the
+results and the limits. Read its limits before you use a number. These are the files:
+
+- `forgetting/harness.py` replays synthetic project histories through the real
+  `cairnkit.load.build_output` under each policy. It stubs only the inputs: clock,
+  branch, changed paths, active set and use. The decision rule is at the top of the
+  file. It was written before the first run.
+- `forgetting/clockcheck.py` measures the same facts under a later clock.
+- `forgetting/fixture_replay.py` runs the coding fixture as written, and separates
+  shown text from a fact that shows only an id.
+
+```sh
+uv run python benchmarks/forgetting/harness.py --seeds 30 --out /tmp/forgetting.json
+```
+
+The result is JSON. The `summary` key holds one row for each scenario, policy and
+label. `tests/test_forgetting_eval.py` guards the measured load with a small run.
+
+`clockcheck.py` and `fixture_replay.py` measure the removed scenario folding, so they
+run only at commit `2326ea0`. At `HEAD` they stop with an import or attribute error.
+Rows for the 0.3.1 load also run only at that commit.

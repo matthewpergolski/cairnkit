@@ -39,17 +39,21 @@ does not write either one to a tracked file.
    events, such as a failed command or a revert, and names the event to the
    agent. The tool writes no text that loads.
 2. **Load.** Rules and pinned facts always load. All other facts compete for a
-   word budget. A fact about the work in progress ranks first, and a newer fact
-   ranks before an older one. A fact that does not fit is not forgotten. It stays
-   searchable, and it comes back when its area is in use.
+   word budget. A fact about the work in progress ranks higher, and a newer fact
+   ranks before an older one. With no signal about the work, one third of the
+   budget keeps one place for each area, and a trap holds that place. A fact that
+   does not fit is not forgotten. It stays searchable, and it comes back when its
+   area is in use.
 3. **Refine.** The agent replaces, ends, links or pins a fact when it learns more.
    This is never a required step. A fact that nobody refines stays eligible.
-4. **Forget.** A fact stops loading only because of a recorded event: a newer fact
-   replaced it, the agent marked it wrong or ended it, its end date passed because
-   the agent set one, its branch is confirmed merged, or its source file is gone.
-   The clock alone ends nothing, and neither does silence from the agent, so a
-   vacation changes nothing. The archive keeps each ended fact. Only `memory purge`
-   deletes data.
+4. **Forget.** A fact stops loading only because of a recorded event, or because it
+   loses its place in the word budget. These are the events: a newer fact replaced
+   it, the agent marked it wrong or ended it, its end date passed because the agent
+   set one, its branch is confirmed merged, or it is a short-term note and its source
+   file is gone. A long-term fact whose source file is gone does not end. The load
+   names it to the agent, and the agent decides. The clock alone ends nothing, and
+   neither does silence from the agent, so a vacation changes nothing. The archive
+   keeps each ended fact. Only `memory purge` deletes data.
 
 Each step must also work inside a long session, because good memory makes
 sessions longer. Do not assume a session start or a session end comes soon. The
@@ -87,9 +91,12 @@ because it deletes data for good, or overruling a stated fact in a way that
 changes what an agent does. A new fact that only disagrees stays beside the
 old one.
 
-The tool cannot force a model to obey. It has three controls: it puts the
-memory in the session at the start, it can send the agent back once at the end,
-and a git hook can refuse what a script can check.
+The tool cannot force a model to obey. It has four controls:
+
+- It puts the memory in the session at the start.
+- It adds news during the session, where the agent tool allows this.
+- It can send the agent back once at the end.
+- A git hook can refuse what a script can check.
 
 ### Where it falls short today
 
@@ -99,16 +106,22 @@ complete. Remove a row in the change that fixes it.
 
 | Goal | What happens today |
 |---|---|
-| Setup is one step | It takes two commands: `memory init` and `memory hooks install`. Codex also needs its own trust step. |
-| Any agent | Only Claude Code, Codex and Cursor have hook adapters, and Codex and Cursor are experimental. OpenCode, Pi and Grok Build have none. A subagent can miss the memory unless its brief says to run `memory load`. |
-| Capture, then refine | There is no `memory capture`, no signal prompts the agent to capture, and nothing ends a capture by active days. The `post-commit` hook drafts candidates from single lines of commits, so text can be cut off. It selects by commit subject and by key words, not by significance, and commit text does not show a mistake that an agent reported in a session. A candidate that passes the quality gate becomes a long-term fact, and it can show `author: agent:<tool>` although no agent wrote it. |
-| Forget correctly | `--until-merged` reads a branch with no local copy as merged, so a live note can end. It reads a squash-merged branch that still has a local copy as not merged, so an ended note stays. |
-| Do not stop unrelated work | The pre-commit hook refuses each commit when `memory check` finds an error. A `held_by` file from another branch is enough to cause this. |
-| Look for secrets | The scan misses names such as `INVITE_CODE=` and `CRON_SECRET=`, and links with `?k=`. `memory check` does not scan `notes/`. |
-| Enforce what must never happen | The commit-msg guard for AI attribution is optional, and `memory hooks install` does not add it by default. No check covers pull request text. |
-| Long sessions | `memory load` runs only at a session start, so a long session does not hear of a fact that was added or retired later. Only the Claude Code adapter reloads after a compaction. |
-| Personal, nothing shared | `--commit-msg-guard=shared` writes tracked hooks to `.githooks/`. `--gitignore` writes to a tracked `.gitignore`. For Codex, `--write-instructions` adds a line to a tracked `AGENTS.md`. `memory migrate --fix-references` rewrites tracked docs in the working tree. The sections below that send a lesson to a tracked rules file also describe this gap. |
-| No work for the developer | `memory tidy` asks a person to approve stale facts. `memory candidates` asks for a review. The session start also prints a line about pstack. |
+| Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`, and `memory init` says so. |
+| Setup is one step | `memory init` connects only the agent tools that it finds at that time. A tool that you install later has no adapter until `memory init` runs again. A new worktree gets the `memory-bank` link, but it gets no agent hook files until `memory init` runs again. |
+| Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo, the git hooks are not written. |
+| Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
+| Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
+| Each agent gets the same result | Grok Build reads only `systemMessage` from `SessionStart`, so a hook cannot add the memory to the context there. The memory reaches the model at the first tool result. A reply before the first tool has no memory. |
+| Each agent gets the same result | Cursor cannot add text to the context during a session, except at stop. News and the compaction notice wait for its next stop. |
+| Each agent gets the same result | A subagent gets a load at its start on Claude Code and Codex. The hook is also written for Grok Build, but nobody tested it. On Cursor, Pi and OpenCode, a subagent misses the memory unless its brief says to run `memory load`. |
+| Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news after a `bash` tool and at idle. |
+| Capture | A fact that the agent never writes is lost. The tool names events and reminds the agent once at stop. It cannot make the agent write. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). |
+| Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
+| Forget correctly | A branch with no commits of its own reads as merged when its base branch moves on, so its live notes end. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. |
+| No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
+| Look for secrets | `memory check` reads only `*.md` files in `notes/` and `branches/`, and a hit there is a warning. `memory add` does not see these files. |
+| Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. After `memory preset add commits`, the guard waits for the next `memory init`. Nothing checks pull request text for AI attribution. |
+| No work for the developer | The session start can print a line about the optional pstack skills, for 3 sessions per version pair. When a newer tool exists, the session start says "Tell the owner". Nothing installs the update by itself. |
 
 ## Install
 
@@ -140,29 +153,36 @@ memory check
 memory status
 ```
 
-- `memory init` makes the memory folder `../demo.memory` and the link
-  `memory-bank`. It adds the link to `.git/info/exclude`, so git ignores it.
+- `memory init` is the one setup step. It makes the memory folder `../demo.memory`
+  and the link `memory-bank`, and it adds the link to `.git/info/exclude`, so git
+  ignores it. It connects the agent tools that it finds and adds personal git
+  hooks. It prints a short result. `--verbose` prints each step.
 - `memory add` writes one fact. It prints the new fact id.
 - `memory load` prints what an agent sees at session start.
-- `memory search` finds facts by words or by a question. Put quotes around more
-  than one word.
+- `memory search` finds facts by words or by a question. You do not need quotes
+  around more than one word.
 - `memory check` checks the facts and the link, and looks for common secret
-  shapes in the facts. It does not read `notes/`.
+  shapes in the facts, `notes/` and `branches/`.
 - `memory status` prints the version, the installed short commit when one is
-  recorded, the install source, and the update lines. When a newer commit
-  exists, it also shows what changed (subjects, or a GitHub compare URL).
+  recorded, the install source, the channel of a git install, and the update
+  lines. When a newer commit exists, it also shows what changed (subjects, or a
+  GitHub compare URL).
 
-To connect your agent tool, run `memory hooks install` in the project. Then
-the agent loads the memory at session start and checks it at session end.
-Start with `--dry-run` to see what it would write. The same command adds five
-personal git hooks: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and
-`post-commit`. They are not shared. The last three run auto-tidy after a push,
-a merge or a commit, and `post-commit` also drafts candidate facts from the
-commit. On a merge, when memory exists and
-`docs/state` is out of date, `post-merge` prints
+After `memory init`, the agent loads the memory at session start and checks it at
+session end. To see the plan first, run `memory init --dry-run`. To skip the
+agent tools and the git hooks, run `memory init --no-hooks`.
+
+`memory init` adds four personal git hooks: `pre-commit`, `post-checkout`,
+`pre-push` and `post-merge`. They are not shared. The last two run auto-tidy after
+a push or a merge. On a merge, when memory exists and `docs/state` is out of date,
+`post-merge` prints
 `cairnkit: docs/state looks out of date; run memory docs --force`.
-The merge still succeeds. They work for every agent, including
-OpenCode, Pi and Grok Build.
+The merge still succeeds. Git hooks work for every agent, including an agent with
+no adapter.
+
+`memory hooks install` remains for repair and for one specific agent. For example,
+`memory hooks install --agent pi` writes the Pi adapter when the tool does not find
+Pi by itself.
 
 ## What it is, and what it is not
 
@@ -198,41 +218,45 @@ It is not:
 
 ## Supported agents
 
-| Agent | What exists | Status |
-|---|---|---|
-| Claude Code | Hook adapter: `.claude/settings.local.json` (`SessionStart`, `Stop`). | Checked against the public docs. |
-| Codex | Hook adapter: `.codex/hooks.json` (`SessionStart`, `Stop`). Tracked `AGENTS.md` pointer to `CLAUDE.md` / `CLAUDE.local.md`. | **Experimental.** Project hooks run only in a trusted project. |
-| Cursor | Hook adapter: `.cursor/hooks.json` (`sessionStart`, `stop`). Untracked rules: `.cursor/rules/cairnkit.mdc`. | **Experimental.** Cloud agents do not run `sessionStart`. |
-| OpenCode | No hook adapter. No stable untracked project rules file. | Gap: see [docs/layering.md](docs/layering.md). |
-| Pi | No hook adapter. `--write-instructions` also writes untracked `.pi/APPEND_SYSTEM.md`. | Local rules path only. |
-| Grok Build | No hook adapter. Reads `CLAUDE.local.md` (same file Claude Code uses). | Local rules path only. |
-| Any other agent | `memory hooks install --agent generic` prints the two commands to connect by hand. | Manual. |
+`memory init` writes one untracked adapter file for each agent tool that it finds.
+It finds a tool by its project folder (`.claude`, `.codex`, `.cursor`, `.grok`,
+`.pi`, `.opencode`), or by its command on `PATH` (`claude`, `codex`, `cursor-agent`,
+`grok`, `pi`, `opencode`). Grok Build also runs a project's Claude Code and Cursor
+hooks, so the tool writes the Grok adapter only when neither of those is found.
 
-For an agent with no hook: run `memory instructions --write-instructions`.
-It writes the rules block only to untracked files (`CLAUDE.local.md`, plus
-harness copies such as `.cursor/rules/cairnkit.mdc` and `.pi/APPEND_SYSTEM.md`,
-all via `.git/info/exclude`). It never writes a cairnkit block into tracked
-`CLAUDE.md` or `AGENTS.md`. For Codex it adds one generic pointer line to
-tracked `AGENTS.md` (create if missing): read `CLAUDE.md` and
-`CLAUDE.local.md` when present. Where a harness has no untracked load path
-(OpenCode today), do not fall back to a tracked rules block; connect with
-hooks or a local config you own. Auto-tidy after a push or merge still runs
-once hooks are installed; that does not load the memory.
+| Agent | Adapter file | Status |
+|---|---|---|
+| Claude Code | `.claude/settings.local.json` | Checked against the public docs. A real run answered from memory, and its failure hook fired. |
+| Codex | `.codex/hooks.json` | **Experimental.** Project hooks run only in a trusted project. No verified real run, because of the trust step and account errors. |
+| Cursor | `.cursor/hooks.json` | **Experimental.** Cloud agents do not run `sessionStart`. This record holds no real run. |
+| Grok Build | `.grok/hooks/cairnkit.json` | **Experimental.** No verified real run, because of account errors. |
+| Pi | `.pi/extensions/cairnkit.ts` | **Experimental.** `session-start` ran in the real tool. No model reply was possible, because of account errors. |
+| OpenCode | `.opencode/plugins/cairnkit.js` | **Experimental.** `session-start` ran in the real tool. No model reply was possible, because of account errors. |
+| Any other agent | None. `memory hooks install --agent generic` prints the two commands to connect by hand. | Manual. |
+
+`memory instructions --write-instructions` is optional. It writes the rules block
+only to untracked files: `CLAUDE.local.md`, plus the copies
+`.cursor/rules/cairnkit.mdc` and `.pi/APPEND_SYSTEM.md`, all through
+`.git/info/exclude`. It never writes a cairnkit block into tracked `CLAUDE.md` or
+`AGENTS.md`. Codex and OpenCode get the rules from their session-start hook.
 
 Details: [Agent hooks](#agent-hooks) and [docs/layering.md](docs/layering.md).
 
 ## How updates work
 
 ```sh
-memory update            # check, fetch, build, install, verify
-memory update --check    # only say if an update exists
-memory update --dry-run  # check, then list the steps
+memory update                 # check, fetch, build, install, verify
+memory update --check         # only say if an update exists
+memory update --dry-run       # check, then list the steps
+memory update --channel dev   # follow the dev branch; --channel stable goes back
 ```
 
 `memory update` installs from the place you installed it from: the GitHub URL
-above, another git URL, or a local folder. For a git URL, it takes the highest
-release tag, or the newest commit if there are no release tags. For a local
-folder, it takes the current commit. It reads the
+above, another git URL, or a local folder. For a git URL on the `stable` channel,
+it takes the highest release tag, or the newest commit if there are no release
+tags. On the `dev` channel, it takes the newest commit of the `dev` branch. An
+install pinned to `@dev` follows that branch with no choice. A saved `--channel`
+wins over a pin. For a local folder, it takes the current commit. It reads the
 source from the uv receipt. It shows each step and prints the old and the new
 version. A failed build leaves the installed tool as it was. When nothing is
 newer, it changes nothing. One exception: the first `memory update` after a
@@ -271,18 +295,17 @@ rm -f .memory-path       # only if you used --path
 These stay, and you can remove them by hand:
 
 - the lines that `memory init` and `memory hooks install` added to
-  `.git/info/exclude` (`memory-bank`, `.memory-path`, and the agent hook
-  files such as `.claude/settings.local.json`);
-- empty `.claude/`, `.codex/` or `.cursor/` folders that held only those hook
-  files;
+  `.git/info/exclude` (`memory-bank`, `.memory-path`, and the adapter files
+  such as `.claude/settings.local.json`);
+- empty `.claude/`, `.codex/`, `.cursor/`, `.grok/`, `.pi/` or `.opencode/` folders
+  that held only those adapter files;
 - the rules block, if you wrote one, between the `<!-- cairnkit:start -->`
-  and `<!-- cairnkit:end -->` lines, the file `CLAUDE.local.md` if
+  and `<!-- cairnkit:end -->` lines, and the file `CLAUDE.local.md` if
   `--write-instructions` made it (or `AGENTS.local.md`, which older versions
-  wrote), and the `AGENTS.md` that only points to `CLAUDE.md`, if it made
-  that;
-- the tracked hooks in `.githooks/` from `--commit-msg-guard=shared`.
-  `memory hooks uninstall` looks only in the hooks folder that git uses, and
-  it never changes tracked hooks;
+  wrote);
+- tracked hooks in `.githooks/`, or a pointer line in `AGENTS.md`, that an older
+  version wrote. `memory hooks uninstall` looks only in the hooks folder that git
+  uses, and it never changes tracked hooks;
 - the `memory-bank` link in each other worktree. Remove it there too;
 - the user cache `~/.cache/cairnkit/`;
 - the pstack skills, if you installed them: they are at user level, in
@@ -300,49 +323,72 @@ when you do not need the facts.
 
 ## Who runs what
 
-Today, you run two commands, once per project:
+You run one command, once per project:
 
 ```sh
 memory init
-memory hooks install
 ```
 
 After that, **agents do the rest**:
 
 - At session start, a hook gives the agent the rules and the useful facts.
 - During the session, the agent writes facts with `memory add` and changes them
-  with `memory change`.
-- After a commit, a git hook drafts candidate facts. A quality gate writes the
-  ones that pass as long-term facts. `memory candidates` lists the rest.
-- At session end, a hook runs `memory check --strict`. When the agent changed
-  the work and wrote no fact, the hook reminds it once. When the check finds a
-  problem, the agent must fix it before it finishes (in tools that support it).
-- A git pre-commit hook refuses a commit that stages the memory link. It also
-  refuses a commit when `memory check` finds an error.
+  with `memory change`. No hook or quality gate writes a fact.
+- During the session, the agent hears news where its tool allows this (see
+  [Agent hooks](#agent-hooks)): facts that another branch or auto-tidy wrote or
+  ended, and stored facts that match files it changed after the load. Each item is
+  named once.
+- At session end, a hook runs the checks of `memory check --strict`. When a check
+  finds a problem, the agent must fix it before it finishes (in tools that support
+  it). The hook also names events: a command that failed and then passed, a command
+  that still fails, and a revert. When the agent changed the work and wrote no fact,
+  the hook reminds it once. The agent may say that nothing is worth a fact.
+- A git pre-commit hook refuses a commit only when it stages a private memory path:
+  `memory-bank`, `.memory-path` or a path inside the memory folder. A problem in the
+  memory does not stop a commit. The hook also prints a stored trap that matches the
+  staged files. Git output reaches every agent, including one with no adapter. The
+  trap never refuses the commit.
 - A git post-checkout hook links each new worktree (`git worktree add`) to
   the memory. In a worktree that still has no link, `memory load` and
   `memory check` make it and say so in one line. This needs symlink support
   (on Windows: developer mode or admin). A bare repository is not covered yet.
 
+**Events are named, not stored.** The tool writes no fact for an event, so no text
+from the tool can load as memory. The agent decides what the event means. A stop
+message asks, for example, "`npm test` failed 3 times, then passed. What fixed it?".
+After the same command fails 3 times in a row, the agent hears this: stop retrying
+it, find the cause, search the memory, or ask the person.
+
+**The agent hears about a possible contradiction.** When `memory add` writes a fact
+in a named area, it looks for up to 3 active facts in that area that share at least
+25 percent of their words. It names each one and prints the command that replaces
+it. It ends nothing. The `general` area gets no such check, so a fact with no
+`--area` gets none. For a fact with basis `told`, the prompt says to ask first.
+
 **Clean-up needs no person.** At each session start, the hook retires what
-needs no judgment: exact duplicates and short-term facts that have ended.
-The same step runs after a commit, a push or a merge. Those git hooks are personal.
-They live in this clone's `.git/hooks`. They are not shared, and they are
-not written to `.githooks/`. A teammate who does not use cairnkit never
-runs them. A teammate who does has their own memory and their own hooks.
-The two do not conflict. This works for every agent, including OpenCode,
-Pi and Grok Build. A push or a merge does not count as a session start. The git hook
-never stops git. It prints nothing, except the `docs/state` line from
-`post-merge`. A few-second shell bound covers a hung
+needs no judgment:
+
+- an exact repeat and a near repeat of a fact (the older fact is superseded);
+- a short-term note that has ended;
+- a short-term note whose `source: file:PATH` is in no checkout.
+
+The same step runs after a push or a merge. In a long session, the stop hook also
+runs it when the last tidy is more than one day old. This timing never ends a fact
+by its age. The git hooks are personal. They live in this clone's `.git/hooks`.
+They are not shared, and a teammate never runs them. A push or a merge does not
+count as a session start. The git hook never stops git. It prints nothing, except
+the `docs/state` line from `post-merge`. A shell bound of 3 seconds covers a hung
 python start when `timeout`, `gtimeout`, or `perl` is available (stock macOS
 has `perl`). The perl command runs in a group that discards output, so the
 shell's alarm line is not printed. Without any of those the start is unbounded.
-Once cairnkit runs, the same short budget stops a slow tidy. A held tidy lock can add up to about
-three seconds. `git push --no-verify` skips the pre-push hook, as git does for
-every pre-push hook.
+Once cairnkit runs, the same short budget stops a slow tidy. A held tidy lock can
+add up to about three seconds. `git push --no-verify` skips the pre-push hook, as
+git does for every pre-push hook.
 
 Nothing is deleted. Each retire is a change record and one line in
-`auto-tidy.log`, with the command that undoes it.
+`auto-tidy.log`, with the command that undoes it. A retire never touches a rule, a
+pinned fact, or a fact that someone set back to `active`. A long-term fact with no
+repeat is never retired, whatever its age and whatever its source.
 
 The default mode is `auto_tidy = "auto"`. For the first 3 session starts and
 7 days (the later of the two), the step only reports what it would retire.
@@ -360,20 +406,27 @@ other cases that need judgment become a task file for the agent:
 `Tidy follow-up pending: N pairs; task: <path>` until the agent has resolved
 them. The file is rebuilt each time and removed when it is empty. An agent
 resolves a pair with `memory change` (supersede or end one fact) or
-`memory change ID --link related:OTHER --reason ...` (or `contradicts:OTHER`). Two facts that disagree stay until
-the agent decides. You step in only when an agent run leaves a pair open.
-`memory tidy` still lists rule promotions and stale facts. You approve those
-with `memory tidy --apply ID ...`, because they change the shared rules file.
+`memory change ID --link related:OTHER --reason ...` (or `contradicts:OTHER`). Two
+facts that disagree stay until the agent decides. `memory tidy` lists the other
+changes that an agent can apply with `memory tidy --apply ID ...`: an exact repeat,
+a pinned short-term note that ended, and a chain of superseded facts. It proposes
+nothing because of age, and it moves no fact into a rules file.
+
+**A source that is gone is named, not ended.** `memory load` prints one line with
+the facts whose `file:` or `commit:` source no longer exists. A long-term fact stays
+active. The agent checks the fact when it touches that work.
 
 **Add does not refuse a repeat.** It does refuse some input, such as text that
-looks like a secret, or a rule with `--summary`. When `memory add` exits with an
-error, the fact is not saved. `memory add` looks for an active fact of the same kind
-and scope that says the same thing. An exact repeat supersedes the old fact.
-An exact repeat of a rule or a pinned fact writes nothing and says so. A near
-repeat (80 percent of the words) is written with a `similar_to` link, and the
-output names the similar fact and the command that replaces it. A pair is not
-similar when the words that differ include a number, a negation (`not`, `no`,
-`never`, `don't`, `without`) or one side of an opposite pair (`enable` and
+looks like a secret. When `memory add` exits with an error, the fact is not saved.
+A rule with `--summary` is written, and the output says that the summary is not
+stored. `--area` is optional, and its default is `general`. `memory add` looks for
+an active fact of the same kind and scope that says the same thing. An exact repeat
+supersedes the old fact. An exact repeat of a rule or a pinned fact writes nothing
+and says so. A near repeat (80 percent of the words) is written with a `similar_to`
+link, and the output names the similar fact and the command that replaces it.
+Auto-tidy supersedes the older fact of a near repeat when its gate is open. A pair
+is not similar when the words that differ include a number, a negation (`not`,
+`no`, `never`, `don't`, `without`) or one side of an opposite pair (`enable` and
 `disable`), counted by how often each occurs. One such word can reverse the
 meaning.
 
@@ -402,15 +455,26 @@ id and its reason. For `wrong` and `expired` it also adds an item to the task
 file: the agent checks whether the text is true now. The old fact is not
 reopened and its history stays. The write never fails because of it.
 
-**The load stays small.** `memory load` prints the rules first. They do not use
-the word budget. Then it prints pinned facts and compact scenario lines (facts
-that share an area or tag, each line citing source fact ids), then fills the
-rest of the budget with the best-ranked remaining facts. A fact may carry an
-optional `--summary` so the load line stays short while the body can be longer
-(up to 2000 characters; rules stay at 400). Rank is still recency, kind, area,
-branch and use, with BM25 search for on-demand recall. Stale or missing-source
-facts get a one-line nudge toward `memory tidy`. Look up: `memory search`,
-`memory show`, `--pinned`, `--link`, `memory tidy`.
+**The load stays small.** `memory load` prints in this order:
+
+1. Rules. They do not use the word budget.
+2. Pinned facts. They always load, and they use the budget.
+3. Short-term facts for this branch, in a quarter of the budget.
+4. Long-term facts, best rank first, until the budget is used.
+5. The first 8 lines of `notes/status.md` and `branches/<branch>.md`. These do not
+   use the budget.
+
+The default budget is 600 words. A subagent load uses 300 words. Each fact that
+loads shows its text. A fact may carry an optional `--summary`, so the load line
+stays short while the body can be longer (up to 2000 characters; rules stay at 400).
+
+The rank is the sum of seven parts: recency, kind, area, mention, trap, branch and
+use. `memory load --explain` prints each part. Recency only orders facts. It ends
+nothing, so a fact that waits a year still loads when its area is in use. When no
+files changed, the load has no signal about the work. Then one third of the budget
+keeps one place for each area, and a trap holds the place when the area has one.
+[The test record](docs/forgetting-tests.md) gives the numbers and the cost. Look up:
+`memory search`, `memory show`, `--pinned`, `--link`, `memory tidy`.
 
 ## Why
 
@@ -420,8 +484,9 @@ facts get a one-line nudge toward `memory tidy`. Look up: `memory search`,
   loses its copy.
 
 **The codebase stays the source of truth.** Memory is a private aid. When a
-lesson matters to every contributor, it moves into a tracked rules file, a
-doc, a test or a lint check, and the fact is marked `promoted`.
+lesson matters to every contributor, a person or an agent moves it into a tracked
+rules file, a doc, a test or a lint check, and marks the fact `promoted`. The tool
+does not do this move.
 
 ## Three layers
 
@@ -429,11 +494,17 @@ doc, a test or a lint check, and the fact is marked `promoted`.
 |---|---|---|
 | **Archive** | Every fact and every change record ever written: the `facts/*.jsonl` store. Nothing in it is deleted. | No. Use `memory search --all`. |
 | **Long-term** | Active facts with `scope: long`: rules, decisions, lessons, traps, preferences. This is the default. | Yes, within the word budget. Rules come first. |
-| **Short-term** | Active facts with `scope: short`: working notes for one branch or task. Each ends on a date (`expires_at`, default 14 days) or when its branch reads as merged or has no local copy (`until_branch_merged`). | Yes, for the current branch only, in a small section. |
+| **Short-term** | Active facts with `scope: short`: working notes for one branch or task. Each ends when its branch reads as merged, or when an agent ends it. `--expires DATE` sets an end date on purpose. | Yes, for the current branch only, in a quarter of the budget. |
 
 A short-term fact that has ended reads as `expired`. The tool computes this
-when it reads, and `memory tidy --auto` writes it down later. `memory keep ID` makes a
+when it reads, and auto-tidy writes it down later. `memory keep ID` makes a
 short-term fact long-term. (`promote` is the old name of `keep`.)
+
+A branch reads as merged when its tip is in the default branch, by a merge or by a
+squash (git 2.38 or later), or when the branch is in no ref. A remote copy with no
+local branch counts as open work. A note on the default branch itself never reads
+as merged. Outside git, or on a detached HEAD, `--short` has no branch, so the note
+ends only when an agent ends it. `--expires` takes effect only with `--short`.
 
 **Forgetting is a status change.** `memory change ID --status expired` or
 `--status wrong`, with a reason. The fact leaves the load, and the archive
@@ -461,7 +532,7 @@ Common agent-memory terms, and where each one is in `memory`. Detail:
 
 | Step | Command |
 |---|---|
-| Extract | `memory add` (the agent writes the fact); the `post-commit` hook also drafts candidates |
+| Extract | `memory add`. The agent writes the fact. The tool writes no fact from a commit. |
 | Store | one JSON line in `facts/<writer>.jsonl`, append only |
 | Retrieve | `memory load` (session-start hook), `memory search`, `memory show` |
 | Update | `memory add --supersedes ID` (replace), `memory change`, `memory keep` |
@@ -481,10 +552,9 @@ fact, add the new one with a narrower area or `--short`, and link them)?
   to the nearest folder with a `memory-bank` link (not past the home folder).
   `memory init` in a subfolder of a project is refused. There are no
   branches, so `--until-merged` and `branches/*.md` do not apply.
-- **Any agent tool on the same computer.** A tool connected with
-  `memory hooks install` gets the memory at session start. Any other agent
-  gets it only when its instructions tell it to run `memory load`
-  (`memory instructions` prints that block).
+- **Any agent tool on the same computer.** A tool with an adapter gets the memory
+  at session start. Any other agent gets it only when its instructions tell it to
+  run `memory load` (`memory instructions` prints that block).
 - The memory is a local folder. Another computer does not see it unless you
   copy it there.
 
@@ -516,20 +586,19 @@ Details: [docs/presets.md](docs/presets.md).
 When git runs the commit-msg guard, the co-author rule is **enforced**
 (`enforced_by: githook:commit-msg`). All other rules are **advisory**:
 no check fails when one is broken. `memory load` shows the two groups apart.
+`memory init` and `memory hooks install` add the guard by themselves when the
+memory holds a rule against AI attribution. The guard is local to this clone. It
+refuses AI attribution lines, and it needs only `sh` and `grep`.
 
 Once you add a preset, its rules live in memory. Every session loads them
 first. Nothing is written to a tracked file. An instruction for every
 contributor still belongs in hand-written `CLAUDE.md` or `AGENTS.md` (see the
 next section). The cairnkit rules block itself stays local:
 `memory instructions --write-instructions` writes `CLAUDE.local.md` (and
-untracked harness copies) and moves any old cairnkit block out of tracked
-files. Cloning a repo never needs cairnkit for those files; the only
-committed cairnkit output is optional Nessa Docs pages under `docs/state/`.
-
-`memory hooks install --commit-msg-guard=shared` still writes tracked hooks in
-`.githooks/` when a team opts in. The commit-msg hook refuses AI attribution
-lines. It needs only `sh` and `grep`. Each clone runs
-`git config core.hooksPath .githooks` once.
+untracked harness copies). It changes no tracked file. An old block in a tracked
+file stays, and the tool says so. Cloning a repo never needs cairnkit for those files. The only
+committed cairnkit output is optional Nessa Docs pages under `docs/state/`, and
+only when someone runs `memory docs`.
 
 A rule that a tool checks is better than a note anywhere. See
 [docs/greenfield.md](docs/greenfield.md#where-does-each-rule-go).
@@ -615,41 +684,36 @@ level only. It writes nothing into a repo.
 ## Greenfield vs brownfield projects
 
 - **Greenfield** (a new project, or one with no agent memory yet):
-  `memory init`, then `memory hooks install`. Step by step:
-  [docs/greenfield.md](docs/greenfield.md).
+  `memory init`. Step by step: [docs/greenfield.md](docs/greenfield.md).
 - **Brownfield** (a project that already has agent notes, hooks or rules):
   - A real `memory-bank` folder with files is refused by `memory init`. Use
     `memory migrate`. It shows the plan and changes nothing. Read it, then run
-    `memory migrate --yes`. It moves the old folder aside,
-    runs `init`, copies the notes into `notes/`, and writes a worklist of
-    candidate facts. It writes no fact. `--fix-references` also rewrites the
-    old paths in your docs and adds the hooks, and the lines that need
-    judgment go to a task file for an agent. You fix nothing by hand. Steps and the manual fallback:
+    `memory migrate --yes`. It moves the old folder aside, runs `init`, copies
+    the notes into `notes/`, writes a worklist of candidate facts, and connects the
+    hooks. It writes no fact and it edits no project doc. The lines that name the
+    old layout go to a task file for an agent. Steps and the manual fallback:
     [docs/brownfield.md](docs/brownfield.md).
   - Existing hook settings are merged, never replaced. A tracked hook config is
     left alone, and the tool prints the lines to add by hand.
-  - Existing rules files are not changed, except the optional marked block.
-  - Durable lessons go from memory into the shared rules file only through
-    `memory tidy` proposals that a person approves.
+  - Existing rules files keep their hand-written text.
 
 ## Commands
 
 | Command | Who | What it does |
 |---|---|---|
-| `memory init [--path DIR] [--dry-run] [--gitignore] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local]]` | you, once | Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules. With `--write-instructions`, writes the rules block to untracked `CLAUDE.local.md` (and harness copies) and moves any cairnkit block out of tracked `CLAUDE.md` / `AGENTS.md`. `shared` is refused. |
-| `memory migrate [--yes] [--fix-references] [--from DIR] [--path DIR] [--preset NAME ...] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`. `--untrack` stages the removal of a tracked old folder; nothing is committed. `--fix-references` rewrites exact old paths (`memory-bank/X` to `memory-bank/notes/X`) in top-level and `docs/` `*.md` files and adds the memory hooks where a hook runs the old checker (working tree only, never committed). What is left goes to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds you until it is done. |
+| `memory init [--path DIR] [--dry-run] [--no-hooks] [--verbose] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local]] [--instructions-file PATH]` | you, once | The one setup step. Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules, connects the agent tools it finds and adds the git hooks. `--no-hooks` skips the agent tools and the git hooks. `--verbose` prints each step. With `--write-instructions`, writes the rules block to untracked `CLAUDE.local.md` (and harness copies) and moves any cairnkit block out of tracked `CLAUDE.md` / `AGENTS.md`. `shared` is refused. |
+| `memory migrate [--yes] [--from DIR] [--path DIR] [--preset NAME ...] [--no-default-rules] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`, and connects the hooks. `--untrack` stages the removal of a tracked old folder; nothing is committed. Lines that name the old layout, and old checker hooks, go to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds the agent until it is done. |
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--adopt\|--all] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Status includes installed/available skill counts. Plan by default; `--yes` acts. `--adopt` (or `--all`) replaces same-named folders so every pstack skill is installed. |
-| `memory update [--check\|--dry-run] [--source PATH\|URL]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `status` prints the version, the installed short commit, the source and the update lines. |
-| `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Never adds a second block. |
-| `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. Adds personal `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `post-commit` hooks. The last three run auto-tidy. They are not shared. When memory exists and `docs/state` is stale, `post-merge` prints one line that asks for `memory docs --force`. `--no-git-hook` skips every git hook. `memory hooks uninstall` removes only what it added. |
-| `memory tidy [--days 90]`, `memory tidy --apply ID ...` | you, sometimes | Proposes clean-up; writes only the approved changes. |
-| `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start hook; the personal pre-push and post-merge hooks; you, to look; an agent, to release a hold | Retires the clear cases now: an exact duplicate (the older fact is superseded by the newest), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that a person set back to `active`. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. A push or a merge does not count as a session start. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |
-| `memory add [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` does not refuse a repeat. It supersedes an exact repeat and links a near repeat with `similar_to`. `search` ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. When no whole word matches anywhere, it tries the words (4 letters or more) as the start of a longer word, so `deploy` finds "deployment" and `pass` finds "passed", and it says so on the first line. A short start must be a whole word with an ending: `retr` does not find "retries". A fact id is one word, so `memory search f-20261026-a053` finds that fact only. `--strict` brings back the old match, where every word must appear as a substring (also for an empty query, which is an error without it). `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
-| `memory candidates list`, `accept ID`, `reject ID` | today, a person or an agent | Lists, accepts or dismisses the candidate facts that the git hooks drafted and the quality gate left pending. |
-| `memory load [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
+| `memory update [--check\|--dry-run] [--source PATH\|URL] [--channel stable\|dev]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `--channel` saves the channel for a git source. `status` prints the version, the installed short commit, the source, the channel and the update lines. |
+| `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Removes a `post-commit` block from 0.3.1. Never adds a second block. |
+| `memory hooks install [--agent auto\|claude\|codex\|cursor\|grok\|pi\|opencode\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local]]`, `memory hooks uninstall [--dry-run]` | you, for repair or for one agent | `memory init` already runs the install. It connects the agent tool and git, and it prints each step. `--no-git-hook` skips every git hook. `--commit-msg-guard` adds the guard when no rule asks for it. `memory hooks uninstall` removes only what it added. |
+| `memory tidy`, `memory tidy --apply ID ...` | an agent | Lists exact repeats, pinned short-term notes that ended, and chains of superseded facts. Writes a report to `proposals/<date>.md`, and refreshes the agent task. `--apply` writes only the chosen changes. |
+| `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start and stop hooks; the personal pre-push and post-merge hooks; an agent, to look or to release a hold | Retires the clear cases now: an exact or near repeat (the older fact is superseded by the newer), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that someone set back to `active`. A fact with basis `told` is not superseded by a fact with another basis. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. A push or a merge does not count as a session start. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |
+| `memory add [--area AREA] [--short] [--expires DATE] [--until-merged [BRANCH]] [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` does not refuse a repeat. It supersedes an exact repeat and links a near repeat with `similar_to`. It names older facts in the same area that may be stale. `search` takes one or more words with no quotes. It ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. When no whole word matches anywhere, it tries the words (4 letters or more) as the start of a longer word, so `deploy` finds "deployment" and `pass` finds "passed", and it says so on the first line. A short start must be a whole word with an ending: `retr` does not find "retries". A fact id is one word, so `memory search f-20261026-a053` finds that fact only. `--strict` brings back the old match, where every word must appear as a substring (also for an empty query, which is an error without it). `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
+| `memory load [--area AREA] [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
-| `memory instructions [--write-instructions[=local\|shared]]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. |
+| `memory instructions [--write-instructions[=local\|shared]] [--instructions-file PATH]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. `shared` is refused. |
 | `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
 | `memory purge ID --reason secret --yes` | you, rarely | Removes a secret for good. |
 
@@ -671,33 +735,46 @@ matches only a directory. Git sees a link as a file, so `memory-bank/` does
 not ignore it, and `git add -A` stages the link.
 
 `memory init` writes `memory-bank` and `.memory-path` to `.git/info/exclude`.
-That file is local, and it covers every worktree. Nothing in the repo
-changes. Add `--gitignore` to also write the lines to `.gitignore`.
+That file is local, and it covers every worktree. Nothing in the repo changes.
 
 ## Agent hooks
 
-`memory hooks install` finds the agent tools for this project (a `.claude/`,
-`.codex/` or `.cursor/` folder, or the tool on `PATH`). With no match it uses
+`memory init` and `memory hooks install` find the agent tools for this project.
+[Supported agents](#supported-agents) says how. With no match, the install uses
 `generic`, which prints the commands to connect by hand.
 
-| Agent | File (local, added to `.git/info/exclude`) | Session start | Session end | Status |
-|---|---|---|---|---|
-| Claude Code | `.claude/settings.local.json` | `SessionStart`: stdout goes into the context | `Stop`: `{"decision": "block"}` makes the agent continue once | Checked against the public docs |
-| Codex | `.codex/hooks.json` | `SessionStart`: stdout goes into the context | `Stop`: JSON `{"decision": "block"}` | **Experimental.** Project hooks run only in a trusted project, after you review them in `/hooks`. |
-| Cursor | `.cursor/hooks.json` | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | **Experimental.** Cloud agents do not run `sessionStart`. |
-| Generic | none | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | Connect by hand. No per-command hook. |
+| Agent | Session start | Session end | During the session | After a compaction | Subagent load |
+|---|---|---|---|---|---|
+| Claude Code | `SessionStart`: stdout goes into the context | `Stop`: `{"decision": "block"}` makes the agent continue once | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
+| Codex | `SessionStart`: stdout goes into the context | `Stop`: JSON `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
+| Cursor | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | `postToolUseFailure` counts failures. It hears news only at stop. | `preCompact` marks it, and the agent hears at its next stop | None |
+| Grok Build | `SessionStart`: reads only `systemMessage`, so the load waits for the first tool result | `Stop`: `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact`; the load waits for the next tool result | `SubagentStart` hook is written, not tested |
+| Pi | `session_start`; the load goes out at `before_agent_start` | `agent_end`: a follow-up that starts a turn, once | `before_agent_start`, `tool_result` for `bash` | `session_compact`; the load goes out at the next `before_agent_start` | None |
+| OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `tool.execute.after` for `bash` | `session.compacted` reloads | None |
+| Generic | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | None | None | None |
 
-A repeated failing command is a loop. After the same command fails 3 times,
-`stop` says to stop, run `memory check`, and ask. Claude Code and Codex see
-the failure on `PostToolUse`. Cursor sees it on `afterShellExecution`.
-OpenCode, Pi, and Grok Build have no hook adapter, so they cannot observe a
-command failure. The generic adapter cannot either. `stop` still shows the
-nudge when something else recorded the streak.
+**Long sessions.** News covers facts from other branches, auto-tidy changes, and
+stored facts that match files changed after the load. Traps come first, and each
+item is named once. The compaction notice asks the agent to run `memory load`.
+
+**Native memory.** Claude Code keeps its own per-project notes, and other agents
+cannot see them. When that store has new notes, the session start names them once,
+so that an agent can copy what matters with `memory add`. The tool copies nothing.
+Only Claude Code has a per-project store that a file path can find.
+
+A repeated failing command is a loop. After the same command fails 3 times, the
+hook tells the agent to stop retrying it, find the cause, search the memory, or ask
+the person. Claude Code, Cursor and Grok Build report a failure with
+`PostToolUseFailure` or `postToolUseFailure`. Codex reports the exit code in the
+text of `PostToolUse`. Pi and OpenCode report `bash` results from their adapters. The
+generic adapter cannot see a command. `stop` still shows the nudge when something
+else recorded the streak.
 
 Rules for every adapter:
 
 - It merges with the settings that are there. It never replaces them. It
-  refuses a file that is not valid JSON.
+  refuses a file that is not valid JSON. The Pi and OpenCode adapters are generated
+  files. The tool keeps a file of that name that it did not write.
 - It never writes a config file that git tracks. It prints the lines instead.
 - It is safe to run again. It writes each hook once.
 - The hooks call `python -m cairnkit` with the full path of the Python
@@ -730,6 +807,8 @@ Then `memory update` installs from that folder. See
 - [docs/memory-types.md](docs/memory-types.md): memory types, lifecycle, and where it works.
 - [docs/layering.md](docs/layering.md): how memory fits with `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md`.
 - [docs/FORMAT.md](docs/FORMAT.md): the on-disk format, precise enough to write another implementation.
+- [docs/forgetting-tests.md](docs/forgetting-tests.md): the test record behind the forgetting rules, and its limits.
+- [benchmarks/README.md](benchmarks/README.md): the retrieval and forgetting benchmarks.
 - [ROADMAP.md](ROADMAP.md): what may come next.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to work on the tool.
 

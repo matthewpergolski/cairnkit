@@ -27,15 +27,17 @@ rule presets add rule facts. The test still applies to them: an instruction
 for the whole project belongs in an instruction file.
 
 When you cannot decide, write the line as a fact. A fact that stays true and
-that every contributor needs can move into an instruction file later, through
-`memory tidy` (see [Where does each rule go](greenfield.md#where-does-each-rule-go)).
+that every contributor needs can move into an instruction file later. A person or an
+agent does that move and marks the fact `promoted` (see
+[Where does each rule go](greenfield.md#where-does-each-rule-go)). The tool does not
+do it.
 
 ## Where each line goes
 
 | Place | What it holds | Tracked | Who reads it |
 |---|---|---|---|
 | `CLAUDE.md` | Hand-written project instructions. cairnkit never puts its marked block here. | Yes | Claude Code; Grok Build. |
-| `AGENTS.md` | Hand-written project instructions, plus one optional pointer line to `CLAUDE.md` / `CLAUDE.local.md`. | Yes | Codex, OpenCode, Pi, Cursor, and others that read `AGENTS.md`. |
+| `AGENTS.md` | Hand-written project instructions. cairnkit never writes it. | Yes | Codex, OpenCode, Pi, Cursor, and others that read `AGENTS.md`. |
 | `CLAUDE.local.md` | The cairnkit rules block, plus private checkout notes. | No. `.git/info/exclude`. | Claude Code; Grok Build. |
 | `.cursor/rules/cairnkit.mdc` | Untracked Cursor project rule (`alwaysApply`). | No | Cursor. |
 | `.pi/APPEND_SYSTEM.md` | Untracked Pi append to the system prompt. | No | Pi (after project trust). |
@@ -77,42 +79,46 @@ day of the project.
 
 ## What memory adds to a project
 
-`memory init` and `memory hooks install` add these items. Check them first
-with `memory init --dry-run` and `memory hooks install --dry-run`.
+`memory init` adds these items. Check them first with `memory init --dry-run`.
+`memory hooks install` writes the same hooks when you run it for repair or for one
+agent.
 
-| Item | Made by | Tracked | Notes |
-|---|---|---|---|
-| `../<project>.memory/` | `memory init` | No: it is outside the repo | The memory folder. `--path DIR` puts it in another place. |
-| `memory-bank` link | `memory init` | No | A link to the memory folder, in each checkout and worktree. `memory-bank` and `.memory-path` go into `.git/info/exclude`. `--gitignore` also writes them to `.gitignore`. |
-| `.claude/settings.local.json` | `memory hooks install` (Claude Code found) | No | Session-start and stop hooks. Added to `.git/info/exclude`. |
-| `.codex/hooks.json` | `memory hooks install` (Codex found) | No | The same hooks. Added to `.git/info/exclude`. |
-| `.cursor/hooks.json` | `memory hooks install` (Cursor found) | No | The same hooks. Added to `.git/info/exclude`. |
-| `.git/hooks/pre-commit` | `memory hooks install` | No: it is inside `.git` | Refuses a commit that stages the `memory-bank` link. `--no-git-hook` skips it. |
-| `.git/hooks/post-checkout` | `memory hooks install` | No | Links the memory into a new worktree made with `git worktree add`. With `--commit-msg-guard=shared`, `.githooks/post-checkout` (tracked) does the same, once each clone runs `git config core.hooksPath .githooks`. Re-run `memory hooks install` in an older project to get it. |
-| `.git/hooks/pre-push` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a push. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the push. `git push --no-verify` skips it, as git does for every pre-push hook. A held tidy lock can add up to about three seconds. Re-run `memory hooks install` in an older project to get it. |
-| `.git/hooks/post-merge` | `memory hooks install` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a merge. When memory exists and `docs/state` is stale, it also prints one line asking for `memory docs --force`. Personal to this clone. Not written to `.githooks/`. `--no-git-hook` skips it. It never blocks the merge. A held tidy lock can add up to about three seconds. |
-| `.git/hooks/commit-msg` | `memory hooks install --commit-msg-guard` only | No | Refuses AI attribution lines in a commit message. |
-| `.githooks/` | `memory hooks install --commit-msg-guard=shared` only | Yes | The commit-msg guard, pre-commit hook and post-checkout hook, for every clone. Does not include `pre-push` or `post-merge`. |
+| Item | Tracked | Notes |
+|---|---|---|
+| `../<project>.memory/` | No: it is outside the repo | The memory folder. `--path DIR` puts it in another place. |
+| `memory-bank` link | No | A link to the memory folder, in each checkout and worktree. `memory-bank` and `.memory-path` go into `.git/info/exclude`. |
+| `.claude/settings.local.json` | No | Claude Code found. Hooks for session start, stop, prompts, tools and subagents. Added to `.git/info/exclude`. |
+| `.codex/hooks.json` | No | Codex found. The same hooks. Added to `.git/info/exclude`. |
+| `.cursor/hooks.json` | No | Cursor found. Hooks for session start, stop, tool failures and compaction. Added to `.git/info/exclude`. |
+| `.grok/hooks/cairnkit.json` | No | Grok Build found, and neither Claude Code nor Cursor found. Added to `.git/info/exclude`. |
+| `.pi/extensions/cairnkit.ts` | No | Pi found. A generated extension. Added to `.git/info/exclude`. |
+| `.opencode/plugins/cairnkit.js` | No | OpenCode found. A generated plugin. Added to `.git/info/exclude`. |
+| `.git/hooks/pre-commit` | No: it is inside `.git` | Refuses a commit that stages a private memory path. Prints a stored trap that matches the staged files. A problem in the memory does not stop the commit. `--no-hooks` skips it. |
+| `.git/hooks/post-checkout` | No | Links the memory into a new worktree made with `git worktree add`. It does not write the adapter files there. |
+| `.git/hooks/pre-push` | No: it is inside `.git`. Not shared. | Runs auto-tidy before a push. It never blocks the push. `git push --no-verify` skips it, as git does for every pre-push hook. A held tidy lock can add up to about three seconds. |
+| `.git/hooks/post-merge` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a merge. When memory exists and `docs/state` is stale, it also prints one line asking for `memory docs --force`. It never blocks the merge. A held tidy lock can add up to about three seconds. |
+| `.git/hooks/commit-msg` | No | Only when the memory holds a rule against AI attribution, or with `memory hooks install --commit-msg-guard`. Refuses AI attribution lines in a commit message. |
 
-The hook files go into every checkout and worktree of the repo. An existing
-file is merged, never replaced. When git tracks a hook file, the tool does
-not change it. It prints the lines to add by hand.
+The adapter files go into every checkout and worktree that exists when the command
+runs. An existing JSON file is merged, never replaced. When git tracks an adapter
+file, the tool does not change it. It prints the lines to add by hand.
 
 ### What memory does not change
 
 `memory` does not write `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` by
-default. A person runs `--write-instructions` when they want the rules block:
+default. It has no option that writes a tracked hook, a tracked ignore line or a
+tracked rules block.
+
+These commands write the rules block:
 
 - `memory instructions --write-instructions` (local only) writes the rules
   block to `CLAUDE.local.md` and untracked harness copies
   (`.cursor/rules/cairnkit.mdc` for Cursor, `.pi/APPEND_SYSTEM.md` for Pi).
-  Each harness path goes into `.git/info/exclude`. For Codex it adds one
-  generic pointer line to tracked `AGENTS.md` (create if missing; idempotent;
-  no cairnkit markers) and removes a leftover `AGENTS.override.md` if present.
-  It refuses a rules-block file that git tracks, and a local file that is a
-  link to a tracked file. It never writes through such a link. Older versions
-  wrote `AGENTS.local.md`. The tool does not move or delete that file. It
-  prints a note, and `memory init --refresh` keeps updating the block in it.
+  Each path goes into `.git/info/exclude`. It refuses a rules-block file that git
+  tracks, and a local file that is a link to a tracked file. It never writes through
+  such a link. Older versions wrote `AGENTS.local.md`. The tool does not move or
+  delete that file. It prints a note, and `memory init --refresh` keeps updating the
+  block in it.
   - Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`,
     `.claude/CLAUDE.md` or `CLAUDE.local.md`. When `AGENTS.md` is a real file
     and the repo has no `CLAUDE.md` or `.claude/CLAUDE.md`, a new
@@ -123,27 +129,28 @@ default. A person runs `--write-instructions` when they want the rules block:
     it twice. The tool does not add it when `CLAUDE.local.md` is `AGENTS.md`
     itself.
   - Any cairnkit block already in tracked `CLAUDE.md` or `AGENTS.md` is moved
-    out into `CLAUDE.local.md`. Hand-written text outside the markers stays.
+    out into `CLAUDE.local.md`. Hand-written text outside the markers stays. This
+    edit of a tracked file is a [known gap](../README.md#where-it-falls-short-today).
+    It changes the working tree only.
   - `--write-instructions=shared` is refused. Cloning never needs cairnkit for
     instruction files; the only committed cairnkit output is optional Nessa
-    Docs pages under `docs/state/`.
+    Docs pages under `docs/state/`, when someone runs `memory docs`.
   - **OpenCode gap:** OpenCode has no stable untracked project rules file. It
     loads committed `AGENTS.md` and optional `instructions` paths from
-    `opencode.json`. Do not fall back to a tracked cairnkit write.
+    `opencode.json`. Do not fall back to a tracked cairnkit write. Its plugin gets
+    the short rules from the session-start hook.
 - `--instructions-file PATH` picks another untracked file. Tracked paths are
   refused.
 - `memory init --write-instructions` does the same at init.
-- `memory init --refresh` moves cairnkit blocks out of tracked `CLAUDE.md` /
-  `AGENTS.md`, then replaces the block in place in each untracked file that
-  already holds it. It never adds a block to a tracked shared file. See
+- `memory init --refresh` changes no tracked file. It says when a tracked `CLAUDE.md` or
+  `AGENTS.md` holds an old block, and it writes the rules to `CLAUDE.local.md`. It replaces the
+  block in place in each untracked file that already holds it. See
   [Updating memory](update.md).
-- `memory tidy --apply ID`, for a rule proposal, adds one line to a second
-  marked block (`<!-- cairnkit:rules:start -->`) in the local rules file.
-  Unless `rules_file` in `config.toml` names one, that is `CLAUDE.local.md`.
-  A tracked `rules_file` is refused.
-- `memory migrate --yes --fix-references` rewrites exact old memory paths in
-  the top-level `*.md` files and in `docs/`. These can include `CLAUDE.md` and
-  `AGENTS.md`. It changes the working tree only. It never commits.
+
+`memory tidy` writes only to the memory folder. `memory migrate` edits no project doc.
+Lines that name the old layout go to a task for an agent. The only tracked change it
+can make is `--untrack`, which stages the removal of a tracked old folder and commits
+nothing.
 
 ## A template repo owns the dev flow
 
@@ -155,7 +162,7 @@ new project gets a copy.
 Memory is the piece that you add to a project made from the template:
 
 1. Make the project from the template. The instruction files come with it.
-2. Run `memory init`, then `memory hooks install`.
+2. Run `memory init`.
 3. Optional: add the template's tool rules to memory. The template keeps
    these rules (for example "use uv" or "pass `ruff check`") in its own
    preset file, for example `agents/preset.toml`. Git tracks that file. Run
@@ -164,11 +171,10 @@ Memory is the piece that you add to a project made from the template:
    [Presets from a file](presets.md#presets-from-a-file).
 4. Do not commit the memory. Facts, notes and status stay untracked. Only the
    instruction files and the preset file are tracked.
-5. When an agent tool has no hook adapter, run
-   `memory instructions --write-instructions` so the untracked local files
-   hold the rules block. Tell the agent (in hand-written instructions or the
-   local file) to run `memory load` at session start when the harness has no
-   hook (see [What each agent tool reads](#what-each-agent-tool-reads)).
+5. When an agent tool has no hook adapter, connect it with the commands of
+   `memory hooks install --agent generic`, or tell the agent (in hand-written
+   instructions or a local file) to run `memory load` at session start (see
+   [What each agent tool reads](#what-each-agent-tool-reads)).
 
 So the template and memory do not overlap. The template says how to work.
 Memory records what happened and what is true now.
@@ -177,19 +183,19 @@ Memory records what happened and what is true now.
 
 | Agent tool | Hook adapter in `memory` | Untracked rules path | Status |
 |---|---|---|---|
-| Claude Code | `.claude/settings.local.json` | `CLAUDE.local.md` | Built. Checked against the public docs. |
-| Codex | `.codex/hooks.json` | Tracked `AGENTS.md` pointer to `CLAUDE.md` / `CLAUDE.local.md` | Built, **experimental**. |
-| Cursor | `.cursor/hooks.json` | `.cursor/rules/cairnkit.mdc` | Built, **experimental**. Cloud agents do not run `sessionStart`. |
-| Grok Build | None | `CLAUDE.local.md` (also listed in Grok's discovery names) | No hook adapter. Docs also say gitignored files are skipped during discovery while recommending `CLAUDE.local.md` in `.gitignore`; cairnkit uses `.git/info/exclude` instead. |
-| Pi | None | `.pi/APPEND_SYSTEM.md` | No hook adapter yet. |
-| OpenCode | None | **Gap:** no stable untracked project rules file without a tracked `opencode.json` `instructions` entry or a plugin. | No hook adapter. Do not write a tracked cairnkit block. |
+| Claude Code | `.claude/settings.local.json` | `CLAUDE.local.md` | Built. Checked against the public docs. A real run answered from memory, and its failure hook fired. |
+| Codex | `.codex/hooks.json` | None. The session-start hook gives the rules. | Built, **experimental**. Needs its own trust step. No verified real run. |
+| Cursor | `.cursor/hooks.json` | `.cursor/rules/cairnkit.mdc` | Built, **experimental**. Cloud agents do not run `sessionStart`. No real run in this record. |
+| Grok Build | `.grok/hooks/cairnkit.json` | `CLAUDE.local.md` (also listed in Grok's discovery names) | Built, **experimental**. `SessionStart` cannot add context, so the memory reaches the model at the first tool result. No verified real run. Docs also say gitignored files are skipped during discovery while recommending `CLAUDE.local.md` in `.gitignore`; cairnkit uses `.git/info/exclude` instead. |
+| Pi | `.pi/extensions/cairnkit.ts` | `.pi/APPEND_SYSTEM.md` | Built, **experimental**. `session-start` ran in the real tool. No model reply was possible. |
+| OpenCode | `.opencode/plugins/cairnkit.js` | **Gap:** no stable untracked project rules file without a tracked `opencode.json` `instructions` entry. The plugin gives the short rules. | Built, **experimental**. `session-start` ran in the real tool. No model reply was possible. |
 | Any other tool | None. `memory hooks install --agent generic` prints the commands to connect by hand. | Connect by hand. | Manual. |
 
 A tool without a hook gets memory only when its instructions tell it to run
 `memory load`. The rules block says that a hook runs `memory load`, and it
 tells the agent to run `memory check --strict` before it finishes. Auto-tidy
-still runs after a push or a merge. That step does not load the memory. The
-git hooks are personal to this clone.
+still runs after a push or a merge, and the pre-commit hook still prints a stored
+trap. Those steps do not load the memory. The git hooks are personal to this clone.
 
 ## Built
 
@@ -225,11 +231,12 @@ These items were planned. They are built now.
   that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already holds, in the
   same words, does not go into the worklist of candidate facts. Migrate says
   how many it skipped. See [brownfield.md](brownfield.md).
-- **Git-event tidy.** `memory hooks install` adds personal `pre-push` and
-  `post-merge` hooks. They run the same auto-tidy step as session start.
-  They are not shared. They work for every agent, including OpenCode and Pi.
-  `git push --no-verify` skips the pre-push hook. A held tidy lock can add
-  up to about three seconds to a push or a merge.
+- **Git-event tidy.** `memory init` adds personal `pre-push` and `post-merge` hooks.
+  They run the same auto-tidy step as session start. They are not shared. They work
+  for every agent. `git push --no-verify` skips the pre-push hook. A held tidy lock
+  can add up to about three seconds to a push or a merge.
+- **Adapters for Grok Build, Pi and OpenCode.** Each is one untracked file. They are
+  experimental.
 
 ## If you have duplicates
 

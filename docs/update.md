@@ -42,10 +42,12 @@ says "Already up to date" and changes nothing. So it is safe to run twice.
 - `memory update --dry-run` runs the check and lists the other steps.
 - `memory update --source PATH|URL` sets the source, for example on the first
   run when uv has no record of it.
+- `memory update --channel stable|dev` chooses what a git install follows. See
+  [Channels](#channels).
 - `memory status` prints the version, the installed short commit (when known),
-  the source and the update lines. When a newer commit exists, it also lists
-  the commit subjects between the installed ref and the new one, or a GitHub
-  compare URL when subjects are not available locally.
+  the source, the channel of a git install, and the update lines. When a newer
+  commit exists, it also lists the commit subjects between the installed ref and the
+  new one, or a GitHub compare URL when subjects are not available locally.
 
 On a terminal the steps show as one progress bar. Piped output shows one
 plain line per step. `NO_COLOR` turns off color.
@@ -70,7 +72,27 @@ A local folder must have no uncommitted changes. `memory update` never
 changes the source folder. To get newer commits, update that folder first,
 for example with `git pull`.
 
+## Channels
+
+A git install follows one channel.
+
+- `stable` takes the highest release tag. This is the default.
+- `dev` takes the newest commit of the `dev` branch.
+
+`memory update --channel dev` saves the choice in `~/.config/cairnkit/channel`
+(`$XDG_CONFIG_HOME/cairnkit/channel` when that is set), and then it installs from
+that channel. The install can be a lower version. `memory update --channel stable`
+goes back in the same way. A change of channel clears the recorded commit and the
+cached check. With `--check` or `--dry-run`, the command does not save the channel.
+
+An install pinned to `@dev` (`uv tool install git+URL@dev`) follows the `dev` branch
+with no saved choice. A saved choice wins over a pin. A local folder has no channel:
+it takes the current commit of that folder.
+
 ## How it knows a newer version exists
+
+On the `dev` channel, a commit of the `dev` branch that is not the recorded commit is
+newer. The rest of this section describes the `stable` channel and a local folder.
 
 The source is newer when its version is higher. It is also newer when its
 commit is not the recorded commit: for a local git folder, the recorded
@@ -128,10 +150,34 @@ version. Refresh reads `# cairnkit:docs-check` in the hook instead. A test
 checks that `pyproject.toml` reads the version from `__init__.py`, and that
 `docs/FORMAT.md` names that same version.
 
-`memory init --refresh` rewrites a hook that is already there. It does not
-add a missing hook. `pre-push` and `post-merge` are new. After you update,
-run `memory hooks install` in each repo. That adds the new hooks. A second
-run changes nothing.
+`memory init --refresh` rewrites a hook that is already there. It writes every event
+of a connected agent again, so a new event arrives by itself. It does not add a
+missing git hook, and it does not connect a new agent tool. `memory init` does both,
+and a second run changes nothing.
+
+## From 0.3.1
+
+An install on 0.3.1 catches up by itself. These steps need no person:
+
+- `memory init --refresh`, which the session start asks the agent to run, removes
+  the `post-commit` block. `memory init` and `memory hooks install` remove it too.
+- The next session start ends each fact that the 0.3.1 commit miner wrote, as
+  `expired`, with a line in `auto-tidy.log`. It keeps a pinned fact, a rule, and a
+  fact with basis `told`. The archive keeps each ended fact. It also removes
+  `proposals/auto-candidates.jsonl`, `proposals/stale-pending.md` and the lock files
+  of the miner.
+- A short-term note with an `expires_at` that the old 14-day default wrote still ends
+  on that date. A new `--short` note has no date.
+
+These stay, because the tool writes no tracked file and removes none:
+
+- tracked hooks in `.githooks/` that `--commit-msg-guard=shared` wrote;
+- a pointer line in `AGENTS.md` that `--write-instructions` wrote;
+- lines in a tracked `.gitignore` that `--gitignore` wrote.
+
+Remove them by hand if you do not want them. With `core.hooksPath` set to `.githooks`,
+the tool writes no git hook. To use the personal hooks, unset `core.hooksPath` and run
+`memory init`.
 
 ## From project-memory to cairnkit
 
@@ -173,9 +219,6 @@ What changes in the repo files and the cache:
   the git hook block (`# >>> project-memory >>>`) and agent hooks that run
   `-m project_memory hook`. It never adds a second block. An old block and a
   new block in one file are refused: fix that file by hand.
-- `memory init --refresh` does not touch the tidy rules block
-  (`<!-- project-memory:rules:start -->`). The next `memory tidy --apply`
-  that adds a rule to it gives it the new markers in place.
 - The user cache moves from `~/.cache/project-memory/` to `~/.cache/cairnkit/`.
   Delete the old folder after you remove the old tool.
 

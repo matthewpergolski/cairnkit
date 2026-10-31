@@ -8,54 +8,45 @@ no agent hooks and no agent rules.
 1. Install the tool once on your computer:
    `uv tool install git+https://github.com/matthewpergolski/cairnkit`.
 2. Go to the project: `cd my-app`.
-3. Look at the plan first: `memory init --dry-run`.
-4. Make the memory: `memory init`.
+3. Optional: look at the plan first with `memory init --dry-run`.
+4. Run the one setup step: `memory init`.
    - It makes `../my-app.memory/`, links it as `memory-bank` in each checkout
      and worktree, and adds the ignore lines to `.git/info/exclude`.
+   - It connects each agent tool that it finds. The adapter files stay untracked.
+   - It adds personal git hooks: `pre-commit`, `post-checkout`, `pre-push` and
+     `post-merge`. They stay in this clone. They are not committed. A teammate never
+     runs them.
+   - It prints a short result. `--verbose` prints each step. `--no-hooks` skips the
+     agent tools and the git hooks.
    - It adds no rule facts. The rules about memory itself ship inside the
      tool. To add the commit rules (no AI co-author trailers, no "Generated
      with" footers, no claims that a model wrote a change), run
-     `memory preset add commits`.
+     `memory init --preset commits`. That also installs the commit-msg guard.
    - For a codebase, use `memory init --preset dev`. It adds the commit rules
      and rules for checks, tests, small diffs, git and lock files. It adds no
      rule for one tool. Put such rules in `CLAUDE.md` (or `AGENTS.md`, if that is
      what the repo has).
      For a folder of documents, use `--preset basic`. Look first with
      `memory preset show dev --detect`. See [presets.md](presets.md).
-5. Connect the agent tool and git: `memory hooks install`.
-   - Add `--agent claude`, `codex` or `cursor` when the tool is not found.
-   - This also adds personal `pre-push` and `post-merge` hooks. They tidy
-     the memory after a push or a merge. They stay in this clone. They are
-     not committed. A teammate who does not use cairnkit never runs them.
-     A teammate who does has a separate memory and separate hooks. The two
-     do not conflict.
-6. That is all for one person. Every session loads the memory at the start.
-   Rule facts load first.
+5. If you use Codex, approve the hooks once with `/hooks`. Codex asks for this trust
+   step itself, and `memory init` says so. Other agents need no step.
+6. If the tool does not find your agent, run `memory hooks install --agent NAME`.
+   `NAME` is `claude`, `codex`, `cursor`, `grok`, `pi` or `opencode`. For any other
+   agent, `memory hooks install --agent generic` prints the commands to connect by
+   hand.
 7. Check: `git status` shows nothing new. Run `memory check`. It must say `ok`.
 8. Start an agent session. The agent gets the memory at the start, and it
    records facts as it works.
-9. Exact duplicates and ended short-term facts leave the load by themselves at
-   each session start, and also after a push or a merge (see `auto-tidy.log`).
-   The first sessions only report. A push does not count as a session start.
-   Similar pairs go to the agent as a task (`proposals/tidy-followups.md`). From
-   time to time, run `memory tidy`, read the proposals for rule promotions and
-   stale facts, and approve the ones you want with `memory tidy --apply ID ...`.
 
-## Optional: share git hooks with a team
+You have nothing more to do. Rule facts load first in every session. Auto-tidy
+retires exact and near repeats and ended short-term notes at each session start, and
+also after a push or a merge (see `auto-tidy.log`). The first sessions only report. A
+push does not count as a session start. Similar pairs and other judgment cases go to
+the agent as a task (`proposals/tidy-followups.md`).
 
-Use this only when the team agrees to it. The cairnkit rules block itself
-stays untracked (`CLAUDE.local.md` and harness copies). Hand-written team
-instructions still live in tracked `CLAUDE.md` / `AGENTS.md`.
-
-- `memory hooks install --commit-msg-guard=shared` writes tracked hooks in
-  `.githooks/`. Commit them, and tell each clone to run
-  `git config core.hooksPath .githooks` once. With that setting, git runs
-  `.githooks/` and not `.git/hooks/`. The tracked `.githooks/pre-commit` runs
-  the memory guard when the tool is installed, and does nothing when it is not.
-  The tracked `.githooks/post-checkout` links a new worktree the same way.
-  The tidy hooks are not in `.githooks/`. If you point `core.hooksPath` at
-  `.githooks`, git does not run `.git/hooks`. Add the `pre-push` and
-  `post-merge` blocks by hand if you still want tidy after a push or a merge.
+Run `memory init` again after you install a new agent tool or add a worktree. It
+connects what is new, and a second run changes nothing else. These are
+[known gaps](../README.md#where-it-falls-short-today).
 
 ## Where does each rule go
 
@@ -64,10 +55,10 @@ instructions still live in tracked `CLAUDE.md` / `AGENTS.md`.
 | 1. **Personal rules for every project you work on.** Example: never add model self-attribution or AI co-author trailers to commits. | The agent tool's user-level rules file, in your home folder, outside any repo. | You, in all projects. |
 | 2. **Team or project rules.** | Hand-written tracked `CLAUDE.md` (or `AGENTS.md`), or the tool's tracked project rules file. cairnkit never puts its marked block here. | Everyone who clones the project. |
 | 3. **cairnkit rules block and local details for this checkout.** | `CLAUDE.local.md` and untracked harness copies (`memory init --write-instructions`), kept out of git. | You, in this project. |
-| 4. **Things learned while working.** | Memory facts (`memory add`). | You and your agents, in this project. |
+| 4. **Things learned while working.** | Memory facts (`memory add`). A fact that must load in each session uses `--pinned`. | You and your agents, in this project. |
 
-Durable facts from row 4 move to row 3 (local) through `memory tidy`, or into
-a test or a hook. They never move into a tracked cairnkit block.
+The tool moves no fact from row 4 into a rules file. A person or an agent can write a
+test, a hook or a line in a rules file, and then mark the fact `promoted`.
 
 **A rule that a tool checks is better than a note anywhere.** A note can be
 missed. A check cannot. Example: the commit-msg guard refuses a commit whose

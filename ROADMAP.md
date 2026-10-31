@@ -2,12 +2,19 @@
 
 These items are not built. The order is not a promise. Each item starts with a
 short spec and failing tests. What is built is in the [README](README.md) and
-in [docs/](docs/).
+in [docs/](docs/). The known defects are in
+[Where it falls short today](README.md#where-it-falls-short-today). A fix for one of
+those defects goes first.
 
 ## Agent tools
 
-- Hook adapters for OpenCode and Pi. Today they get only the rules block in
-  `AGENTS.md` and the generic commands.
+- Test each adapter in a real session: the load reaches the model, a failure reaches
+  the loop breaker, and the stop message returns. Today only Claude Code has a real
+  run that answered from memory. See [Supported agents](README.md#supported-agents).
+- Decide whether Grok Build runs the `SubagentStart` hook, and add a subagent load for
+  Cursor, Pi and OpenCode where the tool allows it.
+- Connect a new worktree with its adapter files when `git worktree add` runs. Today it
+  gets only the link.
 - Check whether other agent tools run the hooks that `memory` writes for
   Cursor or Claude Code. Add an adapter only after a check against the tool's
   public docs.
@@ -29,22 +36,19 @@ in [docs/](docs/).
 
 ## Clean-up
 
-`memory tidy` and `memory tidy --auto` are built. Git-event tidy is built
-too: personal `pre-push` and `post-merge` hooks run the same step after a
-push or a merge. Still to build, with no model:
+`memory tidy`, `memory tidy --auto` and git-event tidy are built. A source file or
+commit that is gone is named in the load. Still to build, with no model:
 
 - `superseded_by` chains that end in a fact that is not active;
 - `promoted` facts whose `held_by` file is gone;
-- active facts with `basis: guess` older than 60 days: propose a check;
-- active facts that name a file that is gone.
+- a way to confirm a `basis: guess` fact, with no rule that depends on its age.
 
 **Optional small-model step, off by default.** Group the active facts by area.
 Send each group with one fixed prompt. The model returns JSON only: duplicates
 to merge, pairs to link, contradictions, and facts to promote to a rule, doc,
 test or lint. The provider and model come from `config.toml`, with a fixed
-call budget and a cost log. The output is a proposals file. A person accepts
-or rejects each proposal. A change applies by itself only when it can be
-undone. A contradiction always waits for a person.
+call budget and a cost log. The output goes to the agent task file. The agent
+decides each item. A change applies by itself only when it can be undone.
 
 ## Migration
 
@@ -54,27 +58,14 @@ undone. A contradiction always waits for a person.
   facts, with no model. Counts in and out must match. It shows the plan first
   and acts only with `--yes`.
 - Table rows and wrapped paragraphs in old notes as candidates.
-- `--fix-references` for files other than top-level and `docs/` Markdown.
+- Old-layout lines in files other than top-level and `docs/` Markdown, in the agent
+  task.
 
-## Many developers and many agents (design)
+## Sharing is not planned
 
-Today one memory folder serves one person and their agents. The design:
-
-- A developer and an agent are both an identity. Each fact records the
-  identity that wrote it.
-- A session loads layers: the identity's own scope, the project's shared
-  scope, and the agent scope. They merge under the word budget. The more
-  specific scope wins a tie.
-- Shared facts live in a sync layer, not in git. A git-tracked team folder was
-  rejected: it gets messy. The simplest layer is a shared folder or a small
-  remote store that takes appended records.
-- Records are append-only, with unique ids. Two identities never cause a merge
-  conflict.
-- A fact moves into the shared scope only on purpose.
-- When two identities disagree, both facts stay. The tool flags the pair. A
-  person decides.
-
-Later: a store for in-app agents, an SDK, and a thin MCP wrapper.
+The memory is personal, and [the goal](README.md#the-goal) rules out a shared memory
+and a tracked enforcement of it. An earlier design for many developers and a sync
+layer left this page for that reason.
 
 ## Repeated mistakes become checks (design)
 
@@ -90,10 +81,9 @@ lint whose message names the fix, then a test, and docs last.
   commit message (count days, not tries); `memory check --rules`, which scans
   `git log` for the commit rules; a hook or CI line that names a rule id; a
   rule whose `enforced_by` check is gone.
-- **Propose a check.** A rule with 3 hits on 3 days and no `enforced_by` gets a
-  `memory tidy` proposal. It names a layer from what the project has (a lint,
-  a test folder, a hook). It never picks the check. When the check exists, a
-  second proposal sets `enforced_by`.
+- **Propose a check.** A rule with 3 hits on 3 days and no `enforced_by` gets an item
+  in the agent task. It names a layer from what the project has (a lint, a test folder,
+  a hook). When the check exists, the agent sets `enforced_by`.
 - **Filler in a diff is not solved.** Only plain signals count: a diff that
   changes only comments, `TODO` and placeholder markers in added lines, and
   what Ruff or Biome report.
@@ -114,8 +104,15 @@ Built, in [benchmarks/](benchmarks/README.md):
   fragments, hand-labelled, with stale and decoy facts. It runs in a few
   seconds, in the test suite.
 
+- `benchmarks/forgetting/` replays synthetic histories through the real load under
+  each forgetting policy. [The test record](docs/forgetting-tests.md) holds the results
+  and the limits.
+
 Not covered:
 
+- Real agents. The test record shows what can load, not that an agent acts on it.
+  Testing `dev` against production with real agents must answer that, and it must
+  include the old-fact cases of the record.
 - Raw-source baseline for the retrieval benchmark. A recent paper (arXiv
   2610.34073, "memory tax") reports that many agent-memory systems score
   below plain retrieval over the raw history on LongMemEval, PersonaMem and
@@ -130,14 +127,16 @@ Not covered:
   the numbers here are from the paper's summary, not checked by us.
 - End-to-end agent runs, with and without `memory load`. The benchmark never
   asks a model anything, so it does not show that an agent does better work.
-- A per-prompt recall hook (inject a few notes for each prompt). `memory load`
-  ignores the question, so the load numbers only say whether the standing set
-  already holds the answer.
+- A per-prompt recall hook (inject a few notes for each prompt). The prompt hook sends
+  news only. `memory load` ignores the question, so the load numbers only say whether
+  the standing set already holds the answer.
 - Real project notes. The fixture is synthetic, small and written by one
   author, and the questions are not held out.
-- Stale facts. A stale fact that nobody superseded ranks above its newer
-  replacement in most cases on the fixture (5 of 6). It needs a design, for
-  example to demote a fact that a newer `similar_to` fact replaces.
+- Stale facts in search. A stale fact that nobody superseded ranks above its newer
+  replacement in most cases on the fixture (5 of 6). `memory add` now names a possible
+  contradiction, but search does not use it.
+- A pointer for facts that the agent never writes. The test record does not build one
+  until real-agent tests show how often this happens.
 - Word endings such as `-ed` and `-ing` (`retried`, `retry`), and questions
   that share no word with the answer (`rollout`, `rolling`). Try a change only
   with questions that were not used to build it.
@@ -184,9 +183,9 @@ None of these breaks a normal update by one person on one computer.
 the subjects (or a GitHub compare URL) between the installed ref and a newer
 one. Still to build:
 
-- A CHANGELOG (or release notes) that `memory update` can show.
+- Show the release notes of `CHANGELOG.md` in `memory update`.
 - Flag new capabilities on install (commands or hooks added since the
-  installed ref), so a person knows what to try after an update.
+  installed ref), so that the agent knows what to try after an update.
 
 ## Other ideas
 

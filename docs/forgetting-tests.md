@@ -71,7 +71,7 @@ them out when folding is off. Search finds the trap in the top five at .67.
 
 ## Results: one place for each area
 
-The owner asked about the loss in the table above, so it was tested again at commit `AREA_COMMIT`.
+The owner asked about the loss in the table above, so it was tested again at commit `1040bd7`.
 Folding gave each area one place in the load. The same benefit can come with no hidden text: one
 third of the budget keeps one place for each area, and a trap holds that place if the area has one.
 These places apply only when the load has no signal about the work. With a signal, relevance
