@@ -30,6 +30,10 @@ def test_want_anim_false_with_cairnkit_plain():
     assert want_anim(Terminal(), env={"TERM": "xterm", "CAIRNKIT_PLAIN": "1"}) is False
 
 
+def test_want_anim_false_with_memory_plain():
+    assert want_anim(Terminal(), env={"TERM": "xterm", "MEMORY_PLAIN": "1"}) is False
+
+
 def test_want_anim_false_when_opt_out():
     assert want_anim(Terminal(), env={"TERM": "xterm"}, opt_out=True) is False
 
