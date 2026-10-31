@@ -20,7 +20,7 @@ from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
-from cairnkit.memory import Memory, MemoryMissing
+from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
 from cairnkit.session import (
     hold_load,
@@ -39,11 +39,21 @@ SUBAGENT_BUDGET = 300
 JSON_NEUTRAL = frozenset({"codex", "cursor"})
 # A generated adapter reads plain text on stdout.
 TEXT_AGENTS = frozenset({"pi", "opencode"})
+# A load for these sources continues the session, so its events stay.
+SAME_SESSION = frozenset({"compact", "resume", "reload"})
+# Grok discards the stdout of a prompt hook, so what it would say waits for a later event.
+DROPS_PROMPT_OUTPUT = frozenset({"grok"})
 
 
 def has_memory(project: Project, flag: str | None) -> bool:
-    """True only when `memory init` has created a facts folder. Never creates paths."""
-    memdir, _ = resolve_memory_dir(project, flag)
+    """True only when `memory init` has created a facts folder. Never creates paths.
+
+    A link file that cannot be read means no memory for this hook, not a crash in the agent.
+    """
+    try:
+        memdir, _ = resolve_memory_dir(project, flag)
+    except (OSError, ValueError):
+        return False
     return (memdir / "facts").is_dir()
 
 
@@ -194,7 +204,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
         key = session_key(payload)
-        if payload.get("source") != "compact":  # a compaction is the same session
+        if payload.get("source") not in SAME_SESSION:
             start_session(memory, key)
         mark_loaded(memory, key, text)
     if agent == "cursor":
@@ -220,23 +230,27 @@ def _strict_problems(project: Project, flag: str | None) -> list[str]:
 
 
 def stop_message(project: Project, flag: str | None, payload: dict) -> str | None:
-    problems = _strict_problems(project, flag)
+    """What the agent must hear at stop. A failure in one step keeps the other steps."""
     parts = []
-    if problems:
-        shown = "\n".join(f"- {p}" for p in problems[:20])
-        parts.append(f"`memory check --strict` found problems. Fix them:\n{shown}")
+    with contextlib.suppress(Exception):
+        problems = _strict_problems(project, flag)
+        if problems:
+            shown = "\n".join(f"- {p}" for p in problems[:20])
+            parts.append(f"`memory check --strict` found problems. Fix them:\n{shown}")
     try:
         memory = Memory.open(project, flag)
-    except MemoryMissing:
+    except Exception:
         memory = None
     if memory is not None:
+        key = session_key(payload)
         with contextlib.suppress(Exception):
-            from cairnkit.session import loop_nudge
-
-            nudge = loop_nudge(memory)
+            held = take_load(memory, key)
+            if held:
+                parts.append(held)
+        with contextlib.suppress(Exception):
+            nudge = signals.stop_nudge(memory, key)
             if nudge:
                 parts.append(nudge)
-        key = session_key(payload)
         with contextlib.suppress(Exception):
             line = signals.news(memory, key)
             if line:
@@ -247,8 +261,10 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
         if events:
             shown = "\n".join(f"- {event}" for event in events)
             parts.append(f"This session:\n{shown}\n{reminder_hint()}")
-        elif needs_reminder(memory, key):
-            parts.append(reminder_text(memory))
+        else:
+            with contextlib.suppress(Exception):
+                if needs_reminder(memory, key):
+                    parts.append(reminder_text(memory))
     return "\n\n".join(parts) or None
 
 
@@ -286,9 +302,10 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
 
 def pre_commit(project: Project, flag: str | None) -> int:
     staged = (run_git(project.root, "diff", "--cached", "--name-only") or "").splitlines()
-    memdir, _ = resolve_memory_dir(project, flag)
     inside = None
-    with contextlib.suppress(ValueError):
+    # With a link file that cannot be read, the fixed private names below still hold.
+    with contextlib.suppress(Exception):
+        memdir, _ = resolve_memory_dir(project, flag)
         inside = memdir.resolve().relative_to(project.root.resolve()).as_posix()
     bad = [
         p
@@ -357,7 +374,9 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
             nudge = loopbreak.observe(memory, command, ok=ok)
             if nudge:
                 parts.append(nudge)
-            signals.note_command(memory, key, loopbreak.normalize_command(command), ok)
+                signals.note_nudge(memory, key, command)
+            if loopbreak.shell_command(payload):
+                signals.note_command(memory, key, command, ok)
         line = signals.news(memory, key)
         if line:
             parts.append(line)
@@ -371,7 +390,7 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
 
 def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     """Before a prompt: say what changed in the memory or the work. Always exits 0."""
-    if not has_memory(project, flag):
+    if not has_memory(project, flag) or agent in DROPS_PROMPT_OUTPUT:
         return 0
     with contextlib.suppress(Exception):
         line = signals.news(Memory.open(project, flag), session_key(payload))

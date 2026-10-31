@@ -3,20 +3,21 @@
 Formats follow each tool's public hook docs (checked 2026-10-22, loop
 breaker events rechecked 2026-10-30):
 
-- Claude Code: `.claude/settings.local.json`, events `SessionStart`, `Stop`,
-  and `PostToolUse` (loop breaker). SessionStart stdout is added to the
-  context. A Stop hook that prints `{"decision": "block", "reason": ...}`
-  makes the agent continue.
-- Codex: `.codex/hooks.json`, same NestedAdapter shape including
-  `PostToolUse`. Stop must print JSON on exit 0. Project hooks run only in
-  a trusted project, after review in `/hooks`.
-- Cursor: `.cursor/hooks.json` (`version: 1`), events `sessionStart`
-  (JSON `additional_context`), `stop` (JSON `followup_message`, capped by
-  `loop_limit`), and `afterShellExecution` (loop breaker).
-
+- Claude Code: `.claude/settings.local.json`, events `SessionStart`, `Stop`, `PostToolUse`,
+  `PostToolUseFailure`, `UserPromptSubmit` and `SubagentStart`. SessionStart stdout is added to
+  the context. A Stop hook that prints `{"decision": "block", "reason": ...}` makes the agent
+  continue.
+- Codex: `.codex/hooks.json`, the same shape with no `PostToolUseFailure`. Stop must print JSON
+  on exit 0. Project hooks run only in a trusted project, after review in `/hooks`.
+- Cursor: `.cursor/hooks.json` (`version: 1`), events `sessionStart` (JSON `additional_context`),
+  `stop` (JSON `followup_message`, capped by `loop_limit`), `afterShellExecution`,
+  `postToolUseFailure` and `preCompact`.
 - Grok Build: `.grok/hooks/*.json`, the same shape as Claude Code. It reads only `systemMessage`
-  from `SessionStart`, so the memory reaches the model at the first tool result.
-- Pi: `.pi/extensions/*.ts`. `before_agent_start` injects a message.
+  from `SessionStart` and discards the stdout of `UserPromptSubmit`, so the memory reaches the
+  model at the first tool result, or at the first stop when no tool runs.
+- Pi: `.pi/extensions/*.ts`. `before_agent_start` injects a message. A message queued at
+  `agent_end` starts no turn, so stop waits until Pi is idle. Print mode has no later turn, so
+  its stop arrives at the next `before_agent_start`.
 - OpenCode: `.opencode/plugins/*.js`. `client.session.prompt` with `noReply` adds context.
 
 The core never depends on these tools. Only this module names them.
@@ -65,7 +66,7 @@ class Adapter:
 
 
 class NestedAdapter(Adapter):
-    """Claude Code and Codex: hooks -> Event -> [ {matcher, hooks: [handler]} ]."""
+    """Claude Code, Codex and Grok: hooks -> Event -> [ {matcher, hooks: [handler]} ]."""
 
     def __init__(
         self,
@@ -214,20 +215,27 @@ function hook(event: string, payload: object): string {
 export default function (pi: any) {
   let pending = "";
   let continued = false;
+  let waiting: any;
   const key = (ctx: any) => String(ctx.sessionManager.getSessionFile() ?? "pi");
   const say = (content: string, options: object) =>
     pi.sendMessage({ customType: "cairnkit", content, display: false }, options);
 
   pi.on("session_start", async (event: any, ctx: any) => {
-    pending = hook("session-start", { session_id: key(ctx), source: event.reason });
+    // `pi -c` says "startup" for a session that already holds messages.
+    const held = ctx.sessionManager.getEntries().some((entry: any) => entry.type === "message");
+    const source = event.reason === "startup" && held ? "resume" : event.reason;
+    pending = hook("session-start", { session_id: key(ctx), source });
   });
   pi.on("session_compact", async (_event: any, ctx: any) => {
     pending = hook("session-start", { session_id: key(ctx), source: "compact" });
   });
   pi.on("before_agent_start", async (_event: any, ctx: any) => {
     continued = false;
+    clearTimeout(waiting);
+    // Print mode cannot start a turn after a run, so the stop of the last run arrives here.
+    const late = ctx.hasUI ? "" : hook("stop", { session_id: key(ctx) });
     const news = hook("prompt", { session_id: key(ctx) });
-    const text = [pending, news].filter(Boolean).join("\\n\\n");
+    const text = [pending, late, news].filter(Boolean).join("\\n\\n");
     pending = "";
     if (!text) return undefined;
     return { message: { customType: "cairnkit", content: text, display: false } };
@@ -243,13 +251,29 @@ export default function (pi: any) {
     });
     if (text) say(text, { deliverAs: "steer" });
   });
-  pi.on("agent_end", async (_event: any, ctx: any) => {
-    if (continued) return;
-    const text = hook("stop", { session_id: key(ctx) });
-    if (text) {
-      continued = true;
-      say(text, { deliverAs: "followUp", triggerTurn: true });
-    }
+  pi.on("agent_end", async (event: any, ctx: any) => {
+    clearTimeout(waiting);
+    const reason = event.messages?.at(-1)?.stopReason;
+    if (continued || !ctx.hasUI || reason === "error" || reason === "aborted") return;
+    // A message queued at agent_end starts no turn. The hook marks an event as told, so it runs
+    // only when Pi is idle and the message can start one.
+    const session = key(ctx);
+    const deliver = () => {
+      try {
+        if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+          waiting = setTimeout(deliver, 50);
+          return;
+        }
+        const text = hook("stop", { session_id: session });
+        if (text) {
+          continued = true;
+          say(text, { triggerTurn: true });
+        }
+      } catch {
+        // The session was replaced, so nothing was told.
+      }
+    };
+    waiting = setTimeout(deliver, 0);
   });
 }
 """
@@ -427,10 +451,10 @@ def apply(
         path = checkout / adapter.rel
         if tracked:
             if install:
-                start, stop = hook_command("session-start", name), hook_command("stop", name)
+                commands = " ; ".join(dict.fromkeys(_commands(adapter.add({}))))
                 steps.append(
-                    f"skip {path}: it is tracked by git. Add the hooks by hand, or ask the "
-                    f"team. Commands: {start} ; {stop}"
+                    f"skip {path}: it is tracked by git. The tool writes no tracked file. "
+                    f"Add the hooks by hand in a file that git ignores. Commands: {commands}"
                 )
             continue
         if not install and not path.exists():
@@ -508,6 +532,6 @@ def generic_help() -> str:
         "      something before it finishes; give that message back to the agent.\n"
         "Or add to the agent's instructions: run `memory load` at session start,\n"
         "and `memory check --strict` before you finish.\n"
-        "This adapter cannot see a failed command. If a failure was recorded, "
-        "stop still says to stop, run `memory check`, and ask."
+        "This adapter cannot see a failed command. If a failure was recorded, stop still says "
+        "to stop retrying, find the cause, search the memory (`memory search WORDS`), or ask."
     )

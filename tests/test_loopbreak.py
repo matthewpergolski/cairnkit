@@ -13,7 +13,10 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
+
 from cairnkit.cli import main
+from cairnkit.loopbreak import command_from_payload, shell_command
 from cairnkit.memory import Memory
 from cairnkit.paths import find_project
 
@@ -109,3 +112,58 @@ def test_coverage_notes_document_generic_gap():
     assert "claude" in doc.lower() and "posttooluse" in compact
     assert "codex" in doc.lower()
     assert "gap" in doc.lower() and "generic" in doc.lower()
+
+
+def _shell(response, event="PostToolUse"):
+    payload = {"hook_event_name": event, "tool_name": "bash", "tool_input": {"command": "make"}}
+    return payload | {"tool_response": response}
+
+
+@pytest.mark.parametrize("response", [{}, "", None])
+def test_a_shell_success_with_an_empty_response_is_ok(response):
+    assert command_from_payload(_shell(response)) == ("make", True)
+
+
+def test_a_shell_success_with_no_response_is_ok():
+    payload = _shell({})
+    del payload["tool_response"]
+    assert command_from_payload(payload) == ("make", True)
+
+
+def test_a_failure_event_with_an_empty_response_is_a_failure():
+    assert command_from_payload(_shell({}, "PostToolUseFailure")) == ("make", False)
+
+
+def test_exit_code_text_still_decides_a_shell_result():
+    assert command_from_payload(_shell("Process exited with code 2\nboom")) == ("make", False)
+    assert command_from_payload(_shell("Process exited with code 0\nok")) == ("make", True)
+
+
+def test_other_text_with_no_exit_code_says_nothing():
+    assert command_from_payload(_shell("some output")) is None
+
+
+def test_another_tool_with_an_empty_response_says_nothing():
+    payload = {"hook_event_name": "PostToolUse", "tool_name": "Read", "tool_response": {}}
+    assert command_from_payload(payload) is None
+
+
+def test_only_a_shell_payload_has_a_shell_command():
+    assert shell_command({"tool_input": {"command": "make  test"}}) == "make test"
+    assert shell_command({"command": "make"}) == "make"
+    assert shell_command({"tool_name": "Edit"}) == ""
+
+
+@pytest.mark.parametrize("agent", ["pi", "opencode"])
+def test_a_text_adapter_hears_what_fixed_a_command(repo, mem, monkeypatch, capsys, agent):
+    def hook(event, payload):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "s", **payload})))
+        capsys.readouterr()
+        assert main(["hook", event, "--agent", agent]) == 0
+        return capsys.readouterr().out
+
+    hook("session-start", {})
+    for _ in range(2):
+        hook("after-shell", _shell({}, "PostToolUseFailure"))
+    hook("after-shell", _shell({}))
+    assert "then passed. What fixed it?" in hook("stop", {})

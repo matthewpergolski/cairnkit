@@ -8,16 +8,30 @@ from __future__ import annotations
 
 import re
 
+from cairnkit import loopbreak
 from cairnkit.clock import now, parse_time
 from cairnkit.load import active_states, changed_paths
 from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, run_git, writer_name
 from cairnkit.selection import areas_for_paths, clean, load_text, score_parts
-from cairnkit.session import load_state, save_state
+from cairnkit.session import load_state, loop_nudge, save_state
 
 FIX_MIN_FAILS = 2
 MAX_LINES = 5
-REVERT = re.compile(r"(?i)^(revert\b|.*\breverts?\b)")
+REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
+# Reflog actions that make a new commit in this checkout. A merge, a pull or a switch brings
+# the commits of other people, so it is not here.
+OWN_COMMIT = re.compile(r"^(commit|revert|cherry-pick)\b")
+REFLOG_TIME = re.compile(r"@\{(\d+)\}")
+REFLOG_LIMIT = "500"
+
+
+def _fail_token(command: str) -> str:
+    return f"fail:{command}"
+
+
+def _loop_token(command: str) -> str:
+    return f"loop:{command}"
 
 
 def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
@@ -28,21 +42,63 @@ def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
     fails = state.setdefault("fails", {})
     if not ok:
         fails[command] = fails.get(command, 0) + 1
-    elif fails.get(command, 0) >= FIX_MIN_FAILS:
-        state.setdefault("fixed", []).append([command, fails.pop(command)])
     else:
+        if fails.get(command, 0) >= FIX_MIN_FAILS:
+            state.setdefault("fixed", []).append([command, fails[command]])
         fails.pop(command, None)
+        ended = {_fail_token(command), _loop_token(command)}
+        state["told"] = [token for token in state.get("told", []) if token not in ended]
     save_state(memory, key, state)
 
 
+def note_nudge(memory: Memory, key: str, command: str) -> None:
+    """The loop nudge reached the agent with the tool result. Stop does not repeat it."""
+    state = load_state(memory, key)
+    if state is not None:
+        state.setdefault("told", []).append(_loop_token(command))
+        save_state(memory, key, state)
+
+
+def stop_nudge(memory: Memory, key: str) -> str | None:
+    """The loop nudge for a stop, once for each run of failures."""
+    text = loop_nudge(memory)
+    state = load_state(memory, key)
+    if text is None or state is None:
+        return text
+    token = _loop_token(loopbreak.current_command(memory))
+    if token in state.get("told", []):
+        return None
+    state.setdefault("told", []).append(token)
+    save_state(memory, key, state)
+    return text
+
+
 def _reverts(root, state: dict) -> list[str]:
-    start = state.get("start_head")
-    if not start:
+    """Reverts that this checkout committed after the session started. The reflog knows."""
+    started = state.get("started_at")
+    if not started:
         return []
-    log = run_git(root, "log", "--format=%h %s", f"{start}..HEAD", timeout=2.0) or ""
-    return [
-        line for line in log.splitlines() if " " in line and REVERT.match(line.split(" ", 1)[1])
-    ]
+    since = parse_time(started).timestamp()
+    log = run_git(
+        root,
+        "log",
+        "-g",
+        "-n",
+        REFLOG_LIMIT,
+        "--date=unix",
+        "--format=%gd%x00%h%x00%gs%x00%s",
+        "HEAD",
+        timeout=2.0,
+    )
+    found = []
+    for line in (log or "").splitlines():
+        parts = line.split("\0", 3)
+        moment = REFLOG_TIME.search(parts[0])
+        if len(parts) != 4 or not moment or int(moment.group(1)) < since:
+            continue
+        if OWN_COMMIT.match(parts[2]) and REVERT.match(parts[3]):
+            found.append(f"{parts[1]} {parts[3]}")
+    return found
 
 
 def session_events(memory: Memory, key: str) -> list[str]:
@@ -52,50 +108,80 @@ def session_events(memory: Memory, key: str) -> list[str]:
         return []
     told = state.setdefault("told", [])
     found = []
-    for command, count in state.get("fixed", []):
-        found.append(f"`{command}` failed {count} times, then passed. What fixed it?")
+    for number, (command, count) in enumerate(state.get("fixed", [])):
+        line = f"`{command}` failed {count} times, then passed. What fixed it?"
+        found.append((f"fixed:{number}:{command}", line))
     for command, count in state.get("fails", {}).items():
         if count >= FIX_MIN_FAILS:
-            found.append(f"`{command}` failed {count} times and has not passed.")
+            line = f"`{command}` failed {count} times and has not passed."
+            found.append((_fail_token(command), line))
     for line in _reverts(memory.project.root, state):
-        found.append(f"A revert: {line}. Why did the first attempt not hold?")
-    fresh = [line for line in found if line not in told]
+        found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))
+    fresh = [(token, line) for token, line in found if token not in told]
     if fresh:
-        told.extend(fresh)
+        told.extend(token for token, _ in fresh)
         save_state(memory, key, state)
-    return fresh
+    return [line for _, line in fresh]
 
 
 def _since(record: dict) -> str | None:
     return record.get("learned_at") if record.get("type") == "fact" else record.get("at")
 
 
-def _changed_elsewhere(memory: Memory, mark: str, heard: list[str]) -> list[str]:
+def _for_this_branch(memory: Memory):
+    """The same test as the load: a short note belongs to one branch."""
+    root = memory.project.root
+    branch, writer = current_branch(root), writer_name(root)
+
+    def check(state: dict) -> bool:
+        if state.get("scope") != "short":
+            return True
+        owner = state.get("until_branch_merged")
+        return owner == branch if owner else state.get("writer") == writer
+
+    return check
+
+
+def _capped(lines: list[str], ids: list[str]) -> list[str]:
+    """Show the first lines. Name the rest, so that nothing is lost."""
+    if len(lines) <= MAX_LINES:
+        return lines
+    rest = ids[MAX_LINES:]
+    more = f"- and {len(rest)} more: {', '.join(rest)}. Read one with `memory show ID`."
+    return [*lines[:MAX_LINES], more]
+
+
+def _changed_elsewhere(memory: Memory, state: dict) -> list[str]:
     """Facts that another branch or auto-tidy wrote or ended after this session loaded.
 
     Times have one-second steps, so a record in the same second counts. `heard` stops a repeat.
+    A fact from a branch that this session used is its own, also after a switch.
     """
-    mine = writer_name(memory.project.root)
-    since = parse_time(mark)
-    lines = []
+    heard = state.setdefault("heard", [])
+    writers = {*state.get("writers", []), writer_name(memory.project.root)}
+    state["writers"] = sorted(writers)
+    visible = _for_this_branch(memory)
+    since = parse_time(state["loaded_at"])
+    lines, ids = [], []
     for record in memory.records:
         when = _since(record)
-        if not when or record.get("writer") == mine:
+        if not when or record.get("writer") in writers:
             continue
         try:
             if parse_time(when) < since:
                 continue
         except ValueError:
             continue
-        state = memory.states.get(record.get("id"))
-        if not state:
+        fact = memory.states.get(record.get("id"))
+        if not fact or not visible(fact):
             continue
         label = "new" if record.get("type") == "fact" else record.get("status")
-        key = f"{label}:{state['id']}"
-        if label and key not in heard:
-            heard.append(key)
-            lines.append(f"- {label} [{state['id']}] {clean(load_text(state))}")
-    return lines
+        token = f"{label}:{fact['id']}"
+        if label and token not in heard:
+            heard.append(token)
+            lines.append(f"- {label} [{fact['id']}] {clean(load_text(fact))}")
+            ids.append(fact["id"])
+    return _capped(lines, ids)
 
 
 def _now_relevant(memory: Memory, state: dict) -> tuple[list[str], list[str]]:
@@ -108,18 +194,19 @@ def _now_relevant(memory: Memory, state: dict) -> tuple[list[str], list[str]]:
     moment = now()
     new = areas - known
     shown = set(state.get("shown", []))
+    visible = _for_this_branch(memory)
     rows = []
     for fact in active_states(memory):
-        if fact["id"] in shown or fact.get("kind") == "rule":
+        if fact["id"] in shown or fact.get("kind") == "rule" or not visible(fact):
             continue
         parts = score_parts(fact, moment, new, set())
         if parts["area"] or parts["mention"]:
             rows.append((-(parts["trap"] + parts["area"] + parts["recency"]), fact["id"], fact))
     rows.sort(key=lambda row: row[:2])
-    picked = [row[2] for row in rows[:MAX_LINES]]
-    state["shown"] = sorted(shown | {fact["id"] for fact in picked})
-    lines = [f"- [{fact['id']}] {clean(load_text(fact))}" for fact in picked]
-    return lines, sorted(known | areas)
+    facts = [row[2] for row in rows]
+    state["shown"] = sorted(shown | {fact["id"] for fact in facts})
+    lines = [f"- [{fact['id']}] {clean(load_text(fact))}" for fact in facts]
+    return _capped(lines, [fact["id"] for fact in facts]), sorted(known | areas)
 
 
 def news(memory: Memory, key: str) -> str | None:
@@ -130,9 +217,9 @@ def news(memory: Memory, key: str) -> str | None:
     parts = []
     if state.pop("compacted", False):
         parts.append("Context was compacted. Run `memory load` to read the memory again.")
-    elsewhere = _changed_elsewhere(memory, state["loaded_at"], state.setdefault("heard", []))
+    elsewhere = _changed_elsewhere(memory, state)
     if elsewhere:
-        parts.append("Memory changed on another branch:\n" + "\n".join(elsewhere[:MAX_LINES]))
+        parts.append("Memory changed on another branch:\n" + "\n".join(elsewhere))
     relevant, areas = _now_relevant(memory, state)
     state["areas"] = areas
     if relevant:
@@ -147,9 +234,10 @@ def traps_for(memory: Memory, paths: list[str], limit: int = 3) -> list[str]:
     if not areas:
         return []
     moment = now()
+    visible = _for_this_branch(memory)
     found = []
     for fact in active_states(memory):
-        if fact.get("kind") != "trap":
+        if fact.get("kind") != "trap" or not visible(fact):
             continue
         parts = score_parts(fact, moment, areas, set())
         if parts["trap"]:

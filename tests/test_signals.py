@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
 from conftest import git, make_fact, write_facts
 
 from cairnkit.cli import main
@@ -254,3 +255,297 @@ def test_native_memory_is_named_once_and_copied_never(repo, mem, capsys, monkeyp
 
 def test_no_native_memory_says_nothing(repo, mem, capsys, monkeypatch):
     assert "new note" not in start(capsys, monkeypatch)
+
+
+def elsewhere_fact(number, **extra):
+    return make_fact(
+        f"f-20261101-{number:04x}",
+        f"Elsewhere number {number}.",
+        writer="other",
+        learned_at="2099-01-01T00:00:00+00:00",
+        **extra,
+    )
+
+
+def open_branch(repo):
+    """A branch named `other` with work that the default branch does not hold."""
+    git(repo, "checkout", "-q", "-b", "other")
+    (repo / "other.txt").write_text("x\n")
+    git(repo, "add", "other.txt")
+    git(repo, "commit", "-qm", "Work on the other branch")
+    git(repo, "checkout", "-q", "main")
+
+
+def touch_area(repo, area):
+    folder = repo / area
+    folder.mkdir()
+    (folder / "x.py").write_text("x\n")
+    git(repo, "add", f"{area}/x.py")
+
+
+def prompt(capsys, monkeypatch):
+    return hook(capsys, monkeypatch, "prompt", {"session_id": "s"})
+
+
+def stop(capsys, monkeypatch):
+    return hook(capsys, monkeypatch, "stop", {"session_id": "s"})
+
+
+def fail(capsys, monkeypatch, times=1):
+    out = ""
+    for _ in range(times):
+        out = hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUseFailure"))
+    return out
+
+
+def test_facts_past_the_line_limit_are_counted_and_named(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    write_facts(mem, [elsewhere_fact(i) for i in range(8)])
+    out = prompt(capsys, monkeypatch)
+    assert out.count("Elsewhere number") == 5
+    assert "and 3 more" in out
+    assert "memory show" in out
+    hidden = [i for i in range(8) if f"Elsewhere number {i}." not in out]
+    assert len(hidden) == 3
+    assert all(f"f-20261101-{i:04x}" in out for i in hidden)
+    assert prompt(capsys, monkeypatch) == ""
+
+
+def test_matches_past_the_line_limit_are_counted_and_named(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    facts = [
+        make_fact(f"f-20261001-{i:04x}", f"Payments note {i}.", area="payments") for i in range(8)
+    ]
+    write_facts(mem, facts)
+    touch_area(repo, "payments")
+    out = prompt(capsys, monkeypatch)
+    assert out.count("Payments note") == 5
+    assert "and 3 more" in out
+    hidden = [i for i in range(8) if f"Payments note {i}." not in out]
+    assert len(hidden) == 3
+    assert all(f"f-20261001-{i:04x}" in out for i in hidden)
+    assert prompt(capsys, monkeypatch) == ""
+
+
+def test_a_short_note_of_another_branch_is_not_named_for_changed_files(
+    repo, mem, capsys, monkeypatch
+):
+    open_branch(repo)
+    start(capsys, monkeypatch)
+    note = {"area": "payments", "scope": "short"}
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "Note of a branch.", until_branch_merged="other", **note),
+            make_fact("f-20261001-0002", "Note of a writer.", writer="other", **note),
+            make_fact("f-20261001-0003", "Note of mine.", until_branch_merged="main", **note),
+        ],
+    )
+    touch_area(repo, "payments")
+    out = prompt(capsys, monkeypatch)
+    assert "Note of mine." in out
+    assert "Note of a branch." not in out
+    assert "Note of a writer." not in out
+
+
+def test_a_short_note_of_another_branch_is_not_news(repo, mem, capsys, monkeypatch):
+    open_branch(repo)
+    start(capsys, monkeypatch)
+    write_facts(mem, [elsewhere_fact(1, scope="short", until_branch_merged="other")])
+    assert prompt(capsys, monkeypatch) == ""
+
+
+def test_a_short_note_of_another_branch_is_not_a_trap_for_this_commit(repo, mem, capsys):
+    open_branch(repo)
+    trap = {"kind": "trap", "area": "pay", "scope": "short", "until_branch_merged": "other"}
+    write_facts(mem, [make_fact("f-20261001-0001", "Only for that branch.", **trap)])
+    touch_area(repo, "pay")
+    capsys.readouterr()
+    assert main(["hook", "pre-commit"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "feat: add revert button",
+        "docs: explain how to revert a deploy",
+        "fix: the undo code reverts too much",
+        "Reverting is now one click",
+    ],
+)
+def test_a_subject_that_only_mentions_a_revert_says_nothing(
+    repo, mem, capsys, monkeypatch, subject
+):
+    start(capsys, monkeypatch)
+    git(repo, "commit", "-q", "--allow-empty", "-m", subject)
+    assert "A revert:" not in stop(capsys, monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "subject", ['Revert "Add a"', "revert: add a", "revert(api): add a", "Revert the cache change"]
+)
+def test_a_real_revert_subject_is_named(repo, mem, capsys, monkeypatch, subject):
+    start(capsys, monkeypatch)
+    git(repo, "commit", "-q", "--allow-empty", "-m", subject)
+    assert subject in json.loads(stop(capsys, monkeypatch))["reason"]
+
+
+def old_revert_on_other_branch(repo, monkeypatch):
+    git(repo, "checkout", "-q", "-b", "other")
+    with monkeypatch.context() as patch:
+        patch.setenv("GIT_COMMITTER_DATE", "2020-01-01T00:00:00+00:00")
+        git(repo, "commit", "-q", "--allow-empty", "-m", 'Revert "Their change"')
+    git(repo, "checkout", "-q", "main")
+
+
+def test_a_revert_from_a_branch_switch_is_not_this_session(repo, mem, capsys, monkeypatch):
+    old_revert_on_other_branch(repo, monkeypatch)
+    start(capsys, monkeypatch)
+    git(repo, "checkout", "-q", "other")
+    assert "A revert:" not in stop(capsys, monkeypatch)
+
+
+def test_a_revert_from_a_new_merge_is_not_this_session(repo, mem, capsys, monkeypatch):
+    old_revert_on_other_branch(repo, monkeypatch)
+    start(capsys, monkeypatch)
+    git(repo, "merge", "-q", "--ff-only", "other")
+    assert "A revert:" not in stop(capsys, monkeypatch)
+
+
+def test_a_revert_on_a_branch_this_session_switched_to_is_named(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    git(repo, "checkout", "-q", "-b", "work")
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-qm", "Add a")
+    git(repo, "revert", "--no-edit", "HEAD")
+    assert 'Revert "Add a"' in json.loads(stop(capsys, monkeypatch))["reason"]
+
+
+def test_long_session_keys_with_one_prefix_do_not_share_a_state(repo, mem, capsys, monkeypatch):
+    prefix = "/Users/someone/.pi/agent/sessions/" + "x" * 80
+    one, two = prefix + "/one.jsonl", prefix + "/two.jsonl"
+    hook(capsys, monkeypatch, "session-start", {"session_id": one})
+    failure = bash("make", "PostToolUseFailure") | {"session_id": one}
+    for _ in range(2):
+        hook(capsys, monkeypatch, "after-shell", failure)
+    hook(capsys, monkeypatch, "session-start", {"session_id": two})
+    out = hook(capsys, monkeypatch, "stop", {"session_id": one})
+    assert "`make` failed 2 times" in json.loads(out)["reason"]
+    assert len(list((mem / ".sessions").glob("*.json"))) == 2
+
+
+def test_keys_that_differ_only_in_a_replaced_character_do_not_share_a_state(repo, mem):
+    from cairnkit.session import _path
+
+    memory = Memory.open(find_project(), None)
+    assert _path(memory, "a/b") != _path(memory, "a-b")
+    assert _path(memory, "plain-id").name == "plain-id.json"
+    assert len(_path(memory, "z" * 500).name) <= 120
+
+
+def test_a_failed_edit_is_not_a_failed_command_at_stop(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    edit = {"session_id": "s", "tool_name": "Edit"}
+    failed = edit | {"hook_event_name": "PostToolUseFailure", "error": "no match"}
+    for _ in range(2):
+        hook(capsys, monkeypatch, "after-shell", failed)
+    passed = edit | {"hook_event_name": "PostToolUse", "tool_response": {"ok": True}}
+    hook(capsys, monkeypatch, "after-shell", passed)
+    assert "`Edit`" not in stop(capsys, monkeypatch)
+
+
+def test_a_rising_count_does_not_block_stop_again(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    fail(capsys, monkeypatch, 2)
+    assert "`make` failed 2 times" in json.loads(stop(capsys, monkeypatch))["reason"]
+    fail(capsys, monkeypatch)
+    assert stop(capsys, monkeypatch) == ""
+
+
+def test_a_new_failure_run_after_a_pass_is_a_new_event(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    fail(capsys, monkeypatch, 2)
+    assert "failed 2 times" in stop(capsys, monkeypatch)
+    hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUse"))
+    assert "then passed" in stop(capsys, monkeypatch)
+    fail(capsys, monkeypatch, 2)
+    assert "and has not passed" in stop(capsys, monkeypatch)
+
+
+def test_a_loop_nudge_reaches_the_agent_once(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    assert "failed 3 times" in fail(capsys, monkeypatch, 3)
+    assert "Stop retrying it" not in stop(capsys, monkeypatch)
+
+
+def test_a_fact_this_session_wrote_is_not_news_after_a_branch_switch(
+    repo, mem, capsys, monkeypatch
+):
+    start(capsys, monkeypatch)
+    assert main(["add", "Mine, then I moved.", "--basis", "seen", "--source", "session:1"]) == 0
+    git(repo, "checkout", "-q", "-b", "next")
+    assert "Mine, then I moved." not in prompt(capsys, monkeypatch)
+
+
+def test_a_fact_from_a_branch_this_session_never_used_is_still_news(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    git(repo, "checkout", "-q", "-b", "next")
+    prompt(capsys, monkeypatch)
+    monkeypatch.setenv("MEMORY_WRITER", "third")
+    assert main(["add", "From a third branch.", "--basis", "seen", "--source", "session:1"]) == 0
+    monkeypatch.delenv("MEMORY_WRITER")
+    assert "From a third branch." in prompt(capsys, monkeypatch)
+
+
+def test_a_resumed_session_keeps_its_events(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    fail(capsys, monkeypatch, 2)
+    start(capsys, monkeypatch, source="resume")
+    assert "`make` failed 2 times" in json.loads(stop(capsys, monkeypatch))["reason"]
+
+
+def boom(*args, **kwargs):
+    raise RuntimeError("boom")
+
+
+@pytest.mark.parametrize(
+    ("broken", "kept"),
+    [
+        ("hookrun._strict_problems", ("Elsewhere number 1.", "`make` failed 2 times")),
+        ("signals.news", ("`make` failed 2 times",)),
+        ("signals.session_events", ("Elsewhere number 1.",)),
+        ("hookrun.needs_reminder", ("Elsewhere number 1.", "`make` failed 2 times")),
+    ],
+)
+def test_one_broken_step_leaves_the_others_at_stop(repo, mem, capsys, monkeypatch, broken, kept):
+    start(capsys, monkeypatch)
+    fail(capsys, monkeypatch, 2)
+    write_facts(mem, [elsewhere_fact(1)])
+    (repo / "new.py").write_text("x\n")
+    monkeypatch.setattr(f"cairnkit.{broken}", boom)
+    reason = json.loads(stop(capsys, monkeypatch))["reason"]
+    assert all(text in reason for text in kept)
+
+
+def test_a_bad_memory_path_file_does_not_fail_a_commit(repo, mem):
+    (repo / ".memory-path").write_bytes(b"\xff\xfe not text\n")
+    (repo / "x.py").write_text("x\n")
+    git(repo, "add", "x.py")
+    assert main(["hook", "pre-commit"]) == 0
+
+
+def test_a_bad_memory_path_file_still_refuses_private_paths(repo, mem, capsys):
+    (repo / ".memory-path").write_bytes(b"\xff\xfe not text\n")
+    git(repo, "add", "-f", ".memory-path")
+    capsys.readouterr()
+    assert main(["hook", "pre-commit"]) == 1
+    assert "commit refused" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("event", ["session-start", "stop", "prompt", "after-shell"])
+def test_a_bad_memory_path_file_does_not_break_an_agent_hook(repo, mem, monkeypatch, event):
+    (repo / ".memory-path").write_bytes(b"\xff\xfe not text\n")
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"session_id": "s"}'))
+    assert main(["hook", event, "--agent", "claude"]) == 0

@@ -10,6 +10,8 @@ Each agent reports a failure in its own way (checked against its public docs):
 - Cursor: `postToolUseFailure` fires on a failure. `afterShellExecution` has no exit code, so
   it says nothing about the outcome.
 - Codex: `PostToolUse` fires for each result. The exit code is in the text of the result.
+- Pi and OpenCode: the generated adapter names the event from the exit status, with an empty
+  response.
 - Gap: a generic agent, or any agent with no hook adapter, cannot report a command. Stop still
   shows a recorded streak.
 """
@@ -52,6 +54,10 @@ def normalize_command(command: str) -> str:
     return " ".join(str(command or "").split())
 
 
+def current_command(memory: Memory) -> str:
+    return str(_load(memory).get("command") or "")
+
+
 def observe(memory: Memory, command: str, *, ok: bool) -> str | None:
     """Record one command outcome. Return the nudge text on the third fail, else None."""
     cmd = normalize_command(command)
@@ -74,18 +80,23 @@ def observe(memory: Memory, command: str, *, ok: bool) -> str | None:
 EXIT_TEXT = re.compile(r"(?i)exit(?:ed)?(?: with)?(?: code)?[: ]+(-?\d+)")
 
 
-def command_from_payload(payload: dict) -> tuple[str, bool] | None:
-    """Extract (command, ok) from a hook payload. Return None when the outcome is not known."""
-    if not isinstance(payload, dict):
-        return None
-    shell = (
+def shell_command(payload: dict) -> str:
+    """The shell command in a hook payload, or an empty string for any other tool."""
+    return normalize_command(
         payload.get("command")
         or payload.get("cmd")
         or (payload.get("tool_input") or {}).get("command")
         or (payload.get("input") or {}).get("command")
         or ""
     )
-    command = normalize_command(shell or payload.get("tool_name") or "")
+
+
+def command_from_payload(payload: dict) -> tuple[str, bool] | None:
+    """Extract (command, ok) from a hook payload. Return None when the outcome is not known."""
+    if not isinstance(payload, dict):
+        return None
+    shell = shell_command(payload)
+    command = shell or normalize_command(payload.get("tool_name") or "")
     if not command:
         return None
     event = str(payload.get("hook_event_name") or "")
@@ -110,6 +121,7 @@ def command_from_payload(payload: dict) -> tuple[str, bool] | None:
         if found:
             return command, int(found.group(1)) == 0
     # A success from another tool must not reset the streak of the failing command.
-    if event == "PostToolUse" and shell and isinstance(result, dict):
+    # Pi and OpenCode send an empty response, because their event name holds the outcome.
+    if event == "PostToolUse" and shell and (isinstance(result, dict) or not result):
         return command, True
     return None

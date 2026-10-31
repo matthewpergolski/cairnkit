@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 
 import pytest
 from conftest import git
@@ -11,6 +13,7 @@ from conftest import git
 from cairnkit import adapters, install_source
 from cairnkit.cli import main
 from cairnkit.install_source import Source
+from cairnkit.paths import find_project
 
 
 def _install(repo, *names):
@@ -133,3 +136,171 @@ def test_an_install_pinned_to_dev_follows_dev(monkeypatch):
 def test_a_saved_channel_wins_over_a_pin():
     install_source.set_channel("stable")
     assert install_source.channel(install_source.parse("git+https://x/y.git@dev")) == "stable"
+
+
+def _grok_hook(capsys, monkeypatch, event, payload):
+    monkeypatch.setenv("GROK_HOOK_EVENT", "x")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    capsys.readouterr()
+    assert main(["hook", event, "--agent", "grok"]) == 0
+    return capsys.readouterr().out
+
+
+def test_grok_with_no_tool_call_gets_the_load_at_stop_once(repo, mem, capsys, monkeypatch):
+    add = ["--area", "x", "--basis", "seen", "--source", "session:1"]
+    assert main(["add", "A stored fact.", *add]) == 0
+    session = {"session_id": "s"}
+    _grok_hook(capsys, monkeypatch, "session-start", session)
+    out = json.loads(_grok_hook(capsys, monkeypatch, "stop", session))
+    assert out["decision"] == "block"
+    assert "A stored fact." in out["reason"]
+    assert _grok_hook(capsys, monkeypatch, "stop", session) == ""
+    first = {"session_id": "s", "hook_event_name": "PostToolUse", "tool_name": "Read"}
+    assert _grok_hook(capsys, monkeypatch, "after-shell", first) == ""
+
+
+def test_a_continued_grok_stop_keeps_the_held_load(repo, mem, capsys, monkeypatch):
+    add = ["--area", "x", "--basis", "seen", "--source", "session:1"]
+    assert main(["add", "A stored fact.", *add]) == 0
+    _grok_hook(capsys, monkeypatch, "session-start", {"session_id": "s"})
+    active = {"session_id": "s", "stop_hook_active": True}
+    assert _grok_hook(capsys, monkeypatch, "stop", active) == ""
+    assert "A stored fact." in _grok_hook(capsys, monkeypatch, "stop", {"session_id": "s"})
+
+
+def test_grok_prompt_news_waits_for_a_channel_that_reaches_the_model(
+    repo, mem, capsys, monkeypatch
+):
+    session = {"session_id": "s"}
+    _grok_hook(capsys, monkeypatch, "session-start", session)
+    _grok_hook(capsys, monkeypatch, "stop", session)
+    monkeypatch.setenv("MEMORY_WRITER", "other")
+    assert main(["add", "Learned elsewhere.", "--basis", "seen", "--source", "session:1"]) == 0
+    monkeypatch.delenv("MEMORY_WRITER")
+    assert _grok_hook(capsys, monkeypatch, "prompt", session) == ""
+    assert "Learned elsewhere." in _grok_hook(capsys, monkeypatch, "stop", session)
+
+
+def test_the_generic_help_names_what_stop_says_now():
+    text = adapters.generic_help()
+    assert "run `memory check`" not in text
+    assert "`memory search WORDS`" in text
+
+
+@pytest.mark.parametrize(
+    ("name", "events"),
+    [
+        ("claude", ("session-start", "stop", "after-shell", "prompt", "subagent-start")),
+        ("cursor", ("session-start", "stop", "after-shell", "pre-compact")),
+    ],
+)
+def test_the_tracked_file_message_lists_each_command_and_no_team(repo, mem, name, events):
+    rel = adapters.ADAPTERS[name].rel
+    path = repo / rel
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("{}\n")
+    git(repo, "add", "-f", rel)
+    step = adapters.apply(find_project(), name, True, True)[0]
+    assert "tracked by git" in step
+    assert "team" not in step
+    assert all(f"hook {event} --agent {name}" in step for event in events)
+
+
+PI_DRIVER = """
+import { readFileSync, writeFileSync } from "node:fs";
+import extension from "./cairnkit.ts";
+
+const handlers = {};
+const sent = [];
+extension({
+  on: (name, handler) => (handlers[name] = handler),
+  sendMessage: (message, options) => sent.push({ content: message.content, options }),
+});
+let idle = false;
+const ctx = {
+  hasUI: process.argv[2] === "ui",
+  isIdle: () => idle,
+  hasPendingMessages: () => false,
+  sessionManager: {
+    getSessionFile: () => "s",
+    getEntries: () => (process.argv[3] === "resume" ? [{ type: "message" }] : []),
+  },
+};
+const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+const told = () => "reminded" in JSON.parse(readFileSync("../proj.memory/.sessions/s.json"));
+const assistant = (stopReason) => ({ messages: [{ role: "assistant", stopReason }] });
+const report = {};
+
+await handlers.session_start({ reason: "startup" }, ctx);
+report.first = (await handlers.before_agent_start({}, ctx))?.message?.content ?? "";
+writeFileSync("new.py", "x = 1\\n");
+
+await handlers.agent_end(assistant("aborted"), ctx);
+idle = true;
+await wait(400);
+report.aborted = { sent: sent.length, told: told() };
+idle = false;
+
+await handlers.agent_end(assistant("stop"), ctx);
+await wait(200);
+report.busy = { sent: sent.length, told: told() };
+idle = true;
+for (let i = 0; ctx.hasUI && i < 200 && sent.length === 0; i++) await wait(50);
+await wait(200);
+report.idle = { told: told(), sent: sent.map((item) => item.options) };
+report.text = sent.map((item) => item.content).join("");
+if (process.argv[3] === "first-run") {
+  console.log(JSON.stringify(report));
+  process.exit(0);
+}
+
+await handlers.agent_end(assistant("stop"), ctx);
+await wait(400);
+report.again = sent.length;
+
+report.next = (await handlers.before_agent_start({}, ctx))?.message?.content ?? "";
+console.log(JSON.stringify(report));
+process.exit(0);
+"""
+
+
+def _drive_pi(repo, *argv):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    assert main(["hooks", "install", "--agent", "pi"]) == 0
+    folder = repo / ".pi" / "extensions"
+    (folder / "driver.mjs").write_text(PI_DRIVER)
+    done = subprocess.run(
+        [node, "--experimental-strip-types", "--no-warnings", str(folder / "driver.mjs"), *argv],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if "ERR_UNKNOWN_FILE_EXTENSION" in done.stderr or "bad option" in done.stderr:
+        pytest.skip("this node cannot load TypeScript")
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_pi_with_a_ui_tells_stop_only_when_a_turn_can_start(repo, mem):
+    report = _drive_pi(repo, "ui")
+    assert report["aborted"] == {"sent": 0, "told": False}
+    assert report["busy"] == {"sent": 0, "told": False}
+    assert report["idle"] == {"told": True, "sent": [{"triggerTurn": True}]}
+    assert "new.py" in report["text"]
+    assert report["again"] == 1
+    assert "new.py" not in report["next"]
+
+
+def test_pi_in_print_mode_holds_stop_for_the_next_prompt(repo, mem):
+    report = _drive_pi(repo, "print")
+    assert report["idle"] == {"told": False, "sent": []}
+    assert report["again"] == 0
+    assert "new.py" in report["next"]
+
+
+def test_pi_in_print_mode_delivers_a_held_stop_after_a_continued_run(repo, mem):
+    assert "new.py" not in _drive_pi(repo, "print", "first-run")["first"]
+    assert "new.py" in _drive_pi(repo, "print", "resume")["first"]
