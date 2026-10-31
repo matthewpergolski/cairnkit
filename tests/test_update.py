@@ -174,6 +174,120 @@ def test_update_twice_changes_nothing_the_second_time(machine, monkeypatch, caps
     assert len(machine.uv_calls()) == calls
 
 
+def test_git_url_with_no_recorded_commit_detects_newer_tagged_version(machine, monkeypatch, capsys):
+    """Installed 0.2.0, no install commit recorded: remote HEAD tagged 0.3.0 must count as newer.
+
+    Root cause class: git `latest()` used to return version=None (ls-remote HEAD only), so
+    `is_newer` stayed false whenever the install record had no commit. Dry-run still listed
+    would-fetch of that HEAD, which looked like a version-check vs dry-run mismatch.
+    """
+    url = "https://github.com/example/cairnkit"
+    head = "59ab9f88b7f29ceb609caf84cc550af96456f1e5"
+    (machine.env / "uv-receipt.toml").write_text(
+        f'[tool]\nrequirements = [{{ name = "cairnkit", git = "{url}" }}]\n'
+        f'entrypoints = [{{ name = "memory", install-path = "{machine.bin / "memory"}" }}]\n'
+    )
+    # No install record → commit is None; only the version can decide.
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.2.0")
+    monkeypatch.setattr(
+        install_source,
+        "latest",
+        lambda source, timeout=3.0: install_source.Latest(head, "0.3.0"),
+    )
+    assert main(["update", "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "Update available" in out
+    assert "0.2.0" in out and "0.3.0" in out
+    assert "59ab9f8" in out
+    capsys.readouterr()
+    assert main(["update", "--dry-run"]) == 0
+    dry = capsys.readouterr().out
+    assert "Update available" in dry
+    assert "No newer version" not in dry
+    assert "would fetch" in dry and "59ab9f8" in dry
+
+
+def test_git_latest_reads_version_from_tag_at_head(monkeypatch):
+    """ls-remote tags that point at HEAD supply the remote version (e.g. only v0.3.0 exists)."""
+    head = "59ab9f88b7f29ceb609caf84cc550af96456f1e5"
+    tags = f"{head}\trefs/tags/v0.3.0\ncccccccccccccccccccccccccccccccccccccccc\trefs/tags/other\n"
+    calls: list[list[str]] = []
+
+    def fake_git(args, timeout=3.0):
+        calls.append(args)
+        if args == ["ls-remote", "https://github.com/example/cairnkit", "HEAD"]:
+            return f"{head}\tHEAD"
+        if args == ["ls-remote", "--tags", "https://github.com/example/cairnkit"]:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(
+        install_source.Source("https://github.com/example/cairnkit", "git")
+    )
+    assert found.commit == head
+    assert found.version == "0.3.0"
+    assert any(c[:2] == ["ls-remote", "--tags"] for c in calls)
+
+
+def test_git_latest_uses_highest_remote_tag_when_head_has_none(monkeypatch):
+    """After HEAD moves past a release tag, still expose the highest remote release version."""
+    head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    tagged = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    tags = (
+        f"{tagged}\trefs/tags/v0.2.0\n"
+        f"{tagged}\trefs/tags/v0.3.0\n"
+        f"{tagged}\trefs/tags/v0.3.0^{{}}\n"
+        f"{head}\trefs/tags/nightly\n"
+    )
+
+    def fake_git(args, timeout=3.0):
+        if args == ["ls-remote", "https://github.com/example/cairnkit", "HEAD"]:
+            return f"{head}\tHEAD"
+        if args == ["ls-remote", "--tags", "https://github.com/example/cairnkit"]:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(
+        install_source.Source("https://github.com/example/cairnkit", "git")
+    )
+    assert found.commit == head
+    assert found.version == "0.3.0"
+    source = install_source.Source("https://github.com/example/cairnkit", "git")
+    assert install_source.is_newer(source, "0.2.0", None, found)
+    assert not install_source.is_newer(source, "0.3.0", None, found)
+    # Recorded install commit still drives commit compare when versions match.
+    assert install_source.is_newer(source, "0.3.0", tagged, found)
+
+
+def test_git_url_no_recorded_commit_detects_newer_when_head_untagged(machine, monkeypatch, capsys):
+    """Installed 0.2.0, no commit: untagged HEAD with remote v0.3.0 still reports an update."""
+    url = "https://github.com/example/cairnkit"
+    head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    tagged = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    (machine.env / "uv-receipt.toml").write_text(
+        f'[tool]\nrequirements = [{{ name = "cairnkit", git = "{url}" }}]\n'
+        f'entrypoints = [{{ name = "memory", install-path = "{machine.bin / "memory"}" }}]\n'
+    )
+    tags = f"{tagged}\trefs/tags/v0.3.0\n"
+
+    def fake_git(args, timeout=3.0):
+        if args == ["ls-remote", url, "HEAD"]:
+            return f"{head}\tHEAD"
+        if args == ["ls-remote", "--tags", url]:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.2.0")
+    monkeypatch.setattr(install_source, "git", fake_git)
+    assert main(["update", "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "Update available" in out
+    assert "0.2.0" in out and "0.3.0" in out
+    assert "No newer version" not in out
+
+
 def test_a_new_commit_with_the_same_version_is_an_update(machine, monkeypatch, capsys):
     monkeypatch.setenv("FAKE_NEW_VERSION", "0.1.0")
     (machine.source / "pyproject.toml").write_text(

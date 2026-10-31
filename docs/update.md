@@ -76,6 +76,12 @@ commit must come before the new one. A folder without git has no commit. A hash 
 its files stands in for it. Links that stay inside the folder count. Links
 that leave it, dot files, caches, builds and logs do not. It does not read
 `.gitignore`.
+For a git URL, `ls-remote HEAD` gives the commit and `ls-remote --tags`
+supplies the version. Prefer a `vX.Y.Z` (or `X.Y.Z`) tag that points at HEAD.
+When HEAD has no release tag, use the highest release tag on the remote.
+A missing older tag does not matter. Without a recorded commit, only that
+version compare counts. With a recorded commit, a different HEAD still counts
+as newer even when the version matches.
 Without a record, only the version counts. The
 first `memory update` then installs again, to write the record.
 
