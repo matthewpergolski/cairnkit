@@ -907,6 +907,10 @@ def _pin(source):
         ("git+file:///bare.git?rev=v0.1.0", "file:///bare.git", "v0.1.0"),
         ("file:///work/foo@bar/bare.git", "file:///work/foo@bar/bare.git", None),
         ("file:///work/bare.git@feature/foo", "file:///work/bare.git", "feature/foo"),
+        (f"git+{CLEAN}#egg=cairnkit", CLEAN, None),
+        (f"git+{CLEAN}#subdirectory=src", CLEAN, None),
+        (f"git+{CLEAN}?rev=v0.3.0&subdirectory=src", CLEAN, "v0.3.0"),
+        (f"git+{CLEAN}?tag=1.0&rev=v0.3.0", CLEAN, "v0.3.0"),
     ],
 )
 def test_pin_forms_share_one_clean_remote(raw, clean, pin):
@@ -926,6 +930,8 @@ def test_pin_forms_share_one_clean_remote(raw, clean, pin):
     if pin and pin != "v0.3.1":
         assert pin not in tagged
     assert "?" not in tagged and "#" not in tagged
+    assert install_source.parse(tagged) == source
+    assert install_source.parse(install_source.install_spec(source, None)) == source
 
 
 @pytest.mark.parametrize(
@@ -958,6 +964,41 @@ def test_git_argv_gets_the_clean_remote(monkeypatch, raw):
     assert any("--tags" in arg for args in calls for arg in args)
     assert found.commit == RELEASE_SHA
     assert found.release.name == "v0.3.1"
+
+
+def test_annotated_tag_uses_the_peeled_commit(monkeypatch):
+    tag_object = "d" * 40
+    commit = "e" * 40
+    tags = f"{tag_object}\trefs/tags/v0.3.1\n{commit}\trefs/tags/v0.3.1^{{}}\n"
+
+    def fake_git(args, timeout=3.0):
+        if "--tags" in args:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(install_source.parse(f"git+{CLEAN}"))
+    assert found.commit == commit
+    assert found.release.name == "v0.3.1"
+    assert found.version == "0.3.1"
+
+
+def test_tied_numeric_tags_keep_the_v_name(monkeypatch):
+    sha = "c" * 40
+    tags = f"{sha}\trefs/tags/0.3.1\n{sha}\trefs/tags/v0.3.1\n"
+
+    def fake_git(args, timeout=3.0):
+        if "--tags" in args:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(install_source.parse(f"git+{CLEAN}?rev=v0.3.0"))
+    assert found.release.name == "v0.3.1"
+    assert found.commit == sha
+    assert install_source.install_spec(
+        install_source.parse(f"git+{CLEAN}?rev=v0.3.0"), found.release
+    ) == (f"git+{CLEAN}@v0.3.1")
 
 
 def test_compare_link_uses_the_clean_repo(machine, monkeypatch, capsys):

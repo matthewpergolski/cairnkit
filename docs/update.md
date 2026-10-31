@@ -9,9 +9,11 @@ It runs five steps and shows each one in the terminal:
 
 1. **Check.** It finds the source and reads its newest commit and version.
 2. **Fetch.** It makes a fixed copy of the checked commit in a temporary
-   folder: `git archive` for a local git folder. For a git URL it fetches
-   only that commit. When the server refuses a commit by its id, it fetches
-   the last 100 commits of each branch. Any other fetch error stops it.
+   folder. A local git folder uses `git archive`. A git URL fetches that
+   commit by id. When the server refuses a commit by its id and the check
+   chose a release tag, it fetches `refs/tags/<name>`. When the server still
+   refuses, it fetches the last 100 commits of each branch. Any other fetch
+   error stops it.
    When it cannot get the commit, it stops, says why, and installs nothing.
    Run `memory update` again: it checks the remote again.
 3. **Build.** It builds a wheel from that copy. When the build fails, the
@@ -76,12 +78,15 @@ commit must come before the new one. A folder without git has no commit. A hash 
 its files stands in for it. Links that stay inside the folder count. Links
 that leave it, dot files, caches, builds and logs do not. It does not read
 `.gitignore`.
-For a git URL, `ls-remote HEAD` gives the commit and `ls-remote --tags`
-supplies the version. Prefer a `vX.Y.Z` (or `X.Y.Z`) tag that points at HEAD.
-When HEAD has no release tag, use the highest release tag on the remote.
-A missing older tag does not matter. Without a recorded commit, only that
-version compare counts. With a recorded commit, a different HEAD still counts
-as newer even when the version matches.
+For a git URL, `ls-remote --tags` chooses the highest `vX.Y.Z` or `X.Y.Z`
+release. That tag's commit is the commit that gets installed, even when
+`HEAD` has moved on. The install record stores `git+<url>@<tag>`. When the
+remote has no release tag, `ls-remote HEAD` supplies the commit and the
+record stores `git+<url>` with no tag. A uv receipt can pin the installed
+rev with `?rev=`, `#<commit>`, or `@ref`. The check strips that pin and
+talks to the clean remote. The `Source:` line still shows the old pin.
+Without a recorded commit, only the version compare counts. With a recorded
+commit, a different commit still counts as newer when the version matches.
 Without a record, only the version counts. The
 first `memory update` then installs again, to write the record.
 
