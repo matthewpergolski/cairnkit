@@ -99,8 +99,8 @@ def test_tty_failure_stays_plain(monkeypatch):
     bar.fail()
     bar.close()
     text = out.getvalue()
-    assert "Install" in text
-    assert "✖" in text or "failed" in text
+    assert "  Install... failed\n" in text or text.rstrip().endswith("Install... failed")
+    assert "✖" not in text
     assert "→" not in text
 
 
