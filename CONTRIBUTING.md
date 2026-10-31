@@ -18,11 +18,16 @@ Feature and fix PRs add one-line notes under `## Unreleased` in
 `CHANGELOG.md` (Keep a Changelog headings: Added, Changed, Fixed). A release
 PR renames that section to a version and date, leaves an empty
 `## Unreleased` on top, and bumps `__version__` in `src/cairnkit/__init__.py`
-(and `docs/FORMAT.md` to match). Before 1.0, minor bumps cover features and
-patch bumps cover fixes. Do not tag from the PR; tagging follows after the
-release lands on `main`.
+(and `docs/FORMAT.md` to match). The 0.3.x series bumps the patch number for
+each release, and this includes features. Do not tag from the PR; tagging
+follows after the release lands on `main`. Do not put a release tag on `dev`:
+`memory update` reads every tag on the remote, so installed tools would take it.
 
 ## Rules
+
+Read [the goal](README.md#the-goal) before you change or review anything. It is
+the standard for each change. A manual step in the code or the docs does not
+show that the step is intended.
 
 1. **Write a failing test first.** Each feature and each bug fix starts with
    a test that fails. Commit the test, then the code that makes it pass.

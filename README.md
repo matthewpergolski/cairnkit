@@ -1,7 +1,8 @@
 # cairnkit
 
-cairnkit gives a project a private memory for coding agents. It is a
-command-line tool that you install once. It is not a template to fork.
+cairnkit gives any coding agent a private memory for a project, and the memory
+is meant to run by itself. It is a command-line tool that you install once. It
+is not a template to fork.
 
 The memory lives **outside** the project, in a sibling folder. The project
 holds only a link to it, and git ignores the link. You cannot commit or push
@@ -10,6 +11,104 @@ the memory by mistake.
 Each fact is one short, dated line in a JSON Lines file. The tool never edits
 or deletes a fact. To change a fact, it adds a new record. Old facts stay as
 history.
+
+## The goal
+
+Read this section first. It is the standard for each feature, review and
+proposal. The other sections describe what the tool does today. When one of
+them disagrees with this section, that is a gap. It is not a reason to change
+the goal.
+
+cairnkit must just work with any coding agent, and it must be pleasant for the
+agent and the developer. The developer talks to the agent and uses their
+skills, such as pstack. The tool brings the memory and makes the agent use it.
+Things are remembered, forgotten and tidied with no work from the developer.
+If the developer must do this work, there is no reason to use the tool.
+
+The memory is personal. It belongs to one developer, and each project has its
+own memory, which the developer can move wherever they want. The tool does not
+share a memory, or an enforcement of a memory, with other contributors. The tool
+does not write either one to a tracked file.
+
+### How memory must work
+
+1. **Capture.** The agent writes a fact with `memory add` when something
+   significant happens: a decision, a mistake, a correction, a surprise, or a
+   failure and what fixed it. It does not capture routine steps or text that git
+   or the code already holds. Each fact stays in the history. The tool sees
+   events, such as a failed command or a revert, and names the event to the
+   agent. The tool writes no text that loads.
+2. **Load.** Rules and pinned facts always load. All other facts compete for a
+   word budget. A fact about the work in progress ranks first, and a newer fact
+   ranks before an older one. A fact that does not fit is not forgotten. It stays
+   searchable, and it comes back when its area is in use.
+3. **Refine.** The agent replaces, ends, links or pins a fact when it learns more.
+   This is never a required step. A fact that nobody refines stays eligible.
+4. **Forget.** A fact stops loading only because of a recorded event: a newer fact
+   replaced it, the agent marked it wrong or ended it, its end date passed because
+   the agent set one, its branch is confirmed merged, or its source file is gone.
+   The clock alone ends nothing, and neither does silence from the agent, so a
+   vacation changes nothing. The archive keeps each ended fact. Only `memory purge`
+   deletes data.
+
+Each step must also work inside a long session, because good memory makes
+sessions longer. Do not assume a session start or a session end comes soon. The
+agent writes and refines during the session. Memory survives a compaction, and
+the agent hears what changed in the memory since it last loaded.
+
+[The test record](docs/forgetting-tests.md) holds the evidence for these steps and
+its limits. The tool supports each type of memory in
+[Memory types](#memory-types): archive, long-term, short-term, episodic and
+semantic.
+
+### How to judge a change
+
+**If the developer must act, the feature is not finished.** Also:
+
+- Setup is one step, once per project.
+- The agent decides the judgment cases. A queue that a person must review is not
+  a fix.
+- Capture must be selective, and it must not lose what is important. Do not fix
+  bad memory by turning capture off. Fix what the agent is prompted to capture,
+  or fix what loads.
+- Do not end a fact because of its age. Do not add a clock in another form, such
+  as active days or a count of loads.
+- Each agent gets the same result. A feature for only some agents is not
+  finished.
+- A problem in the memory must not stop unrelated work, such as a commit.
+- Look for secrets at capture, because only `memory purge` can remove one.
+- A rule in memory can only ask. A behavior that must never happen needs a
+  check that fails, such as a git hook.
+
+Forgetting needs no approval, because a retired fact stays in the archive and
+can come back. The agent can purge a flagged secret by itself. The agent asks
+the developer only when a decision is consequential: a purge of anything else,
+because it deletes data for good, or overruling a stated fact in a way that
+changes what an agent does. A new fact that only disagrees stays beside the
+old one.
+
+The tool cannot force a model to obey. It has three controls: it puts the
+memory in the session at the start, it can send the agent back once at the end,
+and a git hook can refuse what a script can check.
+
+### Where it falls short today
+
+Each row is a defect, not a design choice. Do not use a section below to argue
+that a manual step is intended. This list holds the known gaps and may not be
+complete. Remove a row in the change that fixes it.
+
+| Goal | What happens today |
+|---|---|
+| Setup is one step | It takes two commands: `memory init` and `memory hooks install`. Codex also needs its own trust step. |
+| Any agent | Only Claude Code, Codex and Cursor have hook adapters, and Codex and Cursor are experimental. OpenCode, Pi and Grok Build have none. A subagent can miss the memory unless its brief says to run `memory load`. |
+| Capture, then refine | There is no `memory capture`, no signal prompts the agent to capture, and nothing ends a capture by active days. The `post-commit` hook drafts candidates from single lines of commits, so text can be cut off. It selects by commit subject and by key words, not by significance, and commit text does not show a mistake that an agent reported in a session. A candidate that passes the quality gate becomes a long-term fact, and it can show `author: agent:<tool>` although no agent wrote it. |
+| Forget correctly | `--until-merged` reads a branch with no local copy as merged, so a live note can end. It reads a squash-merged branch that still has a local copy as not merged, so an ended note stays. |
+| Do not stop unrelated work | The pre-commit hook refuses each commit when `memory check` finds an error. A `held_by` file from another branch is enough to cause this. |
+| Look for secrets | The scan misses names such as `INVITE_CODE=` and `CRON_SECRET=`, and links with `?k=`. `memory check` does not scan `notes/`. |
+| Enforce what must never happen | The commit-msg guard for AI attribution is optional, and `memory hooks install` does not add it by default. No check covers pull request text. |
+| Long sessions | `memory load` runs only at a session start, so a long session does not hear of a fact that was added or retired later. Only the Claude Code adapter reloads after a compaction. |
+| Personal, nothing shared | `--commit-msg-guard=shared` writes tracked hooks to `.githooks/`. `--gitignore` writes to a tracked `.gitignore`. For Codex, `--write-instructions` adds a line to a tracked `AGENTS.md`. `memory migrate --fix-references` rewrites tracked docs in the working tree. The sections below that send a lesson to a tracked rules file also describe this gap. |
+| No work for the developer | `memory tidy` asks a person to approve stale facts. `memory candidates` asks for a review. The session start also prints a line about pstack. |
 
 ## Install
 
@@ -45,17 +144,21 @@ memory status
   `memory-bank`. It adds the link to `.git/info/exclude`, so git ignores it.
 - `memory add` writes one fact. It prints the new fact id.
 - `memory load` prints what an agent sees at session start.
-- `memory search` finds facts by words or by a question.
-- `memory check` checks the facts and the link, and looks for secrets in the facts.
-- `memory status` prints the version, the installed short commit, the install
-  source, and the update lines. When a newer commit exists, it also shows
-  what changed (subjects, or a GitHub compare URL).
+- `memory search` finds facts by words or by a question. Put quotes around more
+  than one word.
+- `memory check` checks the facts and the link, and looks for common secret
+  shapes in the facts. It does not read `notes/`.
+- `memory status` prints the version, the installed short commit when one is
+  recorded, the install source, and the update lines. When a newer commit
+  exists, it also shows what changed (subjects, or a GitHub compare URL).
 
 To connect your agent tool, run `memory hooks install` in the project. Then
 the agent loads the memory at session start and checks it at session end.
-Start with `--dry-run` to see what it would write. The same command adds two
-personal git hooks, `pre-push` and `post-merge`. They run auto-tidy after a
-push or a merge. They are not shared. On a merge, when memory exists and
+Start with `--dry-run` to see what it would write. The same command adds five
+personal git hooks: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and
+`post-commit`. They are not shared. The last three run auto-tidy after a push,
+a merge or a commit, and `post-commit` also drafts candidate facts from the
+commit. On a merge, when memory exists and
 `docs/state` is out of date, `post-merge` prints
 `cairnkit: docs/state looks out of date; run memory docs --force`.
 The merge still succeeds. They work for every agent, including
@@ -126,8 +229,10 @@ memory update --check    # only say if an update exists
 memory update --dry-run  # check, then list the steps
 ```
 
-`memory update` installs the newest commit from the place you installed it
-from: the GitHub URL above, another git URL, or a local folder. It reads the
+`memory update` installs from the place you installed it from: the GitHub URL
+above, another git URL, or a local folder. For a git URL, it takes the highest
+release tag, or the newest commit if there are no release tags. For a local
+folder, it takes the current commit. It reads the
 source from the uv receipt. It shows each step and prints the old and the new
 version. A failed build leaves the installed tool as it was. When nothing is
 newer, it changes nothing. One exception: the first `memory update` after a
@@ -195,7 +300,7 @@ when you do not need the facts.
 
 ## Who runs what
 
-You run two commands, once per project:
+Today, you run two commands, once per project:
 
 ```sh
 memory init
@@ -207,10 +312,13 @@ After that, **agents do the rest**:
 - At session start, a hook gives the agent the rules and the useful facts.
 - During the session, the agent writes facts with `memory add` and changes them
   with `memory change`.
+- After a commit, a git hook drafts candidate facts. A quality gate writes the
+  ones that pass as long-term facts. `memory candidates` lists the rest.
 - At session end, a hook runs `memory check --strict`. When the agent changed
   the work and wrote no fact, the hook reminds it once. When the check finds a
   problem, the agent must fix it before it finishes (in tools that support it).
-- A git pre-commit hook refuses a commit that stages the memory link.
+- A git pre-commit hook refuses a commit that stages the memory link. It also
+  refuses a commit when `memory check` finds an error.
 - A git post-checkout hook links each new worktree (`git worktree add`) to
   the memory. In a worktree that still has no link, `memory load` and
   `memory check` make it and say so in one line. This needs symlink support
@@ -218,13 +326,14 @@ After that, **agents do the rest**:
 
 **Clean-up needs no person.** At each session start, the hook retires what
 needs no judgment: exact duplicates and short-term facts that have ended.
-The same step runs after a push or a merge. Those git hooks are personal.
+The same step runs after a commit, a push or a merge. Those git hooks are personal.
 They live in this clone's `.git/hooks`. They are not shared, and they are
 not written to `.githooks/`. A teammate who does not use cairnkit never
 runs them. A teammate who does has their own memory and their own hooks.
 The two do not conflict. This works for every agent, including OpenCode,
 Pi and Grok Build. A push or a merge does not count as a session start. The git hook
-never stops git. It prints nothing. A few-second shell bound covers a hung
+never stops git. It prints nothing, except the `docs/state` line from
+`post-merge`. A few-second shell bound covers a hung
 python start when `timeout`, `gtimeout`, or `perl` is available (stock macOS
 has `perl`). The perl command runs in a group that discards output, so the
 shell's alarm line is not printed. Without any of those the start is unbounded.
@@ -256,7 +365,9 @@ the agent decides. You step in only when an agent run leaves a pair open.
 `memory tidy` still lists rule promotions and stale facts. You approve those
 with `memory tidy --apply ID ...`, because they change the shared rules file.
 
-**Add never refuses.** `memory add` looks for an active fact of the same kind
+**Add does not refuse a repeat.** It does refuse some input, such as text that
+looks like a secret, or a rule with `--summary`. When `memory add` exits with an
+error, the fact is not saved. `memory add` looks for an active fact of the same kind
 and scope that says the same thing. An exact repeat supersedes the old fact.
 An exact repeat of a rule or a pinned fact writes nothing and says so. A near
 repeat (80 percent of the words) is written with a `similar_to` link, and the
@@ -318,7 +429,7 @@ doc, a test or a lint check, and the fact is marked `promoted`.
 |---|---|---|
 | **Archive** | Every fact and every change record ever written: the `facts/*.jsonl` store. Nothing in it is deleted. | No. Use `memory search --all`. |
 | **Long-term** | Active facts with `scope: long`: rules, decisions, lessons, traps, preferences. This is the default. | Yes, within the word budget. Rules come first. |
-| **Short-term** | Active facts with `scope: short`: working notes for one branch or task. Each ends on a date (`expires_at`, default 14 days) or when its branch is merged (`until_branch_merged`). | Yes, for the current branch only, in a small section. |
+| **Short-term** | Active facts with `scope: short`: working notes for one branch or task. Each ends on a date (`expires_at`, default 14 days) or when its branch reads as merged or has no local copy (`until_branch_merged`). | Yes, for the current branch only, in a small section. |
 
 A short-term fact that has ended reads as `expired`. The tool computes this
 when it reads, and `memory tidy --auto` writes it down later. `memory keep ID` makes a
@@ -350,7 +461,7 @@ Common agent-memory terms, and where each one is in `memory`. Detail:
 
 | Step | Command |
 |---|---|
-| Extract | `memory add` (the agent writes the fact) |
+| Extract | `memory add` (the agent writes the fact); the `post-commit` hook also drafts candidates |
 | Store | one JSON line in `facts/<writer>.jsonl`, append only |
 | Retrieve | `memory load` (session-start hook), `memory search`, `memory show` |
 | Update | `memory add --supersedes ID` (replace), `memory change`, `memory keep` |
@@ -531,10 +642,11 @@ level only. It writes nothing into a repo.
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--adopt\|--all] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Status includes installed/available skill counts. Plan by default; `--yes` acts. `--adopt` (or `--all`) replaces same-named folders so every pstack skill is installed. |
 | `memory update [--check\|--dry-run] [--source PATH\|URL]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `status` prints the version, the installed short commit, the source and the update lines. |
 | `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Never adds a second block. |
-| `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. Adds personal `pre-push` and `post-merge` hooks that run auto-tidy. They are not shared. When memory exists and `docs/state` is stale, `post-merge` prints one line that asks for `memory docs --force`. `--no-git-hook` skips every git hook. `memory hooks uninstall` removes only what it added. |
+| `memory hooks install [--agent auto\|claude\|codex\|cursor\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local\|shared]]` | you, once | Connects the agent tool and git. Adds personal `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `post-commit` hooks. The last three run auto-tidy. They are not shared. When memory exists and `docs/state` is stale, `post-merge` prints one line that asks for `memory docs --force`. `--no-git-hook` skips every git hook. `memory hooks uninstall` removes only what it added. |
 | `memory tidy [--days 90]`, `memory tidy --apply ID ...` | you, sometimes | Proposes clean-up; writes only the approved changes. |
 | `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start hook; the personal pre-push and post-merge hooks; you, to look; an agent, to release a hold | Retires the clear cases now: an exact duplicate (the older fact is superseded by the newest), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that a person set back to `active`. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. A push or a merge does not count as a session start. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |
-| `memory add [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` never refuses. It supersedes an exact repeat and links a near repeat with `similar_to`. `search` ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. When no whole word matches anywhere, it tries the words (4 letters or more) as the start of a longer word, so `deploy` finds "deployment" and `pass` finds "passed", and it says so on the first line. A short start must be a whole word with an ending: `retr` does not find "retries". A fact id is one word, so `memory search f-20261026-a053` finds that fact only. `--strict` brings back the old match, where every word must appear as a substring (also for an empty query, which is an error without it). `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
+| `memory add [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` does not refuse a repeat. It supersedes an exact repeat and links a near repeat with `similar_to`. `search` ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. When no whole word matches anywhere, it tries the words (4 letters or more) as the start of a longer word, so `deploy` finds "deployment" and `pass` finds "passed", and it says so on the first line. A short start must be a whole word with an ending: `retr` does not find "retries". A fact id is one word, so `memory search f-20261026-a053` finds that fact only. `--strict` brings back the old match, where every word must appear as a substring (also for an empty query, which is an error without it). `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
+| `memory candidates list`, `accept ID`, `reject ID` | today, a person or an agent | Lists, accepts or dismisses the candidate facts that the git hooks drafted and the quality gate left pending. |
 | `memory load [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. |

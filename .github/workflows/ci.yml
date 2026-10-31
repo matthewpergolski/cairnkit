@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     # edited: re-run review-gate when the description is cleaned after open
     types: [opened, synchronize, reopened, edited]
