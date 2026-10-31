@@ -204,6 +204,16 @@ def test_a_signal_replaces_the_area_places():
     assert other["id"] not in {s["id"] for s in _rank([*_crowd(20), other], {"busy"})}
 
 
+def test_a_changed_file_that_matches_no_fact_is_not_a_signal():
+    other = make_fact(
+        "f-20200101-0001",
+        "An old and rather long fact about another area, with just as many words as the rest.",
+        area="quiet",
+        learned_at="2020-01-01T00:00:00+00:00",
+    )
+    assert other["id"] in {s["id"] for s in _rank([*_crowd(20), other], {"unrelated"})}
+
+
 def test_a_trap_in_the_changed_area_gets_a_bonus():
     trap = make_fact("f-1", "A trap.", kind="trap", area="deploy")
     plain = make_fact("f-2", "A fact.", area="deploy")
