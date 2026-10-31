@@ -236,3 +236,29 @@ def test_pull_request_template_is_pending_for_the_gate(mod):
     errors = mod.check_review(template.read_text(encoding="utf-8"))
     assert errors
     assert any("Pending" in e or "empty" in e.lower() for e in errors)
+
+
+def test_duplicate_marker_wrap_fails_review_gate(mod, monkeypatch):
+    """M3: two CURSOR_AGENT wraps must fail packaging, not pass on the last Review."""
+    monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
+    good = body_with_review(with_head("- accepted: first wrap\n"))
+    pending = body_with_review("Pending\n")
+    double = (
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + good
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + pending
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+    )
+    errors = mod.check_review(double)
+    assert errors
+    assert any("duplicate" in e.lower() or "marker" in e.lower() for e in errors)
+
+
+def test_review_gate_requires_explicit_head_label(mod, monkeypatch):
+    monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
+    review = f"- accepted: ok\n- reviewed at {SAMPLE_SHA[:12]}\n"
+    errors = mod.check_review(body_with_review(review))
+    assert errors
+    assert any("Head" in e or "sha" in e.lower() for e in errors)

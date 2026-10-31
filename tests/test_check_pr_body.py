@@ -550,3 +550,31 @@ def test_how_to_test_allows_no_bullet_and_no_backticks(mod):
         1,
     )
     assert mod.check_body(body) == []
+
+
+def test_how_to_test_ascii_dash_and_colon_separators(mod):
+    """M1: ASCII - / : result separators without backticks must pass."""
+    body = good_body().replace(
+        "- Unit: `uv run pytest tests/test_check_pr_body.py -q` — pass\n",
+        "Unit: uv run pytest tests/test_check_pr_body.py -q - pass\n",
+        1,
+    )
+    assert mod.check_body(body) == []
+    body2 = good_body().replace(
+        "- Unit: `uv run pytest tests/test_check_pr_body.py -q` — pass\n",
+        "Unit: uv run pytest tests/test_check_pr_body.py -q: pass\n",
+        1,
+    )
+    assert mod.check_body(body2) == []
+
+
+def test_review_requires_explicit_head_label_even_with_env(mod, monkeypatch):
+    """M4: unlabeled hex must not satisfy the sha rule when env is set."""
+    monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
+    body = good_body().replace(
+        f"- Head: {SAMPLE_SHA[:7]}\n",
+        f"- reviewed at {SAMPLE_SHA[:12]}\n",
+        1,
+    )
+    errors = mod.check_body(body)
+    assert any("Head" in e or "sha" in e.lower() for e in errors)

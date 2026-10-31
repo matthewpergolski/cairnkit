@@ -49,24 +49,31 @@ _BEGIN = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_BEGIN\s*-->", re.I)
 _END = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_END\s*-->", re.I)
 
 
-def _canonical(text: str) -> str:
+def _canonical(text: str) -> tuple[str, list[str]]:
     """Prefer text between a single agent marker pair (Option A)."""
+    errors: list[str] = []
     begins = list(_BEGIN.finditer(text))
     ends = list(_END.finditer(text))
-    if len(begins) == 1 and len(ends) == 1 and ends[0].start() >= begins[0].end():
-        return text[begins[0].end() : ends[0].start()]
-    return text
+    if not begins and not ends:
+        return text, errors
+    if len(begins) != 1 or len(ends) != 1 or ends[0].start() < begins[0].end():
+        errors.append(
+            "duplicate CURSOR_AGENT_PR_BODY marker wrap found. "
+            "Fix: keep a single BEGIN/END pair around one six-section body."
+        )
+        return text, errors
+    return text[begins[0].end() : ends[0].start()], errors
 
 
-def review_section(text: str) -> str | None:
-    """Return the body under ``## Review``, or None when the heading is missing."""
-    text = _canonical(text)
+def review_section(text: str) -> tuple[str | None, list[str]]:
+    """Return (Review body or None, packaging errors)."""
+    text, packaging = _canonical(text)
     match = _HEADING_REVIEW.search(text)
     if match is None:
-        return None
+        return None, packaging
     rest = text[match.end() :]
     stop = _NEXT_H2.search(rest)
-    return rest[: stop.start()] if stop else rest
+    return (rest[: stop.start()] if stop else rest), packaging
 
 
 def _substantive_lines(section: str) -> list[str]:
@@ -102,13 +109,17 @@ def _open_severity_finding(line: str) -> bool:
 
 
 def _check_head_sha(visible: str, errors: list[str]) -> None:
-    shas = _SHA.findall(visible)
-    if not shas:
+    labeled = re.findall(
+        r"(?i)\b(?:Head|sha)\s*[:#]?\s*([0-9a-f]{7,40})\b",
+        visible,
+    )
+    if not labeled:
         errors.append(
             "Review does not name the current head sha. "
-            "Fix: name the head sha in Review (short form is ok)."
+            "Fix: add a Head: <sha> line in Review (short form is ok)."
         )
         return
+    shas = labeled
     expected = os.environ.get("PR_HEAD_SHA") or os.environ.get("HEAD_SHA")
     if not expected:
         return
@@ -135,7 +146,8 @@ def _check_head_sha(visible: str, errors: list[str]) -> None:
 def check_review(text: str) -> list[str]:
     """Return problem lines for one PR body's Review section (empty when clean)."""
     errors: list[str] = []
-    section = review_section(text)
+    section, packaging = review_section(text)
+    errors.extend(packaging)
     if section is None:
         errors.append(
             "missing ## Review section. "

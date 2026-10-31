@@ -126,6 +126,7 @@ scripts/verify.sh   all checks (ruff, format, pytest); CI calls this
 scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, presets); CI on Linux
 scripts/install-verify-pre-push.sh  optional local pre-push that runs verify.sh; chains with cairnkit hooks
 scripts/check_identity.py  merge-time check: neutral author/committer/trailers and file emails
+scripts/pr_body.py         render/check/set PR body (strips agent wrap; gh --body-file)
 scripts/check_pr_body.py    PR body check (Python 3.10+ stdlib): six headings, mermaid, STE, How to test, Review sha (stdlib; copyable)
 scripts/check_review_gate.py  PR Review section: not Pending; Blocker/High must be fixed or rejected
 .github/workflows/pr-standards.yml  copyable PR-body CI (pairs with check_pr_body.py)

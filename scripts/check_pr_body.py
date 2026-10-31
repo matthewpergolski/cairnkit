@@ -25,8 +25,8 @@ canonical body (footer after END is ignored).
 
 Extra shape rules (copyable with .github/workflows/pr-standards.yml):
 
-  - No placeholder text: Pending, TBD, TODO, "paste the body",
-    "once the PR number is known"
+  - No standalone Pending/TBD/TODO lines; no "paste the body" /
+    "once the PR number is known" phrases
   - How to test: exactly three lines labeled Unit: / Smoke: /
     End-to-end:, each with a command+result or "not needed, because"
   - Rough STE: prose sentences over 25 words fail (skips code fences,
@@ -282,15 +282,18 @@ def _test_line_ok(body: str) -> bool:
     if "`" in body:
         without_cmds = re.sub(r"`[^`]*`", " ", body).strip()
         return bool(without_cmds and re.search(r"[A-Za-z0-9]", without_cmds))
-    # No backticks: need a command token and a result separator or word.
     if not re.search(r"[A-Za-z0-9]", body):
         return False
-    dash = "\u2014|\u2013"  # em dash | en dash
-    if re.search(rf"(?:{dash}|-)|\bResult\b|:", body, re.I):
-        if re.search(rf"(?:{dash}).*\S", body) or re.search(r"(?i)\bResult\b.*\S", body):
-            return True
-        return bool(re.search(rf"(?:{dash})\s*\S", body))
-    return False
+    # Result separators: em/en dash, ASCII hyphen-minus, colon, or "Result".
+    em_en = "\u2014|\u2013"
+    if re.search(r"(?i)\bResult\b\s*\S", body):
+        return True
+    if re.search(rf"(?:{em_en})\s*\S", body):
+        return True
+    # "cmd - pass" or "cmd: pass" (separator with surrounding spaces / end token)
+    if re.search(r"\s[-:]\s+\S", body):
+        return True
+    return bool(re.search(r":\s*\S", body))
 
 
 def _check_how_to_test(text: str, errors: list[str]) -> None:
@@ -390,27 +393,17 @@ def _check_review(text: str, errors: list[str]) -> None:
             "Fix: record findings as fixed, accepted, or rejected."
         )
 
-    # Prefer an explicit Head/sha label so words like "defaced" do not count.
     labeled = re.findall(
         r"(?i)\b(?:Head|sha)\s*[:#]?\s*([0-9a-f]{7,40})\b",
         visible,
     )
-    shas = labeled or _SHA.findall(visible)
     if not labeled:
-        # Without a Head:/sha label, only accept when PR_HEAD_SHA is set and matches.
-        if not (os.environ.get("PR_HEAD_SHA") or os.environ.get("HEAD_SHA")):
-            errors.append(
-                "Review does not name the current head sha. "
-                "Fix: add a Head: <sha> line in Review (short form is ok)."
-            )
-            return
-        shas = _SHA.findall(visible)
-    if not shas:
         errors.append(
             "Review does not name the current head sha. "
-            "Fix: name the head sha in Review (short form is ok)."
+            "Fix: add a Head: <sha> line in Review (short form is ok)."
         )
         return
+    shas = labeled
 
     expected = os.environ.get("PR_HEAD_SHA") or os.environ.get("HEAD_SHA")
     if not expected:

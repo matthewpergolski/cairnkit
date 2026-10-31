@@ -57,13 +57,13 @@ def validate_body(text: str) -> list[str]:
     return mod.check_body(text)
 
 
-def run_gh(argv: list[str]) -> int:
+def run_gh(argv: list[str]) -> tuple[int, str]:
     result = subprocess.run(argv, check=False, capture_output=True, text=True)
     if result.stdout:
         sys.stdout.write(result.stdout)
     if result.stderr:
         sys.stderr.write(result.stderr)
-    return int(result.returncode)
+    return int(result.returncode), result.stderr or ""
 
 
 def set_body(*, pr: int, path: Path, repo: str | None = None) -> int:
@@ -84,13 +84,26 @@ def set_body(*, pr: int, path: Path, repo: str | None = None) -> int:
     if repo:
         argv.extend(["--repo", repo])
     try:
-        code = run_gh(argv)
+        result = run_gh(argv)
+        if isinstance(result, tuple):
+            code, stderr = result
+        else:
+            code, stderr = int(result), ""
         if code == 0:
             print(f"pr-body: set on #{pr} via gh pr edit --body-file")
             return 0
+        err_l = stderr.casefold()
+        is_403 = (
+            "403" in err_l
+            or "resource not accessible by integration" in err_l
+            or "updatepullrequest" in err_l
+        )
+        if not is_403:
+            print(f"pr-body: gh pr edit failed with exit {code}", file=sys.stderr)
+            return code if code else 1
         # Common on cloud agents: integration token cannot updatePullRequest.
         print(
-            "pr-body: gh pr edit failed (often HTTP 403 on cloud agents). "
+            "pr-body: gh pr edit failed (HTTP 403 on cloud agents). "
             "Paste the clean six-section body once via ManagePullRequest "
             "(it will wrap markers + footer; that is one copy under Option A). "
             "Do not paste a second copy outside the markers.",

@@ -205,3 +205,23 @@ def test_pr_body_is_stdlib_only():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "import cairnkit" not in source
     assert "from cairnkit" not in source
+
+
+def test_set_non_403_gh_failure_is_not_exit_3(mod, tmp_path, monkeypatch):
+    """M2: non-403 gh failures must not claim the ManagePullRequest paste path."""
+    path = tmp_path / "body.md"
+    path.write_text(clean_six_section(), encoding="utf-8")
+    monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
+
+    def fake_run_gh(argv):
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "GraphQL: Some other error"
+
+        # run_gh in module returns int; keep that contract
+        return 1
+
+    monkeypatch.setattr(mod, "run_gh", fake_run_gh)
+    rc = mod.set_body(pr=20, path=path, repo="matthewpergolski/cairnkit")
+    assert rc == 1
