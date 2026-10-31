@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,6 +42,16 @@ def test_a_replay_leaves_the_load_code_as_it_found_it(harness):
     world = harness.SCENARIOS["busy-day"](0, 1, 0)
     harness.replay(world, harness.BY_NAME["load"], 0.0, 0, 600)
     assert [dict(vars(module)) for module in modules] == before
+
+
+@pytest.mark.parametrize("script", ["clockcheck.py", "fixture_replay.py"])
+def test_a_script_for_an_old_commit_names_that_commit(script):
+    done = subprocess.run(
+        [sys.executable, str(PATH.with_name(script))], capture_output=True, text=True
+    )
+    assert done.returncode != 0
+    assert "2326ea0" in done.stderr
+    assert "Traceback" not in done.stderr
 
 
 def test_a_long_session_finds_its_facts(harness):

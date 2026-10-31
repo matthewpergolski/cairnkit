@@ -10,7 +10,7 @@ Decision rule, written before the first run:
 
 The load is the real `cairnkit.load.build_output`, with only its inputs stubbed: clock, branch,
 changed paths, active set, usage. No Memory object is opened, so nothing reads or writes a real
-memory folder. crosscheck.py compares this stub with the real `memory load` command.
+memory folder.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from cairnkit import followups, hygiene, load, ranking, selection, usage
 from cairnkit.selection import clean, load_text, render, words_in
@@ -517,18 +518,6 @@ def run_load(states, specs, point, pol, ctx, budget, rng):
                 shown.add(s["id"])
                 used += cost
         return shown, set(), 0, len(shown)
-    selection.score_parts = patched_parts(pol, ctx)
-    selection.AREA_SHARE = pol.area_share
-    load.now = lambda: when(point.day)
-    load.current_branch = lambda root: point.branch
-    load.writer_name = lambda root: point.branch
-    load.changed_paths = lambda root, branch: [f"{a}/x.py" for a in point.diff_areas]
-    load.active_states = lambda memory: states
-    usage.last_used = lambda memory: ctx["used_at"]
-    hygiene.hygiene_line = lambda memory: None
-    followups.pending_line = lambda memory: None
-    load._followup_pending = lambda memory: False
-    load.note_head = lambda path: []
     memory = SimpleNamespace(
         project=SimpleNamespace(root=Path("/nonexistent")),
         dir=Path("/nonexistent"),
@@ -536,7 +525,23 @@ def run_load(states, specs, point, pol, ctx, budget, rng):
         errors=[],
         config={"areas": {}},
     )
-    lines = load.build_output(memory, None, budget)
+    with (
+        patch.multiple(selection, score_parts=patched_parts(pol, ctx), AREA_SHARE=pol.area_share),
+        patch.multiple(
+            load,
+            now=lambda: when(point.day),
+            current_branch=lambda root: point.branch,
+            writer_name=lambda root: point.branch,
+            changed_paths=lambda root, branch: [f"{a}/x.py" for a in point.diff_areas],
+            active_states=lambda memory: states,
+            _followup_pending=lambda memory: False,
+            note_head=lambda path: [],
+        ),
+        patch.object(usage, "last_used", lambda memory: ctx["used_at"]),
+        patch.object(hygiene, "hygiene_line", lambda memory: None),
+        patch.object(followups, "pending_line", lambda memory: None),
+    ):
+        lines = load.build_output(memory, None, budget)
     text = "\n".join(lines)
     shown_text, shown_id = set(), set()
     for s in states:
