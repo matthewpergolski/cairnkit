@@ -100,6 +100,7 @@ class Source:
             return f"{self.spec} @ {self.pin} ({self.kind})"
         return f"{self.spec} ({self.kind})"
 
+
 @dataclass(frozen=True)
 class Latest:
     """What the check found. ``release`` stays after fetch replaces ``version``."""
