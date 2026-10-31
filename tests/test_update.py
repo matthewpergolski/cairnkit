@@ -1013,6 +1013,32 @@ def test_tied_numeric_tags_keep_the_v_name(monkeypatch):
     ) == (f"git+{CLEAN}@v0.3.1")
 
 
+def test_release_tags_ignore_integer_and_four_part_names(monkeypatch):
+    """Only strict X.Y.Z / vX.Y.Z tags count. Date, one-part, and four-part do not."""
+    release = "b" * 40
+    other = "c" * 40
+    tags = (
+        f"{other}\trefs/tags/2024\n"
+        f"{other}\trefs/tags/v1\n"
+        f"{other}\trefs/tags/1\n"
+        f"{other}\trefs/tags/v0.3.0.0\n"
+        f"{other}\trefs/tags/nightly\n"
+        f"{release}\trefs/tags/v0.3.1\n"
+    )
+
+    def fake_git(args, timeout=3.0):
+        if "--tags" in args:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(install_source.parse(f"git+{CLEAN}"))
+    assert found.release is not None
+    assert found.release.name == "v0.3.1"
+    assert found.version == "0.3.1"
+    assert found.commit == release
+
+
 def test_compare_link_uses_the_clean_repo(machine, monkeypatch, capsys):
     old = "a" * 40
     new = "b" * 40
