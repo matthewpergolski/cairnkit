@@ -919,6 +919,31 @@ def _pin(source):
         ("git+file:///bare.git?rev=v0.1.0", "file:///bare.git", "v0.1.0"),
         ("file:///work/foo@bar/bare.git", "file:///work/foo@bar/bare.git", None),
         ("file:///work/bare.git@feature/foo", "file:///work/bare.git", "feature/foo"),
+        (
+            "https://github.com/example/repo.git@my.git.branch",
+            "https://github.com/example/repo.git",
+            "my.git.branch",
+        ),
+        (
+            "git@github.com:example/cairnkit.git@release.git",
+            "git@github.com:example/cairnkit.git",
+            "release.git",
+        ),
+        (
+            "https://user:p?ss@github.com/example/cairnkit.git",
+            "https://user:p?ss@github.com/example/cairnkit.git",
+            None,
+        ),
+        (
+            "https://user:p#ss@github.com/example/cairnkit.git",
+            "https://user:p#ss@github.com/example/cairnkit.git",
+            None,
+        ),
+        (
+            "https://user:p?ss@github.com/example/cairnkit.git?rev=v0.3.0",
+            "https://user:p?ss@github.com/example/cairnkit.git",
+            "v0.3.0",
+        ),
         (f"git+{CLEAN}#egg=cairnkit", CLEAN, None),
         (f"git+{CLEAN}#subdirectory=src", CLEAN, None),
         (f"git+{CLEAN}?rev=v0.3.0&subdirectory=src", CLEAN, "v0.3.0"),
@@ -1011,6 +1036,26 @@ def test_tied_numeric_tags_keep_the_v_name(monkeypatch):
     assert install_source.install_spec(
         install_source.parse(f"git+{CLEAN}?rev=v0.3.0"), found.release
     ) == (f"git+{CLEAN}@v0.3.1")
+
+
+def test_git_allows_question_mark_inside_userinfo(monkeypatch):
+    """A ? or # in the password is userinfo, not a pin. Git still gets that remote."""
+    remote = "https://user:p?ss@github.com/example/cairnkit.git"
+    source = install_source.parse(f"git+{remote}")
+    assert source.spec == remote
+    assert _pin(source) is None
+    calls: list[list[str]] = []
+
+    def fake_git(args, timeout=3.0):
+        calls.append(list(args))
+        if "--tags" in args:
+            return f"{RELEASE_SHA}\trefs/tags/v0.3.1\n"
+        return ""
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(source)
+    assert found.commit == RELEASE_SHA
+    assert any(remote in args for args in calls)
 
 
 def test_release_tags_ignore_integer_and_four_part_names(monkeypatch):
