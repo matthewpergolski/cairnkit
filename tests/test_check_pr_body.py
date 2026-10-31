@@ -190,10 +190,15 @@ def test_missing_mermaid_fence_is_reported(mod):
 def test_mermaid_outside_how_it_works_is_reported(mod):
     """Mermaid must sit under How it works, not only elsewhere."""
     body = good_body()
-    body = body.replace(
-        "## How it works\n\n```mermaid\nflowchart LR\n  A[PR body] --> B{{Shape and markers ok?}}\n"
+    # good_body uses an f-string, so the mermaid node is a single-brace label.
+    old_how = (
+        "## How it works\n\n```mermaid\nflowchart LR\n  A[PR body] --> B{Shape and markers ok?}\n"
         "  B -->|no| C[Fail CI]\n  B -->|yes| D[Pass]\n```\n\n"
-        "Notice that the check reads the PR body text only.\n",
+        "Notice that the check reads the PR body text only.\n"
+    )
+    assert old_how in body
+    body = body.replace(
+        old_how,
         "## How it works\n\nNotice that the check reads the PR body text only.\n",
         1,
     )
@@ -276,9 +281,7 @@ def test_ste_skips_code_tables_and_mermaid(mod):
     body = good_body().replace(
         "```mermaid\nflowchart LR\n  A[PR body] --> B{{Shape and markers ok?}}\n"
         "  B -->|no| C[Fail CI]\n  B -->|yes| D[Pass]\n```",
-        "```mermaid\nflowchart LR\n  A["
-        + "word " * 30
-        + "] --> B\n```",
+        "```mermaid\nflowchart LR\n  A[" + "word " * 30 + "] --> B\n```",
         1,
     )
     body = body.replace(
@@ -296,7 +299,8 @@ def test_review_requires_disposition_findings(mod):
         1,
     )
     errors = mod.check_body(body)
-    assert any("fixed" in e.lower() or "accepted" in e.lower() or "rejected" in e.lower() for e in errors)
+    joined = "\n".join(errors).lower()
+    assert "fixed" in joined or "accepted" in joined or "rejected" in joined
     assert "Fix:" in "\n".join(errors)
 
 
@@ -383,10 +387,11 @@ def test_pr_standards_workflow_exists_and_is_self_contained():
         assert event in text
     assert "scripts/check_pr_body.py" in text
     assert "PR_HEAD_SHA" in text
-    # Copyable pair must not require cairnkit package imports or identity/review-gate.
+    # Copyable pair must not require cairnkit-only jobs.
     assert "check_identity" not in text
     assert "check_review_gate" not in text
-    assert "cairnkit" not in text.lower() or "cairnkit" in text  # name in comments ok; soft
+    assert "import cairnkit" not in text
+    assert "from cairnkit" not in text
 
 
 def test_check_pr_body_is_stdlib_only():

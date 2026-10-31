@@ -50,12 +50,19 @@ release lands on `main`.
    (`before..sha`) as a post-hoc alarm when commits land by fast-forward.
 9. **Six-section PR body.** Pull request descriptions use the headings in
    `.github/pull_request_template.md` in order (TL;DR, How it works,
-   Summary, Files changed, How to test, Review), include a `mermaid` fence,
-   and must not carry Cursor agent footer markers (`CURSOR_AGENT_PR_BODY`,
-   Open in Cursor / Open in Web), `Generated with`, or model names/ids.
-   Product names (Claude, Cursor, Codex) are fine. Locally:
-   `python3 scripts/check_pr_body.py path/to/body.md`. Pull requests run
-   the same check in CI.
+   Summary, Files changed, How to test, Review), include a `mermaid` fence
+   under How it works, and must not carry Cursor agent footer markers
+   (`CURSOR_AGENT_PR_BODY`, Open in Cursor / Open in Web), `Generated with`,
+   model names/ids, or Co-authored-by / Signed-off-by trailers. Product
+   names (Claude, Cursor, Codex) are fine. Also fails on placeholder text
+   (Pending, TBD, TODO, paste-later notes), How to test lines that are not
+   exactly Unit:/Smoke:/End-to-end: with a command+result or
+   `not needed, because`, prose sentences over ~25 words (STE rough check;
+   skips code, tables, mermaid), and a Review section without
+   fixed/accepted/rejected findings or the current head sha. Locally:
+   `PR_HEAD_SHA=$(git rev-parse HEAD) python3 scripts/check_pr_body.py path/to/body.md`.
+   Pull requests run the same check via `.github/workflows/pr-standards.yml`
+   (copyable with `scripts/check_pr_body.py`).
 10. **Review gate.** The PR body's `## Review` section must not stay
    `Pending` (or empty). Any Blocker or High finding on that section must be
    marked `fixed` or `rejected` on the same line. Locally:
@@ -117,7 +124,8 @@ scripts/verify.sh   all checks (ruff, format, pytest); CI calls this
 scripts/e2e.sh      end-to-end run in temp repos (a worktree, a plain folder, presets); CI on Linux
 scripts/install-verify-pre-push.sh  optional local pre-push that runs verify.sh; chains with cairnkit hooks
 scripts/check_identity.py  merge-time check: neutral author/committer/trailers and file emails
-scripts/check_pr_body.py    PR body check: six headings, mermaid, no agent footer or model ids
+scripts/check_pr_body.py    PR body check: six headings, mermaid, STE, How to test, Review sha (stdlib; copyable)
 scripts/check_review_gate.py  PR Review section: not Pending; Blocker/High must be fixed or rejected
+.github/workflows/pr-standards.yml  copyable PR-body CI (pairs with check_pr_body.py)
 .github/pull_request_template.md  the six-section PR description skeleton
 ```
