@@ -1,9 +1,8 @@
-"""The step display of `memory update`: a bar on a terminal, plain lines when piped."""
+"""The step display of `memory update`: a cairn on a terminal, plain lines when piped."""
 
 from __future__ import annotations
 
 import io
-import re
 
 from cairnkit.progress import Progress
 
@@ -34,8 +33,11 @@ def test_piped_summary_is_a_plain_line():
     assert out.getvalue().endswith("  Install... done\nmemory updated: 0.1.0 -> 0.2.0.\n")
 
 
-def test_terminal_shows_a_bar_and_the_summary(monkeypatch):
+def test_terminal_stacks_a_cairn_and_the_summary(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("CAIRNKIT_PLAIN", raising=False)
+    monkeypatch.delenv("MEMORY_PLAIN", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     out = Terminal()
     bar = Progress(out)
@@ -44,13 +46,14 @@ def test_terminal_shows_a_bar_and_the_summary(monkeypatch):
         bar.done()
     bar.finish("Updated to 0.2.0")
     text = out.getvalue()
-    assert "━" in text
-    assert "◇ Updated to 0.2.0" in text
-    assert "\x1b[38;5;" in text  # color on a terminal
+    assert "●" in text
+    assert "Updated to 0.2.0" in text
+    assert "━" not in text
     assert text.rindex("\x1b[?25h") > text.rindex("\x1b[?25l")
 
 
-def test_no_color_keeps_the_bar_and_drops_color(monkeypatch):
+def test_no_color_is_plain_lines(monkeypatch):
+    """NO_COLOR turns the display off. It used to keep an uncolored bar."""
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setenv("TERM", "xterm-256color")
     out = Terminal()
@@ -59,8 +62,9 @@ def test_no_color_keeps_the_bar_and_drops_color(monkeypatch):
     bar.fail()
     bar.close()
     text = out.getvalue()
-    assert "✖ Build" in text
-    assert not re.search(r"\x1b\[[0-9;]*m", text)
+    assert "  Build... failed\n" in text
+    assert "━" not in text
+    assert "✖" not in text
 
 
 def test_dumb_terminal_gets_plain_lines(monkeypatch):
@@ -73,6 +77,10 @@ def test_dumb_terminal_gets_plain_lines(monkeypatch):
 
 
 def test_cursor_comes_back_after_a_failure(monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("CAIRNKIT_PLAIN", raising=False)
+    monkeypatch.delenv("MEMORY_PLAIN", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     out = Terminal()
     bar = Progress(out)

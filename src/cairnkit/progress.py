@@ -1,35 +1,84 @@
 """The step display of `memory update`.
 
-A terminal shows one bar for the whole update, with the current step and the
-time. Piped output and TERM=dumb get one plain line per step. NO_COLOR keeps
-the bar and drops color.
+A terminal stacks a cairn. Check, Fetch, Install, and Verify each add one
+stone. Build runs and adds no stone. After success the summary line is the
+flag. Piped output, a dumb terminal, CI, NO_COLOR, and an opt-out get one
+plain line per step.
 """
 
 from __future__ import annotations
 
-import math
 import os
 import shutil
 import sys
 import threading
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TextIO
 
-WEIGHTS = {"Check": 1.0, "Fetch": 1.0, "Build": 4.0, "Install": 4.0, "Verify": 1.0}
-BAR_WIDTH = 32
-MIN_BAR_WIDTH = 8
+STONE = "●"
 TICK = 0.1
 HIDE, SHOW, CLEAR = "\x1b[?25l", "\x1b[?25h", "\r\x1b[K"
 
 
+@dataclass(frozen=True)
+class StageSpec:
+    """One update step. Build is a real step and adds no stone."""
+
+    name: str
+    weight: float
+    stone: bool
+
+
+STAGES: tuple[StageSpec, ...] = (
+    StageSpec("Check", 1.0, True),
+    StageSpec("Fetch", 1.0, True),
+    StageSpec("Build", 4.0, False),
+    StageSpec("Install", 4.0, True),
+    StageSpec("Verify", 1.0, True),
+)
+
+
+def want_anim(stream: TextIO, env: Mapping[str, str] | None = None, opt_out: bool = False) -> bool:
+    """True only when the cairn and the drip delay are allowed."""
+    if opt_out:
+        return False
+    names = os.environ if env is None else env
+    if names.get("CAIRNKIT_PLAIN") or names.get("MEMORY_PLAIN"):
+        return False
+    if names.get("NO_COLOR") is not None:
+        return False
+    if names.get("CI"):
+        return False
+    isatty = getattr(stream, "isatty", None)
+    if not callable(isatty) or not isatty():
+        return False
+    return names.get("TERM") != "dumb"
+
+
+def _pyramid(count: int) -> list[str]:
+    rows = [" ".join([STONE] * n) for n in range(1, count + 1)]
+    if not rows:
+        return []
+    width = len(rows[-1])
+    return [row.center(width) for row in rows]
+
+
 class Progress:
-    def __init__(self, stream: TextIO | None = None, steps: tuple[str, ...] = tuple(WEIGHTS)):
+    def __init__(
+        self,
+        stream: TextIO | None = None,
+        *,
+        anim: bool | None = None,
+        drip_delay: float = 0.04,
+        stages: tuple[StageSpec, ...] = STAGES,
+    ) -> None:
         self.out = stream or sys.stdout
-        isatty = getattr(self.out, "isatty", None)
-        self.live = bool(isatty and isatty()) and os.environ.get("TERM") != "dumb"
-        self.color = self.live and not os.environ.get("NO_COLOR")
-        self.total = sum(WEIGHTS.get(step, 1.0) for step in steps) or 1.0
-        self.done_weight = 0.0
+        self.live = want_anim(self.out) if anim is None else bool(anim)
+        self.drip_delay = drip_delay
+        self.stages = stages
+        self.stacked = 0
         self.label: str | None = None
         self.step_started = 0.0
         self.hidden = False
@@ -41,15 +90,18 @@ class Progress:
         self.out.write(text)
         self.out.flush()
 
+    def _stage(self, name: str) -> StageSpec | None:
+        return next((stage for stage in self.stages if stage.name == name), None)
+
     def say(self, text: str) -> None:
-        """One static line. On a terminal it goes above the bar."""
+        """One static line. On a terminal it goes above the cairn."""
         if not self.live:
             self._write(text + "\n")
             return
         with self.lock:
             self._write(CLEAR + text + "\n")
             if self.label:
-                self._write(self._row())
+                self._write(self._cairn_row())
 
     def start(self, label: str) -> None:
         self.label = label
@@ -61,7 +113,7 @@ class Progress:
             if not self.hidden:
                 self.hidden = True
                 self._write(HIDE)
-            self._write(CLEAR + self._row())
+            self._write(CLEAR + self._cairn_row())
         self.stop.clear()
         self.ticker = threading.Thread(target=self._tick, daemon=True)
         self.ticker.start()
@@ -70,34 +122,49 @@ class Progress:
         if self.label is None:
             return
         self._stop_ticker()
-        self.done_weight += WEIGHTS.get(self.label, 1.0)
+        spec = self._stage(self.label)
+        if spec is None or spec.stone:
+            self.stacked += 1
         self.label = None
         if not self.live:
             self._write("done\n")
+            return
+        with self.lock:
+            self._write(CLEAR + self._cairn_row())
 
     def fail(self) -> None:
         if self.label is None:
             return
         self._stop_ticker()
         label, self.label = self.label, None
+        self.stacked = 0
         if not self.live:
             self._write("failed\n")
             return
-        mark = "\x1b[31m✖\x1b[0m" if self.color else "✖"
-        self._write(f"{CLEAR}  {mark} {label}\n")
+        self._write(f"{CLEAR}  {label}... failed\n")
 
     def finish(self, summary: str) -> None:
-        """A full bar, then the one-line result under it."""
+        """The cairn and the summary on a terminal, or one plain summary line."""
         self.done()
         if not self.live:
             self._write(summary + "\n")
             return
-        self.done_weight = self.total
-        self._write(f"{CLEAR}{self._row()}\n  ◇ {summary}\n")
+        with self.lock:
+            self._write(CLEAR)
+            for line in _pyramid(self.stacked):
+                self._write(line + "\n")
+            self._write(summary + "\n")
         self.close()
 
+    def drip(self, lines: list[str]) -> None:
+        """Print each line. On a cairn, pause between lines."""
+        for line in lines:
+            self.say(line)
+            if self.live and self.drip_delay > 0:
+                time.sleep(self.drip_delay)
+
     def close(self) -> None:
-        """Stop the bar and show the cursor. Safe to call more than once."""
+        """Stop the display and show the cursor. Safe to call more than once."""
         self._stop_ticker()
         if self.live and self.label is not None:
             self._write(CLEAR)
@@ -115,25 +182,12 @@ class Progress:
     def _tick(self) -> None:
         while not self.stop.wait(TICK):
             with self.lock:
-                self._write(CLEAR + self._row())
+                self._write(CLEAR + self._cairn_row())
 
-    def _row(self) -> str:
+    def _cairn_row(self) -> str:
+        stones = STONE * self.stacked
         elapsed = time.monotonic() - self.step_started if self.label else 0.0
-        current = 0.0
-        if self.label:
-            # Fill toward the step's share without reaching it, so the bar moves.
-            weight = WEIGHTS.get(self.label, 1.0)
-            current = weight * 0.9 * (1 - math.exp(-elapsed / (2 * weight)))
-        fraction = min((self.done_weight + current) / self.total, 1.0)
-        label = self.label or ""
-        tail = f" {label}  {elapsed:.1f}s" if self.label else ""
+        tail = f"  {self.label}  {elapsed:.1f}s" if self.label else ""
+        row = f"  {stones}{tail}".rstrip()
         cols = shutil.get_terminal_size((80, 24)).columns
-        width = min(BAR_WIDTH, cols - 4 - len(tail))
-        if width < MIN_BAR_WIDTH:
-            return f"  {tail.strip()}"[: max(cols - 1, 1)]
-        filled = round(fraction * width)
-        if self.color:
-            bar = f"\x1b[38;5;43m{'━' * filled}\x1b[38;5;240m{'━' * (width - filled)}\x1b[0m"
-        else:
-            bar = "━" * filled + "─" * (width - filled)
-        return f"  {bar}{tail}"
+        return row[: max(cols - 1, 1)]
