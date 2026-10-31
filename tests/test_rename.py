@@ -121,17 +121,11 @@ def test_refresh_rewrites_old_agent_hooks_and_old_git_hooks(repo):
             {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": OLD_COMMAND}]}]}}
         )
     )
-    shared = repo / ".githooks" / "commit-msg"
-    shared.parent.mkdir()
-    shared.write_text(f"#!/bin/sh\n{OLD_HOOK_START}\nold guard\n{OLD_HOOK_END}\n")
     assert refresh.repo_line(find_project(), None)
     assert main(["init", "--refresh"]) == 0
     data = json.loads(settings.read_text())
     commands = [h["command"] for g in data["hooks"]["SessionStart"] for h in g["hooks"]]
     assert commands == [adapters.hook_command("session-start", "claude")]
-    text = shared.read_text()
-    assert OLD_HOOK_START not in text and text.count(githook.START) == 1
-    assert githook.GUARD_MARK in text
 
 
 def test_hooks_uninstall_removes_old_agent_hooks(repo):

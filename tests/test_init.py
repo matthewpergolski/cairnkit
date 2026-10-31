@@ -34,21 +34,6 @@ def test_init_uses_info_exclude_by_default(repo):
     assert git(repo, "status", "--porcelain") == ""
 
 
-def test_init_adds_gitignore_lines_once(repo):
-    assert main(["init", "--gitignore"]) == 0
-    assert main(["init", "--gitignore"]) == 0
-    lines = (repo / ".gitignore").read_text().splitlines()
-    assert lines.count("memory-bank") == 1
-    assert lines.count(".memory-path") == 1
-    assert ".worktrees/" in lines
-
-
-def test_trailing_slash_entry_is_not_enough(repo):
-    (repo / ".gitignore").write_text("memory-bank/\n")
-    assert main(["init", "--gitignore"]) == 0
-    assert "memory-bank" in (repo / ".gitignore").read_text().splitlines()
-
-
 def test_git_never_stages_the_link(repo):
     assert main(["init"]) == 0
     git(repo, "add", "-A")

@@ -19,15 +19,6 @@ def hook(repo, name):
     return repo / ".git" / "hooks" / name
 
 
-def test_init_does_not_write_the_tidy_hooks_and_hints_to_install(repo, capsys):
-    capsys.readouterr()
-    assert main(["init", "--no-default-rules"]) == 0
-    out = capsys.readouterr().out
-    assert "memory hooks install" in out
-    assert not hook(repo, "pre-push").exists()
-    assert not hook(repo, "post-merge").exists()
-
-
 def test_install_writes_both_hooks_and_a_second_run_keeps_one_block(repo, mem, capsys):
     code, _ = install(capsys, "--agent", "generic")
     assert code == 0
@@ -92,18 +83,9 @@ def test_hooks_path_inside_the_repo_prints_the_block_and_writes_nothing(repo, me
     code, out = install(capsys, "--agent", "generic")
     assert code == 0
     for name in ("pre-push", "post-merge"):
-        assert f"skip {name}" in out and "by hand" in out
+        assert f"skip {name}" in out and "does not run here" in out
         assert not (repo / ".githooks" / name).exists()
         assert not hook(repo, name).exists()
-
-
-def test_shared_mode_does_not_add_the_tidy_hooks_to_the_tracked_dir(repo, mem, capsys):
-    code, _ = install(capsys, "--agent", "generic", "--commit-msg-guard=shared")
-    assert code == 0
-    assert (repo / ".githooks" / "pre-commit").is_file()
-    assert not (repo / ".githooks" / "pre-push").exists()
-    assert not (repo / ".githooks" / "post-merge").exists()
-    assert hook(repo, "pre-push").is_file() and hook(repo, "post-merge").is_file()
 
 
 def test_a_tracked_agent_hook_file_is_left_alone_and_not_excluded(repo, mem, capsys):

@@ -251,22 +251,6 @@ def test_untrack_does_nothing_for_an_ignored_folder(repo):
     assert git(repo, "diff", "--cached", "--name-status") == staged_before
 
 
-def test_rules_files_and_tracked_files_stay_without_the_fix_flag(repo, capsys):
-    old_repo(repo)
-    (repo / "CLAUDE.md").write_text("Notes: `memory-bank/status.md`. Run tools/check_memory.py.\n")
-    (repo / "AGENTS.md").write_text("agents\n")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "rules")
-    assert run_migrate() == 0
-    out = capsys.readouterr().out
-    assert (repo / "CLAUDE.md").read_text().startswith("Notes: `memory-bank/status.md`")
-    assert (repo / "AGENTS.md").read_text() == "agents\n"
-    assert git(repo, "status", "--porcelain") == ""
-    assert "1 path(s) in 1 file(s) name the old layout" in out
-    followups = sibling(repo, ".memory") / "proposals" / "migrate-followups.md"
-    assert "CLAUDE.md:1" in followups.read_text()
-
-
 def test_other_checkout_with_its_own_old_folder_is_moved_aside(repo, capsys):
     old_repo(repo)
     wt = add_worktree(repo, "feature-x")
@@ -461,3 +445,19 @@ def test_a_line_inside_a_multi_line_comment_is_not_a_home(repo, capsys):
     rows = read_worklist(repo)
     assert rows[0]["in_instruction_files"] == 0
     assert "Never deploy on Friday." in [c["text"] for c in rows[1:]]
+
+
+def _old_notes(repo):
+    old = repo / "memory-bank"
+    old.mkdir()
+    (old / "status.md").write_text("Status.\n")
+    (repo / "CONTRIBUTING.md").write_text("Read memory-bank/status.md first.\n")
+
+
+def test_migrate_edits_no_project_doc_and_gives_the_agent_a_task(repo, capsys):
+    _old_notes(repo)
+    assert main(["migrate", "--yes"]) == 0
+    assert (repo / "CONTRIBUTING.md").read_text() == "Read memory-bank/status.md first.\n"
+    task = (repo.parent / "proj.memory" / "proposals" / "migrate-followups.md").read_text()
+    assert "CONTRIBUTING.md:1" in task
+    assert "memory-bank/notes/status.md" in task

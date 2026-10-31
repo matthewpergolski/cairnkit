@@ -1,6 +1,6 @@
 """Rule tiers: a rule with `enforced_by` names the check that fails when it is broken."""
 
-from conftest import git, make_fact, read_jsonl, write_facts
+from conftest import make_fact, read_jsonl, write_facts
 
 from cairnkit.cli import main
 from cairnkit.rules import DEFAULT_RULES
@@ -155,15 +155,6 @@ def test_guard_install_and_uninstall_update_the_default_rule(repo, capsys):
     assert main(["check", "--strict"]) == 0
     assert main(["hooks", "uninstall"]) == 0
     assert "## Enforced rules" not in _load(capsys)
-
-
-def test_shared_guard_counts_only_when_hooks_path_is_set(repo, capsys):
-    assert main(["init", "--preset", "commits"]) == 0
-    assert main(["hooks", "install", "--agent", "generic", "--commit-msg-guard=shared"]) == 0
-    assert "## Enforced rules" not in _load(capsys)
-    git(repo, "config", "core.hooksPath", ".githooks")
-    assert main(["hooks", "install", "--agent", "generic", "--commit-msg-guard=shared"]) == 0
-    assert "## Enforced rules" in _load(capsys)
 
 
 def test_show_prints_enforced_by_and_its_history(mem, capsys):

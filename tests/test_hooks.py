@@ -279,7 +279,7 @@ def test_hooks_path_inside_repo_is_left_alone(repo, mem, capsys):
     git(repo, "config", "core.hooksPath", ".githooks")
     code, out = install(capsys, "--agent", "generic")
     assert code == 0
-    assert "by hand" in out
+    assert "does not run here" in out
     assert not (repo / ".githooks" / "pre-commit").exists()
 
 

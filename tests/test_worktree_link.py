@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-import sys
 
 from conftest import git
 
@@ -112,27 +111,6 @@ def test_uninstall_removes_the_post_checkout_hook(repo, mem, capsys):
 def test_no_git_hook_skips_post_checkout(repo, mem, capsys):
     install(capsys, "--no-git-hook")
     assert not (repo / ".git" / "hooks" / "post-checkout").exists()
-
-
-def test_shared_hooks_link_new_worktrees_too(repo, mem, capsys):
-    install(capsys, "--commit-msg-guard=shared")
-    text = (repo / ".githooks" / "post-checkout").read_text()
-    assert "memory hook post-checkout" in text
-    assert "command -v memory" in text
-
-
-def test_shared_hook_links_a_real_new_worktree(repo, mem, capsys, monkeypatch):
-    # The shared hook runs `memory` from PATH: put this checkout's tool there.
-    bin_dir = os.path.dirname(sys.executable)
-    monkeypatch.setenv("PATH", bin_dir + os.pathsep + os.environ["PATH"])
-    install(capsys, "--commit-msg-guard=shared")
-    git(repo, "config", "core.hooksPath", ".githooks")
-    git(repo, "add", ".githooks")
-    git(repo, "commit", "-q", "-m", "shared hooks")
-    wt, result = new_worktree(repo, "feature-shared")
-    assert result.returncode == 0, result.stderr
-    assert (wt / "memory-bank").resolve() == mem.resolve()
-    git(wt, "check-ignore", "-q", "memory-bank")
 
 
 # --- self-heal in load and check ---------------------------------------------

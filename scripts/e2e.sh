@@ -127,7 +127,7 @@ memory preset add --file "$tools" | grep "tools\.ruff: enforced"
 memory load --budget 1 | grep -A1 "## Enforced rules"
 memory check --strict
 
-step "rules block: local goes to CLAUDE.local.md; shared is refused; AGENTS.md gets a pointer"
+step "rules block: local goes to CLAUDE.local.md; shared is refused; no AGENTS.md is written"
 mkdir -p "$tmp/rules" && cd "$tmp/rules"
 git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
 memory init --no-default-rules > /dev/null
@@ -138,21 +138,15 @@ memory init --write-instructions | grep -E "^(found|created)"
 [ ! -e CLAUDE.md ] || fail "local mode wrote CLAUDE.md"
 git check-ignore -q CLAUDE.local.md || fail "CLAUDE.local.md is not ignored"
 grep -q "cairnkit:start" CLAUDE.local.md || fail "CLAUDE.local.md has no block"
-! grep -q "cairnkit:start" AGENTS.md || fail "the pointer AGENTS.md holds a block"
-grep -q 'Also read `CLAUDE.md`, and `CLAUDE.local.md` if it exists.' AGENTS.md \
-  || fail "AGENTS.md does not point to CLAUDE.md / CLAUDE.local.md"
-! grep -qi cairnkit AGENTS.md || fail "AGENTS.md mentions cairnkit"
+[ ! -e AGENTS.md ] || fail "the write created AGENTS.md"
 memory instructions --write-instructions=shared >"$tmp/shared.out" 2>&1 && fail "shared mode exited 0" || true
 grep -qi "error:.*shared" "$tmp/shared.out" || fail "shared mode did not refuse"
 [ ! -e CLAUDE.md ] || fail "refused shared mode wrote CLAUDE.md"
-# Pointer creates AGENTS.md first, so Claude gets @AGENTS.md above the block.
-[ "$(head -n 1 CLAUDE.local.md)" = "@AGENTS.md" ] || fail "CLAUDE.local.md does not import AGENTS.md after the pointer write"
 memory instructions --write-instructions | grep -q "unchanged" || fail "a second local write changed a file"
 [ "$(grep -c 'cairnkit:start' CLAUDE.local.md)" = 1 ] || fail "CLAUDE.local.md holds more than one block"
-[ "$(grep -c '@AGENTS.md' CLAUDE.local.md)" = 1 ] || fail "CLAUDE.local.md import is not idempotent"
-echo "local block + pointer; shared refused"
+echo "local block, no AGENTS.md; shared refused"
 
-step "rules block: only AGENTS.md, so CLAUDE.local.md starts with @AGENTS.md; pointer is appended"
+step "rules block: only AGENTS.md, so CLAUDE.local.md starts with @AGENTS.md; AGENTS.md stays as it was"
 mkdir -p "$tmp/agentsonly" && cd "$tmp/agentsonly"
 git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
 printf '# Team rules\n\nUse uv.\n' > AGENTS.md
@@ -164,11 +158,9 @@ memory instructions --write-instructions > /dev/null
 memory init --refresh > /dev/null
 [ "$(cat CLAUDE.local.md)" = "$first" ] || fail "CLAUDE.local.md changed on a second write or refresh"
 [ "$(grep -c 'cairnkit:start' CLAUDE.local.md)" = 1 ] || fail "CLAUDE.local.md holds more than one block"
-printf '# Team rules\n\nUse uv.\n\nAlso read `CLAUDE.md`, and `CLAUDE.local.md` if it exists.\n' > "$tmp/agents.want"
-[ "$(cat AGENTS.md)" = "$(cat "$tmp/agents.want")" ] \
-  || fail "AGENTS.md lost hand text or is missing the pointer"
-[ "$(grep -c 'Also read `CLAUDE.md`' AGENTS.md)" = 1 ] || fail "AGENTS.md pointer is not idempotent"
-echo "import kept, hand text + pointer"
+printf '# Team rules\n\nUse uv.\n' > "$tmp/agents.want"
+[ "$(cat AGENTS.md)" = "$(cat "$tmp/agents.want")" ] || fail "the write changed AGENTS.md"
+echo "import kept, AGENTS.md unchanged"
 
 step "personal tidy hooks: push exits 0 after the memory folder is removed"
 mkdir -p "$tmp/tidyhook" && cd "$tmp/tidyhook"

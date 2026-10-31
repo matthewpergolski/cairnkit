@@ -81,6 +81,14 @@ def clean_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_hooks_on_init(monkeypatch):
+    """Only a test of setup connects hooks, so tests do not read the machine's agent tools."""
+    from cairnkit import hooks_cmd
+
+    monkeypatch.setattr(hooks_cmd, "INSTALL_ON_INIT", False)
+
+
+@pytest.fixture(autouse=True)
 def no_real_machine(tmp_path_factory, monkeypatch):
     """An empty home, no network and no real install, so the skills check says nothing.
 
