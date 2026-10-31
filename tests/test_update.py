@@ -267,14 +267,10 @@ def test_git_url_does_not_roll_back_to_an_older_release_tag():
     source = install_source.Source("https://github.com/example/cairnkit", "git")
     older = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     newer = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    found = install_source.Latest(
-        older, "0.3.0", install_source.Release("v0.3.0", "0.3.0", older)
-    )
+    found = install_source.Latest(older, "0.3.0", install_source.Release("v0.3.0", "0.3.0", older))
     assert not install_source.is_newer(source, "0.3.1", newer, found)
     assert install_source.is_newer(source, "0.2.0", newer, found)
-    same = install_source.Latest(
-        older, "0.3.1", install_source.Release("v0.3.1", "0.3.1", older)
-    )
+    same = install_source.Latest(older, "0.3.1", install_source.Release("v0.3.1", "0.3.1", older))
     assert install_source.is_newer(source, "0.3.1", newer, same)
 
 
