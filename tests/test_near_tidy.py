@@ -127,6 +127,19 @@ def test_a_large_memory_does_not_compare_each_pair(monkeypatch):
     assert len(calls) < (2000 * 1999 // 2) / 100
 
 
+def test_facts_with_few_distinct_words_stop_at_the_comparison_limit(monkeypatch):
+    calls = []
+    real = similar.similarity
+
+    def counted(a, b):
+        calls.append(1)
+        return real(a, b)
+
+    monkeypatch.setattr(similar, "similarity", counted)
+    _near_duplicates(_facts(2000, 13), set())
+    assert len(calls) <= 2 * similar.MAX_COMPARISONS  # one limit for each kind in the fixture
+
+
 def test_stop_tidies_when_the_tidy_state_is_old(repo, mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     (mem / "config.toml").write_text('auto_tidy = "on"\n')

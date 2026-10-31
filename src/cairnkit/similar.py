@@ -20,6 +20,7 @@ NEAR = 0.8
 # Same area and this much overlap: 11 of 13 stale pairs and 0 false pairs on the fixture.
 # See docs/forgetting-tests.md. The fixture is hand-written, so this only prompts the agent.
 CONFLICT_OVERLAP = 0.25
+MAX_COMPARISONS = 200_000
 
 # Words that can reverse or change a fact. `don` and `t` come from "don't" split at the quote.
 NEGATIONS = {
@@ -83,21 +84,28 @@ class Pair:
 
 
 def similar_pairs(words: dict[str, Words]) -> list[Pair]:
-    """Every similar pair among {id: Words}. A prefix filter keeps it fast for many facts."""
+    """Similar pairs among {id: Words}. A prefix filter keeps it fast for many facts.
+
+    Facts that use few distinct words defeat the filter. This runs at session start and it is only
+    a clean-up, so at MAX_COMPARISONS it stops and returns what it found. It starts from the newest
+    ids, because a new repeat is the one that was not seen in an earlier session.
+    """
     freq = Counter(word for w in words.values() for word in w.tokens)
     index: dict[str, list[str]] = defaultdict(list)
     seen: set[tuple[str, str]] = set()
     found: list[Pair] = []
-    for fid in sorted(words):
+    for fid in sorted(words, reverse=True):
         ws = sorted(words[fid].tokens, key=lambda w: (freq[w], w))
         for word in ws[: len(ws) - math.ceil(NEAR * len(ws)) + 1]:
             for other in index[word]:
-                pair = (other, fid)
+                pair = (fid, other)
                 if pair not in seen:
+                    if len(seen) >= MAX_COMPARISONS:
+                        return found
                     seen.add(pair)
-                    score = similarity(words[other], words[fid])
+                    score = similarity(words[fid], words[other])
                     if score is not None:
-                        found.append(Pair(other, fid, score))
+                        found.append(Pair(fid, other, score))
             index[word].append(fid)
     return found
 
