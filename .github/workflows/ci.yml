@@ -103,4 +103,5 @@ jobs:
       - name: Review section gate
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/check_review_gate.py

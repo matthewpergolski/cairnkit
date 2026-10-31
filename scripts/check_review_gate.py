@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Fail when a pull-request Review section is not merge-ready.
 
-Requires a ``## Review`` section that is not empty or ``Pending``, and that
-lists no Blocker or High finding unless that same finding is marked
-``fixed`` or ``rejected`` (case-insensitive). Medium/Low and dispositions
-like ``accepted`` are ignored by this gate.
+Requires a ``## Review`` section that is not empty or ``Pending``, lists no
+Blocker or High finding unless marked ``fixed`` or ``rejected``, includes at
+least one fixed/accepted/rejected disposition, and names the current head
+sha (short ok). When ``PR_HEAD_SHA`` is set, the Review sha must match.
+
+CURSOR_AGENT marker comments are HTML comments and are stripped. A
+cursor.com footer after the marker block is ignored for Pending detection.
 
 Usage:
   python3 scripts/check_review_gate.py [PATH]
@@ -28,9 +31,6 @@ _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _HTML_TAG = re.compile(r"<[^>]+>", re.S)
 _FOOTER_PHRASE = re.compile(r"(?i)\bopen in (?:cursor|web)\b")
 _BULLET = re.compile(r"^[-*]\s+")
-# House-style Blocker / High labels only (or B1 / H1 ids).
-# Require a colon or bold wrapper so free prose like "High-priority" or
-# "Blocker 0 · High 0" without a Counts: prefix does not trip the gate.
 _FINDING = re.compile(
     r"(?i)^\s*(?:[-*]\s+|#{2,6}\s+)?"
     r"(?:"
@@ -42,11 +42,25 @@ _FINDING = re.compile(
 )
 _COUNTS = re.compile(r"(?i)\bCounts\b")
 _NOT_A_BLOCKER = re.compile(r"(?i)\b(?:not a|no)\s+blocker\b")
-_DISPOSITION = re.compile(r"(?i)\b(?:fixed|rejected)\b")
+_DISPOSITION_CLOSE = re.compile(r"(?i)\b(?:fixed|rejected)\b")
+_DISPOSITION_ANY = re.compile(r"(?i)\b(?:fixed|accepted|rejected)\b")
+_SHA = re.compile(r"\b[0-9a-f]{7,40}\b", re.I)
+_BEGIN = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_BEGIN\s*-->", re.I)
+_END = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_END\s*-->", re.I)
+
+
+def _canonical(text: str) -> str:
+    """Prefer text between a single agent marker pair (Option A)."""
+    begins = list(_BEGIN.finditer(text))
+    ends = list(_END.finditer(text))
+    if len(begins) == 1 and len(ends) == 1 and ends[0].start() >= begins[0].end():
+        return text[begins[0].end() : ends[0].start()]
+    return text
 
 
 def review_section(text: str) -> str | None:
     """Return the body under ``## Review``, or None when the heading is missing."""
+    text = _canonical(text)
     match = _HEADING_REVIEW.search(text)
     if match is None:
         return None
@@ -63,7 +77,6 @@ def _substantive_lines(section: str) -> list[str]:
         line = line.replace("&nbsp;", " ").strip()
         if not line:
             continue
-        # Cursor agent footer residue after tags are stripped (alt text only).
         without_footer = _FOOTER_PHRASE.sub("", line).strip(" \t|-")
         if not without_footer:
             continue
@@ -81,12 +94,42 @@ def _is_pending(lines: list[str]) -> bool:
 
 
 def _open_severity_finding(line: str) -> bool:
-    """True when *line* is a Blocker/High finding without fixed/rejected."""
     if _COUNTS.search(line) or _NOT_A_BLOCKER.search(line):
         return False
     if not _FINDING.search(line):
         return False
-    return _DISPOSITION.search(line) is None
+    return _DISPOSITION_CLOSE.search(line) is None
+
+
+def _check_head_sha(visible: str, errors: list[str]) -> None:
+    shas = _SHA.findall(visible)
+    if not shas:
+        errors.append(
+            "Review does not name the current head sha. "
+            "Fix: name the head sha in Review (short form is ok)."
+        )
+        return
+    expected = os.environ.get("PR_HEAD_SHA") or os.environ.get("HEAD_SHA")
+    if not expected:
+        return
+    expected = expected.strip().lower()
+    if len(expected) < 7:
+        errors.append(
+            "PR_HEAD_SHA env is shorter than 7 characters. "
+            "Fix: pass the full pull request head sha to the check."
+        )
+        return
+    ok = False
+    for found in shas:
+        low = found.lower()
+        if len(low) >= 7 and (expected.startswith(low) or low.startswith(expected)):
+            ok = True
+            break
+    if not ok:
+        errors.append(
+            "Review head sha does not match PR_HEAD_SHA. "
+            f"Fix: name the current head sha ({expected[:7]}…) in Review."
+        )
 
 
 def check_review(text: str) -> list[str]:
@@ -109,6 +152,15 @@ def check_review(text: str) -> list[str]:
             "marked fixed / accepted / rejected."
         )
         return errors
+
+    visible = "\n".join(lines)
+    if not _DISPOSITION_ANY.search(visible):
+        errors.append(
+            "Review has no fixed/accepted/rejected findings. "
+            "Fix: record findings as fixed, accepted, or rejected."
+        )
+
+    _check_head_sha(visible, errors)
 
     for line in lines:
         if _open_severity_finding(line):

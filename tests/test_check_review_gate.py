@@ -120,10 +120,7 @@ def test_review_at_current_head_passes(mod, monkeypatch):
 
 def test_stale_head_sha_fails_review_gate(mod, monkeypatch):
     monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
-    review = (
-        "- accepted: independent review found nothing to change\n"
-        "- Head: 0000000111111\n"
-    )
+    review = "- accepted: independent review found nothing to change\n- Head: 0000000111111\n"
     errors = mod.check_review(body_with_review(review))
     assert errors
     assert any("sha" in e.lower() or "head" in e.lower() for e in errors)

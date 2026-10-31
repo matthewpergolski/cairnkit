@@ -85,7 +85,15 @@ def test_script_exists():
 
 
 def test_strip_removes_cursor_agent_markers_and_cursor_com_footer(mod):
-    dirty = clean_six_section() + "\n" + FOOTER
+    dirty = (
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + clean_six_section()
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + '<div><a href="https://cursor.com/agents/bc-x">'
+        + '<img alt="Open in Web" src="https://cursor.com/assets/images/open-in-web-dark.png"></a>'
+        + '<a href="https://cursor.com/background-agent?bcId=bc-x">'
+        + '<img alt="Open in Cursor" src="https://cursor.com/assets/images/open-in-cursor-dark.png"></a></div>\n'
+    )
     cleaned = mod.strip_agent_footer(dirty)
     assert "CURSOR_AGENT_PR_BODY" not in cleaned
     assert "cursor.com" not in cleaned.casefold()
@@ -96,7 +104,12 @@ def test_strip_removes_cursor_agent_markers_and_cursor_com_footer(mod):
 
 
 def test_strip_is_idempotent(mod):
-    dirty = clean_six_section() + "\n" + FOOTER
+    dirty = (
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + clean_six_section()
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + FOOTER.split("CURSOR_AGENT_PR_BODY_END -->")[-1]
+    )
     once = mod.strip_agent_footer(dirty)
     twice = mod.strip_agent_footer(once)
     assert once == twice
@@ -112,13 +125,25 @@ def test_validate_uses_check_pr_body(mod, monkeypatch):
 
 
 def test_set_writes_stripped_body_via_gh_body_file(mod, tmp_path, monkeypatch):
-    """Root cause: ManagePullRequest duplicates body+footer; set uses gh full replace."""
+    """Root cause: ManagePullRequest wraps body+footer; set uses gh full replace of one copy."""
     path = tmp_path / "body.md"
-    path.write_text(clean_six_section() + "\n" + FOOTER, encoding="utf-8")
+    path.write_text(
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + clean_six_section()
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + '<div><a href="https://cursor.com/agents/bc-x">'
+        + '<img alt="Open in Web" src="https://cursor.com/assets/images/x.png"></a></div>\n',
+        encoding="utf-8",
+    )
     calls: list[list[str]] = []
+
+    bodies: list[str] = []
 
     def fake_run_gh(argv: list[str]) -> int:
         calls.append(list(argv))
+        if "--body-file" in argv:
+            body_file = argv[argv.index("--body-file") + 1]
+            bodies.append(Path(body_file).read_text(encoding="utf-8"))
         return 0
 
     monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
@@ -131,20 +156,22 @@ def test_set_writes_stripped_body_via_gh_body_file(mod, tmp_path, monkeypatch):
     assert "gh" in flat
     assert "pr" in flat and "edit" in flat
     assert "--body-file" in flat
-    body_file = None
-    for c in calls:
-        if "--body-file" in c:
-            body_file = c[c.index("--body-file") + 1]
-            break
-    assert body_file is not None
-    written = Path(body_file).read_text(encoding="utf-8")
+    assert bodies, "expected run_gh to see the temp body file"
+    written = bodies[0]
     assert "CURSOR_AGENT_PR_BODY" not in written
     assert "cursor.com" not in written.casefold()
 
 
 def test_cli_render_prints_stripped_body(tmp_path):
     path = tmp_path / "body.md"
-    path.write_text(clean_six_section() + "\n" + FOOTER, encoding="utf-8")
+    path.write_text(
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + clean_six_section()
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + '<div><a href="https://cursor.com/agents/bc-x">'
+        + '<img alt="Open in Web" src="x.png"></a></div>\n',
+        encoding="utf-8",
+    )
     result = subprocess.run(
         ["python3", str(SCRIPT), "render", str(path)],
         cwd=ROOT,

@@ -10,12 +10,18 @@ Required headings, in order, each exactly once:
   ## How to test
   ## Review
 
-Also requires a ```mermaid fence under How it works. Fails when any of
-those six headings appears more than once (a duplicated template paste).
-Fails on Cursor agent footer markers (CURSOR_AGENT_PR_BODY, Open in
-Cursor / Open in Web), "Generated with", model names/ids, and
-Co-authored-by / Signed-off-by trailers in the body. Bare product names
-(Claude, Cursor, Codex) are fine.
+Canonical body (Option A — prevents two visible copies):
+
+  When CURSOR_AGENT_PR_BODY_BEGIN/END markers are present, the body is the
+  text between them. A single cursor.com agent footer after END is ignored.
+  Markers alone do not fail. Two marker pairs, or required headings both
+  inside and outside the marker block, fail as a duplicate body.
+
+Also requires a ```mermaid fence under How it works. Fails on
+"Generated with", model names/ids, and Co-authored-by / Signed-off-by
+trailers in the canonical body. Bare product names (Claude, Cursor,
+Codex) are fine. "Open in Cursor" / "Open in Web" fail only inside the
+canonical body (footer after END is ignored).
 
 Extra shape rules (copyable with .github/workflows/pr-standards.yml):
 
@@ -60,8 +66,9 @@ _MERMAID = re.compile(r"^```mermaid\s*$", re.M | re.I)
 _FENCE = re.compile(r"^```")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
-# Versioned / dotted model ids. Bare Claude / Cursor / Codex are not matched.
-# Trailing file extensions are ignored so asset names are not treated as ids.
+_BEGIN = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_BEGIN\s*-->", re.I)
+_END = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_END\s*-->", re.I)
+
 _MODEL_ID = re.compile(
     r"(?i)\b(?:"
     r"gpt-[\w.\-]+|"
@@ -99,8 +106,56 @@ _DISPOSITION = re.compile(r"(?i)\b(?:fixed|accepted|rejected)\b")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
+def canonical_pr_body(text: str) -> tuple[str, list[str]]:
+    """Return (canonical body, packaging errors).
+
+    Option A: text between a single BEGIN/END pair is the body. A footer
+    after END is ignored. Duplicate marker pairs or required headings
+    outside the pair fail.
+    """
+    errors: list[str] = []
+    begins = list(_BEGIN.finditer(text))
+    ends = list(_END.finditer(text))
+
+    if not begins and not ends:
+        return text, errors
+
+    if len(begins) != 1 or len(ends) != 1:
+        errors.append(
+            "duplicate CURSOR_AGENT_PR_BODY marker wrap found. "
+            "Fix: keep a single BEGIN/END pair around one six-section body."
+        )
+        return text, errors
+
+    begin, end = begins[0], ends[0]
+    if end.start() < begin.end():
+        errors.append(
+            "CURSOR_AGENT_PR_BODY markers are out of order. "
+            "Fix: place BEGIN before END around one six-section body."
+        )
+        return text, errors
+
+    inside = text[begin.end() : end.start()]
+    outside = text[: begin.start()] + text[end.end() :]
+
+    # Required headings outside the marker block mean a second visible copy.
+    outside_titles = []
+    for match in _HEADING.finditer(outside):
+        title = match.group(2).strip()
+        if title in REQUIRED_HEADINGS:
+            outside_titles.append(title)
+    if outside_titles:
+        shown = ", ".join(sorted(set(outside_titles), key=REQUIRED_HEADINGS.index))
+        errors.append(
+            "duplicate PR body: required heading(s) appear outside the "
+            f"CURSOR_AGENT marker block ({shown}). "
+            "Fix: keep one six-section body inside the markers only."
+        )
+
+    return inside, errors
+
+
 def _section(text: str, title: str) -> str | None:
-    """Return the body under ``## title``, or None when missing."""
     pattern = re.compile(rf"^##\s+{re.escape(title)}\s*$", re.M)
     match = pattern.search(text)
     if match is None:
@@ -115,20 +170,13 @@ def _strip_comments(text: str) -> str:
 
 
 def _check_markers(text: str, errors: list[str]) -> None:
-    if "CURSOR_AGENT_PR_BODY" in text:
-        errors.append(
-            "CURSOR_AGENT_PR_BODY marker found. "
-            "Fix: remove CURSOR_AGENT_PR_BODY HTML comment markers and the "
-            "agent footer from the PR body."
-        )
-
     open_hits = [phrase for phrase in _OPEN_PHRASES if phrase in text]
     if open_hits:
         shown = " / ".join(open_hits)
         errors.append(
-            f"{shown} footer found. "
-            "Fix: remove the Open in Cursor / Open in Web agent footer "
-            "from the PR body."
+            f"{shown} found in the canonical PR body. "
+            "Fix: remove Open in Cursor / Open in Web from the six-section body "
+            "(a cursor.com footer after CURSOR_AGENT_PR_BODY_END is ignored)."
         )
 
     if _GENERATED_WITH.search(text):
@@ -209,14 +257,11 @@ def _check_placeholders(visible: str, errors: list[str]) -> None:
 def _test_line_ok(body: str) -> bool:
     if _NOT_NEEDED.search(body):
         return True
-    # Command in backticks plus some result text after the label value.
     if "`" not in body:
         return False
-    # After stripping one fenced command, something result-like should remain.
     without_cmds = re.sub(r"`[^`]*`", " ", body).strip()
     if not without_cmds:
         return False
-    # Allow "— pass", ". Result: ...", or plain trailing result words.
     return bool(re.search(r"[A-Za-z0-9]", without_cmds))
 
 
@@ -226,7 +271,6 @@ def _check_how_to_test(text: str, errors: list[str]) -> None:
         return
     visible = _strip_comments(section)
     lines = [ln.strip() for ln in visible.splitlines() if ln.strip()]
-    # Ignore pure table separator noise; How to test should be bullets only.
     parsed: list[tuple[str, str]] = []
     for line in lines:
         match = _TEST_LINE.match(line)
@@ -238,11 +282,8 @@ def _check_how_to_test(text: str, errors: list[str]) -> None:
             return
         parsed.append((match.group(1), match.group(2)))
 
-    labels = [label for label, _ in parsed]
-    expected = list(_TEST_LABELS)
-    # Normalize End-to-end casing from the regex capture.
     norm = []
-    for label in labels:
+    for label, _ in parsed:
         low = label.casefold()
         if low == "unit":
             norm.append("Unit")
@@ -251,6 +292,7 @@ def _check_how_to_test(text: str, errors: list[str]) -> None:
         else:
             norm.append("End-to-end")
 
+    expected = list(_TEST_LABELS)
     if norm != expected:
         errors.append(
             "How to test must be exactly three lines Unit:/Smoke:/End-to-end: "
@@ -270,7 +312,6 @@ def _check_how_to_test(text: str, errors: list[str]) -> None:
 
 
 def _prose_regions(text: str) -> str:
-    """Drop fenced code and table rows so STE only sees prose."""
     out: list[str] = []
     in_fence = False
     for line in text.splitlines():
@@ -284,7 +325,6 @@ def _prose_regions(text: str) -> str:
             continue
         if stripped.startswith("#"):
             continue
-        # Structured list lines (How to test / Review) are not STE prose.
         if stripped.startswith(("- ", "* ")):
             continue
         out.append(line)
@@ -293,7 +333,6 @@ def _prose_regions(text: str) -> str:
 
 def _check_ste(visible: str, errors: list[str]) -> None:
     prose = _prose_regions(visible)
-    # Collapse wrapping so a wrapped sentence still counts as one.
     blob = re.sub(r"\s+", " ", prose).strip()
     if not blob:
         return
@@ -342,7 +381,6 @@ def _check_review(text: str, errors: list[str]) -> None:
     ok = False
     for found in shas:
         low = found.lower()
-        # Short form ok: Review may name a unique prefix of length >= 7.
         if len(low) >= 7 and (expected.startswith(low) or low.startswith(expected)):
             ok = True
             break
@@ -355,16 +393,17 @@ def _check_review(text: str, errors: list[str]) -> None:
 
 def check_body(text: str) -> list[str]:
     """Return problem lines for one PR body (empty when clean)."""
-    errors: list[str] = []
-    _check_markers(text, errors)
-    _check_headings(text, errors)
-    _check_mermaid(text, errors)
+    canonical, errors = canonical_pr_body(text)
+    # Packaging errors still allow shape checks on the best-effort body.
+    _check_markers(canonical, errors)
+    _check_headings(canonical, errors)
+    _check_mermaid(canonical, errors)
 
-    visible = _strip_comments(text)
+    visible = _strip_comments(canonical)
     _check_placeholders(visible, errors)
-    _check_how_to_test(text, errors)
+    _check_how_to_test(canonical, errors)
     _check_ste(visible, errors)
-    _check_review(text, errors)
+    _check_review(canonical, errors)
     return errors
 
 

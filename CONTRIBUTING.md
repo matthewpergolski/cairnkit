@@ -51,9 +51,11 @@ release lands on `main`.
 9. **Six-section PR body.** Pull request descriptions use the headings in
    `.github/pull_request_template.md` in order (TL;DR, How it works,
    Summary, Files changed, How to test, Review), include a `mermaid` fence
-   under How it works, and must not carry Cursor agent footer markers
-   (`CURSOR_AGENT_PR_BODY`, Open in Cursor / Open in Web), `Generated with`,
-   model names/ids, or Co-authored-by / Signed-off-by trailers. Product
+   under How it works, and must not carry `Generated with`, model names/ids, or Co-authored-by /
+   Signed-off-by trailers inside the six-section body. A single
+   `CURSOR_AGENT_PR_BODY` wrap plus cursor.com footer is packaging
+   (Option A; see `docs/pr-workflow.md`); a second copy outside the
+   markers fails. Product
    names (Claude, Cursor, Codex) are fine. Also fails on placeholder text
    (Pending, TBD, TODO, paste-later notes), How to test lines that are not
    exactly Unit:/Smoke:/End-to-end: with a command+result or

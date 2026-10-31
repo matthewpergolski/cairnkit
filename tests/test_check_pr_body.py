@@ -90,16 +90,54 @@ def test_product_names_claude_cursor_codex_are_allowed(mod):
     assert mod.check_body(good_body(mention_products=True)) == []
 
 
-def test_cursor_agent_pr_body_marker_is_reported(mod):
-    body = good_body() + "\n<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
-    errors = mod.check_body(body)
+def test_single_marker_wrap_with_footer_passes(mod):
+    """Option A: one BEGIN/END wrap + cursor.com footer is a single copy."""
+    inner = good_body()
+    wrapped = (
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + inner
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + '<div><a href="https://cursor.com/agents/bc-x">'
+        + '<img alt="Open in Web" src="https://cursor.com/assets/images/open-in-web-dark.png">'
+        + "</a>&nbsp;"
+        + '<a href="https://cursor.com/background-agent?bcId=bc-x">'
+        + '<img alt="Open in Cursor" src="https://cursor.com/assets/images/open-in-cursor-dark.png">'
+        + "</a></div>\n"
+    )
+    assert mod.check_body(wrapped) == []
+
+
+def test_duplicate_body_outside_markers_fails(mod):
+    """Two visible six-section copies must fail."""
+    inner = good_body()
+    wrapped = (
+        inner
+        + "\n<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + inner
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+    )
+    errors = mod.check_body(wrapped)
     assert errors
-    assert any("CURSOR_AGENT_PR_BODY" in e for e in errors)
-    joined = "\n".join(errors)
-    assert "Fix:" in joined
+    assert any("duplicate" in e.lower() for e in errors)
+    assert "Fix:" in "\n".join(errors)
 
 
-def test_open_in_cursor_or_web_footer_is_reported(mod):
+def test_double_marker_wrap_fails(mod):
+    inner = good_body()
+    double = (
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + inner
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + inner
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+    )
+    errors = mod.check_body(double)
+    assert errors
+    assert any("duplicate" in e.lower() or "marker" in e.lower() for e in errors)
+
+
+def test_open_in_cursor_inside_canonical_body_fails(mod):
     for phrase in ("Open in Cursor", "Open in Web"):
         body = good_body() + f'\n<img alt="{phrase}" src="x.png">\n'
         errors = mod.check_body(body)
@@ -428,18 +466,17 @@ def test_check_pr_body_is_stdlib_only():
             }, stripped
 
 
-def test_cursor_com_footer_link_is_reported_even_without_open_phrase(mod):
-    """Root cause: PR-body tool footer uses cursor.com links/images."""
-    body = good_body() + (
-        "\n"
-        '<div><a href="https://cursor.com/agents/bc-x">'
-        '<img alt="agent" src="https://cursor.com/assets/images/open-in-web-dark.png">'
-        "</a></div>\n"
+def test_cursor_com_footer_after_markers_is_ignored(mod):
+    """Option A: cursor.com footer after END is packaging, not a failure."""
+    body = (
+        "<!-- CURSOR_AGENT_PR_BODY_BEGIN -->\n"
+        + good_body()
+        + "<!-- CURSOR_AGENT_PR_BODY_END -->\n"
+        + '<div><a href="https://cursor.com/agents/bc-x">'
+        + '<img alt="agent" src="https://cursor.com/assets/images/open-in-web-dark.png">'
+        + "</a></div>\n"
     )
-    errors = mod.check_body(body)
-    joined = "\n".join(errors).lower()
-    assert "cursor.com" in joined or "footer" in joined
-    assert "Fix:" in "\n".join(errors)
+    assert mod.check_body(body) == []
 
 
 def test_exactly_six_required_headings_wrong_count_fails(mod):
@@ -458,3 +495,6 @@ def test_pr_workflow_doc_exists_and_orders_review_before_ci_wait():
     assert "ci" in text
     assert "pr_body" in text or "check_pr_body" in text
     assert "before" in text and ("wait" in text or "matrix" in text or "ready" in text)
+    assert "option a" in text
+    assert "duplicate" in text
+    assert "403" in text or "managepullrequest" in text
