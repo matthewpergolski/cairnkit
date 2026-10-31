@@ -930,6 +930,31 @@ def _pin(source):
             "release.git",
         ),
         (
+            "git@github.com:example/cairnkit.git?rev=v0.3.0",
+            "git@github.com:example/cairnkit.git",
+            "v0.3.0",
+        ),
+        (
+            "git@github.com:example/cairnkit.git#abcdef0123456789",
+            "git@github.com:example/cairnkit.git",
+            "abcdef0123456789",
+        ),
+        (
+            "git@github.com:example/cairnkit.git@v0.3.0?rev=other",
+            "git@github.com:example/cairnkit.git",
+            "other",
+        ),
+        (
+            "https://github.com/example/cairnkit@feature/foo",
+            "https://github.com/example/cairnkit",
+            "feature/foo",
+        ),
+        (
+            "git@github.com:example/cairnkit@feature/foo",
+            "git@github.com:example/cairnkit",
+            "feature/foo",
+        ),
+        (
             "https://user:p?ss@github.com/example/cairnkit.git",
             "https://user:p?ss@github.com/example/cairnkit.git",
             None,
