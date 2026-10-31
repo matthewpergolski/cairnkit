@@ -72,11 +72,9 @@ def _tail(text: str, lines: int = 15) -> str:
 def run_update(
     flag: str | None, check: bool = False, dry_run: bool = False, channel: str | None = None
 ) -> int:
-    if channel and channel != src.channel(src.installed(flag)[0]) and not check and not dry_run:
-        src.set_channel(channel)
     bar = Progress()
     try:
-        return _update(bar, flag, check, dry_run)
+        return _update(bar, flag, check, dry_run, channel)
     except SourceError as exc:
         bar.fail()
         bar.close()
@@ -87,13 +85,21 @@ def run_update(
         bar.close()
 
 
-def _update(bar: Progress, flag: str | None, check: bool, dry_run: bool) -> int:
+def _update(
+    bar: Progress, flag: str | None, check: bool, dry_run: bool, channel: str | None = None
+) -> int:
     source, _ = src.installed(flag)
     if source is None:
         raise SourceError(
             "memory does not know where it was installed from.",
             "Run `memory update --source PATH` once. PATH is the folder or git URL "
             "you installed memory from.",
+        )
+    if channel and source.kind != "git":
+        raise SourceError(
+            f"--channel picks a tag or a branch of a git source. {source.spec} is a folder, "
+            "which always builds its own commit. Nothing was saved.",
+            "Run `memory update` with no --channel, or add `--source URL` with a git URL.",
         )
     if source.editable:
         bar.say(f"memory runs in editable mode from {source.spec}. It runs that code already.")
@@ -104,28 +110,35 @@ def _update(bar: Progress, flag: str | None, check: bool, dry_run: bool) -> int:
     # commit while this one waits, so this one must check after it gets the lock.
     # A check or a dry run changes nothing and never waits.
     with contextlib.nullcontext() if check or dry_run else _locked(bar):
-        return _checked_update(bar, flag, check, dry_run)
+        return _checked_update(bar, flag, check, dry_run, channel)
 
 
-def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool) -> int:
+def _checked_update(
+    bar: Progress, flag: str | None, check: bool, dry_run: bool, channel: str | None = None
+) -> int:
     source, commit = src.installed(flag)  # read again: an update may have just run
     old = src.current_version()
+    want = channel or src.channel(source)
+    switching = want != src.channel(source)
     bar.start("Check")
-    found = src.latest(source)
+    found = src.latest(source, on=want) if switching else src.latest(source)
     if source.kind == "folder" and src.dirty(Path(source.spec)):
         raise SourceError(
             f"{source.spec} has uncommitted changes.",
             "Commit or stash them in that folder. Then run `memory update` again.",
         )
-    newer = src.is_newer(source, old, commit, found)
+    # A switch of channel installs the other channel's commit, even at a lower version.
+    newer = found.commit != commit if switching else src.is_newer(source, old, commit, found)
     bar.done()
-    if not dry_run:  # a dry run changes no state, not even the cache
+    # A dry run changes no state. A look at another channel must not fill the saved one's cache.
+    if not dry_run and not switching:
         src.save_check(source, old, commit, found, newer)
     before, after = src.describe(old, commit), src.describe(found.version, found.commit)
+    command = f"memory update --channel {want}" if switching else "memory update"
 
     if check:
         if newer:
-            bar.say(f"Update available: {before} -> {after}. Run `memory update`.")
+            bar.say(f"Update available: {before} -> {after}. Run `{command}`.")
             _say_changes(bar, source, commit, found.commit)
         elif commit:
             bar.say(f"Up to date ({old}).")
@@ -135,6 +148,8 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
             )
         return 0
     if not newer and commit:
+        if not dry_run:
+            _keep_channel(want)
         bar.say(f"Already up to date ({old}).")
         return 0
 
@@ -171,6 +186,7 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
         wheel = _build(bar, uv, folder, Path(tmp))
         _install(bar, uv, source, wheel, found.release)
         new = _verify(bar, source, found)
+        _keep_channel(want)
         src.write_record(source, found.commit, new, found.release)
         src.save_check(source, new, found.commit, found, False)
     arrow = "→" if bar.live else "->"
@@ -188,6 +204,12 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
             f"`uv tool install --force --reinstall {src.install_spec(source, found.release)}`."
         )
     return 0
+
+
+def _keep_channel(want: str) -> None:
+    """Save the channel when the next read would not find it. An install drops a pin of dev."""
+    if src.channel() != want:
+        src.set_channel(want)
 
 
 def refuses_commit_id(output: str) -> bool:

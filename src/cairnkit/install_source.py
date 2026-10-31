@@ -521,20 +521,19 @@ def channel(source: Source | None = None) -> str:
 
 
 def set_channel(name: str) -> None:
-    """Save the channel. The next update installs from it, even when that is a lower version."""
+    """Save the channel. A cached check read the old channel, so it goes."""
     path = _channel_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(name + "\n", encoding="utf-8")
     with contextlib.suppress(OSError):
         _cache_path().unlink()
-    with contextlib.suppress(OSError):
-        record = read_record()
-        record.pop("commit", None)
-        (target_env() / RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
-def latest(source: Source, timeout: float = 3.0) -> Latest:
-    """The newest commit and version at the source. Raise SourceError."""
+def latest(source: Source, timeout: float = 3.0, on: str | None = None) -> Latest:
+    """The newest commit and version at the source. Raise SourceError.
+
+    `on` reads that channel instead of the saved one, and saves nothing.
+    """
     if source.kind == "folder":
         folder = Path(source.spec)
         if not (folder / "pyproject.toml").is_file():
@@ -548,7 +547,7 @@ def latest(source: Source, timeout: float = 3.0) -> Latest:
             commit = content_id(folder)
         return Latest(commit, folder_version(folder))
     remote = source.spec
-    if channel(source) == "dev":
+    if (on or channel(source)) == "dev":
         out = git(["ls-remote", remote, f"refs/heads/{DEV_BRANCH}"], timeout)
         if not out:
             raise SourceError(
