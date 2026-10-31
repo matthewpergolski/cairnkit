@@ -1107,6 +1107,26 @@ def test_compare_link_uses_the_clean_repo(machine, monkeypatch, capsys):
     assert "?" not in compare and "rev=" not in compare
 
 
+def test_dot_git_spelling_keeps_the_recorded_commit(machine, monkeypatch):
+    """Receipt without .git and record with .git are the same remote."""
+    commit = "a" * 40
+    write_git_receipt(machine, f"{CLEAN}?rev=v0.3.0")
+    record = {
+        "source": f"git+{CLEAN}.git@v0.3.0",
+        "commit": commit,
+        "version": "0.3.0",
+    }
+    (machine.env / install_source.RECORD).write_text(json.dumps(record))
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.3.0")
+    source, found = install_source.installed(None)
+    assert source is not None
+    assert source.spec == CLEAN
+    assert found == commit
+    with_dot = install_source.parse(f"git+{CLEAN}.git")
+    without = install_source.parse(f"git+{CLEAN}")
+    assert with_dot == without
+
+
 def test_cache_source_is_the_clean_url(machine, monkeypatch):
     (machine.env / "uv-receipt.toml").write_text(
         "[tool]\n"
