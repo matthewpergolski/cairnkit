@@ -302,14 +302,10 @@ def pre_commit(project: Project, flag: str | None) -> int:
             file=sys.stderr,
         )
         return 1
-    if not has_memory(project, flag):
-        return 0
-    ensure_all_linked(project, flag)
-    errors = check_links(project, memdir) + check_records(Memory.open(project, flag))[0]
-    if errors:
-        shown = "\n".join(f"  {e}" for e in errors[:10])
-        print(f"memory: commit refused. `memory check` found problems:\n{shown}", file=sys.stderr)
-        return 1
+    # A problem in the memory goes to the agent at stop. It never stops unrelated work.
+    with contextlib.suppress(Exception):
+        if has_memory(project, flag):
+            ensure_all_linked(project, flag)
     return 0
 
 

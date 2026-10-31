@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A problem in the memory no longer stops a commit. The pre-commit hook refuses only
+  private memory paths.
+- `--until-merged` keeps a note open while a remote copy of its branch exists, and it
+  ends a note when its branch was squash-merged.
+- The secret scan finds named secrets such as `CRON_SECRET=`, payment keys, bearer tokens
+  and secrets in URLs. `memory check` also scans `notes/` and `branches/`.
+- `memory search` takes several words with no quotes. `memory add --kind rule --summary`
+  writes the rule and says that it does not store the summary. `--area` is optional.
+- `post-merge` allows 3 seconds for the docs check, so a slow start does not lose its line.
+
 ## [0.3.1] - 2026-10-30
 
 ### Added

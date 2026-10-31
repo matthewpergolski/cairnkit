@@ -202,7 +202,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional load line, up to 200 characters. A longer fact without it is clipped",
     )
     p.add_argument("--kind", choices=KINDS, default="fact")
-    p.add_argument("--area", required=True, help="one area of the work, for example deploy")
+    p.add_argument(
+        "--area", default="general", help="one area of the work, for example deploy or a module"
+    )
     p.add_argument("--basis", choices=BASES, required=True, help="seen, told or guess")
     p.add_argument("--source", required=True, help="commit:<hash>, file:<path>, session:<date>")
     p.add_argument("--tag", action="append", help="a search word (repeat for more)")
@@ -345,6 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("search", parents=[common], help="find facts, then note lines, by words")
     p.add_argument(
         "query",
+        nargs="+",
         help="words or a question; a fact with any of the words is found (--strict: all). "
         "With no whole-word match, a word of 4+ letters may start a longer one "
         "(deploy finds deployment)",
@@ -524,7 +527,7 @@ def run(args) -> int:
                 return run_auto(memory, args.dry_run)
             return run_tidy(memory, args.days, args.apply)
         elif args.command == "search":
-            return run_search(memory, args.query, args.all, args.limit, args.strict)
+            return run_search(memory, " ".join(args.query), args.all, args.limit, args.strict)
     except (MemoryMissing, Refused) as exc:
         return fail(str(exc))
     return 0

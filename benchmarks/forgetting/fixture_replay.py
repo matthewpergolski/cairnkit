@@ -120,7 +120,6 @@ def main():
     print(
         "reconcile with benchmarks/retrieval_eval.py: clock 2026-10-20, all probes, rules count, ended excluded"
     )
-    ids = {i for i, f in FACTS.items() if i not in ENDED and f["kind"] != "rule"}
     rules = {i for i, f in FACTS.items() if f["kind"] == "rule"}
     text, anyid, _ = run(600, False, True, 0, moment="2026-10-20T12:00:00+00:00")
     shown_any = anyid | rules

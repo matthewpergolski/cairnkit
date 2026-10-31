@@ -11,7 +11,7 @@ from cairnkit import followups
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
-from cairnkit.paths import current_branch, merged_checker, writer_name
+from cairnkit.paths import current_branch, merged_checker, run_git, writer_name
 from cairnkit.pending import mark_matching
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_secrets
@@ -150,7 +150,8 @@ def add_fact(memory: Memory, args) -> str | None:
     if isinstance(summary, str):
         summary = summary.strip() or None
     if summary and args.kind == "rule":
-        raise Refused("a rule has no summary")
+        print("note: a rule always loads in full, so its --summary is not stored")
+        summary = None
     _check_secrets(args.text, summary, args.source, args.reason, *(args.tag or []))
     fact = {
         "type": "fact",
@@ -197,6 +198,8 @@ def add_fact(memory: Memory, args) -> str | None:
         if not branch:
             raise Refused("--until-merged needs a branch name (HEAD is detached)")
         fact["until_branch_merged"] = branch
+        if run_git(memory.project.root, "rev-parse", "--verify", "--quiet", branch) is None:
+            print(f"note: no branch {branch} exists, so this note reads as ended until it does")
     records = [_validated(fact)]
     if supersedes:
         change = {

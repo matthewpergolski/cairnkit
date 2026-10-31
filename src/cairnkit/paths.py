@@ -138,26 +138,38 @@ def default_branch(root: Path) -> str | None:
 
 
 def merged_checker(root: Path):
-    """Return a cached function: is this branch merged into the default branch?
+    """Return a cached function: is the work of this branch done?
 
-    A branch that no longer exists counts as merged (its work is done).
+    The work is done when the branch is in no ref, or when its tip is in the
+    default branch, by a merge or by a squash. A remote copy with no local branch
+    still counts as open work.
     """
     base = default_branch(root)
     cache: dict[str, bool] = {}
 
     def is_merged(branch: str) -> bool:
-        if branch in cache:
-            return cache[branch]
-        result = False
-        if base and branch != base:
-            tip = run_git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
-            if tip is None:
-                result = True
-            else:
-                base_tip = run_git(root, "rev-parse", f"refs/heads/{base}")
-                ancestor = run_git(root, "merge-base", "--is-ancestor", tip, base) is not None
-                result = ancestor and tip != base_tip
-        cache[branch] = result
-        return result
+        if branch not in cache:
+            cache[branch] = bool(base) and branch != base and _branch_done(root, branch, base)
+        return cache[branch]
 
     return is_merged
+
+
+def _branch_done(root: Path, branch: str, base: str) -> bool:
+    tip = run_git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
+    if tip is None:
+        refs = run_git(root, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/remotes") or ""
+        return branch not in refs.splitlines()
+    base_tip = run_git(root, "rev-parse", f"refs/heads/{base}")
+    if tip == base_tip:
+        return False
+    if run_git(root, "merge-base", "--is-ancestor", tip, base) is not None:
+        return True
+    return _squashed(root, tip, base)
+
+
+def _squashed(root: Path, tip: str, base: str) -> bool:
+    """True when a merge of the tip into the base changes nothing. Needs git 2.38."""
+    merged = run_git(root, "merge-tree", "--write-tree", base, tip)
+    tree = run_git(root, "rev-parse", f"{base}^{{tree}}")
+    return bool(merged) and merged.splitlines()[0] == tree

@@ -9,7 +9,7 @@ from cairnkit import instruction_files, presets, skills
 from cairnkit.clock import now
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
-from cairnkit.paths import LINK_NAME, Project, merged_checker, resolve_memory_dir
+from cairnkit.paths import LINK_NAME, Project, merged_checker, resolve_memory_dir, run_git
 from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_secrets
 from cairnkit.state import effective_status
@@ -78,13 +78,34 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
         if kind == "change" and rec.get("enforced_by") and kinds.get(rec.get("id")) != "rule":
             problems.append("enforced_by is only for kind 'rule'")
         held = rec.get("held_by")
-        if held and not (memory.project.root / held).exists():
+        if held and not _path_known(memory.project.root, held):
             problems.append(f"held_by {held} does not exist")
         writer = rec.get("writer")
         if writer and writer != item.path.stem and kind != "tombstone":
             warnings.append(f"{where}: writer {writer!r} differs from the file name")
         errors += [f"{where}: {problem}" for problem in problems]
     return errors, warnings
+
+
+def _path_known(root, path: str) -> bool:
+    """True when the path exists here, or in the history of any branch."""
+    if (root / path).exists():
+        return True
+    return bool(run_git(root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0))
+
+
+def secrets_in_notes(memdir) -> list[str]:
+    """Warnings for prose notes that hold a secret shape. Notes are not checked at write time."""
+    found = []
+    for folder in ("notes", "branches"):
+        for path in sorted((memdir / folder).rglob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for name in find_secrets(text):
+                found.append(f"{folder}/{path.name}: looks like a secret ({name})")
+    return found
 
 
 DUPLICATES_DOC = (
@@ -185,6 +206,7 @@ def run_check(
         record_errors, warnings = check_records(memory)
         errors += record_errors
         warnings += duplicate_rules(memory)
+        warnings += secrets_in_notes(memdir)
         count, words = rule_words(memory)
         if words > RULE_WORD_CAP:
             print(

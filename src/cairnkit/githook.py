@@ -112,7 +112,7 @@ def pre_push_body() -> str:
 # refresh.repo_line nudges when a post-merge block lacks this line.
 DOCS_CHECK_MARK = "# cairnkit:docs-check"
 DOCS_CHECK_WARN = "cairnkit: docs/state looks out of date; run memory docs --force"
-_DOCS_CHECK_BUDGET = 1
+_DOCS_CHECK_BUDGET = 3
 
 
 def _docs_check_python() -> str:

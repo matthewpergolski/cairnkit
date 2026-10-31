@@ -26,8 +26,9 @@ A hook runs `memory load` at session start. Read its output before you work.
   Kinds: {kinds}. Basis: {bases}.
   Source: commit:HASH, file:PATH, pr:N, session:DATE, person:ROLE.
 - **Look before you add.** Run `memory search WORDS` first. If a fact already says
-  it, use `--supersedes ID`. `memory add` never refuses a fact. It supersedes an exact
-  repeat by itself. It writes a near repeat and flags the pair; an agent task
+  it, use `--supersedes ID`. `memory add` refuses text that looks like a secret. It
+  does not refuse a repeat: it supersedes an exact repeat by itself. It writes a near
+  repeat and flags the pair; an agent task
   (`proposals/tidy-followups.md`) lists each flagged pair.
 - **Long or short.** Decisions, traps and lessons are long-term (the default).
   Working notes for this branch or task are short-term: add `--short`, or

@@ -11,6 +11,23 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
     ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     ("API secret key", re.compile(r"\b(sk|rk)-[A-Za-z0-9_-]{20,}")),
+    ("payment key", re.compile(r"\b(sk|rk)_(live|test)_[A-Za-z0-9]{16,}")),
+    ("bearer token", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{16,}")),
+    (
+        "secret in URL",
+        re.compile(
+            r"(?i)[?&](k|key|token|secret|code|sig|signature|api[_-]?key|access[_-]?token|auth)"
+            r"=[^\s&#]{6,}"
+        ),
+    ),
+    (
+        "assigned secret name",
+        re.compile(
+            r"\b(?!(?:EXIT|STATUS|ERROR|RETURN|REASON|RESPONSE|HTTP|ZIP|POSTAL|COUNTRY|LANG|"
+            r"LANGUAGE|PUBLIC)_)[A-Z][A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|_KEY|_CODE)"
+            r"\s*[:=]\s*['\"]?[^\s'\"$<{]{6,}"
+        ),
+    ),
     (
         "JSON web token",
         re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
@@ -20,7 +37,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "assigned secret",
         re.compile(
             r"(?i)\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)"
-            r"\s*[:=]\s*['\"]?[^\s'\"]{6,}"
+            r"\s*[:=]\s*['\"]?[^\s'\"$<{][^\s'\"]{5,}"
         ),
     ),
 ]

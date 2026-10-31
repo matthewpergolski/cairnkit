@@ -124,7 +124,7 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
 
 - A second run of the harness gave the same result in all 660 rows, in 46 seconds.
 - `fixture_replay.py` and `clockcheck.py` were run again and gave the numbers on this page.
-- These numbers come from commit `HARNESS_COMMIT`. Later commits remove folding, so the folding
+- These numbers come from commit `2326ea0`. Later commits remove folding, so the folding
   rows run only at that commit.
 
 ## Limits
