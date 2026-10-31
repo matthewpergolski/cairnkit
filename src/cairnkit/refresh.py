@@ -118,18 +118,11 @@ def _local_hooks(project: Project) -> list[str]:
     return [h for h in names if _has_block(folder / h)]
 
 
-def _shared_hooks(project: Project) -> list[str]:
-    """The shared hooks that hold either marker, so a lost marker is found too."""
-    folder = project.root / githook.SHARED_DIR
-    return [h for h in ("commit-msg", "pre-commit", "post-checkout") if _has_block(folder / h)]
-
-
 def wrote_files(project: Project, memdir: Path) -> bool:
     return bool(
         any(_holds(p, *(s for s, _ in instructions.PAIRS)) for p in _block_paths(project, memdir))
         or _agents(project)
         or _local_hooks(project)
-        or _shared_hooks(project)
     )
 
 
@@ -185,8 +178,8 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         print(f"error: {exc}")
         return 1
     bodies = {
-        "pre-commit": githook.pre_commit_body(shared=False),
-        "post-checkout": githook.post_checkout_body(shared=False),
+        "pre-commit": githook.pre_commit_body(),
+        "post-checkout": githook.post_checkout_body(),
         "pre-push": githook.pre_push_body(),
         "post-merge": githook.post_merge_body(),
     }
@@ -200,18 +193,6 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
             continue
         body = bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
         steps += githook.install(project, hook, body, dry_run)
-    # Each shared hook on its own: only a file that holds a block is rewritten.
-    shared_bodies = {
-        "pre-commit": githook.pre_commit_body(shared=True),
-        "post-checkout": githook.post_checkout_body(shared=True),
-    }
-    for hook in _shared_hooks(project):
-        path = project.root / githook.SHARED_DIR / hook
-        if githook.is_broken(path):
-            broken.append(path)
-            continue
-        body = shared_bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
-        steps += githook.write_block(path, body, dry_run)
     if dry_run:
         print("Dry run: nothing will change.")
     for step in steps:

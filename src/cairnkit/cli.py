@@ -44,10 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dry-run", action="store_true", help="show the steps; change nothing")
     p.add_argument(
-        "--gitignore",
-        action="store_true",
-        help="also add the ignore lines to .gitignore (default: only .git/info/exclude)",
+        "--no-hooks", action="store_true", help="do not connect the agent tools and git hooks"
     )
+    p.add_argument("--verbose", action="store_true", help="print each step")
     p.add_argument(
         "--refresh",
         action="store_true",
@@ -86,9 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
         "never deleted), run `memory init`, copy the old files into notes/, and write a "
         "worklist of candidate facts (proposals/migrate-candidates.jsonl). It writes no "
         "fact and calls no model. Without --yes it shows the plan and changes nothing: run "
-        "`memory migrate`, read the plan, then run `memory migrate --yes`. Add "
-        "--fix-references to also rewrite old paths in docs and add hooks. What needs "
-        "judgment goes to proposals/migrate-followups.md, a task for an agent. A rerun "
+        "`memory migrate`, read the plan, then run `memory migrate --yes`. "
+        "It edits no project doc. Lines that name the old layout, and what needs "
+        "judgment, go to proposals/migrate-followups.md, a task for an agent. A rerun "
         "finishes a run that stopped.",
     )
     p.add_argument(
@@ -119,13 +118,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--untrack",
         action="store_true",
         help="when git tracks the old folder, remove it from the index (never commits)",
-    )
-    p.add_argument(
-        "--fix-references",
-        action="store_true",
-        help="also rewrite old paths (memory-bank/X to memory-bank/notes/X) in top-level and "
-        "docs *.md files, and add the memory hooks where a hook runs the old checker. Working "
-        "tree only; never commits. Needs --yes to act",
     )
 
     p = sub.add_parser("preset", help="list, show or add rule presets")
@@ -270,9 +262,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--commit-msg-guard",
         nargs="?",
         const="local",
-        choices=("local", "shared"),
-        help="also install a commit-msg hook that rejects AI attribution lines: local "
-        "(.git/hooks) or shared (tracked .githooks/, for clones)",
+        choices=("local",),
+        help="install a commit-msg hook that rejects AI attribution lines (.git/hooks). "
+        "It installs by itself when the memory holds a rule against them",
     )
     h = hooks_sub.add_parser("uninstall", parents=[common], help="remove the hooks")
     h.add_argument("--dry-run", action="store_true")
@@ -366,7 +358,7 @@ def _open(project, args):
 
 def run(args) -> int:
     # Imported here, not at the top: building the parser (--help, --version) needs none of this.
-    from cairnkit import autotidy, followups
+    from cairnkit import autotidy, followups, hooks_cmd
     from cairnkit import presets as presets_module
     from cairnkit import skills as skills_module
     from cairnkit.autotidy import run_auto
@@ -439,9 +431,18 @@ def run(args) -> int:
                 not args.yes,
                 chosen,
                 args.untrack,
-                args.fix_references,
             )
-        code = run_init(project, args.path, args.dry_run, args.gitignore, chosen)
+        code = run_init(project, args.path, args.dry_run, chosen, verbose=args.verbose)
+        if code == 0 and hooks_cmd.INSTALL_ON_INIT and not args.no_hooks:
+            code = run_install(
+                project,
+                "auto",
+                args.dry_run,
+                True,
+                None,
+                args.path,
+                quiet=not args.verbose and not args.dry_run,
+            )
         if code == 0 and args.write_instructions:
             code = write_instructions(
                 project, args.write_instructions, args.instructions_file, args.dry_run

@@ -204,14 +204,13 @@ def render_followups(
     items: list[Item],
     scripts: list[str],
     refs: list[str],
-    pending_paths: tuple[int, int],
     pattern: str,
     root: Path,
     hook_files: list[str],
     skills_line: str | None = None,
 ) -> str:
-    """The task for an agent. `pending_paths` is (paths, files) still to rewrite by `migrate`."""
-    if not items and not pending_paths[0] and not skills_line:
+    """The task for an agent."""
+    if not items and not skills_line:
         return f"{DONE}\n\nNothing is left. You can delete this file.\n"
     lines = [
         PENDING,
@@ -222,13 +221,6 @@ def render_followups(
         "Change only the lines named here. Do not write facts for this task.",
         "",
     ]
-    if pending_paths[0]:
-        paths, files = pending_paths
-        lines += [
-            f"First run `memory migrate --fix-references --yes`. It rewrites {paths} old path(s)",
-            f"in {files} file(s) by itself, and it commits nothing.",
-            "",
-        ]
     lines += [f"## Items ({len(items)})", ""]
     for number, item in enumerate(items, start=1):
         lines += [

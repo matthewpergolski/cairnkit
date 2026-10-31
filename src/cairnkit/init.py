@@ -82,10 +82,8 @@ def plan_link(
     return "create", None
 
 
-def _ignore_targets(project: Project, write_gitignore: bool) -> list[Path]:
+def _ignore_targets(project: Project) -> list[Path]:
     targets = []
-    if write_gitignore:
-        targets.append(project.root / ".gitignore")
     if project.common_dir is not None:
         targets.append(project.common_dir / "info" / "exclude")
     return targets
@@ -177,9 +175,9 @@ def run_init(
     project: Project,
     path_flag: str | None,
     dry_run: bool = False,
-    write_gitignore: bool = False,
     presets: list[str] | None = None,
     moved: frozenset[Path] = frozenset(),
+    verbose: bool = True,
 ) -> int:
     """Add the rules of the presets. With presets None, add no rule facts.
 
@@ -248,19 +246,19 @@ def run_init(
             link.rmdir()
         link.symlink_to(target, target_is_directory=True)
 
-    for ignore_file in _ignore_targets(project, write_gitignore):
+    for ignore_file in _ignore_targets(project):
         missing = _missing_ignore_lines(ignore_file)
         if missing:
             steps.append(f"add {', '.join(missing)} to {ignore_file}")
             if not dry_run:
                 _append_ignore(ignore_file, missing)
 
-    for step in steps:
-        say(("would " if dry_run else "") + step)
+    if verbose or dry_run:
+        for step in steps:
+            say(("would " if dry_run else "") + step)
     for line in rule_lines:
         say(line)
-    if not steps:
-        say("Already set up. Nothing to do.")
     if not dry_run:
-        say("Run `memory hooks install` to connect your agent and git.")
+        state = "ready" if steps else "already set up"
+        say(f"Memory {state}: {memdir} (linked as {LINK_NAME}; nothing in git changes).")
     return 0

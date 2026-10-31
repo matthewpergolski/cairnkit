@@ -20,7 +20,6 @@ END = "# <<< cairnkit <<<"
 # The markers before the rename. A block found with them is replaced by a new one.
 PAIRS = ((START, END), ("# >>> project-memory >>>", "# <<< project-memory <<<"))
 SHELLS = ("sh", "bash", "zsh", "dash", "ksh")
-SHARED_DIR = ".githooks"
 GUARD_MARK = "# Refuse AI self-attribution lines."
 GUARD_REF = "githook:commit-msg"
 
@@ -58,10 +57,7 @@ def _quote(pattern: str) -> str:
     return "'" + pattern.replace("'", "'\\''") + "'"
 
 
-def pre_commit_body(shared: bool) -> str:
-    if shared:
-        # A tracked hook: clones without the tool skip it.
-        return "if command -v memory >/dev/null 2>&1; then memory hook pre-commit || exit 1; fi\n"
+def pre_commit_body() -> str:
     py = shlex.quote(sys.executable)
     return f"if [ -x {py} ]; then {py} -m cairnkit hook pre-commit || exit 1; fi\n"
 
@@ -158,13 +154,10 @@ def post_merge_body() -> str:
     return docs_check_stanza() + quiet_body("post-merge")
 
 
-def post_checkout_body(shared: bool) -> str:
+def post_checkout_body() -> str:
     # Only `git worktree add` (the old HEAD is all zeros). Never fails the git command.
-    if shared:
-        test, run = "command -v memory >/dev/null 2>&1", "memory"
-    else:
-        py = shlex.quote(sys.executable)
-        test, run = f"[ -x {py} ]", f"{py} -m cairnkit"
+    py = shlex.quote(sys.executable)
+    test, run = f"[ -x {py} ]", f"{py} -m cairnkit"
     return (
         'case "$1" in\n'
         "  *[!0]*) ;;\n"
@@ -219,16 +212,12 @@ def is_broken(path: Path) -> bool:
     return markers.find(text, PAIRS)[0] == "broken"
 
 
-def broken_paths(project: Project, hooks: list[str], shared: bool = False) -> list[Path]:
+def broken_paths(project: Project, hooks: list[str]) -> list[Path]:
     """The hook files that this install would write and that have broken markers."""
     paths = []
     folder = hooks_dir(project) if project.is_git else None
     if folder is not None and not _inside_worktree(project, folder):
         paths += [folder / hook for hook in hooks]
-    if shared:
-        paths += [
-            project.root / SHARED_DIR / h for h in ("commit-msg", "pre-commit", "post-checkout")
-        ]
     return [p for p in paths if is_broken(p)]
 
 
@@ -261,24 +250,9 @@ def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
     if _inside_worktree(project, folder):
         return [
             f"skip {hook}: core.hooksPath points into the repo ({folder}). "
-            f"Add this block to {folder / hook} by hand, or use the shared option:\n" + _block(body)
+            f"The memory hooks are not shared, so {hook} does not run here."
         ]
     return write_block(folder / hook, body, dry_run)
-
-
-def install_shared(project: Project, patterns: list[str], dry_run: bool) -> list[str]:
-    """Write tracked hooks in .githooks/ that work for clones with no tool."""
-    folder = project.root / SHARED_DIR
-    steps = write_block(folder / "commit-msg", guard_body(patterns), dry_run)
-    steps += write_block(folder / "pre-commit", pre_commit_body(shared=True), dry_run)
-    steps += write_block(folder / "post-checkout", post_checkout_body(shared=True), dry_run)
-    hooks_path = run_git(project.root, "config", "--get", "core.hooksPath")
-    if hooks_path != SHARED_DIR:
-        steps.append(
-            "note: commit .githooks/ and tell each clone to run once: "
-            "git config core.hooksPath .githooks"
-        )
-    return steps
 
 
 def guard_installed(project: Project) -> bool:

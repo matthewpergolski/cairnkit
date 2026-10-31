@@ -24,7 +24,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from cairnkit import adapters, instruction_files, skills
+from cairnkit import adapters, hooks_cmd, instruction_files, skills
 from cairnkit.candidates import Candidate, Counts, scan_text
 from cairnkit.check import run_check
 from cairnkit.config import load_config
@@ -44,7 +44,6 @@ from cairnkit.migrate_refs import (
     read_text,
     render_followups,
     rewrite_text,
-    write_text,
 )
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
 from cairnkit.schema import MAX_TEXT
@@ -314,72 +313,44 @@ def repo_files(project: Project, docs: list[str]) -> list[str]:
     return sorted(files | set(docs))
 
 
-def _references(
-    project: Project, source_dir: Path, fix: bool, dry_run: bool, would: str
-) -> tuple[list[Item], tuple[int, int], bool]:
-    """Rewrite or plan the exact old paths. Return the judgment items, what is left, changed."""
+def _references(project: Project, source_dir: Path) -> list[Item]:
+    """Lines in the docs that name the old layout. The agent decides. The tool edits no doc."""
     root = project.main_root
 
     def exists(rel: str) -> bool:
         return (source_dir / rel.rstrip("/")).exists()
 
-    changes: list[tuple[str, int, str]] = []
     items: list[Item] = []
     for rel in doc_files(root):
         text = read_text(root / rel)
         if text is None:
             continue
-        new, count = rewrite_text(text, exists)
-        if count:
-            changes.append((rel, count, new))
+        new, _count = rewrite_text(text, exists)
         items += judgment_items(rel, new, exists)
-    total = sum(c for _, c, _ in changes)
-    if not changes:
-        if fix:
-            print("No old paths to rewrite.")
-        return items, (0, 0), False
-    print("Old paths in the top-level and docs notes:")
-    for rel, count, _ in changes:
-        print(f"  {rel} ({_label(project, root, rel)}): {count} path(s)")
-    print(f"{total} path(s) in {len(changes)} file(s) name the old layout.")
-    if not fix:
-        print(
-            "To rewrite them (working tree only, never committed): "
-            "`memory migrate --fix-references --yes`."
-        )
-        return items, (total, len(changes)), False
-    if dry_run:
-        print("--fix-references would rewrite them in the working tree only. Nothing is committed.")
-        print("Apply with: `memory migrate --fix-references --yes`.")
-        return items, (0, 0), False
-    for rel, _, new in changes:
-        write_text(root / rel, new)
-    print(
-        f"Rewrote {total} path(s) in {len(changes)} file(s). Nothing is committed. "
-        "Review with `git diff`:"
-    )
-    stat = run_git(root, "diff", "--stat", "--", *[rel for rel, _, _ in changes], timeout=15)
-    print(stat or "  (the files are not tracked, so git has no diff)")
-    return items, (0, 0), True
+        for number, (before, after) in enumerate(
+            zip(text.splitlines(), new.splitlines(), strict=False), start=1
+        ):
+            if before != after:
+                items.append(
+                    Item(
+                        rel,
+                        number,
+                        "old path",
+                        before.strip()[:200],
+                        "This line names the old layout. The tool does not change a project doc.",
+                        after.strip()[:200],
+                    )
+                )
+    return items
 
 
-def _hooks(
-    project: Project, path_flag: str | None, fix: bool, dry_run: bool
-) -> tuple[list[Item], int]:
+def _hooks(project: Project) -> list[Item]:
     stale = adapters.stale_hooks(project, CHECKER_RE)
-    if not stale:
-        return [], 0
     root = project.main_root
-    print("Hooks that run the old checker:")
     items = []
     for hook in stale:
-        label = "tracked by git" if _tracked(root, hook.rel) else "not tracked"
-        print(f"  {hook.rel} ({label}), {hook.event}: {hook.command}")
-        note = (
-            " The file is tracked: change it on a branch, with the team's OK."
-            if label[0] == "t"
-            else ""
-        )
+        tracked = _tracked(root, hook.rel)
+        note = " The file is tracked: change it on a branch, with the team's OK." if tracked else ""
         items.append(
             Item(
                 hook.rel,
@@ -387,20 +358,10 @@ def _hooks(
                 "hook",
                 f"{hook.event}: {hook.command}"[:200],
                 "This hook runs the old checker, which reads the old layout." + note,
-                "Make sure `memory hooks install` has run, then remove this hook handler.",
+                "Remove this hook handler. The memory hooks are already installed next to it.",
             )
         )
-    code = 0
-    if fix:
-        print("memory hooks install adds the memory hooks next to these. It removes nothing:")
-        for agent in sorted({hook.agent for hook in stale}):
-            code = run_install(project, agent, dry_run, True, None, path_flag) or code
-    else:
-        print(
-            "To add the memory hooks: `memory migrate --fix-references --yes`, "
-            "or `memory hooks install`."
-        )
-    return items, code
+    return items
 
 
 def _followups(
@@ -408,7 +369,6 @@ def _followups(
     memdir: Path,
     source_dir: Path,
     items: list[Item],
-    pending: tuple[int, int],
     dry_run: bool,
 ) -> tuple[Path | None, int, bool]:
     """Write the agent task. Return (its path when it exists, item count, changed)."""
@@ -429,7 +389,7 @@ def _followups(
     items = sorted(items, key=lambda i: (i.file, i.line))
     skills_line = skills.advisory() if load_config(memdir)["skills_check"] else None
     text = render_followups(
-        items, scripts, refs, pending, grep_pattern(names), root, hook_files, skills_line
+        items, scripts, refs, grep_pattern(names), root, hook_files, skills_line
     )
     path = memdir / FOLLOWUPS_FILE
     old = path.read_text(encoding="utf-8") if path.is_file() else None
@@ -452,7 +412,6 @@ def run_migrate(
     dry_run: bool = False,
     presets: list[str] | None = None,
     untrack: bool = False,
-    fix_references: bool = False,
 ) -> int:
     root = project.main_root
     memdir, _ = resolve_memory_dir(project, path_flag)
@@ -530,7 +489,7 @@ def run_migrate(
 
     if not dry_run:
         source_dir = holder  # the moved folder, or the one an earlier run moved
-    code = run_init(project, path_flag, dry_run, False, presets, moved)
+    code = run_init(project, path_flag, dry_run, presets, moved)
     if code != 0:
         print(
             f"The old notes are safe in {holder}. Fix the problem, then run "
@@ -577,20 +536,11 @@ def run_migrate(
             work.write_text(text, encoding="utf-8")
 
     if os.path.normpath(from_dir) != LINK_NAME:
-        print(
-            f"--fix-references and the follow-up task apply only to the {LINK_NAME} folder. "
-            "Skipped."
-        )
-        follow, follow_count, hooks_added, hook_code = None, 0, False, 0
+        print(f"The follow-up task applies only to the {LINK_NAME} folder. Skipped.")
+        follow, follow_count = None, 0
     else:
-        ref_items, pending, rewrote = _references(
-            project, source_dir, fix_references, dry_run, would
-        )
-        changed = changed or rewrote
-        hook_items, hook_code = _hooks(project, path_flag, fix_references, dry_run)
-        hooks_added = bool(hook_items) and fix_references
         follow, follow_count, wrote = _followups(
-            project, memdir, source_dir, ref_items + hook_items, pending, dry_run
+            project, memdir, source_dir, _references(project, source_dir) + _hooks(project), dry_run
         )
         changed = changed or wrote
 
@@ -614,14 +564,14 @@ def run_migrate(
         return 0
     if not changed:
         print("Already migrated. Nothing to do.")
-    code = run_check(project, path_flag, hint=False) or hook_code
+    code = run_check(project, path_flag, hint=False)
     line = skills.once_line(memdir)
     if line:
         print(line)
     print()
-    if not hooks_added:
-        print("Next: `memory hooks install` if you have not run it.")
-    print(f"Then add facts from {LINK_NAME}/{CANDIDATES_FILE}: `memory add ... --source file:...`.")
+    if hooks_cmd.INSTALL_ON_INIT:
+        code = code or run_install(project, "auto", False, True, None, path_flag, quiet=True)
+    print(f"Add facts from {LINK_NAME}/{CANDIDATES_FILE}: `memory add ... --source file:...`.")
     print(f"The old folder is kept at {holder}. Delete it yourself when you are sure.")
     if follow and follow_count:
         print(f"Follow-up task for an agent ({follow_count} item(s)): {follow}")

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Each path that wrote to a tracked file: `--gitignore`, `--commit-msg-guard=shared`, the
+  `AGENTS.md` pointer and `memory migrate --fix-references`. Migrate now lists old paths in the
+  agent task. `memory init --refresh` no longer rewrites `.githooks/`.
 - Scenario folding in `memory load`. Each fact that loads now shows its text.
 - The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
   writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session
@@ -27,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Setup is one step. `memory init` connects the agent tools and the git hooks, with a short
+  output (`--verbose` prints each step, `--no-hooks` skips the hooks). A rule against AI
+  attribution installs its commit-msg check by itself.
 - `--short` ends with its branch, or when an agent ends it. The clock alone ends nothing.
 - With no signal about the work, `memory load` keeps one place for each area, and a trap holds it.
 - A trap in a changed area ranks higher. Uncommitted changes and each part of a changed path are

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from cairnkit import adapters, githook, markers, refresh, rules
 from cairnkit.init import can_link, ensure_all_linked, is_linked
@@ -28,6 +29,41 @@ def _sync_rules(project: Project, flag: str | None, dry_run: bool) -> list[str]:
     return rules.sync_guard(memory, githook.guard_installed(project))
 
 
+# Tests turn this off, so that a test of something else does not read the real machine's tools.
+INSTALL_ON_INIT = True
+ATTRIBUTION = re.compile(r"(?i)attribution|co-?author|generated[- ]with")
+
+
+def _has_attribution_rule(project: Project, flag: str | None) -> bool:
+    """A rule against AI attribution can have a check that fails, so it gets one."""
+    try:
+        memory = Memory.open(project, flag)
+    except MemoryMissing:
+        return False
+    return any(
+        s.get("kind") == "rule" and s.get("status") == "active" and ATTRIBUTION.search(s["text"])
+        for s in memory.states.values()
+    )
+
+
+def _print_summary(
+    project: Project, names: list[str], guard: str | None, git_hook: bool, steps: list[str]
+) -> None:
+    """Two or three lines. `--verbose` or `memory hooks install` prints each step."""
+    agents = [name for name in names if name != "generic"]
+    print(f"Agents connected: {', '.join(agents)}." if agents else "No agent tool found here.")
+    if project.is_git and git_hook:
+        extra = ", and a commit-message check" if guard else ""
+        print(f"Git hooks installed in .git/hooks{extra}. They are not shared.")
+    for step in steps:
+        if step.startswith(("skip", "note")):
+            print(step)
+    if "codex" in names:
+        print("Codex: approve the hooks once with /hooks, because Codex asks for trust itself.")
+    if "generic" in names:
+        print("For any other agent, run: memory hooks install --agent generic")
+
+
 def run_install(
     project: Project,
     agent: str,
@@ -35,11 +71,13 @@ def run_install(
     git_hook: bool,
     guard: str | None,
     flag: str | None = None,
+    quiet: bool = False,
 ) -> int:
     names = adapters.detect(project) if agent == "auto" else [agent]
+    guard = guard or ("local" if git_hook and _has_attribution_rule(project, flag) else None)
     hooks = ["pre-commit", "post-checkout", "pre-push", "post-merge"] if git_hook else []
     hooks += ["commit-msg"] if guard == "local" else []
-    broken = githook.broken_paths(project, hooks, shared=guard == "shared")
+    broken = githook.broken_paths(project, hooks)
     if broken:
         for path in broken:
             print(markers.broken_message(path, "memory hooks install"))
@@ -82,25 +120,22 @@ def run_install(
         print(f"error: {exc}")
         return 1
     if project.is_git and git_hook:
-        steps += githook.install(
-            project, "pre-commit", githook.pre_commit_body(shared=False), dry_run
-        )
-        steps += githook.install(
-            project, "post-checkout", githook.post_checkout_body(shared=False), dry_run
-        )
+        steps += githook.install(project, "pre-commit", githook.pre_commit_body(), dry_run)
+        steps += githook.install(project, "post-checkout", githook.post_checkout_body(), dry_run)
         steps += githook.install(project, "pre-push", githook.pre_push_body(), dry_run)
         steps += githook.install(project, "post-merge", githook.post_merge_body(), dry_run)
         steps += githook.uninstall(project, "post-commit", dry_run)  # 0.3.1 mined commits here
     if project.is_git and guard == "local":
         body = githook.guard_body(guard_patterns(project, flag))
         steps += githook.install(project, "commit-msg", body, dry_run)
-    elif project.is_git and guard == "shared":
-        steps += githook.install_shared(project, guard_patterns(project, flag), dry_run)
     steps += _sync_rules(project, flag, dry_run)
     if dry_run:
         print("Dry run: nothing will change.")
     else:
         refresh.record(project, flag)
+    if quiet:
+        _print_summary(project, names, guard, git_hook, steps)
+        return 0
     for step in steps:
         plain = step.startswith(("skip", "note"))
         print(("would " if dry_run and not plain else "") + step)
