@@ -140,9 +140,13 @@ def default_branch(root: Path) -> str | None:
 def merged_checker(root: Path):
     """Return a cached function: is the work of this branch done?
 
-    The work is done when the branch is in no ref, or when its tip is in the
-    default branch, by a merge or by a squash. A remote copy with no local branch
-    still counts as open work.
+    A false end is worse than a stale note, so each read needs evidence that work
+    landed. With no evidence, the branch stays open.
+
+    Open: a branch checked out in a worktree, a remote copy with no local branch,
+    and a branch whose reflog shows no commit of its own in the default branch.
+    Done: a branch in no ref, and a branch that is not checked out and whose own
+    commits landed by a merge or a squash. A renamed branch reads as its new name.
     """
     base = default_branch(root)
     cache: dict[str, bool] = {}
@@ -155,21 +159,122 @@ def merged_checker(root: Path):
     return is_merged
 
 
-def _branch_done(root: Path, branch: str, base: str) -> bool:
-    tip = run_git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
-    if tip is None:
-        refs = run_git(root, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/remotes") or ""
-        return branch not in refs.splitlines()
-    base_tip = run_git(root, "rev-parse", f"refs/heads/{base}")
-    if tip == base_tip:
-        return False
-    if run_git(root, "merge-base", "--is-ancestor", tip, base) is not None:
+def branch_exists(root: Path, name: str) -> bool:
+    """True for a local branch, or a remote copy named `far` or `origin/far`."""
+    refs = _branch_refs(root)
+    return refs is None or f"refs/heads/{name}" in refs or _has_remote_copy(refs, name)
+
+
+def _branch_refs(root: Path) -> list[str] | None:
+    """Every local and remote branch ref. None when git cannot say, which is not "no branch"."""
+    out = run_git(root, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes")
+    return None if out is None else out.splitlines()
+
+
+def _has_remote_copy(refs: list[str], name: str) -> bool:
+    remote = [r.removeprefix("refs/remotes/") for r in refs if r.startswith("refs/remotes/")]
+    return any(name in (ref, ref.partition("/")[2]) for ref in remote)
+
+
+def _renamed_to(root: Path, name: str) -> str | None:
+    """The new name of a renamed branch, "" when there is none, None when git cannot say.
+
+    It reads the reflogs, which git keeps for 90 days by default.
+    """
+    marker = f"Branch: renamed refs/heads/{name} to refs/heads/"
+    log = run_git(
+        root, "log", "-g", "--all", "--format=%gs", "--fixed-strings", f"--grep-reflog={marker}"
+    )
+    if log is None:
+        return None
+    lines = [line for line in log.splitlines() if line.startswith(marker)]
+    return lines[0].removeprefix(marker) if lines else ""
+
+
+def _checked_out(root: Path, branch: str) -> bool:
+    """True when a worktree that still exists has this branch, or when git cannot say."""
+    out = run_git(root, "worktree", "list", "--porcelain")
+    if out is None:
         return True
+    entries = [entry.splitlines() for entry in out.split("\n\n")]
+    return any(
+        f"branch refs/heads/{branch}" in lines
+        and not any(line.startswith("prunable") for line in lines)
+        for lines in entries
+    )
+
+
+def _branch_done(root: Path, branch: str, base: str) -> bool:
+    refs = _branch_refs(root)
+    if refs is None:
+        return False
+    seen = {branch}
+    while f"refs/heads/{branch}" not in refs:
+        if _has_remote_copy(refs, branch):
+            return False
+        renamed = _renamed_to(root, branch)
+        if renamed == "":
+            return True
+        if renamed is None or renamed in seen:
+            return False
+        seen.add(renamed)
+        branch = renamed
+    if branch == base or _checked_out(root, branch):
+        return False
+    tip = run_git(root, "rev-parse", f"refs/heads/{branch}") or ""
+    if _in_base(root, tip, base):
+        return _made_commit_landed(root, branch, base)
     return _squashed(root, tip, base)
 
 
+def _in_base(root: Path, commit: str, base: str) -> bool:
+    return run_git(root, "merge-base", "--is-ancestor", commit, base) is not None
+
+
+# The reflog actions that make a new commit on the branch. A fast-forward, a reset and a
+# create move a branch to a commit that was made elsewhere.
+_MADE_HERE = ("commit", "cherry-pick:", "revert:", "am:")
+_REFLOG_CHECKS = 20
+
+
+def _made_commit_landed(root: Path, branch: str, base: str) -> bool:
+    """True when the reflog shows a commit made on this branch, and it is in the base.
+
+    A tip in the base proves nothing by itself: a new branch with no commits has one too.
+    A rebase rewrites the commits that were made, so its result counts after one of them.
+    """
+    log = run_git(root, "log", "-g", "--format=%H %gs", f"refs/heads/{branch}") or ""
+    commits, actions = [], []
+    for line in log.splitlines():
+        commit, _, action = line.partition(" ")
+        commits.append(commit)
+        actions.append(action)
+    made = [i for i, a in enumerate(actions) if a.startswith(_MADE_HERE) or "Merge made" in a]
+    if not made:
+        return False
+    rebased = [i for i, a in enumerate(actions[: made[-1]]) if a.startswith("rebase")]
+    checks = sorted({*made, *rebased})[:_REFLOG_CHECKS]
+    return any(_in_base(root, commits[i], base) for i in checks)
+
+
 def _squashed(root: Path, tip: str, base: str) -> bool:
-    """True when a merge of the tip into the base changes nothing. Needs git 2.38."""
+    """True when the branch changes something and a merge of it into the base changes nothing.
+
+    Needs git 2.38. A commit copied with its author date and subject is a cherry-pick, not a
+    squash, so that branch stays open.
+    """
     merged = run_git(root, "merge-tree", "--write-tree", base, tip)
     tree = run_git(root, "rev-parse", f"{base}^{{tree}}")
-    return bool(merged) and merged.splitlines()[0] == tree
+    if not merged or merged.splitlines()[0] != tree:
+        return False
+    fork = run_git(root, "merge-base", base, tip)
+    if not fork or run_git(root, "rev-parse", f"{tip}^{{tree}}") == run_git(
+        root, "rev-parse", f"{fork}^{{tree}}"
+    ):
+        return False
+    stamp = "--format=%ae %at %s"
+    ours = run_git(root, "log", stamp, f"{fork}..{tip}")
+    theirs = run_git(root, "log", stamp, f"{fork}..{base}")
+    if ours is None or theirs is None:
+        return False
+    return not set(ours.splitlines()) & set(theirs.splitlines())
