@@ -69,7 +69,11 @@ def _tail(text: str, lines: int = 15) -> str:
     return "".join(f"\n  {line}" for line in shown)
 
 
-def run_update(flag: str | None, check: bool = False, dry_run: bool = False) -> int:
+def run_update(
+    flag: str | None, check: bool = False, dry_run: bool = False, channel: str | None = None
+) -> int:
+    if channel and channel != src.channel(src.installed(flag)[0]) and not check and not dry_run:
+        src.set_channel(channel)
     bar = Progress()
     try:
         return _update(bar, flag, check, dry_run)
@@ -405,6 +409,8 @@ def run_status(project, flag: str | None) -> int:
         print("Source: unknown. `memory update --source PATH` sets it.")
     else:
         print(f"Source: {source.label}" + (", editable" if source.editable else ""))
+        if source.kind == "git":
+            print(f"Channel: {src.channel(source)}")
     print(src.update_line(background=False) or "No update found.")
     for line in src.pending_change_lines():
         print(line)

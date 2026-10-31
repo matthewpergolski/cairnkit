@@ -11,10 +11,11 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import signal
 import sys
 
-from cairnkit import autotidy, followups, legacy, loopbreak, signals, skills, usage
+from cairnkit import autotidy, followups, legacy, loopbreak, native, signals, skills, usage
 from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
@@ -22,17 +23,22 @@ from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
 from cairnkit.session import (
+    hold_load,
     mark_compacted,
     mark_loaded,
     needs_reminder,
     reminder_hint,
     reminder_text,
     start_session,
+    take_load,
 )
 
 NOTE_IDS = 10
+SUBAGENT_BUDGET = 300
 # Agents that need a JSON empty object when memory exists but there is nothing to say.
 JSON_NEUTRAL = frozenset({"codex", "cursor"})
+# A generated adapter reads plain text on stdout.
+TEXT_AGENTS = frozenset({"pi", "opencode"})
 
 
 def has_memory(project: Project, flag: str | None) -> bool:
@@ -176,6 +182,9 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
     with contextlib.suppress(Exception):
         legacy.clean(Memory.open(project, flag))
     note = auto_retire_note(project, flag) + skills_note(project, flag)
+    with contextlib.suppress(Exception):
+        line = native.session_line(Memory.open(project, flag))
+        note += line + "\n\n" if line else ""
     refresh_followups(project, flag)
     compact_usage(project, flag)
     buffer = io.StringIO()
@@ -190,6 +199,10 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
         mark_loaded(memory, key, text)
     if agent == "cursor":
         print(json.dumps({"additional_context": text}))
+    elif agent == "grok":
+        with contextlib.suppress(Exception):
+            hold_load(Memory.open(project, flag), session_key(payload), text)
+        print(json.dumps({"systemMessage": "Project memory is ready."}))
     else:
         print(text)
     return 0
@@ -258,11 +271,14 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
         if agent in JSON_NEUTRAL:
             print("{}")
         return 0
-    if agent in ("claude", "codex"):
+    if agent in ("claude", "codex", "grok"):
         print(json.dumps({"decision": "block", "reason": message}))
         return 0
     if agent == "cursor":
         print(json.dumps({"followup_message": message}))
+        return 0
+    if agent in TEXT_AGENTS:
+        print(message)
         return 0
     print(message, file=sys.stderr)
     return 1
@@ -292,6 +308,9 @@ def pre_commit(project: Project, flag: str | None) -> int:
     with contextlib.suppress(Exception):
         if has_memory(project, flag):
             ensure_all_linked(project, flag)
+            # Git output reaches every agent, including one with no hook adapter.
+            for line in signals.traps_for(Memory.open(project, flag), staged):
+                print(line, file=sys.stderr)
     return 0
 
 
@@ -309,11 +328,13 @@ def _context(agent: str, payload: dict, text: str) -> None:
     event = str(payload.get("hook_event_name") or "")
     if agent == "cursor":
         print(json.dumps({"additional_context": text, "followup_message": text}))
-    elif agent in ("claude", "codex") and event:
+    elif agent in TEXT_AGENTS:
+        print(text)
+    elif agent in ("claude", "codex", "grok") and event:
         print(
             json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}})
         )
-    elif agent in ("claude", "codex"):
+    elif agent in ("claude", "codex", "grok"):
         print(json.dumps({"decision": "block", "reason": text}))
     else:
         print(text, file=sys.stderr)
@@ -327,6 +348,9 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
     with contextlib.suppress(Exception):
         memory = Memory.open(project, flag)
         key = session_key(payload)
+        held = take_load(memory, key)
+        if held:
+            parts.append(held)
         parsed = loopbreak.command_from_payload(payload)
         if parsed is not None:
             command, ok = parsed
@@ -356,6 +380,18 @@ def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int
     return 0
 
 
+def subagent_start(project: Project, flag: str | None, agent: str) -> int:
+    """A subagent starts with no memory. Give it the load. Read only."""
+    if not has_memory(project, flag):
+        return 0
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run_load(project, flag, None, SUBAGENT_BUDGET, agent=agent)
+    event = {"hookEventName": "SubagentStart", "additionalContext": buffer.getvalue().rstrip()}
+    print(json.dumps({"hookSpecificOutput": event}))
+    return 0
+
+
 def pre_compact(project: Project, flag: str | None, payload: dict) -> int:
     """A tool with no reload after a compaction hears about it at its next stop."""
     with contextlib.suppress(Exception):
@@ -365,6 +401,8 @@ def pre_compact(project: Project, flag: str | None, payload: dict) -> int:
 
 
 def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
+    if os.environ.get("GROK_HOOK_EVENT"):
+        agent = "grok"  # Grok also runs the hooks that a project keeps for other tools.
     if event in ("pre-push", "post-merge", "post-commit"):  # post-commit: a hook from 0.3.1
         return git_event(project, flag)
     if event == "pre-commit":
@@ -378,6 +416,8 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
         return after_shell(project, flag, agent, payload)
     if event == "prompt":
         return prompt(project, flag, agent, payload)
+    if event == "subagent-start":
+        return subagent_start(project, flag, agent)
     if event == "pre-compact":
         return pre_compact(project, flag, payload)
     return stop(project, flag, agent, payload)

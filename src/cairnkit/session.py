@@ -231,6 +231,22 @@ def mark_loaded(memory: Memory, session_id: str, text: str) -> None:
     save_state(memory, session_id, state)
 
 
+def hold_load(memory: Memory, session_id: str, text: str) -> None:
+    """Keep the load for a tool that cannot add context at session start."""
+    state = load_state(memory, session_id) or {}
+    state["held_load"] = text
+    save_state(memory, session_id, state)
+
+
+def take_load(memory: Memory, session_id: str) -> str | None:
+    state = load_state(memory, session_id)
+    if not state or not state.get("held_load"):
+        return None
+    text = state.pop("held_load")
+    save_state(memory, session_id, state)
+    return text
+
+
 def mark_compacted(memory: Memory, session_id: str) -> None:
     state = load_state(memory, session_id)
     if state is not None:

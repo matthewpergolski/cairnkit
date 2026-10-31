@@ -139,3 +139,19 @@ def news(memory: Memory, key: str) -> str | None:
         parts.append("These stored facts match the files you changed:\n" + "\n".join(relevant))
     save_state(memory, key, state)
     return "\n\n".join(parts) or None
+
+
+def traps_for(memory: Memory, paths: list[str], limit: int = 3) -> list[str]:
+    """Stored traps that match the files about to be committed. A warning, never a refusal."""
+    areas = areas_for_paths(paths, memory.config["areas"])
+    if not areas:
+        return []
+    moment = now()
+    found = []
+    for fact in active_states(memory):
+        if fact.get("kind") != "trap":
+            continue
+        parts = score_parts(fact, moment, areas, set())
+        if parts["trap"]:
+            found.append(f"memory: a stored trap matches this commit: {clean(load_text(fact))}")
+    return found[:limit]

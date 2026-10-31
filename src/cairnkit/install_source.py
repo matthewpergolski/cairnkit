@@ -499,6 +499,40 @@ def _choose_release(ls_remote_tags: str) -> Release | None:
     return Release(best_name, number, shas[best_name])
 
 
+CHANNELS = ("stable", "dev")
+DEV_BRANCH = "dev"
+
+
+def _channel_path() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "cairnkit" / "channel"
+
+
+def channel(source: Source | None = None) -> str:
+    """Stable takes the highest release tag. Dev takes the newest commit of the dev branch.
+
+    A saved choice wins. An install pinned to the dev branch needs no choice.
+    """
+    with contextlib.suppress(OSError):
+        saved = _channel_path().read_text(encoding="utf-8").strip()
+        if saved in CHANNELS:
+            return saved
+    return "dev" if source is not None and source.pin == DEV_BRANCH else "stable"
+
+
+def set_channel(name: str) -> None:
+    """Save the channel. The next update installs from it, even when that is a lower version."""
+    path = _channel_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(name + "\n", encoding="utf-8")
+    with contextlib.suppress(OSError):
+        _cache_path().unlink()
+    with contextlib.suppress(OSError):
+        record = read_record()
+        record.pop("commit", None)
+        (target_env() / RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
 def latest(source: Source, timeout: float = 3.0) -> Latest:
     """The newest commit and version at the source. Raise SourceError."""
     if source.kind == "folder":
@@ -514,6 +548,14 @@ def latest(source: Source, timeout: float = 3.0) -> Latest:
             commit = content_id(folder)
         return Latest(commit, folder_version(folder))
     remote = source.spec
+    if channel(source) == "dev":
+        out = git(["ls-remote", remote, f"refs/heads/{DEV_BRANCH}"], timeout)
+        if not out:
+            raise SourceError(
+                f"Could not read the {DEV_BRANCH} branch of {remote}.",
+                "Check the network, or run `memory update --channel stable`.",
+            )
+        return Latest(out.split()[0], None)
     tags_out = git(["ls-remote", "--tags", remote], timeout)
     if tags_out is None:
         raise SourceError(

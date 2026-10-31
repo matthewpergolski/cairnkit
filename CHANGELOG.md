@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
+- Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
+- A subagent gets a load of 300 words at its start on Claude Code and Codex.
+- The pre-commit hook prints a stored trap that matches the staged files. Git output reaches every
+  agent, including one with no adapter. It never refuses the commit.
+- The session start names new notes in Claude Code's own memory, once, so that an agent can copy
+  what matters.
 - The session hears about events by name: a command that failed and then passed, a command that
   still fails, and a revert. The tool writes no fact for them.
 - `memory add` names an older fact in the same area that may now be stale. It ends nothing.

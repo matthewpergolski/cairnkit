@@ -28,7 +28,7 @@ LOCK_NAME = ".loop-breaker.lock"
 THRESHOLD = 3
 NUDGE = (
     "The same command failed 3 times in a row. Stop retrying it. "
-    "Run `memory check`, then fix the cause or ask the person what to do next."
+    "Find the cause, search the memory for it (`memory search WORDS`), or ask the person."
 )
 
 
