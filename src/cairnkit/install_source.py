@@ -19,7 +19,7 @@ import tomllib
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from urllib.parse import parse_qsl, unquote, urlparse, urlsplit
+from urllib.parse import parse_qsl, unquote, urlparse, urlsplit, urlunsplit
 
 from cairnkit import __version__
 from cairnkit.clock import now, parse_time, stamp
@@ -165,54 +165,72 @@ def _query_pin(query: str) -> str | None:
     return None
 
 
-def _at_suffix(path: str) -> str | None:
+def _path_at_pin(path: str) -> tuple[str, str | None]:
+    """Strip a trailing ``@ref`` from a URL path. Keep ``foo@bar/bare.git`` whole.
+
+    A pin follows a path that already ends in ``.git``, even when the ref itself
+    contains ``.git``. A bare ``@ref`` with no slash is also a pin.
+    """
     if "@" not in path:
-        return None
-    suffix = path.rsplit("@", 1)[1]
-    # `foo@bar/bare.git` is a directory. The suffix still contains `.git`.
-    if not suffix or ".git" in suffix:
-        return None
-    return suffix
+        return path, None
+    before, after = path.rsplit("@", 1)
+    if not after:
+        return path, None
+    if before.lower().endswith(".git"):
+        return before, after
+    if "/" in after:
+        # ``…/foo@bar/bare.git`` is a directory name, not a pin.
+        return path, None
+    return before, after
 
 
-def _path_pin(remote: str) -> str | None:
-    if "://" in remote:
-        path = urlsplit(remote).path
-    elif remote.startswith("git@"):
-        colon = remote.find(":")
-        if colon < 0:
-            return None
-        path = remote[colon + 1 :]
-    else:
-        return None
-    return _at_suffix(path)
+def _protect_userinfo(url: str) -> str:
+    """Percent-encode ``?`` and ``#`` in userinfo so urlsplit keeps the authority."""
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return url
+    slash = rest.find("/")
+    authority = rest if slash < 0 else rest[:slash]
+    tail = "" if slash < 0 else rest[slash:]
+    if "@" not in authority:
+        return url
+    userinfo, _, hostport = authority.rpartition("@")
+    safe = userinfo.replace("?", "%3F").replace("#", "%23")
+    return f"{scheme}://{safe}@{hostport}{tail}"
 
 
-def _strip_path_pin(remote: str) -> tuple[str, str | None]:
-    pin = _path_pin(remote)
-    if not pin:
-        return remote, None
-    suffix = "@" + pin
-    if not remote.endswith(suffix):
-        return remote, None
-    return remote[: -len(suffix)], pin
+def _restore_userinfo(netloc: str) -> str:
+    if "@" not in netloc:
+        return netloc
+    userinfo, _, hostport = netloc.rpartition("@")
+    return f"{unquote(userinfo)}@{hostport}"
+
+
+def _split_scp(text: str) -> tuple[str, str | None]:
+    """Split ``git@host:path[@ref]`` without treating the user ``@`` as a pin."""
+    colon = text.find(":")
+    if colon < 0:
+        return text, None
+    head, path = text[: colon + 1], text[colon + 1 :]
+    path, pin = _path_at_pin(path)
+    return head + path, pin
 
 
 def _split_vcs(text: str) -> tuple[str, str | None]:
     """Split a remote that has no ``git+`` prefix into ``(clean URL, pin)``.
 
-    Query `rev`, then `tag`, then `branch` wins. Else a path `@ref`. Else a
-    fragment with no `=`. The user `@` in `git@host` and in `user:token@host`
-    stays. A clean remote comes back unchanged.
+    Query ``rev``, then ``tag``, then ``branch`` wins. Else a path ``@ref``.
+    Else a fragment with no ``=``. Userinfo ``?`` / ``#`` and the ``git@host``
+    user stay. A clean remote comes back unchanged.
     """
-    fragment = ""
-    if "#" in text:
-        text, fragment = text.split("#", 1)
-    query_pin = None
-    if "?" in text:
-        text, query = text.split("?", 1)
-        query_pin = _query_pin(query)
-    text, path_pin = _strip_path_pin(text)
+    if text.startswith("git@"):
+        return _split_scp(text)
+    if "://" not in text:
+        return text, None
+    parts = urlsplit(_protect_userinfo(text))
+    path, path_pin = _path_at_pin(parts.path)
+    query_pin = _query_pin(parts.query)
+    fragment = parts.fragment
     if query_pin:
         pin = query_pin
     elif path_pin:
@@ -221,11 +239,14 @@ def _split_vcs(text: str) -> tuple[str, str | None]:
         pin = unquote(fragment)
     else:
         pin = None
-    return text, pin
+    clean = urlunsplit((parts.scheme, _restore_userinfo(parts.netloc), path, "", ""))
+    return clean, pin
 
 
 def assert_clean(remote: str) -> str:
-    if "?" in remote or "#" in remote or _path_pin(remote):
+    """Raise when ``remote`` still carries a pin. Userinfo may contain ``?`` or ``#``."""
+    clean, pin = _split_vcs(remote)
+    if pin is not None or clean != remote:
         raise SourceError(
             f"Refusing to pass {remote} to git.",
             "This is a bug in memory update. Strip the rev from the URL before calling git.",
@@ -235,7 +256,7 @@ def assert_clean(remote: str) -> str:
 
 def refuse_pinned_args(args: list[str]) -> None:
     for arg in args:
-        if "://" in arg or arg.startswith("git@") or "?" in arg or "#" in arg:
+        if "://" in arg or arg.startswith("git@"):
             assert_clean(arg)
 
 

@@ -953,7 +953,8 @@ def _pin(source):
 def test_pin_forms_share_one_clean_remote(raw, clean, pin):
     source = install_source.parse(raw)
     assert source.spec == clean
-    assert "?" not in source.spec and "#" not in source.spec
+    # No pin left on the remote. ?/# may remain only inside userinfo.
+    assert install_source._split_vcs(source.spec) == (source.spec, None)
     assert _pin(source) == pin
     if pin:
         assert source.label == f"{clean} @ {pin} (git)"
@@ -966,7 +967,6 @@ def test_pin_forms_share_one_clean_remote(raw, clean, pin):
     assert tagged == f"git+{clean}@v0.3.1"
     if pin and pin != "v0.3.1":
         assert pin not in tagged
-    assert "?" not in tagged and "#" not in tagged
     assert install_source.parse(tagged) == source
     assert install_source.parse(install_source.install_spec(source, None)) == source
 
