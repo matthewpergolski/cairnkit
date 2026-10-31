@@ -5,7 +5,7 @@ kind: system
 status: implemented
 summary: "A private, dated memory for any project. It lives outside the repo and is linked in."
 parent: null
-sourceRevision: "6e3c74ac3a88685beca5e6c2f315dffef3810cda"
+sourceRevision: "99a103077a25f8de6752b5a15da762d219314d26"
 sources:
   - README.md
   - pyproject.toml
