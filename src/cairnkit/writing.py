@@ -10,7 +10,13 @@ from cairnkit import followups
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
-from cairnkit.paths import current_branch, merged_checker, run_git, writer_name
+from cairnkit.paths import (
+    branch_exists,
+    current_branch,
+    default_branch,
+    merged_checker,
+    writer_name,
+)
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_secrets
 from cairnkit.selection import clean, load_text
@@ -71,9 +77,29 @@ def _refresh_followups(memory: Memory) -> None:
         followups.refresh(memory)
 
 
+def _scope(args) -> str:
+    """An end date or an end branch makes a note short-term, with or without --short."""
+    return "short" if args.short or args.expires or args.until_merged is not None else "long"
+
+
+def _no_end_event(memory: Memory, fact: dict) -> str | None:
+    """Why nothing will end this short note by itself, or None when something will."""
+    if fact["scope"] != "short" or fact.get("expires_at"):
+        return None
+    if not memory.project.is_git:
+        return "this folder is not in git"
+    branch = fact.get("until_branch_merged")
+    if not branch:
+        return "this is a detached HEAD"
+    base = default_branch(memory.project.root)
+    if not base:
+        return "this repo has no default branch"
+    return f"{branch} is the default branch" if branch == base else None
+
+
 def _find_similar(memory: Memory, args, moment) -> tuple[dict, float] | None:
     """The best active fact of the same kind and scope that is similar to the new text."""
-    scope = "short" if args.short or args.until_merged is not None else "long"
+    scope = _scope(args)
     words = analyze(args.text)
     is_merged = merged_checker(memory.project.root)
     best: tuple[float, str, dict] | None = None  # (score, learned_at, state)
@@ -161,7 +187,7 @@ def add_fact(memory: Memory, args) -> str | None:
         "source": args.source,
         "basis": args.basis,
         "status": "active",
-        "scope": "short" if args.short else "long",
+        "scope": _scope(args),
         "writer": writer,
     }
     if summary:
@@ -184,22 +210,22 @@ def add_fact(memory: Memory, args) -> str | None:
     if args.until_merged is None and branch_note:
         args.until_merged = ""  # A short note ends with its branch. The clock alone ends nothing.
     if args.until_merged is not None:
-        fact["scope"] = "short"
         if not memory.project.is_git:
             raise Refused(
                 "--until-merged needs a git repo, and this folder is not in one. "
                 "Use --short (and --expires DATE) instead."
             )
-        branch = args.until_merged or current_branch(memory.project.root)
+        named = "" if args.until_merged == "HEAD" else args.until_merged
+        branch = named or current_branch(memory.project.root)
         if not branch and not branch_note:
             raise Refused("--until-merged needs a branch name (HEAD is detached)")
         if branch:
             fact["until_branch_merged"] = branch
-        if (
-            branch
-            and run_git(memory.project.root, "rev-parse", "--verify", "--quiet", branch) is None
-        ):
-            print(f"note: no branch {branch} exists, so this note reads as ended until it does")
+        if branch and not branch_exists(memory.project.root, branch):
+            print(
+                f"note: no branch {branch} exists, local or remote, so this note reads as "
+                "ended until one does"
+            )
     records = [_validated(fact)]
     if supersedes:
         change = {
@@ -214,6 +240,12 @@ def add_fact(memory: Memory, args) -> str | None:
         records.append(_validated(change))
     append_records(memory.writer_file(writer), records)
     _refresh_followups(memory)
+    why = _no_end_event(memory, fact)
+    if why:
+        print(
+            f"note: no end event for this short note, because {why}. End it yourself: "
+            f'memory change {fact["id"]} --status expired --reason "..."'
+        )
     if repeat:
         print(f"superseded {repeat}: the new fact has the same words")
     if kept:
@@ -233,9 +265,15 @@ def add_fact(memory: Memory, args) -> str | None:
     _print_conflicts(memory, fact, moment, {supersedes} | ({near[0]["id"]} if near else set()))
     if near:
         old, score = near
+        fate = (
+            "Both stay active, because a person stated the older one, and an agent task lists "
+            "the pair."
+            if outranks(old, mine)
+            else "An agent task lists the pair, and auto-tidy can supersede the older one."
+        )
         print(
             f"similar to {old['id']} ({score:.0%} the same words): {old.get('text')}\n"
-            f"Both stay active and an agent task lists the pair. To replace it, run: "
+            f"{fate} To replace it now, run: "
             f"memory change {old['id']} --status superseded --superseded-by {fact['id']} "
             f'--reason "..."'
         )
