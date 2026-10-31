@@ -16,8 +16,10 @@ from pathlib import Path, PurePosixPath
 from cairnkit.autotidy import WRITER as AUTO_TIDY_WRITER
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.install_source import SKIP_DIRS, SKIP_SUFFIXES
+from cairnkit.load import changed_paths
 from cairnkit.memory import Memory
-from cairnkit.paths import run_git
+from cairnkit.paths import current_branch, run_git
+from cairnkit.selection import areas_for_paths
 
 KEEP_DAYS = 7
 GATE = "durable"
@@ -207,6 +209,35 @@ def fingerprint(root: Path, memory_dir: Path | None = None) -> str:
     return ReminderGate().snapshot(root, memory_dir).digest()
 
 
+def reminder_hint() -> str:
+    return (
+        'Write what a later session needs: `memory add "TEXT" --kind lesson|trap|decision '
+        "--basis seen --source session:DATE`. If nothing is worth a fact, say so and finish."
+    )
+
+
+def mark_loaded(memory: Memory, session_id: str, text: str) -> None:
+    """Record what this session has read, so that later news repeats none of it."""
+    state = load_state(memory, session_id) or {}
+    if "start" not in state:
+        start_session(memory, session_id)
+        state = load_state(memory, session_id) or {}
+    state["loaded_at"] = stamp(now())
+    state["shown"] = sorted(fact_id for fact_id in memory.states if f"[{fact_id}]" in text)
+    root = memory.project.root
+    paths = changed_paths(root, current_branch(root))
+    state["areas"] = sorted(areas_for_paths(paths, memory.config["areas"]))
+    state.pop("compacted", None)
+    save_state(memory, session_id, state)
+
+
+def mark_compacted(memory: Memory, session_id: str) -> None:
+    state = load_state(memory, session_id)
+    if state is not None:
+        state["compacted"] = True
+        save_state(memory, session_id, state)
+
+
 def reminder_text(memory: Memory) -> str:
     """The stop message. It names the durable paths and says the agent may finish."""
     root = memory.project.root
@@ -229,7 +260,7 @@ def reminder_text(memory: Memory) -> str:
         '`memory add "TEXT" --kind decision|trap|lesson --area AREA '
         "--basis seen|told|guess --source commit:HASH|file:PATH`\n"
         "- a note for this branch only: "
-        '`memory add "TEXT" --short --until-merged --area AREA '
+        '`memory add "TEXT" --short --area AREA '
         "--basis seen --source session:DATE`\n"
         "- a fact that is now wrong: "
         '`memory change ID --status wrong|expired --reason "..."` '

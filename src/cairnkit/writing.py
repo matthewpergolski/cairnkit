@@ -13,8 +13,8 @@ from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, merged_checker, run_git, writer_name
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_secrets
-from cairnkit.selection import clean
-from cairnkit.similar import analyze, exact_key, similarity
+from cairnkit.selection import clean, load_text
+from cairnkit.similar import analyze, exact_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, drop_id, fact_files
@@ -230,6 +230,7 @@ def add_fact(memory: Memory, args) -> str | None:
             f"note: this text was retired before: {old['id']} ({status}{why}). Written as "
             f"{fact['id']}, linked with similar_to.{check}"
         )
+    _print_conflicts(memory, fact, moment, {supersedes} | ({near[0]["id"]} if near else set()))
     if near:
         old, score = near
         print(
@@ -239,6 +240,23 @@ def add_fact(memory: Memory, args) -> str | None:
             f'--reason "..."'
         )
     return fact["id"]
+
+
+def _print_conflicts(memory: Memory, fact: dict, moment, skip: set) -> None:
+    """Name older facts that the new one may replace. The agent decides. Nothing ends here."""
+    is_merged = merged_checker(memory.project.root)
+    with contextlib.suppress(Exception):
+        memory.reload()
+        for old in possible_conflicts(memory, fact, moment, is_merged):
+            if old["id"] in skip:
+                continue
+            told = old.get("basis") == "told"
+            ask = " A person stated it, so ask before you end it." if told else ""
+            print(
+                f"check: {old['id']} is in the same area and may now be stale: "
+                f"{clean(load_text(old))}\nIf the new fact replaces it, run: memory change "
+                f'{old["id"]} --status superseded --superseded-by {fact["id"]} --reason "..."{ask}'
+            )
 
 
 def change_fact(memory: Memory, args) -> None:

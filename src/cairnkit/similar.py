@@ -14,7 +14,12 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import NamedTuple
 
+from cairnkit.state import effective_status
+
 NEAR = 0.8
+# Same area and this much overlap: 11 of 13 stale pairs and 0 false pairs on the fixture.
+# See docs/forgetting-tests.md. The fixture is hand-written, so this only prompts the agent.
+CONFLICT_OVERLAP = 0.25
 
 # Words that can reverse or change a fact. `don` and `t` come from "don't" split at the quote.
 NEGATIONS = {
@@ -95,3 +100,22 @@ def similar_pairs(words: dict[str, Words]) -> list[Pair]:
                         found.append(Pair(other, fid, score))
             index[word].append(fid)
     return found
+
+
+def possible_conflicts(memory, fact: dict, moment, is_merged) -> list[dict]:
+    """Active facts in the same area that share enough words to disagree. It only prompts."""
+    area = fact.get("area")
+    if not area or area == "general":
+        return []
+    words = analyze(fact["text"]).tokens
+    rows = []
+    for state in memory.states.values():
+        if state["id"] == fact["id"] or state.get("kind") == "rule" or state.get("area") != area:
+            continue
+        if effective_status(state, moment, is_merged)[0] != "active":
+            continue
+        score = overlap(words, analyze(str(state.get("text", ""))).tokens)
+        if score >= CONFLICT_OVERLAP:
+            rows.append((score, state))
+    rows.sort(key=lambda row: (-row[0], row[1]["id"]))
+    return [state for _, state in rows[:3]]

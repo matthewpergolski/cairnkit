@@ -4,22 +4,20 @@ State lives in `<memory>/.loop-breaker.json`: last command + fail streak.
 A success or a different command resets the streak. On the third identical
 failure the hook returns a short nudge: stop, check memory, or ask.
 
-Harness coverage (wired where the adapter schema allows):
+Each agent reports a failure in its own way (checked against its public docs):
 
-- Cursor: `afterShellExecution` → `memory hook after-shell --agent cursor`.
-- Claude: `PostToolUse` → `memory hook after-shell --agent claude` (Bash/shell
-  tool results; other tools are ignored when no command/exit is present).
-- Codex: same NestedAdapter `PostToolUse` shape as Claude.
-- Gap: the generic agent has no after-shell / PostToolUse hook surface, so
-  the loop breaker does not run there (stop reminder only).
-- Gap: OpenCode, Pi, and Grok Build have no hook adapter, so they cannot
-  observe a command failure. Stop still shows the nudge when something else
-  recorded the streak.
+- Claude Code: `PostToolUse` fires only on success. `PostToolUseFailure` fires on a failure.
+- Cursor: `postToolUseFailure` fires on a failure. `afterShellExecution` has no exit code, so
+  it says nothing about the outcome.
+- Codex: `PostToolUse` fires for each result. The exit code is in the text of the result.
+- Gap: a generic agent, or any agent with no hook adapter, cannot report a command. Stop still
+  shows a recorded streak.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from cairnkit.memory import Memory
@@ -73,43 +71,45 @@ def observe(memory: Memory, command: str, *, ok: bool) -> str | None:
         return None
 
 
-def command_from_payload(payload: dict) -> tuple[str, bool] | None:
-    """Extract (command, ok) from a Cursor afterShell / Claude PostToolUse payload.
+EXIT_TEXT = re.compile(r"(?i)exit(?:ed)?(?: with)?(?: code)?[: ]+(-?\d+)")
 
-    Returns None when the payload is not a shell/tool failure signal we understand.
-    """
+
+def command_from_payload(payload: dict) -> tuple[str, bool] | None:
+    """Extract (command, ok) from a hook payload. Return None when the outcome is not known."""
     if not isinstance(payload, dict):
         return None
-    command = (
+    shell = (
         payload.get("command")
         or payload.get("cmd")
         or (payload.get("tool_input") or {}).get("command")
         or (payload.get("input") or {}).get("command")
-        or payload.get("tool_name")
         or ""
     )
-    if not command and payload.get("tool_name"):
-        command = str(payload.get("tool_name"))
-    command = normalize_command(command)
+    command = normalize_command(shell or payload.get("tool_name") or "")
     if not command:
         return None
+    event = str(payload.get("hook_event_name") or "")
+    if event in ("PostToolUseFailure", "postToolUseFailure"):
+        return None if payload.get("is_interrupt") else (command, False)
     if "exit_code" in payload:
-        ok = int(payload.get("exit_code") or 0) == 0
-        return command, ok
+        return command, int(payload.get("exit_code") or 0) == 0
     status = str(payload.get("status") or payload.get("tool_response_status") or "").lower()
     if status in ("error", "failed", "failure"):
         return command, False
     if status in ("success", "ok", "completed"):
         return command, True
-    # Claude PostToolUse often nests the result.
     result = payload.get("tool_response") or payload.get("result") or ""
-    if isinstance(result, dict):
-        if "exit_code" in result:
-            return command, int(result.get("exit_code") or 0) == 0
-        err = result.get("error") or result.get("stderr")
-        if err:
-            return command, False
+    if isinstance(result, dict) and "exit_code" in result:
+        return command, int(result.get("exit_code") or 0) == 0
+    if isinstance(result, dict) and result.get("error"):
+        return command, False
     if payload.get("error"):
         return command, False
-    # Unknown outcome: ignore rather than false-positive.
+    if isinstance(result, str):
+        found = EXIT_TEXT.search(result[:400])
+        if found:
+            return command, int(found.group(1)) == 0
+    # A success from another tool must not reset the streak of the failing command.
+    if event == "PostToolUse" and shell and isinstance(result, dict):
+        return command, True
     return None

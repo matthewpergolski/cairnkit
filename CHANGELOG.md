@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
 - Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
 
+### Added
+
+- The session hears about events by name: a command that failed and then passed, a command that
+  still fails, and a revert. The tool writes no fact for them.
+- `memory add` names an older fact in the same area that may now be stale. It ends nothing.
+- A running session hears about facts from other branches, about auto-tidy changes, and about
+  stored facts that match files it changed later (`UserPromptSubmit`, and after each tool).
+
 ### Changed
 
 - `--short` ends with its branch, or when an agent ends it. The clock alone ends nothing.
@@ -26,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Claude Code and Cursor failures now reach the loop breaker through their failure events. Before
+  this, a Claude Code failure never reached it, and text on stderr could read as a failure.
+- Codex reloads the memory after a compaction. Cursor hears about a compaction at its next stop.
 - A problem in the memory no longer stops a commit. The pre-commit hook refuses only
   private memory paths.
 - `--until-merged` keeps a note open while a remote copy of its branch exists, and it

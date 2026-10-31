@@ -62,9 +62,17 @@ class Adapter:
 class NestedAdapter(Adapter):
     """Claude Code and Codex: hooks -> Event -> [ {matcher, hooks: [handler]} ]."""
 
-    def __init__(self, name: str, rel: str, start_matcher: str, shared: tuple[str, ...] = ()):
+    def __init__(
+        self,
+        name: str,
+        rel: str,
+        start_matcher: str,
+        shared: tuple[str, ...] = (),
+        failure_events: tuple[str, ...] = (),
+    ):
         super().__init__(name, rel, shared)
         self.start_matcher = start_matcher
+        self.failure_events = failure_events
 
     def _groups(self) -> dict[str, dict]:
         start = {"type": "command", "command": hook_command("session-start", self.name)}
@@ -80,6 +88,16 @@ class NestedAdapter(Adapter):
             # Loop breaker: shell/tool failures. Matcher left open so Bash and
             # similar tools are included; the hook ignores non-command payloads.
             "PostToolUse": {"hooks": [after]},
+            "UserPromptSubmit": {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": hook_command("prompt", self.name),
+                        "timeout": 5,
+                    }
+                ]
+            },
+            **{event: {"hooks": [after]} for event in self.failure_events},
         }
 
     def remove(self, data: dict) -> dict:
@@ -136,6 +154,12 @@ class CursorAdapter(Adapter):
         hooks.setdefault("afterShellExecution", []).append(
             {"command": hook_command("after-shell", "cursor"), "timeout": 5}
         )
+        hooks.setdefault("postToolUseFailure", []).append(
+            {"command": hook_command("after-shell", "cursor"), "timeout": 5}
+        )
+        hooks.setdefault("preCompact", []).append(
+            {"command": hook_command("pre-compact", "cursor"), "timeout": 5}
+        )
         return data
 
 
@@ -145,8 +169,9 @@ ADAPTERS: dict[str, Adapter] = {
         ".claude/settings.local.json",
         "startup|resume|clear|compact",
         shared=(".claude/settings.json",),
+        failure_events=("PostToolUseFailure",),
     ),
-    "codex": NestedAdapter("codex", ".codex/hooks.json", "startup|resume"),
+    "codex": NestedAdapter("codex", ".codex/hooks.json", "startup|resume|clear|compact"),
     "cursor": CursorAdapter("cursor", ".cursor/hooks.json"),
 }
 BINARIES = {"claude": "claude", "codex": "codex", "cursor": "cursor-agent"}

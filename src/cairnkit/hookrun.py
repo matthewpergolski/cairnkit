@@ -14,14 +14,21 @@ import json
 import signal
 import sys
 
-from cairnkit import autotidy, followups, legacy, loopbreak, skills, usage
+from cairnkit import autotidy, followups, legacy, loopbreak, signals, skills, usage
 from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
-from cairnkit.session import needs_reminder, reminder_text, start_session
+from cairnkit.session import (
+    mark_compacted,
+    mark_loaded,
+    needs_reminder,
+    reminder_hint,
+    reminder_text,
+    start_session,
+)
 
 NOTE_IDS = 10
 # Agents that need a JSON empty object when memory exists but there is nothing to say.
@@ -176,7 +183,11 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
         run_load(project, flag, None, 600, agent=agent, record=True)
     text = note + buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
     with contextlib.suppress(Exception):  # the session must start anyway
-        start_session(Memory.open(project, flag), session_key(payload))
+        memory = Memory.open(project, flag)
+        key = session_key(payload)
+        if payload.get("source") != "compact":  # a compaction is the same session
+            start_session(memory, key)
+        mark_loaded(memory, key, text)
     if agent == "cursor":
         print(json.dumps({"additional_context": text}))
     else:
@@ -212,7 +223,18 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
             nudge = loop_nudge(memory)
             if nudge:
                 parts.append(nudge)
-        if needs_reminder(memory, session_key(payload)):
+        key = session_key(payload)
+        with contextlib.suppress(Exception):
+            line = signals.news(memory, key)
+            if line:
+                parts.append(line)
+        events: list[str] = []
+        with contextlib.suppress(Exception):
+            events = signals.session_events(memory, key)
+        if events:
+            shown = "\n".join(f"- {event}" for event in events)
+            parts.append(f"This session:\n{shown}\n{reminder_hint()}")
+        elif needs_reminder(memory, key):
             parts.append(reminder_text(memory))
     return "\n\n".join(parts) or None
 
@@ -282,27 +304,63 @@ def post_checkout(project: Project, flag: str | None) -> int:
     return 0
 
 
+def _context(agent: str, payload: dict, text: str) -> None:
+    """Add text to the agent's context in the form that its hook reads."""
+    event = str(payload.get("hook_event_name") or "")
+    if agent == "cursor":
+        print(json.dumps({"additional_context": text, "followup_message": text}))
+    elif agent in ("claude", "codex") and event:
+        print(
+            json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}})
+        )
+    elif agent in ("claude", "codex"):
+        print(json.dumps({"decision": "block", "reason": text}))
+    else:
+        print(text, file=sys.stderr)
+
+
 def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
-    """Loop breaker after a shell/tool run. Always exits 0. Agent-shaped nudge."""
+    """After a tool ran: count the outcome, and say what changed. Always exits 0."""
     if not has_memory(project, flag):
         return 0
-    nudge = None
+    parts = []
     with contextlib.suppress(Exception):
+        memory = Memory.open(project, flag)
+        key = session_key(payload)
         parsed = loopbreak.command_from_payload(payload)
         if parsed is not None:
             command, ok = parsed
-            nudge = loopbreak.observe(Memory.open(project, flag), command, ok=ok)
-    if not nudge:
+            nudge = loopbreak.observe(memory, command, ok=ok)
+            if nudge:
+                parts.append(nudge)
+            signals.note_command(memory, key, loopbreak.normalize_command(command), ok)
+        line = signals.news(memory, key)
+        if line:
+            parts.append(line)
+    if not parts:
         if agent in JSON_NEUTRAL:
             print("{}")
         return 0
-    if agent in ("claude", "codex"):
-        print(json.dumps({"decision": "block", "reason": nudge}))
+    _context(agent, payload, "\n\n".join(parts))
+    return 0
+
+
+def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int:
+    """Before a prompt: say what changed in the memory or the work. Always exits 0."""
+    if not has_memory(project, flag):
         return 0
-    if agent == "cursor":
-        print(json.dumps({"followup_message": nudge}))
-        return 0
-    print(nudge, file=sys.stderr)
+    with contextlib.suppress(Exception):
+        line = signals.news(Memory.open(project, flag), session_key(payload))
+        if line:
+            print(line)
+    return 0
+
+
+def pre_compact(project: Project, flag: str | None, payload: dict) -> int:
+    """A tool with no reload after a compaction hears about it at its next stop."""
+    with contextlib.suppress(Exception):
+        if has_memory(project, flag):
+            mark_compacted(Memory.open(project, flag), session_key(payload))
     return 0
 
 
@@ -318,4 +376,8 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
         return session_start(project, flag, agent, payload)
     if event in ("after-shell", "post-tool"):
         return after_shell(project, flag, agent, payload)
+    if event == "prompt":
+        return prompt(project, flag, agent, payload)
+    if event == "pre-compact":
+        return pre_compact(project, flag, payload)
     return stop(project, flag, agent, payload)
