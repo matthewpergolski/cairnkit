@@ -615,6 +615,58 @@ def change_lines(source: Source, old: str | None, new: str | None) -> list[str]:
     return [url] if url else []
 
 
+_CHANGELOG_HEADING = re.compile(r"^## \[([^\]]+)\]")
+
+
+def _plain_version(text: str) -> str:
+    token = text.strip()
+    if len(token) > 1 and token[0] in "vV" and token[1].isdigit():
+        return token[1:]
+    return token
+
+
+def _notes_apply(old: str, new: str) -> bool:
+    """False when both versions parse and old is not strictly behind new."""
+    old_ver = _plain_version(old)
+    if not old_ver or is_behind(old_ver, new):
+        return True
+    return not (old_ver == new or is_behind(new, old_ver))
+
+
+def release_notes(text_or_path: str | Path, old: str | None, new: str | None) -> list[str]:
+    """Lines of the Keep a Changelog section for new.
+
+    Empty when that section is missing, when new is blank, or when old is a
+    version that is not older than new. Unreleased is never returned.
+    """
+    if new is None or not str(new).strip():
+        return []
+    new_ver = _plain_version(str(new))
+    if not new_ver or new_ver.lower() == "unreleased":
+        return []
+    if old is not None and not _notes_apply(str(old), new_ver):
+        return []
+    if isinstance(text_or_path, Path):
+        try:
+            text = text_or_path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+    else:
+        text = text_or_path
+    lines: list[str] = []
+    capture = False
+    for raw in text.splitlines():
+        heading = _CHANGELOG_HEADING.match(raw.strip())
+        if heading:
+            if capture:
+                break
+            capture = _plain_version(heading.group(1)) == new_ver
+            continue
+        if capture and raw.strip():
+            lines.append(raw.rstrip())
+    return lines
+
+
 # --- the cached check for the session start -------------------------------------------
 
 
