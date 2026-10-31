@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `memory update` on a git URL detects a newer tagged release when no install
-  commit is recorded (reads the version from a `vX.Y.Z` tag at HEAD).
+  commit is recorded (reads a `vX.Y.Z` tag at HEAD, else the highest remote
+  release tag).
 
 ### Changed
 
