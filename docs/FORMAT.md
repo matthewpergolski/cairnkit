@@ -458,11 +458,14 @@ the memory folder.
   file is missing.
 
 ```json
-{"source": "git+https://github.com/matthewpergolski/cairnkit", "commit": "<40 hex>", "version": "0.2.0", "installed_at": "2026-10-25T09:00:00+00:00"}
+{"source": "git+https://github.com/matthewpergolski/cairnkit@v0.2.0", "commit": "<40 hex>", "version": "0.2.0", "installed_at": "2026-10-25T09:00:00+00:00"}
 ```
 
-The record counts only when its source is the current source and its version
-is the running version.
+When the update found a release tag, `source` is `git+<url>@<tag>`. When the
+remote has no release tag, `source` is `git+<url>` with no tag. The record
+counts only when its source is the current source and its version is the
+running version. Parsing the record and parsing the current source give the
+same source. A pin on the uv receipt does not make them different.
 
 The user cache is `$XDG_CACHE_HOME/cairnkit`, else `~/.cache/cairnkit`:
 

@@ -231,7 +231,7 @@ def test_git_latest_reads_version_from_tag_at_head(monkeypatch):
 
 
 def test_git_latest_uses_highest_remote_tag_when_head_has_none(monkeypatch):
-    """After HEAD moves past a release tag, still expose the highest remote release version."""
+    """When HEAD has no release tag, the checked commit is the highest release tag."""
     head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     tagged = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     tags = (
@@ -252,13 +252,26 @@ def test_git_latest_uses_highest_remote_tag_when_head_has_none(monkeypatch):
     found = install_source.latest(
         install_source.Source("https://github.com/example/cairnkit", "git")
     )
-    assert found.commit == head
+    assert found.commit == tagged
     assert found.version == "0.3.0"
+    assert found.release.name == "v0.3.0"
+    assert found.release.commit == tagged
     source = install_source.Source("https://github.com/example/cairnkit", "git")
     assert install_source.is_newer(source, "0.2.0", None, found)
     assert not install_source.is_newer(source, "0.3.0", None, found)
-    # Recorded install commit still drives commit compare when versions match.
-    assert install_source.is_newer(source, "0.3.0", tagged, found)
+    assert not install_source.is_newer(source, "0.3.0", tagged, found)
+
+
+def test_git_url_does_not_roll_back_to_an_older_release_tag():
+    """Installed 0.3.1 must not treat a remote v0.3.0 tag as an update."""
+    source = install_source.Source("https://github.com/example/cairnkit", "git")
+    older = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    newer = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    found = install_source.Latest(older, "0.3.0", install_source.Release("v0.3.0", "0.3.0", older))
+    assert not install_source.is_newer(source, "0.3.1", newer, found)
+    assert install_source.is_newer(source, "0.2.0", newer, found)
+    same = install_source.Latest(older, "0.3.1", install_source.Release("v0.3.1", "0.3.1", older))
+    assert install_source.is_newer(source, "0.3.1", newer, same)
 
 
 def test_git_url_no_recorded_commit_detects_newer_when_head_untagged(machine, monkeypatch, capsys):
@@ -867,3 +880,396 @@ def test_a_commit_deeper_than_the_fallback_says_so(machine, monkeypatch, capsys)
     assert f"is not in the last {update.FALLBACK_DEPTH} commits of any branch" in err
     assert "Fix: Run `memory update` again. It checks the remote again" in err
     assert not any(c.startswith(("build", "tool install")) for c in machine.uv_calls())
+
+
+CLEAN = "https://github.com/example/cairnkit"
+PIN_SHA = "0123456789abcdef0123456789abcdef01234567"
+RELEASE_SHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+
+def _pin(source):
+    return getattr(source, "pin", "MISSING")
+
+
+@pytest.mark.parametrize(
+    ("raw", "clean", "pin"),
+    [
+        (f"git+{CLEAN}?rev=v0.3.0", CLEAN, "v0.3.0"),
+        (f"git+{CLEAN}?rev={PIN_SHA}", CLEAN, PIN_SHA),
+        (f"git+{CLEAN}#{PIN_SHA}", CLEAN, PIN_SHA),
+        (f"git+{CLEAN}@v0.3.0", CLEAN, "v0.3.0"),
+        (f"git+{CLEAN}?rev=v0.3.0#{PIN_SHA}", CLEAN, "v0.3.0"),
+        (f"git+{CLEAN}", CLEAN, None),
+        ("git@github.com:example/cairnkit.git", "git@github.com:example/cairnkit.git", None),
+        (
+            "git@github.com:example/cairnkit.git@v0.3.0",
+            "git@github.com:example/cairnkit.git",
+            "v0.3.0",
+        ),
+        (
+            "ssh://git@github.com/example/cairnkit.git@v0.3.0",
+            "ssh://git@github.com/example/cairnkit.git",
+            "v0.3.0",
+        ),
+        (
+            "https://user:token@github.com/example/cairnkit.git",
+            "https://user:token@github.com/example/cairnkit.git",
+            None,
+        ),
+        ("git+file:///bare.git?rev=v0.1.0", "file:///bare.git", "v0.1.0"),
+        ("file:///work/foo@bar/bare.git", "file:///work/foo@bar/bare.git", None),
+        ("file:///work/bare.git@feature/foo", "file:///work/bare.git", "feature/foo"),
+        (
+            "https://github.com/example/repo.git@my.git.branch",
+            "https://github.com/example/repo.git",
+            "my.git.branch",
+        ),
+        (
+            "git@github.com:example/cairnkit.git@release.git",
+            "git@github.com:example/cairnkit.git",
+            "release.git",
+        ),
+        (
+            "git@github.com:example/cairnkit.git?rev=v0.3.0",
+            "git@github.com:example/cairnkit.git",
+            "v0.3.0",
+        ),
+        (
+            "git@github.com:example/cairnkit.git#abcdef0123456789",
+            "git@github.com:example/cairnkit.git",
+            "abcdef0123456789",
+        ),
+        (
+            "git@github.com:example/cairnkit.git@v0.3.0?rev=other",
+            "git@github.com:example/cairnkit.git",
+            "other",
+        ),
+        (
+            "https://github.com/example/cairnkit@feature/foo",
+            "https://github.com/example/cairnkit",
+            "feature/foo",
+        ),
+        (
+            "git@github.com:example/cairnkit@feature/foo",
+            "git@github.com:example/cairnkit",
+            "feature/foo",
+        ),
+        (
+            "https://user:p?ss@github.com/example/cairnkit.git",
+            "https://user:p?ss@github.com/example/cairnkit.git",
+            None,
+        ),
+        (
+            "https://user:p#ss@github.com/example/cairnkit.git",
+            "https://user:p#ss@github.com/example/cairnkit.git",
+            None,
+        ),
+        (
+            "https://user:p?ss@github.com/example/cairnkit.git?rev=v0.3.0",
+            "https://user:p?ss@github.com/example/cairnkit.git",
+            "v0.3.0",
+        ),
+        (f"git+{CLEAN}#egg=cairnkit", CLEAN, None),
+        (f"git+{CLEAN}#subdirectory=src", CLEAN, None),
+        (f"git+{CLEAN}?rev=v0.3.0&subdirectory=src", CLEAN, "v0.3.0"),
+        (f"git+{CLEAN}?tag=1.0&rev=v0.3.0", CLEAN, "v0.3.0"),
+    ],
+)
+def test_pin_forms_share_one_clean_remote(raw, clean, pin):
+    source = install_source.parse(raw)
+    assert source.spec == clean
+    # No pin left on the remote. ?/# may remain only inside userinfo.
+    assert install_source._split_vcs(source.spec) == (source.spec, None)
+    assert _pin(source) == pin
+    if pin:
+        assert source.label == f"{clean} @ {pin} (git)"
+    else:
+        assert source.label == f"{clean} (git)"
+    assert source == install_source.parse(clean)
+    assert install_source.install_spec(source, None) == f"git+{clean}"
+    release = install_source.Release("v0.3.1", "0.3.1", RELEASE_SHA)
+    tagged = install_source.install_spec(source, release)
+    assert tagged == f"git+{clean}@v0.3.1"
+    if pin and pin != "v0.3.1":
+        assert pin not in tagged
+    assert install_source.parse(tagged) == source
+    assert install_source.parse(install_source.install_spec(source, None)) == source
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        f"git+{CLEAN}?rev=v0.3.0",
+        f"git+{CLEAN}#{PIN_SHA}",
+        f"git+{CLEAN}@v0.3.0",
+    ],
+)
+def test_git_argv_gets_the_clean_remote(monkeypatch, raw):
+    calls: list[list[str]] = []
+
+    def fake_git(args, timeout=3.0):
+        calls.append(list(args))
+        if "--tags" in args:
+            return f"{RELEASE_SHA}\trefs/tags/v0.3.1\n"
+        if "HEAD" in args:
+            return f"{'a' * 40}\tHEAD"
+        return ""
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(install_source.parse(raw))
+    assert calls
+    for args in calls:
+        for arg in args:
+            assert "?" not in arg and "#" not in arg, args
+            if "://" in arg or arg.startswith("git@"):
+                assert arg == CLEAN, args
+    assert any("--tags" in arg for args in calls for arg in args)
+    assert found.commit == RELEASE_SHA
+    assert found.release.name == "v0.3.1"
+
+
+def test_annotated_tag_uses_the_peeled_commit(monkeypatch):
+    tag_object = "d" * 40
+    commit = "e" * 40
+    tags = f"{tag_object}\trefs/tags/v0.3.1\n{commit}\trefs/tags/v0.3.1^{{}}\n"
+
+    def fake_git(args, timeout=3.0):
+        if "--tags" in args:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(install_source.parse(f"git+{CLEAN}"))
+    assert found.commit == commit
+    assert found.release.name == "v0.3.1"
+    assert found.version == "0.3.1"
+
+
+def test_tied_numeric_tags_keep_the_v_name(monkeypatch):
+    sha = "c" * 40
+    tags = f"{sha}\trefs/tags/0.3.1\n{sha}\trefs/tags/v0.3.1\n"
+
+    def fake_git(args, timeout=3.0):
+        if "--tags" in args:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(install_source.parse(f"git+{CLEAN}?rev=v0.3.0"))
+    assert found.release.name == "v0.3.1"
+    assert found.commit == sha
+    assert install_source.install_spec(
+        install_source.parse(f"git+{CLEAN}?rev=v0.3.0"), found.release
+    ) == (f"git+{CLEAN}@v0.3.1")
+
+
+def test_git_allows_question_mark_inside_userinfo(monkeypatch):
+    """A ? or # in the password is userinfo, not a pin. Git still gets that remote."""
+    remote = "https://user:p?ss@github.com/example/cairnkit.git"
+    source = install_source.parse(f"git+{remote}")
+    assert source.spec == remote
+    assert _pin(source) is None
+    calls: list[list[str]] = []
+
+    def fake_git(args, timeout=3.0):
+        calls.append(list(args))
+        if "--tags" in args:
+            return f"{RELEASE_SHA}\trefs/tags/v0.3.1\n"
+        return ""
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(source)
+    assert found.commit == RELEASE_SHA
+    assert any(remote in args for args in calls)
+
+
+def test_release_tags_ignore_integer_and_four_part_names(monkeypatch):
+    """Only strict X.Y.Z / vX.Y.Z tags count. Date, one-part, and four-part do not."""
+    release = "b" * 40
+    other = "c" * 40
+    tags = (
+        f"{other}\trefs/tags/2024\n"
+        f"{other}\trefs/tags/v1\n"
+        f"{other}\trefs/tags/1\n"
+        f"{other}\trefs/tags/v0.3.0.0\n"
+        f"{other}\trefs/tags/nightly\n"
+        f"{release}\trefs/tags/v0.3.1\n"
+    )
+
+    def fake_git(args, timeout=3.0):
+        if "--tags" in args:
+            return tags
+        return None
+
+    monkeypatch.setattr(install_source, "git", fake_git)
+    found = install_source.latest(install_source.parse(f"git+{CLEAN}"))
+    assert found.release is not None
+    assert found.release.name == "v0.3.1"
+    assert found.version == "0.3.1"
+    assert found.commit == release
+
+
+def test_compare_link_uses_the_clean_repo(machine, monkeypatch, capsys):
+    old = "a" * 40
+    new = "b" * 40
+    (machine.env / "uv-receipt.toml").write_text(
+        "[tool]\n"
+        f'requirements = [{{ name = "cairnkit", git = "{CLEAN}?rev=v0.3.0" }}]\n'
+        f'entrypoints = [{{ name = "memory", install-path = "{machine.bin / "memory"}" }}]\n'
+    )
+    record = {"source": f"git+{CLEAN}", "commit": old, "version": "0.1.0"}
+    (machine.env / install_source.RECORD).write_text(json.dumps(record))
+    monkeypatch.setattr(
+        install_source,
+        "latest",
+        lambda source, timeout=3.0: install_source.Latest(new, "0.3.1"),
+    )
+    assert main(["update", "--check"]) == 0
+    out = capsys.readouterr().out
+    link = f"https://github.com/example/cairnkit/compare/{old[:7]}...{new[:7]}"
+    assert link in out
+    compare = next(line for line in out.splitlines() if "/compare/" in line)
+    assert "?" not in compare and "rev=" not in compare
+
+
+def test_dot_git_spelling_keeps_the_recorded_commit(machine, monkeypatch):
+    """Receipt without .git and record with .git are the same remote."""
+    commit = "a" * 40
+    write_git_receipt(machine, f"{CLEAN}?rev=v0.3.0")
+    record = {
+        "source": f"git+{CLEAN}.git@v0.3.0",
+        "commit": commit,
+        "version": "0.3.0",
+    }
+    (machine.env / install_source.RECORD).write_text(json.dumps(record))
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.3.0")
+    source, found = install_source.installed(None)
+    assert source is not None
+    assert source.spec == CLEAN
+    assert found == commit
+    with_dot = install_source.parse(f"git+{CLEAN}.git")
+    without = install_source.parse(f"git+{CLEAN}")
+    assert with_dot == without
+
+
+def test_cache_source_is_the_clean_url(machine, monkeypatch):
+    (machine.env / "uv-receipt.toml").write_text(
+        "[tool]\n"
+        f'requirements = [{{ name = "cairnkit", git = "{CLEAN}?rev=v0.3.0" }}]\n'
+        f'entrypoints = [{{ name = "memory", install-path = "{machine.bin / "memory"}" }}]\n'
+    )
+    monkeypatch.setattr(
+        install_source,
+        "latest",
+        lambda source, timeout=3.0: install_source.Latest("b" * 40, "0.3.1"),
+    )
+    assert main(["update", "--check"]) == 0
+    saved = json.loads(install_source._cache_path().read_text())
+    assert saved["source"] == CLEAN
+    assert saved["source"] == install_source.parse(f"git+{CLEAN}?rev=v0.3.0").spec
+
+
+def write_git_receipt(machine, git_value: str) -> None:
+    (machine.env / "uv-receipt.toml").write_text(
+        "[tool]\n"
+        f'requirements = [{{ name = "cairnkit", git = "{git_value}" }}]\n'
+        f'entrypoints = [{{ name = "memory", install-path = "{machine.bin / "memory"}" }}]\n'
+    )
+
+
+def make_release_bare(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """Bare repo: A tagged v0.1.0, B tagged v0.1.1, C untagged on main."""
+    work = tmp_path / "work"
+    work.mkdir()
+    git(work, "init", "-q", "-b", "main")
+    git(work, "config", "user.name", "Test")
+    git(work, "config", "user.email", "test@example.invalid")
+    (work / "pyproject.toml").write_text('[project]\nname = "cairnkit"\nversion = "0.1.0"\n')
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "A")
+    git(work, "tag", "v0.1.0")
+    (work / "pyproject.toml").write_text('[project]\nname = "cairnkit"\nversion = "0.1.1"\n')
+    (work / "only-on-b.txt").write_text("b\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "B")
+    git(work, "tag", "-a", "v0.1.1", "-m", "v0.1.1")
+    (work / "pyproject.toml").write_text('[project]\nname = "cairnkit"\nversion = "0.9.9"\n')
+    (work / "only-on-c.txt").write_text("c\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "C")
+    bare = tmp_path / "bare.git"
+    git(work, "clone", "--bare", "-q", str(work), str(bare))
+    return bare, {
+        "A": git(bare, "rev-parse", "v0.1.0^{}").strip(),
+        "B": git(bare, "rev-parse", "v0.1.1^{}").strip(),
+        "C": git(bare, "rev-parse", "HEAD").strip(),
+    }
+
+
+def test_tag_pinned_receipt_installs_the_newer_tag(machine, monkeypatch, capsys, tmp_path):
+    bare, shas = make_release_bare(tmp_path)
+    url = bare.as_uri()
+    write_git_receipt(machine, f"{url}?rev=v0.1.0")
+    monkeypatch.setenv("FAKE_NEW_VERSION", "0.1.1")
+    assert main(["update"]) == 0
+    out = capsys.readouterr().out
+    assert " @ v0.1.0" in out
+    assert "?rev=" not in out
+    built = (machine.log.parent / "uv.log.built").read_text().split()
+    assert "only-on-b.txt" in built
+    assert "only-on-c.txt" not in built
+    record = machine.record()
+    assert record["source"] == f"git+{url}@v0.1.1"
+    assert record["commit"] == shas["B"]
+    assert record["version"] == "0.1.1"
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.1.1")
+    capsys.readouterr()
+    assert main(["update"]) == 0
+    assert "Already up to date (0.1.1)." in capsys.readouterr().out
+
+
+def test_no_release_tag_records_a_clean_url(machine, capsys):
+    url = machine.source.as_uri()
+    write_git_receipt(machine, f"{url}?rev=main")
+    assert main(["update"]) == 0
+    record = machine.record()
+    assert record["source"] == f"git+{url}"
+    assert "@" not in record["source"]
+    assert "?" not in record["source"] and "#" not in record["source"]
+    assert record["commit"] == head(machine.source)
+    assert "?rev=" not in capsys.readouterr().out
+
+
+def _is_sha(text: str) -> bool:
+    return len(text) == 40 and all(char in "0123456789abcdef" for char in text)
+
+
+def test_sha_refusal_retries_the_tag_ref(machine, monkeypatch, capsys, tmp_path):
+    from cairnkit import update
+
+    bare, shas = make_release_bare(tmp_path)
+    url = bare.as_uri()
+    write_git_receipt(machine, f"{url}?rev=v0.1.0")
+    monkeypatch.setenv("FAKE_NEW_VERSION", "0.1.1")
+    runs: list[list[str]] = []
+    real_run = update._run
+
+    def run(argv, timeout=900):
+        runs.append(list(argv))
+        if "fetch" in argv and _is_sha(argv[-1]):
+            return 1, "fatal: remote error: upload-pack: not our ref"
+        return real_run(argv, timeout)
+
+    monkeypatch.setattr(update, "_run", run)
+    assert main(["update"]) == 0
+    fetches = [argv for argv in runs if "fetch" in argv]
+    assert fetches[0][-2:] == [url, shas["B"]]
+    assert fetches[1][-2:] == [url, "refs/tags/v0.1.1"]
+    for argv in fetches:
+        for arg in argv:
+            assert "?" not in arg and "#" not in arg
+    checkouts = [argv for argv in runs if "checkout" in argv]
+    assert checkouts and shas["B"] in checkouts[-1]
+    assert machine.record()["commit"] == shas["B"]
+    built = (machine.log.parent / "uv.log.built").read_text().split()
+    assert "only-on-b.txt" in built and "only-on-c.txt" not in built

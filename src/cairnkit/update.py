@@ -44,6 +44,8 @@ AFTER = "Each repo catches up when it is next used. Its session start says what 
 
 def _run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
     """Run a command with no input. git gets an environment where it cannot prompt."""
+    if argv and argv[0] == "git":
+        src.refuse_pinned_args(argv[1:])
     env = src.git_env() if argv[0] == "git" else None
     try:
         done = subprocess.run(
@@ -143,7 +145,10 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
         bar.say(f"Update available: {before} -> {after}." if newer else "No newer version.")
         if newer:
             _say_changes(bar, source, commit, found.commit)
-        if source.kind == "git":
+        if source.kind == "git" and found.release is not None and found.commit:
+            short = found.commit[:7]
+            fetch = f"git fetch {found.release.name} ({short}) from {source.spec}"
+        elif source.kind == "git":
             fetch = f"git fetch {found.commit[:7]} from {source.spec}"
         elif src.is_git_folder(Path(source.spec)):
             fetch = f"git archive {found.commit[:7]} from {source.spec}"
@@ -160,9 +165,9 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
     with tempfile.TemporaryDirectory(prefix="memory-update-") as tmp:
         folder, found = _fetch(bar, source, found, Path(tmp))
         wheel = _build(bar, uv, folder, Path(tmp))
-        _install(bar, uv, source, wheel)
+        _install(bar, uv, source, wheel, found.release)
         new = _verify(bar, source, found)
-        src.write_record(source, found.commit, new)
+        src.write_record(source, found.commit, new, found.release)
         src.save_check(source, new, found.commit, found, False)
     arrow = "→" if bar.live else "->"
     short = f" ({found.commit[:7]})" if found.commit else ""
@@ -176,7 +181,7 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
             f"The old tool {src.OLD_PACKAGE} is still installed. The hooks of repos that used "
             "it still run it. In each such repo, run `memory init --refresh` first. Then "
             f"remove the old tool: `uv tool uninstall {src.OLD_PACKAGE}`, then "
-            f"`uv tool install --force --reinstall {source.install_spec}`."
+            f"`uv tool install --force --reinstall {src.install_spec(source, found.release)}`."
         )
     return 0
 
@@ -237,20 +242,25 @@ def _fetch(bar: Progress, source, found: Latest, tmp: Path) -> tuple[Path, Lates
     bar.start("Fetch")
     folder = tmp / "source"
     if source.kind == "git":
-        # Fetch just the checked commit. Only a server that refuses a fetch by commit
-        # id gets a bounded fetch of its branches; any other failure stops here.
+        # Fetch the checked commit by id. A server that refuses that id is asked
+        # for the release tag, then for the last commits of each branch.
+        # Any other failure stops here.
+        remote = source.spec
         code, out = _run(["git", "init", "--quiet", str(folder)], 60)
         fetch = ["git", "-C", str(folder), "fetch", "--quiet"]
         bounded = False
         if not code:
-            code, out = _run([*fetch, "--depth", "1", source.spec, str(found.commit)], 300)
+            code, out = _run([*fetch, "--depth", "1", remote, str(found.commit)], 300)
+            if code and refuses_commit_id(out) and found.release is not None:
+                tag_ref = f"refs/tags/{found.release.name}"
+                code, out = _run([*fetch, "--depth", "1", remote, tag_ref], 300)
             if code and refuses_commit_id(out):
                 bounded = True
                 depth = ["--depth", str(FALLBACK_DEPTH)]
-                code, out = _run([*fetch, *depth, source.spec, BRANCHES], 300)
+                code, out = _run([*fetch, *depth, remote, BRANCHES], 300)
         if code:
             raise SourceError(
-                f"Could not fetch {source.spec}.{_tail(out)}",
+                f"Could not fetch {remote}.{_tail(out)}",
                 "Check the network and the URL. Then run `memory update` again.",
             )
         checkout = ["git", "-C", str(folder), "checkout", "--quiet", "--detach", str(found.commit)]
@@ -292,7 +302,8 @@ def _fetch(bar: Progress, source, found: Latest, tmp: Path) -> tuple[Path, Lates
             shutil.copyfile(Path(source.spec) / rel, folder / rel)
         found = Latest(src.content_id(folder), None)
     bar.done()
-    return folder, Latest(found.commit, src.folder_version(folder))
+    version = src.folder_version(folder) or found.version
+    return folder, Latest(found.commit, version, found.release)
 
 
 def _build(bar: Progress, uv: str, folder: Path, tmp: Path) -> Path:
@@ -325,7 +336,7 @@ def _in_use(folder: Path) -> bool:
     return str(folder) in text or folder.as_uri() in text
 
 
-def _install(bar: Progress, uv: str, source, wheel: Path) -> None:
+def _install(bar: Progress, uv: str, source, wheel: Path, release) -> None:
     """Install the built wheel. Keep it, so that the uv receipt points to a file.
 
     Each try gets its own folder. The wheel of the current install stays until
@@ -343,8 +354,8 @@ def _install(bar: Progress, uv: str, source, wheel: Path) -> None:
         shutil.rmtree(attempt, ignore_errors=True)
         raise SourceError(
             f"uv could not install memory.{_tail(out)}",
-            f"Run `uv tool install --force --reinstall {source.install_spec}` to see the whole "
-            "error.",
+            "Run `uv tool install --force --reinstall "
+            f"{src.install_spec(source, release)}` to see the whole error.",
         )
     for old in kept_dir.iterdir():
         # Another update may have finished in between: keep what the receipt names.
@@ -360,7 +371,7 @@ def _install(bar: Progress, uv: str, source, wheel: Path) -> None:
 def _verify(bar: Progress, source, found: Latest) -> str:
     bar.start("Verify")
     entry = src.entrypoint()
-    reinstall = f"uv tool install --force --reinstall {source.install_spec}"
+    reinstall = f"uv tool install --force --reinstall {src.install_spec(source, found.release)}"
     if entry is None:
         raise SourceError(
             "The new memory command was not found.",

@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory update` on a git URL detects a newer tagged release when no install
   commit is recorded (reads a `vX.Y.Z` tag at HEAD, else the highest remote
   release tag) (#19).
+- `memory update` strips a uv git pin (`?rev=`, `#<commit>`, or `@ref`),
+  lists the clean remote, installs the newest release tag, and records
+  `git+<url>@<tag>`. With no release tag it installs `HEAD` and records the
+  clean URL. An older remote tag is not treated as an update. Only strict
+  `X.Y.Z` / `vX.Y.Z` tags count. A trailing `.git` on the record does not
+  drop the recorded commit (#21).
+
+### Upgrade
+
+- Installs still on 0.3.0: run
+  `uv tool install --force git+https://github.com/matthewpergolski/cairnkit@v0.3.1`
+  once. After that, `memory update` works.
 
 ## [0.3.0] - 2026-10-30
 

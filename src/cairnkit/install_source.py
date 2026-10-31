@@ -16,10 +16,10 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qsl, unquote, urlparse, urlsplit, urlunsplit
 
 from cairnkit import __version__
 from cairnkit.clock import now, parse_time, stamp
@@ -48,24 +48,66 @@ class SourceError(Exception):
 
 
 @dataclass(frozen=True)
+class Release:
+    name: str
+    version: str
+    commit: str
+
+
+def _git_key(spec: str) -> str:
+    """Compare git remotes without a trailing ``.git`` spelling difference."""
+    return spec[:-4] if spec.lower().endswith(".git") else spec
+
+
+@dataclass(frozen=True)
 class Source:
+    """A folder path, or a git remote with the receipt pin parsed off.
+
+    ``pin`` is only for ``label``. Equality ignores it and a trailing ``.git``,
+    so a receipt pin and a recorded tag on the same remote are the same source.
+    """
+
     spec: str  # an absolute folder path, or a git URL without the git+ prefix
     kind: str  # "folder" or "git"
     editable: bool = False
+    pin: str | None = field(default=None, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("folder", "git"):
+            raise ValueError(f"kind must be folder or git, not {self.kind!r}")
+        if self.kind != "git":
+            return
+        clean, pin = _split_vcs(self.spec)
+        if not self.spec or clean != self.spec or pin is not None:
+            raise ValueError(f"git spec must be a clean remote, not {self.spec!r}")
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Source):
+            return NotImplemented
+        if self.kind != other.kind or self.editable != other.editable:
+            return False
+        if self.kind == "git":
+            return _git_key(self.spec) == _git_key(other.spec)
+        return self.spec == other.spec
+
+    def __hash__(self) -> int:
+        spec = _git_key(self.spec) if self.kind == "git" else self.spec
+        return hash((self.kind, self.editable, spec))
 
     @property
     def label(self) -> str:
+        if self.pin:
+            return f"{self.spec} @ {self.pin} ({self.kind})"
         return f"{self.spec} ({self.kind})"
-
-    @property
-    def install_spec(self) -> str:
-        return self.spec if self.kind == "folder" else f"git+{self.spec}"
 
 
 @dataclass(frozen=True)
 class Latest:
+    """What the check found. ``release`` stays after fetch replaces ``version``."""
+
     commit: str | None
     version: str | None
+    release: Release | None = None
 
 
 # --- the machine: stubbed in tests ----------------------------------------------------
@@ -97,7 +139,11 @@ def git_env() -> dict[str, str]:
 
 
 def git(args: list[str], timeout: float = 3.0) -> str | None:
-    """Stdout of a git command, or None when it fails."""
+    """Stdout of a git command, or None when it fails.
+
+    Empty stdout on exit 0 stays ``""``. A failed command is ``None``.
+    """
+    refuse_pinned_args(args)
     try:
         done = subprocess.run(
             ["git", *args],
@@ -128,13 +174,150 @@ def spawn_check() -> None:
 # --- the source -----------------------------------------------------------------------
 
 
+def _query_pin(query: str) -> str | None:
+    found = {key: value for key, value in parse_qsl(query, keep_blank_values=True)}
+    for key in ("rev", "tag", "branch"):
+        value = found.get(key)
+        if value:
+            return value
+    return None
+
+
+def _path_at_pin(path: str) -> tuple[str, str | None]:
+    """Strip a trailing ``@ref`` from a URL path. Keep ``foo@bar/bare.git`` whole.
+
+    A pin follows a path that already ends in ``.git``, even when the ref itself
+    contains ``.git``. A ``@ref`` that is not a ``dir@…/.git`` directory path
+    is also a pin, including ``@feature/foo``.
+    """
+    if "@" not in path:
+        return path, None
+    before, after = path.rsplit("@", 1)
+    if not after:
+        return path, None
+    if before.lower().endswith(".git"):
+        return before, after
+    # ``…/foo@bar/bare.git`` is a directory name, not a pin.
+    if "/" in after and after.lower().endswith(".git"):
+        return path, None
+    return before, after
+
+
+def _protect_userinfo(url: str) -> str:
+    """Percent-encode ``?`` and ``#`` in userinfo so urlsplit keeps the authority."""
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return url
+    slash = rest.find("/")
+    authority = rest if slash < 0 else rest[:slash]
+    tail = "" if slash < 0 else rest[slash:]
+    if "@" not in authority:
+        return url
+    userinfo, _, hostport = authority.rpartition("@")
+    safe = userinfo.replace("?", "%3F").replace("#", "%23")
+    return f"{scheme}://{safe}@{hostport}{tail}"
+
+
+def _restore_userinfo(netloc: str) -> str:
+    """Undo only the userinfo escapes added by ``_protect_userinfo``."""
+    if "@" not in netloc:
+        return netloc
+    userinfo, _, hostport = netloc.rpartition("@")
+    userinfo = userinfo.replace("%3F", "?").replace("%23", "#")
+    return f"{userinfo}@{hostport}"
+
+
+def _split_scp(text: str) -> tuple[str, str | None]:
+    """Split ``git@host:path`` pins without treating the user ``@`` as a pin."""
+    colon = text.find(":")
+    if colon < 0:
+        return text, None
+    head, rest = text[: colon + 1], text[colon + 1 :]
+    fragment = ""
+    if "#" in rest:
+        rest, fragment = rest.split("#", 1)
+    query_pin = None
+    if "?" in rest:
+        rest, query = rest.split("?", 1)
+        query_pin = _query_pin(query)
+    rest, path_pin = _path_at_pin(rest)
+    if query_pin:
+        pin = query_pin
+    elif path_pin:
+        pin = path_pin
+    elif fragment and "=" not in fragment:
+        pin = unquote(fragment)
+    else:
+        pin = None
+    return head + rest, pin
+
+
+def _split_vcs(text: str) -> tuple[str, str | None]:
+    """Split a remote that has no ``git+`` prefix into ``(clean URL, pin)``.
+
+    Query ``rev``, then ``tag``, then ``branch`` wins. Else a path ``@ref``.
+    Else a fragment with no ``=``. Userinfo ``?`` / ``#`` and the ``git@host``
+    user stay. A clean remote comes back unchanged.
+    """
+    if text.startswith("git@"):
+        return _split_scp(text)
+    if "://" not in text:
+        return text, None
+    parts = urlsplit(_protect_userinfo(text))
+    path, path_pin = _path_at_pin(parts.path)
+    query_pin = _query_pin(parts.query)
+    fragment = parts.fragment
+    if query_pin:
+        pin = query_pin
+    elif path_pin:
+        pin = path_pin
+    elif fragment and "=" not in fragment:
+        pin = unquote(fragment)
+    else:
+        pin = None
+    clean = urlunsplit((parts.scheme, _restore_userinfo(parts.netloc), path, "", ""))
+    return clean, pin
+
+
+def assert_clean(remote: str) -> str:
+    """Raise when ``remote`` still carries a pin. Userinfo may contain ``?`` or ``#``."""
+    clean, pin = _split_vcs(remote)
+    if pin is not None or clean != remote:
+        raise SourceError(
+            f"Refusing to pass {remote} to git.",
+            "This is a bug in memory update. Strip the rev from the URL before calling git.",
+        )
+    return remote
+
+
+def refuse_pinned_args(args: list[str]) -> None:
+    for arg in args:
+        if "://" in arg or arg.startswith("git@"):
+            assert_clean(arg)
+
+
 def parse(spec: str, editable: bool = False) -> Source:
     text = spec.strip()
     if text.startswith("git+"):
-        return Source(text[4:], "git")
+        text = text[4:]
     if "://" in text or text.startswith("git@"):
-        return Source(text, "git")
+        clean, pin = _split_vcs(text)
+        if not clean:
+            raise SourceError(
+                "The git URL is empty.",
+                "Run `memory update --source` with a git URL or a folder path.",
+            )
+        return Source(clean, "git", False, pin)
     return Source(str(Path(text).expanduser().resolve()), "folder", editable)
+
+
+def install_spec(source: Source, release: Release | None) -> str:
+    """The record URL and the uv reinstall hint. Never reads ``source.pin``."""
+    if source.kind == "folder":
+        return source.spec
+    if release is None:
+        return f"git+{source.spec}"
+    return f"git+{source.spec}@{release.name}"
 
 
 def _receipt() -> dict:
@@ -177,9 +360,9 @@ def read_record() -> dict:
     return {}
 
 
-def write_record(source: Source, commit: str | None, version: str) -> None:
+def write_record(source: Source, commit: str | None, version: str, release: Release | None) -> None:
     record = {
-        "source": source.install_spec,
+        "source": install_spec(source, release),
         "commit": commit,
         "version": version,
         "installed_at": stamp(now()),
@@ -270,7 +453,8 @@ def content_id(folder: Path) -> str:
     return digest.hexdigest()
 
 
-_TAG_AT = re.compile(r"^([0-9a-f]+)\s+refs/tags/(v?\d+(?:\.\d+)*)(?:\^{})?$", re.I)
+# Strict X.Y.Z or vX.Y.Z only. One-part, four-part, and date tags do not count.
+_TAG_AT = re.compile(r"^([0-9a-f]+)\s+refs/tags/(v?\d+\.\d+\.\d+)(?:\^{})?$", re.I)
 
 
 def _tag_version(raw: str) -> tuple[tuple[int, ...], str]:
@@ -278,52 +462,41 @@ def _tag_version(raw: str) -> tuple[tuple[int, ...], str]:
     return tuple(int(part) for part in number.split(".")), number
 
 
-def _release_tags(out: str) -> list[tuple[str, str]]:
-    """Pairs of (commit, dotted version) from `git ls-remote --tags` lines."""
-    found: list[tuple[str, str]] = []
-    for line in out.splitlines():
-        match = _TAG_AT.match(line.strip())
+def _choose_release(ls_remote_tags: str) -> Release | None:
+    """The highest release tag in ``git ls-remote --tags`` output, or None.
+
+    A peeled ``^{}`` line replaces the tag object. When ``v0.3.1`` and ``0.3.1``
+    tie, the ``v`` name wins.
+    """
+    shas: dict[str, str] = {}
+    peeled: set[str] = set()
+    for line in ls_remote_tags.splitlines():
+        stripped = line.strip()
+        match = _TAG_AT.match(stripped)
         if not match:
             continue
-        _, number = _tag_version(match.group(2))
-        found.append((match.group(1), number))
-    return found
-
-
-def _best_version(tags: list[tuple[str, str]], commit: str | None = None) -> str | None:
-    best: tuple[int, ...] | None = None
-    chosen: str | None = None
-    for tag_commit, number in tags:
-        if commit is not None and tag_commit != commit:
-            continue
-        key, _ = _tag_version(number)
-        if best is None or key > best:
-            best, chosen = key, number
-    return chosen
-
-
-def version_at_commit(spec: str, commit: str, timeout: float = 3.0) -> str | None:
-    """The release version of tags that point at commit, or None.
-
-    `git ls-remote --tags` lists lightweight tags and the peeled commit of annotated
-    tags (`refs/tags/vX.Y.Z^{}`). Only tags whose object is `commit` count. When
-    several match, the highest dotted version wins. A missing older tag (for
-    example only `v0.3.0` exists, no `v0.2.0`) does not block reading the version
-    at HEAD. When no release tag points at commit, callers may fall back to the
-    highest remote release tag.
-    """
-    out = git(["ls-remote", "--tags", spec], timeout)
-    if not out or not commit:
+        sha, name = match.group(1), match.group(2)
+        if stripped.endswith("^{}"):
+            shas[name] = sha
+            peeled.add(name)
+        elif name not in peeled:
+            shas[name] = sha
+    best_name: str | None = None
+    best_key: tuple[int, ...] = ()
+    for name in shas:
+        key, _number = _tag_version(name)
+        prefer_v = (
+            best_name is not None
+            and key == best_key
+            and name.lower().startswith("v")
+            and not best_name.lower().startswith("v")
+        )
+        if best_name is None or key > best_key or prefer_v:
+            best_name, best_key = name, key
+    if best_name is None:
         return None
-    return _best_version(_release_tags(out), commit)
-
-
-def highest_release_version(spec: str, timeout: float = 3.0) -> str | None:
-    """The highest `vX.Y.Z` / `X.Y.Z` tag on the remote, or None."""
-    out = git(["ls-remote", "--tags", spec], timeout)
-    if not out:
-        return None
-    return _best_version(_release_tags(out))
+    _key, number = _tag_version(best_name)
+    return Release(best_name, number, shas[best_name])
 
 
 def latest(source: Source, timeout: float = 3.0) -> Latest:
@@ -340,17 +513,23 @@ def latest(source: Source, timeout: float = 3.0) -> Latest:
         else:
             commit = content_id(folder)
         return Latest(commit, folder_version(folder))
-    out = git(["ls-remote", source.spec, "HEAD"], timeout)
-    if not out:
+    remote = source.spec
+    tags_out = git(["ls-remote", "--tags", remote], timeout)
+    if tags_out is None:
         raise SourceError(
-            f"Could not reach {source.spec}.",
+            f"Could not reach {remote}.",
             "Check the network and the URL. Then run `memory update` again.",
         )
-    commit = out.split()[0]
-    tags_out = git(["ls-remote", "--tags", source.spec], timeout) or ""
-    tags = _release_tags(tags_out)
-    version = _best_version(tags, commit) or _best_version(tags)
-    return Latest(commit, version)
+    release = _choose_release(tags_out)
+    if release is not None:
+        return Latest(release.commit, release.version, release)
+    out = git(["ls-remote", remote, "HEAD"], timeout)
+    if not out:
+        raise SourceError(
+            f"Could not reach {remote}.",
+            "Check the network and the URL. Then run `memory update` again.",
+        )
+    return Latest(out.split()[0], None)
 
 
 def dirty(folder: Path) -> bool:
@@ -363,6 +542,9 @@ def is_newer(source: Source, version: str, commit: str | None, found: Latest) ->
     """True when the source holds a newer memory than the installed one."""
     if is_behind(version, found.version):
         return True
+    # An older release tag is not an update, even when its commit differs.
+    if found.version is not None and is_behind(found.version, version):
+        return False
     if not commit or not found.commit or commit == found.commit:
         return False
     if source.kind == "git" or not is_git_folder(Path(source.spec)):
