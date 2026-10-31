@@ -396,7 +396,8 @@ def content_id(folder: Path) -> str:
     return digest.hexdigest()
 
 
-_TAG_AT = re.compile(r"^([0-9a-f]+)\s+refs/tags/(v?\d+(?:\.\d+)*)(?:\^{})?$", re.I)
+# Strict X.Y.Z or vX.Y.Z only. One-part, four-part, and date tags do not count.
+_TAG_AT = re.compile(r"^([0-9a-f]+)\s+refs/tags/(v?\d+\.\d+\.\d+)(?:\^{})?$", re.I)
 
 
 def _tag_version(raw: str) -> tuple[tuple[int, ...], str]:
