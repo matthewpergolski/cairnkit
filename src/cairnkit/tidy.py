@@ -1,7 +1,7 @@
-"""`memory tidy`: propose clean-up changes (no AI). A person approves each one.
+"""`memory tidy`: list clean-up changes (no AI). An agent decides.
 
 `memory tidy` writes proposals to `proposals/<date>.md` and changes no fact.
-`memory tidy --apply ID...` writes the change records of the approved
+`memory tidy --apply ID...` writes the change records of the chosen
 proposals only. Proposal ids come from their content, so they stay the same
 between runs while the facts stay the same.
 """
@@ -12,24 +12,16 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 
-from cairnkit import followups, markers
+from cairnkit import followups
 from cairnkit.autotidy import outranks
-from cairnkit.clock import now, parse_time, stamp
+from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
-from cairnkit.rules_target import LOCAL
 from cairnkit.schema import validate_record
 from cairnkit.similar import exact_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records
 
-RULE_KINDS = ("trap", "preference")
-RULE_AGE_DAYS = 30
-RULES_START = "<!-- cairnkit:rules:start -->"
-RULES_END = "<!-- cairnkit:rules:end -->"
-# The markers before the rename. A block found with them gets the new markers.
-OLD_RULES = ("<!-- project-memory:rules:start -->", "<!-- project-memory:rules:end -->")
-RULES_PAIRS = ((RULES_START, RULES_END), OLD_RULES)
 WRITER = "tidy"
 
 
@@ -38,19 +30,11 @@ class Proposal:
     kind: str
     summary: str
     changes: list[dict]
-    rule_text: str | None = None
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
-        key = json.dumps([self.kind, self.changes, self.rule_text], sort_keys=True)
+        key = json.dumps([self.kind, self.changes], sort_keys=True)
         self.id = "p-" + hashlib.sha1(key.encode()).hexdigest()[:6]
-
-
-def _age_days(state: dict, moment) -> float:
-    try:
-        return (moment - parse_time(state["learned_at"])).total_seconds() / 86400
-    except (KeyError, ValueError):
-        return 0.0
 
 
 def _duplicates(active: list[dict]) -> list[Proposal]:
@@ -104,7 +88,7 @@ def _chains(states: dict[str, dict]) -> list[Proposal]:
     return out
 
 
-def build_proposals(memory: Memory, days: int) -> list[Proposal]:
+def build_proposals(memory: Memory) -> list[Proposal]:
     moment = now()
     is_merged = merged_checker(memory.project.root)
     states = {k: v for k, v in memory.states.items() if v.get("status") != "purged"}
@@ -122,38 +106,6 @@ def build_proposals(memory: Memory, days: int) -> list[Proposal]:
 
     proposals += _chains(states)
 
-    linked = {link["id"] for s in states.values() for link in s.get("links", [])}
-    linked |= {s["id"] for s in states.values() if s.get("links")}
-    rules_file = memory.config.get("rules_file") or LOCAL
-    for state in sorted(active, key=lambda s: s["id"]):
-        if state.get("scope", "long") != "long":
-            continue
-        age = _age_days(state, moment)
-        if age > days and state["id"] not in linked and not state.get("pinned"):
-            change = {
-                "id": state["id"],
-                "status": "expired",
-                "reason": f"Stale: older than {days} days, no links. Confirmed by review.",
-            }
-            proposals.append(
-                Proposal("stale", f"{state['id']} ({int(age)} days): {state.get('text')}", [change])
-            )
-        durable = state.get("kind") in RULE_KINDS and state.get("basis") != "guess"
-        if state.get("pinned") or (durable and age >= RULE_AGE_DAYS):
-            change = {
-                "id": state["id"],
-                "status": "promoted",
-                "held_by": rules_file,
-                "reason": f"Moved into the local rules file {rules_file}.",
-            }
-            proposals.append(
-                Proposal(
-                    "rule",
-                    f"{state['id']} -> {rules_file}: {state.get('text')}",
-                    [change],
-                    rule_text=state.get("text"),
-                )
-            )
     return proposals
 
 
@@ -166,52 +118,20 @@ def write_report(memory: Memory, proposals: list[Proposal]) -> str:
         lines.append("Nothing to propose.")
     for p in proposals:
         lines.append(f"- {p.id} [{p.kind}] {p.summary}")
-    lines += ["", "Approve with: `memory tidy --apply ID [ID ...]`.", ""]
+    lines += ["", "To apply: `memory tidy --apply ID [ID ...]`.", ""]
     path.write_text("\n".join(lines))
     return str(path)
 
 
-def rules_block_broken(path) -> bool:
-    """True when the rules file has a lost marker, two blocks, or an old and a new block."""
-    old = path.read_text(encoding="utf-8") if path.exists() else ""
-    return markers.find(old, RULES_PAIRS)[0] == "broken"
-
-
-def add_rule(path, text: str) -> bool:
-    """Add one rule line inside the marked rules block. Text outside it stays.
-
-    An old block gets the new markers in place. A broken block changes nothing:
-    return False.
-    """
-    before = path.read_text(encoding="utf-8") if path.exists() else ""
-    found, (start_mark, end_mark) = markers.find(before, RULES_PAIRS)
-    if found == "broken":
-        return False
-    old = before.replace(start_mark, RULES_START).replace(end_mark, RULES_END)
-    line = f"- {text}\n"
-    if found == "ok":
-        start, end = old.find(RULES_START), old.find(RULES_END)
-        if line in old[start:end] and old == before:
-            return True
-        new = old if line in old[start:end] else old[:end] + line + old[end:]
-    else:
-        sep = "" if not old or old.endswith("\n\n") else ("\n" if old.endswith("\n") else "\n\n")
-        block = f"{RULES_START}\n## Rules learned from project memory\n\n{line}{RULES_END}\n"
-        new = old + sep + block
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(new)
-    return True
-
-
-def run_tidy(memory: Memory, days: int, apply: list[str] | None) -> int:
-    proposals = build_proposals(memory, days)
+def run_tidy(memory: Memory, apply: list[str] | None) -> int:
+    proposals = build_proposals(memory)
     if not apply:
         report = write_report(memory, proposals)
         for p in proposals:
             print(f"- {p.id} [{p.kind}] {p.summary}")
         print(f"{len(proposals)} proposal(s). Report: {report}")
         if proposals:
-            print("A person approves: `memory tidy --apply ID [ID ...]`.")
+            print("To apply: `memory tidy --apply ID [ID ...]`.")
         followups.refresh(memory)
         pairs = len(followups.open_pairs(memory))
         items = len(followups.open_items(memory))
@@ -237,28 +157,6 @@ def run_tidy(memory: Memory, days: int, apply: list[str] | None) -> int:
                 print(f"error: {pid}: {'; '.join(problems)}")
                 return 1
             records.append(record)
-    from cairnkit.ignore import exclude, is_tracked
-
-    rule_files = [
-        (by_id[pid].changes[0]["held_by"], by_id[pid].rule_text)
-        for pid in apply
-        if by_id[pid].rule_text
-    ]
-    for rel, _ in rule_files:
-        if is_tracked(memory.project, rel):
-            print(
-                f"error: {rel} is tracked by git. Set rules_file in config.toml to an "
-                f"untracked file such as {LOCAL}. Nothing was applied."
-            )
-            return 1
-        path = memory.project.root / rel
-        if rules_block_broken(path):
-            print(markers.broken_message(path, "memory tidy --apply"))
-            return 1
-    for rel, text in rule_files:
-        path = memory.project.root / rel
-        add_rule(path, text)
-        exclude(memory.project, [rel])
     append_records(memory.writer_file(WRITER), records)
     print(f"applied {len(apply)} proposal(s): {len(records)} change record(s)")
     return 0

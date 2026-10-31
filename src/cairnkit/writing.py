@@ -5,14 +5,12 @@ from __future__ import annotations
 import contextlib
 import secrets
 import sys
-from datetime import timedelta
 
 from cairnkit import followups
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, merged_checker, run_git, writer_name
-from cairnkit.pending import mark_matching
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_secrets
 from cairnkit.selection import clean
@@ -125,7 +123,6 @@ def add_fact(memory: Memory, args) -> str | None:
             old = match[0]
             if old.get("kind") == "rule" or old.get("pinned"):
                 print(f"already exists: {old['id']} says this. Nothing written.")
-                mark_matching(memory, args.text, old["id"])
                 return None
             if outranks(old, mine):
                 kept = old
@@ -181,12 +178,11 @@ def add_fact(memory: Memory, args) -> str | None:
         if args.kind != "rule":
             raise Refused("--enforced-by is only for --kind rule")
         fact["enforced_by"] = args.enforced_by
-    if args.short or args.expires:
-        if args.expires:
-            fact["expires_at"] = args.expires
-        elif args.until_merged is None:
-            days = memory.config["short_term_days"]
-            fact["expires_at"] = stamp(moment + timedelta(days=days))
+    if args.expires:
+        fact["expires_at"] = args.expires
+    branch_note = args.short and not args.expires and memory.project.is_git
+    if args.until_merged is None and branch_note:
+        args.until_merged = ""  # A short note ends with its branch. The clock alone ends nothing.
     if args.until_merged is not None:
         fact["scope"] = "short"
         if not memory.project.is_git:
@@ -195,10 +191,14 @@ def add_fact(memory: Memory, args) -> str | None:
                 "Use --short (and --expires DATE) instead."
             )
         branch = args.until_merged or current_branch(memory.project.root)
-        if not branch:
+        if not branch and not branch_note:
             raise Refused("--until-merged needs a branch name (HEAD is detached)")
-        fact["until_branch_merged"] = branch
-        if run_git(memory.project.root, "rev-parse", "--verify", "--quiet", branch) is None:
+        if branch:
+            fact["until_branch_merged"] = branch
+        if (
+            branch
+            and run_git(memory.project.root, "rev-parse", "--verify", "--quiet", branch) is None
+        ):
             print(f"note: no branch {branch} exists, so this note reads as ended until it does")
     records = [_validated(fact)]
     if supersedes:
@@ -238,7 +238,6 @@ def add_fact(memory: Memory, args) -> str | None:
             f"memory change {old['id']} --status superseded --superseded-by {fact['id']} "
             f'--reason "..."'
         )
-    mark_matching(memory, fact["text"], fact["id"])
     return fact["id"]
 
 

@@ -11,7 +11,15 @@ KIND_WEIGHT = {"trap": 1.0, "preference": 1.0}
 HALF_LIFE_DAYS = 30.0
 USE_WEIGHT = 1.5
 USE_HALF_LIFE_DAYS = 14.0
+TRAP_IN_AREA = 2.0
+MENTION_WEIGHT = 1.5
 STOP_WORDS = {"fix", "feat", "feature", "main", "master", "chore", "the", "and", "wip"}
+# Common folder and file names. They match too many facts to mean relevance.
+PATH_NOISE = {
+    "src", "lib", "app", "apps", "pkg", "packages", "test", "tests", "docs", "doc", "bin",
+    "main", "index", "init", "__init__", "readme", "changelog", "setup", "util", "utils",
+    "common", "core", "github", "workflows",
+}  # fmt: skip
 
 
 def branch_words(branch: str | None) -> set[str]:
@@ -26,10 +34,22 @@ def areas_for_paths(paths: list[str], area_map: dict[str, str]) -> set[str]:
         for prefix, area in area_map.items():
             if path.startswith(prefix):
                 found.add(area)
-        first = path.split("/", 1)[0]
-        if first:
-            found.add(first.lower())
+        parts = [part.lower() for part in path.split("/") if part]
+        if parts:
+            found.add(parts[0])
+        for part in parts:
+            stem = part.split(".", 1)[0].lstrip(".")
+            if stem and stem not in PATH_NOISE:
+                found.add(stem)
     return found
+
+
+def _mentions(state: dict, areas: set[str]) -> bool:
+    """True when the fact names a part of the work in progress, in its source or its text."""
+    words = set(
+        re.findall(r"[a-z0-9_-]+", f"{state.get('text', '')} {state.get('source', '')}".lower())
+    )
+    return any(len(area) >= 4 and area not in PATH_NOISE and area in words for area in areas)
 
 
 def score_parts(
@@ -43,7 +63,9 @@ def score_parts(
 
     - recency: 2.0, halved every 30 days since the fact was learned;
     - kind: 1.0 for a trap or a preference;
-    - area: 3.0 when the fact's area is one that the branch changed;
+    - area: 3.0 when the fact's area or a tag is one that the work in progress changed;
+    - mention: 1.5 when no area matches, and the fact names a changed file or folder;
+    - trap: 2.0 for a trap in a changed area, because a trap warns before the mistake;
     - branch: 2.0 for each word (at most 2) that the branch name shares with a tag or the area;
     - use: 1.5, halved every 14 days since the fact was last looked up on purpose.
     """
@@ -53,10 +75,15 @@ def score_parts(
         age = 365.0
     labels = {str(t).lower() for t in state.get("tags", [])} | {str(state.get("area", "")).lower()}
     idle = (moment - used_at).total_seconds() / 86400 if used_at else None
+    in_area = bool(labels & {area.lower() for area in areas})
+    mention = not in_area and bool(areas) and _mentions(state, areas)
+    relevant = in_area or mention
     return {
         "recency": 2.0 * 0.5 ** (max(age, 0.0) / HALF_LIFE_DAYS),
         "kind": KIND_WEIGHT.get(state.get("kind", ""), 0.0),
-        "area": 3.0 if state.get("area") in areas else 0.0,
+        "area": 3.0 if in_area else 0.0,
+        "mention": MENTION_WEIGHT if mention else 0.0,
+        "trap": TRAP_IN_AREA if relevant and state.get("kind") == "trap" else 0.0,
         "branch": 2.0 * min(len(labels & words), 2),
         "use": 0.0 if idle is None else USE_WEIGHT * 0.5 ** (max(idle, 0.0) / USE_HALF_LIFE_DAYS),
     }
@@ -111,6 +138,23 @@ def words_in(line: str) -> int:
     return len(line.split())
 
 
+# With no signal about the work, this share of the budget keeps one place for each area. Newer
+# facts would crowd out an old fact in a quiet area. See docs/forgetting-tests.md.
+AREA_SHARE = 1 / 3
+
+
+def _area_places(ranked: list[dict]) -> list[dict]:
+    """The best fact of each area, best area first. A trap holds the place if the area has one."""
+    best: dict[str, dict] = {}
+    for state in ranked:
+        area = str(state.get("area") or "general")
+        held = best.get(area)
+        if held is None or (state.get("kind") == "trap" and held.get("kind") != "trap"):
+            best[area] = state
+    order = {state["id"]: i for i, state in enumerate(ranked)}
+    return sorted(best.values(), key=lambda s: order[s["id"]])
+
+
 def pick(
     states: list[dict],
     budget: int,
@@ -119,7 +163,7 @@ def pick(
     words: set[str],
     used: dict[str, datetime] | None = None,
 ) -> list[dict]:
-    """Pinned facts first, then the best scores, until the word budget is used."""
+    """Pinned facts, then one place per area when no signal exists, then the best scores."""
     used = used or {}
     pinned = [s for s in states if s.get("pinned")]
     rest = sorted(
@@ -130,7 +174,19 @@ def pick(
     for state in pinned:
         chosen.append(state)
         used += words_in(render(state))
+    taken = set()
+    if budget and AREA_SHARE and not areas:
+        limit = used + int(budget * AREA_SHARE)
+        for state in _area_places(rest):
+            cost = words_in(render(state))
+            if used + cost > limit:
+                continue
+            chosen.append(state)
+            taken.add(state["id"])
+            used += cost
     for state in rest:
+        if state["id"] in taken:
+            continue
         cost = words_in(render(state))
         if budget and used + cost > budget:
             continue

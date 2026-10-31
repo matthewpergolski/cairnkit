@@ -216,7 +216,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--supersedes", metavar="ID", help="this fact replaces ID")
     p.add_argument("--reason", help="why ID is replaced (with --supersedes)")
-    p.add_argument("--short", action="store_true", help="short-term working note")
+    p.add_argument(
+        "--short",
+        action="store_true",
+        help="short-term working note. It ends when its branch is merged, or when you end it",
+    )
     p.add_argument("--expires", type=_time, help="end date of a short-term fact")
     p.add_argument(
         "--until-merged",
@@ -260,7 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument(
         "--no-git-hook",
         action="store_true",
-        help="skip the git pre-commit, post-checkout, pre-push, post-merge and post-commit hooks",
+        help="skip the git pre-commit, post-checkout, pre-push and post-merge hooks",
     )
     h.add_argument(
         "--commit-msg-guard",
@@ -291,32 +295,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--agent", default="generic", choices=AGENTS)
 
-    p = sub.add_parser(
-        "candidates",
-        parents=[common],
-        help="list, accept or dismiss pending auto-proposed fact candidates",
-    )
-    p.add_argument(
-        "--accept", dest="accept_id", metavar="ID", help="write this candidate as a fact"
-    )
-    p.add_argument("--dismiss", dest="dismiss_id", metavar="ID", help="drop this candidate")
-    p.add_argument("--area", help="override the stored area")
-    p.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
-    p.add_argument("--kind", choices=KINDS, help="override the stored kind")
-    p.add_argument("--source", help="override the stored source")
-    p.add_argument("--reason", help="why a candidate was dismissed")
-    cand_sub = p.add_subparsers(dest="candidates_command", metavar="ACTION", required=False)
-    cand_sub.add_parser("list", help="show pending auto-candidates")
-    h = cand_sub.add_parser("accept", help="write a pending candidate as a real fact")
-    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
-    h.add_argument("--area", help="override the stored area")
-    h.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
-    h.add_argument("--kind", choices=KINDS, help="override the stored kind")
-    h.add_argument("--source", help="override the stored source")
-    h = cand_sub.add_parser("reject", help="dismiss a pending candidate")
-    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
-    h.add_argument("--reason", help="why it was dismissed")
-
     p = sub.add_parser("load", parents=[common], help="print the facts for this session")
     p.add_argument("--area", help="only this area (and pinned facts)")
     p.add_argument("--budget", type=int, default=600, help="word budget; 0 for no limit")
@@ -327,8 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("show", parents=[common], help="print one fact and its history")
     p.add_argument("id")
 
-    p = sub.add_parser("tidy", parents=[common], help="propose clean-up changes for review")
-    p.add_argument("--days", type=int, default=90, help="a long fact older than this is stale")
+    p = sub.add_parser("tidy", parents=[common], help="list clean-up changes that need a decision")
     p.add_argument("--apply", nargs="+", metavar="ID", help="write the approved proposals")
     p.add_argument(
         "--auto",
@@ -391,7 +368,6 @@ def run(args) -> int:
     from cairnkit import presets as presets_module
     from cairnkit import skills as skills_module
     from cairnkit.autotidy import run_auto
-    from cairnkit.candidates_cmd import run_candidates
     from cairnkit.check import run_check
     from cairnkit.docs_cmd import run_docs, run_docs_check
     from cairnkit.hookrun import run_hook
@@ -496,8 +472,6 @@ def run(args) -> int:
         return run_load(project, args.path, args.area, max(args.budget, 0), args.explain)
     try:
         memory = _open(project, args)
-        if args.command == "candidates":
-            return run_candidates(memory, args)
         if args.command == "add":
             new = add_fact(memory, args)
             if new:
@@ -525,7 +499,7 @@ def run(args) -> int:
                 return 0
             if args.auto:
                 return run_auto(memory, args.dry_run)
-            return run_tidy(memory, args.days, args.apply)
+            return run_tidy(memory, args.apply)
         elif args.command == "search":
             return run_search(memory, " ".join(args.query), args.all, args.limit, args.strict)
     except (MemoryMissing, Refused) as exc:

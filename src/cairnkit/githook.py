@@ -1,9 +1,7 @@
 """Git hooks: the pre-commit memory guard, the post-checkout link for a new
-worktree, personal pre-push / post-merge / post-commit hooks, and the opt-in
-commit-msg guard.
+worktree, personal pre-push / post-merge hooks, and the opt-in commit-msg guard.
 
-Personal quiet hooks never fail git. post-commit drafts pending candidates
-fast (~1s). pre-push and post-merge run the fuller propose + auto-tidy pass
+Personal quiet hooks never fail git. pre-push and post-merge run auto-tidy
 (~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
 the block goes right after its first line. Uninstall removes only the block.
 """
@@ -71,7 +69,6 @@ def pre_commit_body(shared: bool) -> str:
 # Wall-clock bound for quiet git hooks. Matches hookrun budgets: the
 # in-process SIGALRM only starts after import, so the shell must bound start too.
 _QUIET_BUDGET = 3
-_POST_COMMIT_BUDGET = 1
 
 
 def quiet_body(event: str, budget: int | None = None) -> str:
@@ -159,10 +156,6 @@ def docs_check_stanza() -> str:
 
 def post_merge_body() -> str:
     return docs_check_stanza() + quiet_body("post-merge")
-
-
-def post_commit_body() -> str:
-    return quiet_body("post-commit", budget=_POST_COMMIT_BUDGET)
 
 
 def post_checkout_body(shared: bool) -> str:

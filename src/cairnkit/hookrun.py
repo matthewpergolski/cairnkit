@@ -14,14 +14,14 @@ import json
 import signal
 import sys
 
-from cairnkit import autogate, autotidy, followups, loopbreak, propose, skills, usage
+from cairnkit import autotidy, followups, legacy, loopbreak, skills, usage
 from cairnkit.check import check_links, check_records
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
-from cairnkit.session import load_state, needs_reminder, reminder_text, start_session
+from cairnkit.session import needs_reminder, reminder_text, start_session
 
 NOTE_IDS = 10
 # Agents that need a JSON empty object when memory exists but there is nothing to say.
@@ -102,8 +102,6 @@ def auto_retire_note(project: Project, flag: str | None) -> str:
 
 # A git hook must not make push or merge wait. Past this, the step is skipped.
 GIT_HOOK_BUDGET = 3
-# post-commit must stay under ~1s wall clock. Draft propose only.
-POST_COMMIT_BUDGET = 1.0
 
 
 class _OverBudget(Exception):
@@ -131,33 +129,13 @@ def _time_budget(seconds: float):
         signal.signal(signal.SIGALRM, previous)
 
 
-def _run_autogate(project: Project, flag: str | None, *, force: bool = False) -> None:
-    """Quality-gate pending candidates. force=True on git events; else cadence."""
-    with contextlib.suppress(Exception):
-        memory = Memory.open(project, flag)
-        if force or autogate.should_run(memory, new_pending=0):
-            autogate.run_gate(memory)
-
-
-def git_event(project: Project, flag: str | None, *, fuller: bool = True) -> int:
-    """Propose pending candidates, quality-gate, and auto-tidy. Always exits 0.
-
-    fuller=True (pre-push / post-merge): richer propose + gate + tidy, 3s budget.
-    fuller=False (post-commit): draft propose + gate, 1s budget.
-    """
-    budget = GIT_HOOK_BUDGET if fuller else POST_COMMIT_BUDGET
+def git_event(project: Project, flag: str | None) -> int:
+    """Auto-tidy after a push or a merge. Always exits 0, and prints nothing."""
     try:
-        with _time_budget(budget):
+        with _time_budget(GIT_HOOK_BUDGET):
             sink = io.StringIO()
             with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                if fuller:
-                    propose.run_fuller(project, flag)
-                    _run_autogate(project, flag, force=True)
-                    gated_auto_tidy(project, flag, count_session=False)
-                else:
-                    propose.run_draft(project, flag)
-                    _run_autogate(project, flag, force=True)
-                    gated_auto_tidy(project, flag, count_session=False)
+                gated_auto_tidy(project, flag, count_session=False)
     except (Exception, SystemExit):
         pass
     return 0
@@ -185,22 +163,14 @@ def skills_note(project: Project, flag: str | None) -> str:
     return ""
 
 
-def _pending_hygiene(project: Project, flag: str | None) -> str:
-    try:
-        line = autogate.hygiene_pending_line(Memory.open(project, flag))
-        return (line + "\n\n") if line else ""
-    except Exception:
-        return ""
-
-
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not has_memory(project, flag):
         return 0
+    with contextlib.suppress(Exception):
+        legacy.clean(Memory.open(project, flag))
     note = auto_retire_note(project, flag) + skills_note(project, flag)
-    note += _pending_hygiene(project, flag)
     refresh_followups(project, flag)
     compact_usage(project, flag)
-    _run_autogate(project, flag, force=False)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         run_load(project, flag, None, 600, agent=agent, record=True)
@@ -258,12 +228,6 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
             if memory.config.get("auto_tidy") != "off" and autotidy.periodic_due(memory):
                 gated_auto_tidy(project, flag, count_session=False)
                 autotidy.mark_tidied(memory)
-    # Fallback propose when this session never produced a commit.
-    if not continued:
-        with contextlib.suppress(Exception):
-            memory = Memory.open(project, flag)
-            state = load_state(memory, session_key(payload)) or {}
-            propose.run_stop_fallback(project, flag, state.get("start_head"))
     try:
         message = None if continued else stop_message(project, flag, payload)
     except Exception:
@@ -343,10 +307,8 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
 
 
 def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
-    if event in ("pre-push", "post-merge"):
-        return git_event(project, flag, fuller=True)
-    if event == "post-commit":
-        return git_event(project, flag, fuller=False)
+    if event in ("pre-push", "post-merge", "post-commit"):  # post-commit: a hook from 0.3.1
+        return git_event(project, flag)
     if event == "pre-commit":
         return pre_commit(project, flag)
     if event == "post-checkout":

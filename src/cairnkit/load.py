@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import followups, hygiene, install_source, refresh, scenarios, skills, usage
+from cairnkit import followups, hygiene, install_source, refresh, skills, usage
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.init import link_here
@@ -40,11 +40,14 @@ NOTE_LINES = 8
 
 
 def changed_paths(root: Path, branch: str | None) -> list[str]:
+    """The files of the work in progress: uncommitted changes, and the branch's own diff."""
+    uncommitted = run_git(root, "diff", "--name-only", "HEAD", timeout=GIT_TIMEOUT) or ""
+    paths = uncommitted.splitlines()
     base = default_branch(root)
-    if not base or not branch or base == branch:
-        return []
-    out = run_git(root, "diff", "--name-only", f"{base}...HEAD", timeout=GIT_TIMEOUT)
-    return out.splitlines() if out else []
+    if base and branch and base != branch:
+        out = run_git(root, "diff", "--name-only", f"{base}...HEAD", timeout=GIT_TIMEOUT) or ""
+        paths += [line for line in out.splitlines() if line not in paths]
+    return paths
 
 
 def note_head(path: Path) -> list[str]:
@@ -92,31 +95,13 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     words = branch_words(branch)
 
     used_at = usage.last_used(memory)
-    groups = scenarios.group_scenarios(long, moment, areas, words, used_at)
-    scenario_budget = max(budget // 3, 1) if budget else 0
-    scenarios_shown = []
-    used = 0
-    covered: set[str] = set()
-    for group in groups:
-        cost = scenarios.scenario_cost(group)
-        if budget and used + cost > scenario_budget and scenarios_shown:
-            continue
-        if budget and used + cost > budget:
-            continue
-        scenarios_shown.append(group)
-        used += cost
-        covered.update(group.ids)
-
     short_budget = max(budget // 4, 1) if budget else 0
     short_shown = pick(short, short_budget, moment, areas, words, used_at)
     if short and not short_shown:
         short_shown = short[:1]
-    used += sum(words_in(render(s)) for s in short_shown)
-    # Prefer uncovered long facts for remaining bullets; pinned always included.
-    long_rest = [s for s in long if s["id"] not in covered or s.get("pinned")]
+    used = sum(words_in(render(s)) for s in short_shown)
     long_budget = max(budget - used, 1) if budget else 0
-    long_shown = pick(long_rest, long_budget, moment, areas, words, used_at)
-    folded = len(covered - {s["id"] for s in long_shown})
+    long_shown = pick(long, long_budget, moment, areas, words, used_at)
 
     out = [f"# Project memory ({memory.dir})"]
     if memory.errors:
@@ -143,17 +128,13 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     if pinned:
         out.append("## Pinned")
         out += [render(s) for s in sorted(pinned, key=lambda s: s.get("learned_at", ""))]
-    if scenarios_shown:
-        out.append("## Scenarios")
-        for group in scenarios_shown:
-            out += scenarios.render_scenario(group)
     if short_shown:
         out.append(f"## Short-term (branch {branch or writer})")
         out += [render(s) for s in sorted(short_shown, key=lambda s: s.get("learned_at", ""))]
     long_bullets = [s for s in long_shown if not s.get("pinned")]
     out.append("## Long-term")
     if not long_bullets:
-        out.append("(no active long-term facts)" if not long_shown else "(covered in scenarios)")
+        out.append("(no active long-term facts)")
     current = None
     for state in sorted(long_bullets, key=lambda s: (s.get("area", ""), s.get("happened_at", ""))):
         if state.get("area") != current:
@@ -169,11 +150,9 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             out.append(f"## Branch notes (branches/{branch}.md)")
             out += [f"- [branch] {clean(x)}" for x in branch_note]
     out.append(FRAME_FOOTER)
-    hidden = len(short) + len(long) - len(short_shown) - len(long_shown) - folded
+    hidden = len(short) + len(long) - len(short_shown) - len(long_shown)
     shown = len(rules) + len(short_shown) + len(long_shown)
     parts = [f"{shown} fact(s) shown"]
-    if folded:
-        parts.append(f"{folded} folded into scenarios")
     if hidden > 0:
         parts.append(f"{hidden} active fact(s) not shown")
     out.append("; ".join(parts) + f". Open one with `memory show ID`. {DISCOVER}")
@@ -189,7 +168,8 @@ def _explain(
     out = [
         "## Ranking (--explain)",
         "Rules and pinned facts are always shown. Other facts are ranked by "
-        "total = recency + kind + area + branch + use, until the word budget is used.",
+        "total = recency + kind + area + mention + trap + branch + use, until the word budget "
+        "is used. A fact that does not fit stays active and searchable.",
     ]
     rows = []
     for state in states:

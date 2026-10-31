@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Scenario folding in `memory load`. Each fact that loads now shows its text.
+- The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
+  writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session
+  start. They stay in the archive.
+- Every rule that ended a fact because of its age: `STALE_DAYS`, the 14-day default of `--short`,
+  `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
+- Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
+
+### Changed
+
+- `--short` ends with its branch, or when an agent ends it. The clock alone ends nothing.
+- With no signal about the work, `memory load` keeps one place for each area, and a trap holds it.
+- A trap in a changed area ranks higher. Uncommitted changes and each part of a changed path are
+  signals, and a fact that names a changed file ranks higher.
+
 ### Fixed
 
 - A problem in the memory no longer stops a commit. The pre-commit hook refuses only

@@ -18,8 +18,8 @@ What it retires:
 What it never touches: rules, pinned facts, and a fact that a person set back
 to active. A near duplicate is retired only when the word overlap is at least
 the near threshold and the counts of numbers, negations and opposites match.
-Otherwise it stays for `memory tidy`. A stale long fact is listed in
-`proposals/stale-pending.md` and is not expired here.
+Otherwise it stays for `memory tidy`. Age ends no fact: nothing here reads how old a long-term
+fact is.
 """
 
 from __future__ import annotations
@@ -197,42 +197,6 @@ def _near_duplicates(candidates: list[dict], taken: set[str]) -> list[Retirement
     return extra
 
 
-def note_stale(memory: Memory, days: int = 90) -> None:
-    """Rewrite the stale-fact proposal. Do not expire the facts."""
-    moment = now()
-    linked = {link["id"] for s in memory.states.values() for link in s.get("links", [])}
-    linked |= {s["id"] for s in memory.states.values() if s.get("links")}
-    rows = []
-    for state in sorted(memory.states.values(), key=lambda s: s["id"]):
-        if state.get("status") != "active" or state.get("pinned"):
-            continue
-        if state.get("scope", "long") != "long" or state["id"] in linked:
-            continue
-        try:
-            age = (moment - parse_time(state["learned_at"])).total_seconds() / 86400
-        except (KeyError, ValueError, TypeError):
-            continue
-        if age > days:
-            rows.append(state)
-    path = memory.dir / "proposals" / "stale-pending.md"
-    if not rows:
-        if path.exists():
-            path.unlink()
-        return
-    path.parent.mkdir(exist_ok=True)
-    lines = [
-        "# Stale facts pending review",
-        "",
-        "Auto-tidy did not expire these. Run `memory tidy` and approve any expire.",
-        "",
-    ]
-    for state in rows:
-        text = " ".join(str(state.get("text", "")).split())[:SNIPPET]
-        lines.append(f"- {state['id']}: {text}")
-    lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
-
-
 def write_log(memory: Memory, found: list[Retirement], at: str) -> None:
     """Add one line per retire. A line that is already there (same cid) is not added again.
 
@@ -273,7 +237,6 @@ def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
                 records.append(rec)
             append_records(memory.writer_file(WRITER), records)
             write_log(memory, found, at)
-    note_stale(memory)
     if found:
         memory.reload()
     return found
@@ -282,7 +245,6 @@ def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
 def report(memory: Memory) -> list[Retirement]:
     """Say what `retire` would do. Log it once per distinct report. Change no fact."""
     found = find(memory)
-    note_stale(memory)
     if not found:
         return found
     line = f"would retire {len(found)}: {', '.join(item.id for item in found)}"
@@ -415,34 +377,10 @@ def release(memory: Memory) -> None:
 
 
 def periodic_due(memory: Memory) -> bool:
-    """True when pending candidates piled up, or the tidy state is older than a day."""
+    """True when the tidy state is older than a day, so a long session still tidies."""
     data = _state(memory)
-    every_days = memory.config.get("tidy_every_days", 1)
-    batch = memory.config.get("tidy_candidate_batch", 3)
-    try:
-        every_days = float(every_days)
-    except (TypeError, ValueError):
-        every_days = 1
-    try:
-        batch = int(batch)
-    except (TypeError, ValueError):
-        batch = 3
-    mark = data.get("last_tidy_at")
-    if _pending_since(memory, mark if isinstance(mark, str) else None) >= batch:
-        return True
-    moment = _age_days(data, memory)
-    return moment is not None and moment >= every_days
-
-
-def _pending_since(memory: Memory, mark: str | None) -> int:
-    from cairnkit.pending import pending as pending_rows
-
-    count = 0
-    for cand in pending_rows(memory):
-        when = cand.created_at
-        if not mark or (when and when > mark):
-            count += 1
-    return count
+    age = _age_days(data, memory)
+    return age is not None and age >= 1
 
 
 def _age_days(data: dict, memory: Memory) -> float | None:

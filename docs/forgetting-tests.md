@@ -69,6 +69,31 @@ Both age limits lose the trap each time. **Removing folding has a cost**: with n
 0.3.1 load shows some old facts because a fold gives each area one place. The newer facts crowd
 them out when folding is off. Search finds the trap in the top five at .67.
 
+## Results: one place for each area
+
+The owner asked about the loss in the table above, so it was tested again at commit `AREA_COMMIT`.
+Folding gave each area one place in the load. The same benefit can come with no hidden text: one
+third of the budget keeps one place for each area, and a trap holds that place if the area has one.
+These places apply only when the load has no signal about the work. With a signal, relevance
+already ranks the facts, and the places cost a long session .10. The share of 1/4, 1/3 and 1/2 and
+the use of places with a signal were tested, and 1/3 with no signal was chosen.
+
+| Share of needed facts shown | No places | With places | 0.3.1 |
+|---|---:|---:|---:|
+| Vacation | .82 | .82 | .59 |
+| Busy day | .99 | .98 | .68 |
+| Long session | .83 | .83 | .09 |
+| Mixed work | .68 | .67 | .13 |
+| Old facts | .47 | .67 | .60 |
+| Old facts, busy area | .20 | .43 | .57 |
+| Old trap, no signal | 0 | .97 | .37 |
+| Old trap, diff in its area | 1.00 | 1.00 | 1.00 |
+| Wrong trap shown (lower is better) | .71 | .86 | .55 |
+
+**The cost is explicit.** Old facts in a busy area are still below 0.3.1. A wrong trap that nobody
+corrects shows more often, because a trap holds its area's place. Real-agent tests must include
+the old-fact cases, and a trap that must always load uses `--pinned`.
+
 ## Results: other costs
 
 | Measure | Result |
@@ -144,10 +169,10 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
 
 The owner accepted these for `dev`:
 
-1. A wrong trap that nobody corrects keeps loading when its area is in use. The contradiction
-   prompt reduces this. It does not remove it.
-2. An old trap with no signal can stay out of the load until the first commit gives a signal. A
-   trap that must always load uses `--pinned`.
+1. A wrong trap that nobody corrects keeps loading, including when its area is not in use. The
+   contradiction prompt reduces this. It does not remove it.
+2. An old trap with no signal can stay out of the load when its area already shows a newer trap,
+   or when the areas use up their places. A trap that must always load uses `--pinned`.
 3. A fact that the agent never writes is lost. A pointer that holds only history is not built
    until real-agent tests show how often this happens.
 

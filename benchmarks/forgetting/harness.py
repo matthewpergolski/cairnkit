@@ -29,7 +29,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-from cairnkit import followups, hygiene, load, ranking, scenarios, selection, usage
+from cairnkit import followups, hygiene, load, ranking, selection, usage
 from cairnkit.selection import clean, load_text, render, words_in
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "coding"
@@ -38,7 +38,6 @@ TRANSIENT_SHARE = float(os.environ.get("TRANSIENT_SHARE", "0.35"))
 SUPERSEDE_SHARE = 0.10
 FILE_GONE_SHARE = 0.10
 ORIG_SCORE_PARTS = selection.score_parts
-ORIG_GROUPS = scenarios.group_scenarios
 
 
 def when(day: float) -> datetime:
@@ -97,36 +96,15 @@ class Policy:
         False  # +2 for a trap whose area the branch changed, so it beats newer facts there
     )
     use_end: int = 0  # retire after this many loads with no lookup and no relevance
+    area_share: float = 1 / 3  # budget share that keeps one place per area with no signal
     control: str | None = None
 
 
 POLICIES = [
     Policy("control:oracle", control="oracle"),
     Policy("control:random", control="random"),
-    Policy("control:oldest", control="oldest"),
-    Policy("a:calendar-14", capture=True, window="cal", window_days=14),
-    Policy("a:calendar-7", capture=True, window="cal", window_days=7),
-    Policy("b:active-14", capture=True, window="act", window_days=14),
-    Policy("b:active-7", capture=True, window="act", window_days=7),
-    Policy("a:calendar-14-nofold", capture=True, window="cal", window_days=14, nofold=True),
-    Policy("a:calendar-7-nofold", capture=True, window="cal", window_days=7, nofold=True),
-    Policy("b:active-14-nofold", capture=True, window="act", window_days=14, nofold=True),
-    Policy("b:active-7-nofold", capture=True, window="act", window_days=7, nofold=True),
-    Policy("c:competition", agent_events=False, tool_events=False),
-    Policy("c:competition-nofold", agent_events=False, tool_events=False, nofold=True),
-    Policy("c:write-order", agent_events=False, tool_events=False, order=True),
-    Policy("c:write-order-nofold", agent_events=False, tool_events=False, order=True, nofold=True),
-    Policy("d:events"),
-    Policy("e:use-rank", agent_events=False, tool_events=False, use_rank=True),
-    Policy("e:use-rank-nofold", agent_events=False, tool_events=False, use_rank=True, nofold=True),
-    Policy("e:use-end-20", agent_events=False, tool_events=False, use_end=20),
-    Policy("e:use-end-20-nofold", agent_events=False, tool_events=False, use_end=20, nofold=True),
-    Policy("f:events-nofold", nofold=True),
-    Policy("f:events-home-nofold", nofold=True, home=True),
-    Policy("f:events-trapfirst-nofold", nofold=True, trap_first=True),
-    Policy("f:events-demote-nofold", nofold=True, demote=True),
-    Policy("f:events-home-demote-nofold", nofold=True, home=True, demote=True),
-    Policy("f:events-demote-zero-nofold", nofold=True, demote=True, demote_zero=True),
+    Policy("load"),
+    Policy("no-area-places", area_share=0.0),
 ]
 BY_NAME = {p.name: p for p in POLICIES}
 
@@ -540,7 +518,7 @@ def run_load(states, specs, point, pol, ctx, budget, rng):
                 used += cost
         return shown, set(), 0, len(shown)
     selection.score_parts = patched_parts(pol, ctx)
-    scenarios.group_scenarios = (lambda *a, **k: []) if pol.nofold else ORIG_GROUPS
+    selection.AREA_SHARE = pol.area_share
     load.now = lambda: when(point.day)
     load.current_branch = lambda root: point.branch
     load.writer_name = lambda root: point.branch

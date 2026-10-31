@@ -189,12 +189,14 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         "post-checkout": githook.post_checkout_body(shared=False),
         "pre-push": githook.pre_push_body(),
         "post-merge": githook.post_merge_body(),
-        "post-commit": githook.post_commit_body(),
     }
     hooks = _local_hooks(project)
     broken += githook.broken_paths(project, hooks)
     for hook in hooks:
         if githook.is_broken(githook.hooks_dir(project) / hook):
+            continue
+        if hook == "post-commit":  # 0.3.1 mined commits here. Nothing runs there now.
+            steps += githook.uninstall(project, hook, dry_run)
             continue
         body = bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
         steps += githook.install(project, hook, body, dry_run)

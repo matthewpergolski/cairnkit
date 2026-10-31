@@ -29,8 +29,6 @@ Do not edit fact files by hand. Run `memory --help`.
 CONFIG = """\
 # Settings for this project's memory.
 
-# Days until a short-term fact expires, when it has no expires_at.
-short_term_days = 14
 
 # The untracked rules file. `memory tidy` proposes durable facts for it.
 # Unset, it is CLAUDE.local.md. Must stay out of git.

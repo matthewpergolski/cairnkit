@@ -37,9 +37,7 @@ def run_install(
     flag: str | None = None,
 ) -> int:
     names = adapters.detect(project) if agent == "auto" else [agent]
-    hooks = (
-        ["pre-commit", "post-checkout", "pre-push", "post-merge", "post-commit"] if git_hook else []
-    )
+    hooks = ["pre-commit", "post-checkout", "pre-push", "post-merge"] if git_hook else []
     hooks += ["commit-msg"] if guard == "local" else []
     broken = githook.broken_paths(project, hooks, shared=guard == "shared")
     if broken:
@@ -92,7 +90,7 @@ def run_install(
         )
         steps += githook.install(project, "pre-push", githook.pre_push_body(), dry_run)
         steps += githook.install(project, "post-merge", githook.post_merge_body(), dry_run)
-        steps += githook.install(project, "post-commit", githook.post_commit_body(), dry_run)
+        steps += githook.uninstall(project, "post-commit", dry_run)  # 0.3.1 mined commits here
     if project.is_git and guard == "local":
         body = githook.guard_body(guard_patterns(project, flag))
         steps += githook.install(project, "commit-msg", body, dry_run)

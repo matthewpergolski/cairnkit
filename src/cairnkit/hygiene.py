@@ -1,22 +1,15 @@
-"""Read-only staleness hints for `memory load`. Never writes proposals."""
+"""A read-only prompt for `memory load`: facts whose source is gone. Age plays no part."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit.clock import now, parse_time
+from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git
 from cairnkit.state import effective_status
 
-DEFAULT_DAYS = 90
-
-
-def _age_days(state: dict, moment) -> float:
-    try:
-        return (moment - parse_time(state["learned_at"])).total_seconds() / 86400
-    except (KeyError, ValueError, TypeError):
-        return 0.0
+SHOW_IDS = 5
 
 
 def _file_missing(root: Path, source: str) -> bool:
@@ -38,38 +31,23 @@ def _commit_missing(root: Path, source: str) -> bool:
     return probed is None
 
 
-def hygiene_line(memory: Memory, days: int = DEFAULT_DAYS) -> str | None:
-    """One line for load when facts look stale or point at missing sources."""
+def hygiene_line(memory: Memory) -> str | None:
+    """One line that names the facts whose source file or commit no longer exists."""
     moment = now()
     root = memory.project.root
-    linked = {link["id"] for s in memory.states.values() for link in s.get("links", [])}
-    linked |= {s["id"] for s in memory.states.values() if s.get("links")}
-    stale = 0
-    missing_file = 0
-    missing_commit = 0
+    gone = []
     for state in memory.states.values():
         status, _ = effective_status(state, moment, None)
         if status != "active":
             continue
-        if (
-            state.get("scope", "long") == "long"
-            and not state.get("pinned")
-            and state["id"] not in linked
-            and _age_days(state, moment) > days
-        ):
-            stale += 1
         source = str(state.get("source", ""))
-        if _file_missing(root, source):
-            missing_file += 1
-        elif _commit_missing(root, source):
-            missing_commit += 1
-    parts = []
-    if stale:
-        parts.append(f"{stale} older than {days} days with no links")
-    if missing_file:
-        parts.append(f"{missing_file} file source(s) missing")
-    if missing_commit:
-        parts.append(f"{missing_commit} commit source(s) missing")
-    if not parts:
+        if _file_missing(root, source) or _commit_missing(root, source):
+            gone.append(state["id"])
+    if not gone:
         return None
-    return f"Stale memory: {'; '.join(parts)}. Run `memory tidy` and review."
+    names = ", ".join(sorted(gone)[:SHOW_IDS]) + (" and more" if len(gone) > SHOW_IDS else "")
+    return (
+        f"Source gone: {len(gone)} fact(s) name a file or commit that no longer exists: {names}. "
+        "If you touch that work, check each fact. End one with `memory change ID --status "
+        'expired --reason "..."`.'
+    )

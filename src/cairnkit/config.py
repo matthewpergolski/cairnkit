@@ -9,7 +9,6 @@ from cairnkit.githook import DEFAULT_GUARD_PATTERNS
 
 AUTO_TIDY_MODES = ("auto", "report", "on", "off")
 DEFAULTS = {
-    "short_term_days": 14,
     "areas": {},
     "rules_file": None,  # unset: CLAUDE.local.md
     "auto_tidy": "auto",
@@ -30,8 +29,6 @@ def load_config(memdir: Path) -> dict:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError):
         return config
-    if isinstance(data.get("short_term_days"), int) and data["short_term_days"] > 0:
-        config["short_term_days"] = data["short_term_days"]
     if isinstance(data.get("rules_file"), str) and data["rules_file"].strip():
         config["rules_file"] = data["rules_file"].strip()
     mode = data.get("auto_tidy")
