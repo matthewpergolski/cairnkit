@@ -187,7 +187,8 @@ def _path_at_pin(path: str) -> tuple[str, str | None]:
     """Strip a trailing ``@ref`` from a URL path. Keep ``foo@bar/bare.git`` whole.
 
     A pin follows a path that already ends in ``.git``, even when the ref itself
-    contains ``.git``. A bare ``@ref`` with no slash is also a pin.
+    contains ``.git``. A ``@ref`` that is not a ``dir@…/.git`` directory path
+    is also a pin, including ``@feature/foo``.
     """
     if "@" not in path:
         return path, None
@@ -196,8 +197,8 @@ def _path_at_pin(path: str) -> tuple[str, str | None]:
         return path, None
     if before.lower().endswith(".git"):
         return before, after
-    if "/" in after:
-        # ``…/foo@bar/bare.git`` is a directory name, not a pin.
+    # ``…/foo@bar/bare.git`` is a directory name, not a pin.
+    if "/" in after and after.lower().endswith(".git"):
         return path, None
     return before, after
 
@@ -218,21 +219,37 @@ def _protect_userinfo(url: str) -> str:
 
 
 def _restore_userinfo(netloc: str) -> str:
+    """Undo only the userinfo escapes added by ``_protect_userinfo``."""
     if "@" not in netloc:
         return netloc
     userinfo, _, hostport = netloc.rpartition("@")
-    return f"{unquote(userinfo)}@{hostport}"
+    userinfo = userinfo.replace("%3F", "?").replace("%23", "#")
+    return f"{userinfo}@{hostport}"
 
 
 def _split_scp(text: str) -> tuple[str, str | None]:
-    """Split ``git@host:path[@ref]`` without treating the user ``@`` as a pin."""
+    """Split ``git@host:path`` pins without treating the user ``@`` as a pin."""
     colon = text.find(":")
     if colon < 0:
         return text, None
-    head, path = text[: colon + 1], text[colon + 1 :]
-    path, pin = _path_at_pin(path)
-    return head + path, pin
-
+    head, rest = text[: colon + 1], text[colon + 1 :]
+    fragment = ""
+    if "#" in rest:
+        rest, fragment = rest.split("#", 1)
+    query_pin = None
+    if "?" in rest:
+        rest, query = rest.split("?", 1)
+        query_pin = _query_pin(query)
+    rest, path_pin = _path_at_pin(rest)
+    if query_pin:
+        pin = query_pin
+    elif path_pin:
+        pin = path_pin
+    elif fragment and "=" not in fragment:
+        pin = unquote(fragment)
+    else:
+        pin = None
+    return head + rest, pin
 
 def _split_vcs(text: str) -> tuple[str, str | None]:
     """Split a remote that has no ``git+`` prefix into ``(clean URL, pin)``.
