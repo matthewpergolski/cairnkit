@@ -17,7 +17,8 @@ TEXT = """\
 ## Project memory
 
 This project has a private memory outside the repo, linked as `memory-bank`.
-A hook runs `memory load` at session start. Read its output before you work.
+`memory load` prints the facts for this session. A connected agent tool runs it by
+itself. If its output is not in your context, run it. Read it before you work.
 
 - **Write a fact** when you learn something a later session needs and the code,
   git and docs do not hold it: a decision and its reason, a trap, a lesson, a
@@ -31,8 +32,8 @@ A hook runs `memory load` at session start. Read its output before you work.
   repeat and flags the pair; an agent task
   (`proposals/tidy-followups.md`) lists each flagged pair.
 - **Long or short.** Decisions, traps and lessons are long-term (the default).
-  Working notes for this branch or task are short-term: add `--short`, or
-  `--short --until-merged` to end them when the branch is merged.
+  Working notes for this branch or task are short-term: add `--short`. They end
+  when the branch is merged.
 - **Change a fact, do not edit it.**
   A newer fact replaces it (superseded): `memory add "..." --supersedes ID --reason "..."`.
   It stopped being true: `memory change ID --status expired --reason "..."`.

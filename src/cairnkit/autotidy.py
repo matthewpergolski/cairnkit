@@ -14,12 +14,13 @@ What it retires:
   merged (or gone).
 - `file-gone`: a short-term fact whose `source` is `file:PATH`, when PATH
   is in no checkout of the project.
+- `near-duplicate`: an active fact with the same kind and scope as a newer one,
+  when the word overlap is at least the near threshold and the counts of
+  numbers, negations and opposites match. Otherwise the pair stays for
+  `memory tidy`.
 
 What it never touches: rules, pinned facts, and a fact that a person set back
-to active. A near duplicate is retired only when the word overlap is at least
-the near threshold and the counts of numbers, negations and opposites match.
-Otherwise it stays for `memory tidy`. Age ends no fact: nothing here reads how old a long-term
-fact is.
+to active. Age ends no fact: nothing here reads how old a long-term fact is.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
-from cairnkit.similar import analyze, exact_key, similarity
+from cairnkit.similar import analyze, exact_key, similar_pairs
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, locked
 
@@ -168,32 +169,29 @@ def _near_duplicates(candidates: list[dict], taken: set[str]) -> list[Retirement
         pools.setdefault((state.get("kind"), state["scope"]), []).append(state)
     extra: list[Retirement] = []
     for group in pools.values():
-        ordered = sorted(group, key=lambda s: (s.get("learned_at", ""), s["id"]))
-        words = {s["id"]: analyze(str(s.get("text", ""))) for s in ordered}
-        used: set[str] = set()
-        for i, older in enumerate(ordered):
-            if older["id"] in used:
+        by_id = {s["id"]: s for s in group}
+        age = {s["id"]: (s.get("learned_at", ""), s["id"]) for s in group}
+        words = {s["id"]: analyze(str(s.get("text", ""))) for s in group}
+        best: dict[str, tuple[float, str]] = {}
+        for pair in similar_pairs(words):
+            if pair.score == 1.0:  # the same words and meaning: an exact repeat, handled above
                 continue
-            best: tuple[float, dict] | None = None
-            for newer in ordered[i + 1 :]:
-                if exact_key(str(older.get("text", ""))) == exact_key(str(newer.get("text", ""))):
-                    continue
-                if outranks(older, newer):
-                    continue
-                score = similarity(words[older["id"]], words[newer["id"]])
-                if score is None:
-                    continue
-                if best is None or score > best[0]:
-                    best = (score, newer)
-            if best is None:
+            older_id, newer_id = sorted((pair.a, pair.b), key=age.__getitem__)
+            if outranks(by_id[older_id], by_id[newer_id]):
                 continue
-            score, newer = best
-            text = " ".join(str(older.get("text", "")).split())[:SNIPPET]
-            reason = f"similar_to {newer['id']} ({score:.0%} the same words)."
+            held = best.get(older_id)
+            if (
+                held is None
+                or pair.score > held[0]
+                or (pair.score == held[0] and age[newer_id] < age[held[1]])
+            ):
+                best[older_id] = (pair.score, newer_id)
+        for older_id, (score, newer_id) in best.items():
+            text = " ".join(str(by_id[older_id].get("text", "")).split())[:SNIPPET]
+            reason = f"similar_to {newer_id} ({score:.0%} the same words)."
             extra.append(
-                Retirement(older["id"], "near-duplicate", "superseded", reason, text, newer["id"])
+                Retirement(older_id, "near-duplicate", "superseded", reason, text, newer_id)
             )
-            used.add(older["id"])
     return extra
 
 

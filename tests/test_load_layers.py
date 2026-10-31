@@ -2,10 +2,14 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from conftest import make_fact, write_facts
 
+from cairnkit import signals
 from cairnkit.cli import main
 from cairnkit.load import changed_paths
+from cairnkit.memory import Memory
+from cairnkit.paths import find_project
 from cairnkit.selection import areas_for_paths, pick, score_parts
 
 NOW = "2026-10-20T12:00:00+00:00"
@@ -200,6 +204,16 @@ def test_a_signal_replaces_the_area_places():
     assert other["id"] not in {s["id"] for s in _rank([*_crowd(20), other], {"busy"})}
 
 
+def test_a_changed_file_that_matches_no_fact_is_not_a_signal():
+    other = make_fact(
+        "f-20200101-0001",
+        "An old and rather long fact about another area, with just as many words as the rest.",
+        area="quiet",
+        learned_at="2020-01-01T00:00:00+00:00",
+    )
+    assert other["id"] in {s["id"] for s in _rank([*_crowd(20), other], {"unrelated"})}
+
+
 def test_a_trap_in_the_changed_area_gets_a_bonus():
     trap = make_fact("f-1", "A trap.", kind="trap", area="deploy")
     plain = make_fact("f-2", "A fact.", area="deploy")
@@ -222,6 +236,57 @@ def test_a_fact_that_names_a_changed_file_ranks_higher():
     moment = datetime(2026, 10, 2, tzinfo=UTC)
     assert score_parts(named, moment, {"load"}, set())["mention"] == 1.5
     assert score_parts(other, moment, {"load"}, set())["mention"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("path", "text", "source"),
+    [
+        ("package.json", "The package manager is uv.", "session:x"),
+        ("ui/user.tsx", "The user must confirm the delete.", "session:x"),
+        ("src/models/user.py", "The model of a user holds no password.", "session:x"),
+        ("src/main.py", "See lib/main.py for the entry point.", "session:x"),
+        ("src/auth/session.py", "Deploys need a clean tree.", "session:2026-10-01"),
+    ],
+)
+def test_a_common_word_in_a_fact_does_not_match_a_changed_file(path, text, source):
+    trap = make_fact("f-1", text, kind="trap", area="product", source=source)
+    parts = score_parts(trap, datetime(2026, 10, 2, tzinfo=UTC), areas_for_paths([path], {}), set())
+    assert parts["mention"] == 0.0
+    assert parts["trap"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("path", "text", "source"),
+    [
+        ("package.json", "package.json pins the engine.", "session:x"),
+        ("web/package.json", "Keep package.json sorted.", "session:x"),
+        ("ui/user.tsx", "ui/user.tsx breaks when rendered on the server.", "session:x"),
+        ("ui/user.tsx", "src/ui/user.tsx breaks when rendered on the server.", "session:x"),
+        ("ui/user.tsx", "Do not import a server module.", "file:ui/user.tsx"),
+        ("src/main.py", "src/main.py must stay small.", "session:x"),
+        ("README.md", "README.md is generated.", "session:x"),
+        ("src/invoices.py", "Invoices round down.", "session:x"),
+        ("payments/stripe.py", "A payments retry must be idempotent.", "session:x"),
+        ("src/retry_queue.py", "The retry_queue drops a job on restart.", "session:x"),
+    ],
+)
+def test_a_fact_that_names_a_changed_file_still_matches(path, text, source):
+    trap = make_fact("f-1", text, kind="trap", area="product", source=source)
+    parts = score_parts(trap, datetime(2026, 10, 2, tzinfo=UTC), areas_for_paths([path], {}), set())
+    assert parts["mention"] == 1.5
+    assert parts["trap"] == 2.0
+
+
+def test_committing_a_common_file_name_warns_only_about_a_fact_that_names_it(mem, repo):
+    write_facts(
+        mem,
+        [
+            make_fact("f-20261001-0001", "The package manager is uv.", kind="trap"),
+            make_fact("f-20261001-0002", "package.json pins the engine.", kind="trap"),
+        ],
+    )
+    lines = signals.traps_for(Memory.open(find_project(), None), ["package.json"])
+    assert lines == ["memory: a stored trap matches this commit: package.json pins the engine."]
 
 
 def test_uncommitted_changes_are_a_signal_on_the_default_branch(repo):

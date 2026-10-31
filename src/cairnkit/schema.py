@@ -13,7 +13,7 @@ SCOPES = ("long", "short")
 RELS = ("related", "depends_on", "caused_by", "contradicts", "similar_to")
 TYPES = ("fact", "change", "tombstone")
 MAX_TEXT = 2000  # fact body, every kind except rule
-RULE_MAX_TEXT = 400  # kind == rule; copied into the shared rules file
+RULE_MAX_TEXT = 400  # kind == rule; each rule loads in every session
 MAX_SUMMARY = 200  # optional load line
 ID_RE = re.compile(r"^f-\d{8}-[0-9a-f]{4}$")
 SOURCE_RE = re.compile(r"^(default$|[a-z][a-z0-9_-]*:\S)")

@@ -1,5 +1,6 @@
 """Git hooks: the pre-commit memory guard, the post-checkout link for a new
-worktree, personal pre-push / post-merge hooks, and the opt-in commit-msg guard.
+worktree, personal pre-push / post-merge hooks, and the commit-msg guard, which
+installs by itself when the memory holds a rule against AI attribution.
 
 Personal quiet hooks never fail git. pre-push and post-merge run auto-tidy
 (~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
@@ -67,7 +68,7 @@ def pre_commit_body() -> str:
 _QUIET_BUDGET = 3
 
 
-def quiet_body(event: str, budget: int | None = None) -> str:
+def quiet_body(event: str) -> str:
     """A personal hook. It never fails git, and it does not read stdin or arguments.
 
     Bounds hung process start with timeout/gtimeout when present, else perl's
@@ -77,11 +78,10 @@ def quiet_body(event: str, budget: int | None = None) -> str:
     of those tools, the command runs unbounded. Stdout and stderr go to
     /dev/null so a missing package or early failure stays silent. Stdin is
     /dev/null so a pre-push ref list is not eaten. Always ends with || true
-    so git proceeds. post-commit uses a 1s shell budget; pre-push/post-merge
-    use 3s.
+    so git proceeds. pre-push and post-merge use a 3s shell budget.
     """
     py = shlex.quote(sys.executable)
-    seconds = _QUIET_BUDGET if budget is None else budget
+    seconds = _QUIET_BUDGET
     run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
     return (
         f"if [ -x {py} ]; then\n"

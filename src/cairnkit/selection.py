@@ -20,6 +20,28 @@ PATH_NOISE = {
     "main", "index", "init", "__init__", "readme", "changelog", "setup", "util", "utils",
     "common", "core", "github", "workflows",
 }  # fmt: skip
+# As a file or folder name these say what the file is. In a fact's text they are ordinary words:
+# `user.tsx` is not about "the user must confirm". A fact can still name the file itself.
+COMMON_WORDS = {
+    "account", "accounts", "action", "actions", "admin", "asset", "assets", "base", "build",
+    "button", "card", "class", "client", "code", "color", "component", "components", "config",
+    "configs", "constants", "content", "context", "controller", "controllers", "data", "date",
+    "default", "defaults", "demo", "dist", "error", "errors", "event", "events", "example",
+    "examples", "field", "fields", "file", "files", "form", "function", "functions", "global",
+    "group", "groups", "handler", "handlers", "header", "helper", "helpers", "home", "icon",
+    "icons", "image", "images", "input", "item", "items", "label", "layout", "link", "links",
+    "list", "lists", "local", "logger", "logging", "logs", "manager", "message", "messages",
+    "method", "mock", "mocks", "model", "models", "module", "modules", "name", "names", "node",
+    "number", "object", "open", "option", "options", "order", "orders", "output", "package",
+    "page", "pages", "path", "paths", "people", "person", "product", "products", "public",
+    "read", "request", "requests", "response", "responses", "result", "results", "route",
+    "router", "routes", "sample", "samples", "script", "scripts", "server", "service",
+    "services", "setting", "settings", "shared", "size", "source", "spec", "specs", "start",
+    "state", "static", "status", "stop", "store", "string", "style", "styles", "table", "target",
+    "task", "tasks", "team", "template", "templates", "text", "theme", "time", "title", "tool",
+    "tools", "type", "types", "update", "user", "users", "value", "values", "version", "view",
+    "views", "work", "write",
+}  # fmt: skip
 
 
 def branch_words(branch: str | None) -> set[str]:
@@ -37,19 +59,33 @@ def areas_for_paths(paths: list[str], area_map: dict[str, str]) -> set[str]:
         parts = [part.lower() for part in path.split("/") if part]
         if parts:
             found.add(parts[0])
+            found.add("/".join(parts))
         for part in parts:
             stem = part.split(".", 1)[0].lstrip(".")
             if stem and stem not in PATH_NOISE:
                 found.add(stem)
+                found.add(part)
     return found
 
 
 def _mentions(state: dict, areas: set[str]) -> bool:
-    """True when the fact names a part of the work in progress, in its source or its text."""
-    words = set(
-        re.findall(r"[a-z0-9_-]+", f"{state.get('text', '')} {state.get('source', '')}".lower())
+    """True when the fact names a changed file or a distinctive word of its path.
+
+    A path or a file name must appear whole, in the fact's text or its `file:` source. A stem or a
+    folder name counts as a word, unless it is too short or too common to mean this file. Other
+    sources are not read: each `session:DATE` would match a changed `session.py`.
+    """
+    source = str(state.get("source", ""))
+    text = f"{state.get('text', '')} {source if source.startswith('file:') else ''}".lower()
+    words = set(re.findall(r"[a-z0-9_-]+", text))
+    paths = {token.rstrip(".-/") for token in re.findall(r"[a-z0-9_./-]+", text)}
+    paths |= {path.rsplit("/", 1)[-1] for path in paths}
+    return any(
+        area in paths
+        if "." in area or "/" in area
+        else len(area) >= 4 and area not in PATH_NOISE | COMMON_WORDS and area in words
+        for area in areas
     )
-    return any(len(area) >= 4 and area not in PATH_NOISE and area in words for area in areas)
 
 
 def score_parts(
@@ -87,16 +123,6 @@ def score_parts(
         "branch": 2.0 * min(len(labels & words), 2),
         "use": 0.0 if idle is None else USE_WEIGHT * 0.5 ** (max(idle, 0.0) / USE_HALF_LIFE_DAYS),
     }
-
-
-def score(
-    state: dict,
-    moment: datetime,
-    areas: set[str],
-    words: set[str],
-    used_at: datetime | None = None,
-) -> float:
-    return sum(score_parts(state, moment, areas, words, used_at).values())
 
 
 FRAME_HEADER = (
@@ -163,19 +189,25 @@ def pick(
     words: set[str],
     used: dict[str, datetime] | None = None,
 ) -> list[dict]:
-    """Pinned facts, then one place per area when no signal exists, then the best scores."""
-    used = used or {}
+    """Pinned facts, then one place per area when no signal exists, then the best scores.
+
+    A changed file that matches no fact says nothing about which fact is relevant, so it is no
+    signal.
+    """
+    last_used = used or {}
     pinned = [s for s in states if s.get("pinned")]
-    rest = sorted(
-        (s for s in states if not s.get("pinned")),
-        key=lambda s: (-score(s, moment, areas, words, used.get(s.get("id", ""))), s.get("id", "")),
-    )
+    unpinned = [s for s in states if not s.get("pinned")]
+    parts = {
+        s["id"]: score_parts(s, moment, areas, words, last_used.get(s["id"])) for s in unpinned
+    }
+    rest = sorted(unpinned, key=lambda s: (-sum(parts[s["id"]].values()), s["id"]))
+    signal = any(row["area"] or row["mention"] for row in parts.values())
     chosen, used = [], 0
     for state in pinned:
         chosen.append(state)
         used += words_in(render(state))
     taken = set()
-    if budget and AREA_SHARE and not areas:
+    if budget and AREA_SHARE and not signal:
         limit = used + int(budget * AREA_SHARE)
         for state in _area_places(rest):
             cost = words_in(render(state))

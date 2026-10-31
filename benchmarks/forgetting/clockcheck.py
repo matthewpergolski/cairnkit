@@ -7,6 +7,15 @@ signal that needs no agent action.
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
+if importlib.util.find_spec("cairnkit.scenarios") is None:
+    sys.exit(
+        "clockcheck.py runs only at commit 2326ea0. It measures scenario folding, which later "
+        "commits remove.\nTo run it: git worktree add ../at-2326ea0 2326ea0, then run it there."
+    )
+
 import json
 import statistics
 from collections import defaultdict

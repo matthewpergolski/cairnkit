@@ -310,8 +310,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--auto",
         action="store_true",
-        help="retire the clear mechanical cases now (exact duplicates, ended short-term "
-        "facts), log each one, delete nothing. The session-start hook does this too, "
+        help="retire the clear mechanical cases now (exact and near repeats, ended short-term "
+        "facts, short-term facts whose source file is gone), log each one, delete nothing. "
+        "The session-start hook does this too, "
         "and so do the personal pre-push and post-merge git hooks",
     )
     p.add_argument("--dry-run", action="store_true", help="with --auto: show, change nothing")
