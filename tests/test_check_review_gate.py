@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_review_gate.py"
+SAMPLE_SHA = "abcdef1234567890abcdef1234567890abcdef12"
+
+
+def with_head(review: str, sha: str = SAMPLE_SHA) -> str:
+    if "Head:" in review:
+        return review
+    return review.rstrip() + f"\n- Head: {sha[:7]}\n"
 
 
 def load_mod():
@@ -92,21 +100,51 @@ def test_missing_review_heading_fails(mod):
     assert any("missing" in e.lower() and "Review" in e for e in errors)
 
 
-def test_no_findings_passes(mod):
+def test_no_disposition_findings_fail_without_head(mod):
+    """Ready requires a real review at the current head, not a placeholder."""
     for review in (
         "- none yet",
         "- No prior review findings on this branch yet.",
         "- Independent review found nothing to change.",
     ):
-        assert mod.check_review(body_with_review(review)) == [], review
+        errors = mod.check_review(body_with_review(review))
+        assert errors, repr(review)
+
+
+def test_review_at_current_head_passes(mod, monkeypatch):
+    sha = SAMPLE_SHA
+    monkeypatch.setenv("PR_HEAD_SHA", sha)
+    review = f"- accepted: independent review found nothing to change\n- Head: {sha[:7]}\n"
+    assert mod.check_review(body_with_review(review)) == []
+
+
+def test_stale_head_sha_fails_review_gate(mod, monkeypatch):
+    monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
+    review = (
+        "- accepted: independent review found nothing to change\n"
+        "- Head: 0000000111111\n"
+    )
+    errors = mod.check_review(body_with_review(review))
+    assert errors
+    assert any("sha" in e.lower() or "head" in e.lower() for e in errors)
+
+
+def test_missing_head_sha_fails_when_env_set(mod, monkeypatch):
+    monkeypatch.setenv("PR_HEAD_SHA", SAMPLE_SHA)
+    review = "- accepted: independent review found nothing to change\n"
+    errors = mod.check_review(body_with_review(review))
+    assert errors
+    assert any("sha" in e.lower() or "head" in e.lower() for e in errors)
 
 
 def test_fixed_and_rejected_blocker_high_pass(mod):
-    review = """
+    review = with_head(
+        """
 - **Blocker:** hung install path — fixed in head
 - **High (H1):** race on checkout — rejected (won't fix; documented)
 - **Medium:** wording — accepted
 """
+    )
     assert mod.check_review(body_with_review(review)) == []
 
 
@@ -133,27 +171,31 @@ def test_accepted_alone_does_not_clear_blocker_or_high(mod):
 
 def test_free_prose_blocker_high_words_are_not_findings(mod):
     """M1: bare words at line start must not look like house-style findings."""
-    review = """
+    review = with_head(
+        """
 - High-priority follow-up later
 ### High-level notes
 - Blocker 0 · High 0 · Medium 1
-- Independent review found nothing to change.
+- accepted: Independent review found nothing to change.
 """
+    )
     assert mod.check_review(body_with_review(review)) == []
 
 
 def test_counts_line_and_not_a_blocker_are_ignored(mod):
-    review = """
+    review = with_head(
+        """
 **Counts:** Blocker 0 · High 0 · Medium 1 · Low 0
 
 - One **Medium**: leftover note. Not a Blocker for this change.
 - **Accepted:** keep the Medium as-is.
 """
+    )
     assert mod.check_review(body_with_review(review)) == []
 
 
 def test_fixed_prefix_line_that_mentions_high_passes(mod):
-    review = "- **Fixed:** prior High about the race on checkout."
+    review = with_head("- **Fixed:** prior High about the race on checkout.")
     assert mod.check_review(body_with_review(review)) == []
 
 
@@ -172,16 +214,20 @@ def test_cli_exits_1_on_pending(tmp_path):
 
 
 def test_cli_exits_0_when_clean(tmp_path):
+    sha = SAMPLE_SHA
     path = tmp_path / "body.md"
     path.write_text(
-        body_with_review("- **Fixed:** XDG leak on ubuntu.\n"),
+        body_with_review(f"- **Fixed:** XDG leak on ubuntu.\n- Head: {sha[:7]}\n"),
         encoding="utf-8",
     )
+    env = os.environ.copy()
+    env["PR_HEAD_SHA"] = sha
     result = subprocess.run(
         ["python3", str(SCRIPT), str(path)],
         cwd=ROOT,
         capture_output=True,
         text=True,
+        env=env,
     )
     assert result.returncode == 0
     assert "review-gate: ok" in result.stdout

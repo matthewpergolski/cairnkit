@@ -407,6 +407,7 @@ def test_check_pr_body_is_stdlib_only():
             mod = stripped.split()[1].split(".")[0].split(",")[0]
             if mod == "__future__":
                 continue
+
             assert mod in {
                 "argparse",
                 "os",
@@ -422,4 +423,38 @@ def test_check_pr_body_is_stdlib_only():
                 "itertools",
                 "json",
                 "html",
+                "subprocess",
+                "shutil",
             }, stripped
+
+
+def test_cursor_com_footer_link_is_reported_even_without_open_phrase(mod):
+    """Root cause: PR-body tool footer uses cursor.com links/images."""
+    body = good_body() + (
+        "\n"
+        '<div><a href="https://cursor.com/agents/bc-x">'
+        '<img alt="agent" src="https://cursor.com/assets/images/open-in-web-dark.png">'
+        "</a></div>\n"
+    )
+    errors = mod.check_body(body)
+    joined = "\n".join(errors).lower()
+    assert "cursor.com" in joined or "footer" in joined
+    assert "Fix:" in "\n".join(errors)
+
+
+def test_exactly_six_required_headings_wrong_count_fails(mod):
+    """Root cause: wrong body section count."""
+    dropped = good_body().replace("## Files changed\n", "## Changed files\n", 1)
+    errors = mod.check_body(dropped)
+    assert any("Files changed" in e or "heading" in e.lower() for e in errors)
+
+
+def test_pr_workflow_doc_exists_and_orders_review_before_ci_wait():
+    """Root cause: review waiting on CI / review not before ready."""
+    path = ROOT / "docs" / "pr-workflow.md"
+    assert path.is_file(), "add docs/pr-workflow.md with the short STE flow"
+    text = path.read_text(encoding="utf-8").casefold()
+    assert "review" in text
+    assert "ci" in text
+    assert "pr_body" in text or "check_pr_body" in text
+    assert "before" in text and ("wait" in text or "matrix" in text or "ready" in text)
