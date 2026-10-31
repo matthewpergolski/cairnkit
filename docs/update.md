@@ -78,13 +78,15 @@ commit must come before the new one. A folder without git has no commit. A hash 
 its files stands in for it. Links that stay inside the folder count. Links
 that leave it, dot files, caches, builds and logs do not. It does not read
 `.gitignore`.
-For a git URL, `ls-remote --tags` chooses the highest `vX.Y.Z` or `X.Y.Z`
-release. That tag's commit is the commit that gets installed, even when
-`HEAD` has moved on. The install record stores `git+<url>@<tag>`. When the
-remote has no release tag, `ls-remote HEAD` supplies the commit and the
-record stores `git+<url>` with no tag. A uv receipt can pin the installed
-rev with `?rev=`, `#<commit>`, or `@ref`. The check strips that pin and
-talks to the clean remote. The `Source:` line still shows the old pin.
+For a git URL, `ls-remote --tags` chooses the highest strict `vX.Y.Z` or
+`X.Y.Z` release (not `v1`, not `2024`, not four-part tags). That tag's
+commit is the commit that gets installed, even when `HEAD` has moved on.
+The install record stores `git+<url>@<tag>`. When the remote has no release
+tag, `ls-remote HEAD` supplies the commit and the record stores `git+<url>`
+with no tag. A uv receipt can pin the installed rev with `?rev=`,
+`#<commit>`, or `@ref`. The check strips that pin and talks to the clean
+remote. The `Source:` line still shows the old pin. A trailing `.git` on
+the record or the receipt does not clear the recorded commit.
 Without a recorded commit, only the version compare counts. With a recorded
 commit, a different commit still counts as newer when the version matches.
 An older release tag is not an update. Without a record, only the version

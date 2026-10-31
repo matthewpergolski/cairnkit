@@ -54,12 +54,17 @@ class Release:
     commit: str
 
 
+def _git_key(spec: str) -> str:
+    """Compare git remotes without a trailing ``.git`` spelling difference."""
+    return spec[:-4] if spec.lower().endswith(".git") else spec
+
+
 @dataclass(frozen=True)
 class Source:
     """A folder path, or a git remote with the receipt pin parsed off.
 
-    ``pin`` is only for ``label``. Equality ignores it, so a receipt pin and a
-    recorded tag on the same remote are the same source.
+    ``pin`` is only for ``label``. Equality ignores it and a trailing ``.git``,
+    so a receipt pin and a recorded tag on the same remote are the same source.
     """
 
     spec: str  # an absolute folder path, or a git URL without the git+ prefix
@@ -76,12 +81,24 @@ class Source:
         if not self.spec or clean != self.spec or pin is not None:
             raise ValueError(f"git spec must be a clean remote, not {self.spec!r}")
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Source):
+            return NotImplemented
+        if self.kind != other.kind or self.editable != other.editable:
+            return False
+        if self.kind == "git":
+            return _git_key(self.spec) == _git_key(other.spec)
+        return self.spec == other.spec
+
+    def __hash__(self) -> int:
+        spec = _git_key(self.spec) if self.kind == "git" else self.spec
+        return hash((self.kind, self.editable, spec))
+
     @property
     def label(self) -> str:
         if self.pin:
             return f"{self.spec} @ {self.pin} ({self.kind})"
         return f"{self.spec} ({self.kind})"
-
 
 @dataclass(frozen=True)
 class Latest:
