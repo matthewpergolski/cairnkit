@@ -2,7 +2,7 @@
 
 This page specifies the files that cairnkit reads and writes. It is precise
 enough to write another implementation of the `memory` command in another
-language. It describes version 0.3.0.
+language. It describes version 0.3.1.
 
 For what each kind and scope means, see [memory-types.md](memory-types.md).
 

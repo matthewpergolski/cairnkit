@@ -31,7 +31,7 @@ def test_repo_line_when_post_merge_lacks_docs_check_marker(repo):
         + "\n",
         encoding="utf-8",
     )
-    assert __version__ == "0.3.0"
+    assert __version__ == "0.3.1"
     line = refresh.repo_line(project, None)
     assert line and "memory init --refresh" in line
 

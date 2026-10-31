@@ -7,22 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-30
+
+### Added
+
+- Pull requests fail when the body is not one six-section STE copy; other repos
+  can copy `scripts/check_pr_body.py` and `.github/workflows/pr-standards.yml` (#20).
+- `scripts/pr_body.py` strips packaging, validates the body, and prefers
+  `gh pr edit --body-file` (#20).
+- `docs/pr-workflow.md` documents the short STE pull-request flow (#20).
+
+### Changed
+
+- `memory docs` inventories the project checkout (packages, entry points, README
+  sections, import graph) instead of always describing cairnkit. Session and
+  fact-lifecycle pages stay in cairnkit's own atlas only (#19).
+- Review-gate needs dispositions and the current head sha; placeholder and
+  duplicate-body checks are stricter (#20).
+
 ### Fixed
 
+- `memory update` on a git URL detects a newer tagged release when no install
+  commit is recorded (reads a `vX.Y.Z` tag at HEAD, else the highest remote
+  release tag) (#19).
 - `memory update` strips a uv git pin (`?rev=`, `#<commit>`, or `@ref`),
   lists the clean remote, installs the newest release tag, and records
   `git+<url>@<tag>`. With no release tag it installs `HEAD` and records the
   clean URL. An older remote tag is not treated as an update. Only strict
   `X.Y.Z` / `vX.Y.Z` tags count. A trailing `.git` on the record does not
-  drop the recorded commit. A 0.3.0 tag-pinned install still needs a
-  one-time `uv tool install` of the fixed release, because that binary
-  cannot strip the pin.
+  drop the recorded commit (#21).
 
-### Changed
+### Upgrade
 
-- `memory docs` inventries the project checkout (packages, entry points, README
-  sections, import graph) instead of always describing cairnkit. Session and
-  fact-lifecycle pages stay in cairnkit's own atlas only.
+- Installs still on 0.3.0: run
+  `uv tool install --force git+https://github.com/matthewpergolski/cairnkit@v0.3.1`
+  once. After that, `memory update` works.
 
 ## [0.3.0] - 2026-10-30
 
@@ -53,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Baseline before the 0.3.0 work above.
 
-[Unreleased]: https://github.com/matthewpergolski/cairnkit/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/matthewpergolski/cairnkit/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/matthewpergolski/cairnkit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/matthewpergolski/cairnkit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/matthewpergolski/cairnkit/releases/tag/v0.2.0
