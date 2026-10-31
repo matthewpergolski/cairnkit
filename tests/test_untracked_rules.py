@@ -36,15 +36,13 @@ def test_shared_mode_is_gone(repo, capsys):
     assert not (repo / "CLAUDE.local.md").exists()
 
 
-def test_migrate_moves_block_out_of_tracked_files_into_local(repo):
+def test_a_tracked_block_stays_and_the_rules_go_local(repo):
     (repo / "CLAUDE.md").write_text(HAND + BLOCK)
     (repo / "AGENTS.md").write_text("# Agents\n\nBe kind.\n")
     git(repo, "add", "CLAUDE.md", "AGENTS.md")
     git(repo, "commit", "-q", "-m", "old shared block")
     assert main(["init", "--write-instructions"]) == 0
-    claude = (repo / "CLAUDE.md").read_text()
-    assert claude == HAND
-    assert START not in claude
+    assert (repo / "CLAUDE.md").read_text() == HAND + BLOCK  # a tracked file does not change
     agents = (repo / "AGENTS.md").read_text()
     assert agents.startswith("# Agents\n\nBe kind.\n")
     assert START not in agents
@@ -54,12 +52,10 @@ def test_migrate_moves_block_out_of_tracked_files_into_local(repo):
     git(repo, "check-ignore", "-q", "CLAUDE.local.md")
 
 
-def test_migrate_leaves_hand_written_content_when_block_was_only_addition(repo):
+def test_a_tracked_file_with_a_block_and_hand_text_stays_as_it_was(repo):
     (repo / "AGENTS.md").write_text(HAND + BLOCK + "\nAfter.\n")
     git(repo, "add", "AGENTS.md")
     git(repo, "commit", "-q", "-m", "agents with block")
     assert main(["init", "--write-instructions"]) == 0
-    text = (repo / "AGENTS.md").read_text()
-    assert text.startswith(HAND) and "After.\n" in text
-    assert START not in text
+    assert (repo / "AGENTS.md").read_text() == HAND + BLOCK + "\nAfter.\n"
     assert START in (repo / "CLAUDE.local.md").read_text()
