@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import re
 
-from cairnkit.progress import Progress, STAGES, want_anim
+from cairnkit.progress import STAGES, Progress, want_anim
 
 
 class Terminal(io.StringIO):
