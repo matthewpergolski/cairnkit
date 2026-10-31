@@ -289,10 +289,10 @@ def test_post_merge_body_shells_out_to_docs_check():
     assert "has_memory" in fresh
     assert "find_project()" in fresh
     assert "[ -d docs/state ]" in fresh
-    assert "timeout -k 1 1 " in fresh
+    assert "timeout -k 1 3 " in fresh
     assert "docs-freshness" not in text
     # Bound must parent PY directly; nested `sh -c` orphans hung starts on macOS.
-    timed = [line for line in fresh.splitlines() if "timeout -k 1 1 " in line]
+    timed = [line for line in fresh.splitlines() if "timeout -k 1 3 " in line]
     assert timed
     assert all(" sh -c " not in line for line in timed)
     assert all("2>/dev/null" in line and not _redirects_stdout_to_devnull(line) for line in timed)
