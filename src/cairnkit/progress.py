@@ -47,7 +47,7 @@ def want_anim(stream: TextIO, env: Mapping[str, str] | None = None, opt_out: boo
     names = os.environ if env is None else env
     if names.get("CAIRNKIT_PLAIN") or names.get("MEMORY_PLAIN"):
         return False
-    if names.get("NO_COLOR") is not None:
+    if names.get("NO_COLOR"):
         return False
     if names.get("CI"):
         return False
@@ -123,7 +123,7 @@ class Progress:
             return
         self._stop_ticker()
         spec = self._stage(self.label)
-        if spec is None or spec.stone:
+        if spec is not None and spec.stone:
             self.stacked += 1
         self.label = None
         if not self.live:
