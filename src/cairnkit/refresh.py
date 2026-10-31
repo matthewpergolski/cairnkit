@@ -12,8 +12,9 @@ import json
 import sys
 from pathlib import Path
 
-from cairnkit import __version__, adapters, githook, instructions, markers
+from cairnkit import __version__, adapters, githook, instructions, markers, rules_target
 from cairnkit.clock import now, stamp
+from cairnkit.ignore import exclude
 from cairnkit.paths import Project, resolve_memory_dir
 from cairnkit.skills import is_behind
 
@@ -148,6 +149,17 @@ def repo_line(project: Project, flag: str | None) -> str | None:
         return None
 
 
+def _ensure_local_block(project: Project, dry_run: bool) -> list[str]:
+    """A block that stays in a tracked file still gets its current copy in the local file."""
+    path = project.root / rules_target.LOCAL
+    if path.exists() and instructions.START in path.read_text(encoding="utf-8"):
+        return []
+    if not dry_run:
+        instructions.write_block(path)
+        exclude(project, [rules_target.LOCAL])
+    return [f"write the rules block to {path}"]
+
+
 def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     from cairnkit.hooks_cmd import guard_patterns
 
@@ -162,6 +174,8 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     )
     steps += migrate_steps
     broken += migrate_broken
+    if any(step.startswith("note: tracked") for step in migrate_steps):
+        steps += _ensure_local_block(project, dry_run)
     shared_names = {"CLAUDE.md", "AGENTS.md"}
     for path in _block_paths(project, memdir):
         if path.name in shared_names:

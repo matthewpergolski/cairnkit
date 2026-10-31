@@ -229,7 +229,8 @@ export default function (pi: any) {
     const news = hook("prompt", { session_id: key(ctx) });
     const text = [pending, news].filter(Boolean).join("\\n\\n");
     pending = "";
-    return text ? { message: { customType: "cairnkit", content: text, display: false } } : undefined;
+    if (!text) return undefined;
+    return { message: { customType: "cairnkit", content: text, display: false } };
   });
   pi.on("tool_result", async (event: any, ctx: any) => {
     if (event.toolName !== "bash") return;

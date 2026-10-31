@@ -147,11 +147,13 @@ def planned(path: Path) -> str:
 def migrate_shared_blocks(
     project, dry_run: bool = False, checkouts: list[Path] | None = None
 ) -> tuple[list[str], list[Path]]:
-    """Move cairnkit blocks out of CLAUDE.md / AGENTS.md. Leave hand-written text.
+    """Remove a cairnkit block from an untracked CLAUDE.md / AGENTS.md. Leave hand-written text.
 
+    A tracked file is never changed. It gets a note, and the block goes to the local file.
     Return (step messages, broken paths).
     """
     from cairnkit import rules_target
+    from cairnkit.ignore import is_tracked
 
     steps: list[str] = []
     broken: list[Path] = []
@@ -159,6 +161,13 @@ def migrate_shared_blocks(
         for name in rules_target.SHARED:
             path = checkout / name
             if not path.is_file() or rules_target.is_loop(path):
+                continue
+            if is_tracked(project, name):
+                if markers.find(path.read_text(encoding="utf-8"), PAIRS)[0] != "missing":
+                    steps.append(
+                        f"note: tracked {name} holds an old cairnkit block. The tool does not "
+                        f"change a tracked file. {rules_target.LOCAL} holds the current rules."
+                    )
                 continue
             result = remove_block(path, dry_run=dry_run)
             if result == "broken":
@@ -179,7 +188,7 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
         print(
             "error: shared rules blocks are no longer written into tracked CLAUDE.md or "
             "AGENTS.md. Use --write-instructions (local). It writes CLAUDE.local.md and "
-            "moves any cairnkit block out of those tracked files."
+            "changes no tracked file."
         )
         return 1
     looped = rules_target.loops(root, file)

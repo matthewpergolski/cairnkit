@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
         const="local",
         choices=("local", "shared"),
         help="add the agent rules block to CLAUDE.local.md (ignored by git), plus untracked "
-        "harness copies; moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. "
+        "harness copies. It changes no tracked file. "
         "shared is refused",
     )
     p.add_argument(
@@ -185,7 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
         const="local",
         choices=("local", "shared"),
         help="write the block to CLAUDE.local.md (ignored) and untracked harness copies; "
-        "moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. shared is refused",
+        "It changes no tracked file. shared is refused",
     )
     p.add_argument(
         "--instructions-file",
