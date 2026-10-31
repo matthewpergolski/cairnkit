@@ -67,7 +67,8 @@ def test_a_near_pair_with_a_different_meaning_stays_active(mem, capsys, monkeypa
 
 def _facts(count: int, vocabulary: int, seed: int = 0) -> list[dict]:
     rng = random.Random(seed)
-    # Letters only: a word with a digit counts as a number, so a pair that differs in it never matches.
+    # Letters only: a word with a digit counts as a number, so a pair that differs in it never
+    # matches.
     words = ["".join(pair) for pair in itertools.product(string.ascii_lowercase, repeat=3)]
     words = words[:vocabulary]
     return [

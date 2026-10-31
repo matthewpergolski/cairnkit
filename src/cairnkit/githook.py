@@ -82,7 +82,7 @@ def quiet_body(event: str) -> str:
     """
     py = shlex.quote(sys.executable)
     seconds = _QUIET_BUDGET
-    run =f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
+    run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
     return (
         f"if [ -x {py} ]; then\n"
         f"  if command -v timeout >/dev/null 2>&1; then\n"
