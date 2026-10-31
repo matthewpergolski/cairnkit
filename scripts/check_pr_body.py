@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when a pull-request body is not the cairnkit six-section shape.
+"""Fail when a pull-request body is not the six-section STE shape.
 
 Required headings, in order, each exactly once:
 
@@ -10,11 +10,32 @@ Required headings, in order, each exactly once:
   ## How to test
   ## Review
 
-Also requires a ```mermaid fence. Fails when any of those six headings
-appears more than once (a duplicated template paste). Fails on Cursor
-agent footer markers (CURSOR_AGENT_PR_BODY, Open in Cursor / Open in Web),
-"Generated with", and model names/ids. Bare product names (Claude, Cursor,
-Codex) are fine.
+Canonical body (Option A — prevents two visible copies):
+
+  When CURSOR_AGENT_PR_BODY_BEGIN/END markers are present, the body is the
+  text between them. A single cursor.com agent footer after END is ignored.
+  Markers alone do not fail. Two marker pairs, or required headings both
+  inside and outside the marker block, fail as a duplicate body.
+
+Also requires a ```mermaid fence under How it works. Fails on
+"Generated with", model names/ids, and Co-authored-by / Signed-off-by
+trailers in the canonical body. Bare product names (Claude, Cursor,
+Codex) are fine. "Open in Cursor" / "Open in Web" fail only inside the
+canonical body (footer after END is ignored).
+
+Extra shape rules (copyable with .github/workflows/pr-standards.yml):
+
+  - No standalone Pending/TBD/TODO lines; no "paste the body" /
+    "once the PR number is known" phrases
+  - How to test: exactly three lines labeled Unit: / Smoke: /
+    End-to-end:, each with a command+result or "not needed, because"
+  - Rough STE: prose sentences over 25 words fail (skips code fences,
+    tables, and mermaid)
+  - Review: at least one fixed / accepted / rejected finding, and a
+    head sha (short ok). When PR_HEAD_SHA is set, the Review sha must
+    match that value (full or prefix of length >= 7).
+
+Requires Python 3.10+ (stdlib only; no third-party imports).
 
 Usage:
   python3 scripts/check_pr_body.py [PATH]
@@ -42,10 +63,14 @@ REQUIRED_HEADINGS = [
 ]
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
+_H2 = re.compile(r"^##\s+(.+?)\s*$", re.M)
 _MERMAID = re.compile(r"^```mermaid\s*$", re.M | re.I)
+_FENCE = re.compile(r"^```")
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
-# Versioned / dotted model ids. Bare Claude / Cursor / Codex are not matched.
-# Trailing file extensions are ignored so asset names are not treated as ids.
+_BEGIN = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_BEGIN\s*-->", re.I)
+_END = re.compile(r"<!--\s*CURSOR_AGENT_PR_BODY_END\s*-->", re.I)
+
 _MODEL_ID = re.compile(
     r"(?i)\b(?:"
     r"gpt-[\w.\-]+|"
@@ -67,26 +92,96 @@ _ASSET_SUFFIX = re.compile(
 
 _GENERATED_WITH = re.compile(r"Generated with", re.I)
 _OPEN_PHRASES = ("Open in Cursor", "Open in Web")
+_TRAILER = re.compile(r"(?im)^\s*(?:Co-authored-by|Co-Authored-By|Signed-off-by|Signed-Off-By)\s*:")
+
+# Whole-line / bullet placeholders only (not mid-sentence English).
+_STANDALONE_PLACEHOLDER = re.compile(
+    r"(?im)^(?:[-*]\s+)?(?:\*\*)?(Pending|TBD|TODO)(?:\*\*)?\s*[.!?]?\s*$"
+)
+_PLACEHOLDER_PHRASE = re.compile(r"(?i)(?:paste the body|once the PR number is known)")
+
+_TEST_LABELS = ("Unit", "Smoke", "End-to-end")
+_TEST_LINE = re.compile(
+    r"^(?:[-*]\s+)?(Unit|Smoke|End-to-end)\s*:\s*(.+?)\s*$",
+    re.I,
+)
+_NOT_NEEDED = re.compile(r"(?i)not needed,\s*because")
+_SHA = re.compile(r"\b[0-9a-f]{7,40}\b", re.I)
+_DISPOSITION = re.compile(r"(?i)\b(?:fixed|accepted|rejected)\b")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
-def check_body(text: str) -> list[str]:
-    """Return problem lines for one PR body (empty when clean)."""
+def canonical_pr_body(text: str) -> tuple[str, list[str]]:
+    """Return (canonical body, packaging errors).
+
+    Option A: text between a single BEGIN/END pair is the body. A footer
+    after END is ignored. Duplicate marker pairs or required headings
+    outside the pair fail.
+    """
     errors: list[str] = []
+    begins = list(_BEGIN.finditer(text))
+    ends = list(_END.finditer(text))
 
-    if "CURSOR_AGENT_PR_BODY" in text:
+    if not begins and not ends:
+        return text, errors
+
+    if len(begins) != 1 or len(ends) != 1:
         errors.append(
-            "CURSOR_AGENT_PR_BODY marker found. "
-            "Fix: remove CURSOR_AGENT_PR_BODY HTML comment markers and the "
-            "agent footer from the PR body."
+            "duplicate CURSOR_AGENT_PR_BODY marker wrap found. "
+            "Fix: keep a single BEGIN/END pair around one six-section body."
+        )
+        return text, errors
+
+    begin, end = begins[0], ends[0]
+    if end.start() < begin.end():
+        errors.append(
+            "CURSOR_AGENT_PR_BODY markers are out of order. "
+            "Fix: place BEGIN before END around one six-section body."
+        )
+        return text, errors
+
+    inside = text[begin.end() : end.start()]
+    outside = text[: begin.start()] + text[end.end() :]
+
+    # Required headings outside the marker block mean a second visible copy.
+    outside_titles = []
+    for match in _HEADING.finditer(outside):
+        title = match.group(2).strip()
+        if title in REQUIRED_HEADINGS:
+            outside_titles.append(title)
+    if outside_titles:
+        shown = ", ".join(sorted(set(outside_titles), key=REQUIRED_HEADINGS.index))
+        errors.append(
+            "duplicate PR body: required heading(s) appear outside the "
+            f"CURSOR_AGENT marker block ({shown}). "
+            "Fix: keep one six-section body inside the markers only."
         )
 
+    return inside, errors
+
+
+def _section(text: str, title: str) -> str | None:
+    pattern = re.compile(rf"^##\s+{re.escape(title)}\s*$", re.M)
+    match = pattern.search(text)
+    if match is None:
+        return None
+    rest = text[match.end() :]
+    stop = _H2.search(rest)
+    return rest[: stop.start()] if stop else rest
+
+
+def _strip_comments(text: str) -> str:
+    return _HTML_COMMENT.sub("", text)
+
+
+def _check_markers(text: str, errors: list[str]) -> None:
     open_hits = [phrase for phrase in _OPEN_PHRASES if phrase in text]
     if open_hits:
         shown = " / ".join(open_hits)
         errors.append(
-            f"{shown} footer found. "
-            "Fix: remove the Open in Cursor / Open in Web agent footer "
-            "from the PR body."
+            f"{shown} found in the canonical PR body. "
+            "Fix: remove Open in Cursor / Open in Web from the six-section body "
+            "(a cursor.com footer after CURSOR_AGENT_PR_BODY_END is ignored)."
         )
 
     if _GENERATED_WITH.search(text):
@@ -105,13 +200,20 @@ def check_body(text: str) -> list[str]:
             "(Claude, Cursor, Codex) are fine."
         )
 
+    if _TRAILER.search(text):
+        errors.append(
+            "AI/co-author trailer found in the PR body. "
+            "Fix: remove Co-authored-by / Signed-off-by trailers from the PR body."
+        )
+
+
+def _check_headings(text: str, errors: list[str]) -> None:
     found: list[str] = []
     for match in _HEADING.finditer(text):
         title = match.group(2).strip()
         if title in REQUIRED_HEADINGS:
             found.append(title)
 
-    # Report each duplicated template heading by name (one error per title).
     for title in REQUIRED_HEADINGS:
         count = found.count(title)
         if count > 1:
@@ -130,17 +232,215 @@ def check_body(text: str) -> list[str]:
             + "."
         )
     elif all(found.count(h) == 1 for h in REQUIRED_HEADINGS) and found != list(REQUIRED_HEADINGS):
-        # Exact once each (above); still must be in the required order.
         errors.append(
             "required headings are out of order. "
             "Fix: use the six headings in order: " + ", ".join(REQUIRED_HEADINGS) + "."
         )
 
-    if not _MERMAID.search(text):
+
+def _check_mermaid(text: str, errors: list[str]) -> None:
+    how = _section(text, "How it works")
+    if how is None:
+        return
+    if not _MERMAID.search(how):
         errors.append(
-            "missing ```mermaid fence. Fix: add a ```mermaid code fence (under How it works)."
+            "How it works lacks a ```mermaid fence. "
+            "Fix: add a ```mermaid code fence under How it works."
         )
 
+
+def _outside_fences(text: str) -> str:
+    """Return text with fenced code blocks removed (same toggle as STE)."""
+    out: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if _FENCE.match(line.strip()):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _check_placeholders(visible: str, errors: list[str]) -> None:
+    # H2: skip fences. H1: Pending/TBD/TODO only as a whole line or bullet.
+    scan = _outside_fences(visible)
+    words = sorted({m.group(1) for m in _STANDALONE_PLACEHOLDER.finditer(scan)})
+    phrases = sorted({m.group(0) for m in _PLACEHOLDER_PHRASE.finditer(scan)})
+    for item in words + phrases:
+        errors.append(
+            f"placeholder text {item!r} found. "
+            "Fix: replace Pending/TBD/TODO and paste-later notes with real STE prose."
+        )
+
+
+def _test_line_ok(body: str) -> bool:
+    if _NOT_NEEDED.search(body):
+        return True
+    # Prefer backticks, but allow a bare command plus trailing result text.
+    if "`" in body:
+        without_cmds = re.sub(r"`[^`]*`", " ", body).strip()
+        return bool(without_cmds and re.search(r"[A-Za-z0-9]", without_cmds))
+    if not re.search(r"[A-Za-z0-9]", body):
+        return False
+    # Result separators: em/en dash, ASCII hyphen-minus, colon, or "Result".
+    em_en = "\u2014|\u2013"
+    if re.search(r"(?i)\bResult\b\s*\S", body):
+        return True
+    if re.search(rf"(?:{em_en})\s*\S", body):
+        return True
+    # "cmd - pass" or "cmd: pass" (separator with surrounding spaces / end token)
+    if re.search(r"\s[-:]\s+\S", body):
+        return True
+    return bool(re.search(r":\s*\S", body))
+
+
+def _check_how_to_test(text: str, errors: list[str]) -> None:
+    section = _section(text, "How to test")
+    if section is None:
+        return
+    visible = _strip_comments(section)
+    lines = [ln.strip() for ln in visible.splitlines() if ln.strip()]
+    parsed: list[tuple[str, str]] = []
+    for line in lines:
+        match = _TEST_LINE.match(line)
+        if match is None:
+            errors.append(
+                "How to test has a non-labeled line. "
+                "Fix: keep exactly three lines: Unit: / Smoke: / End-to-end:."
+            )
+            return
+        parsed.append((match.group(1), match.group(2)))
+
+    norm = []
+    for label, _ in parsed:
+        low = label.casefold()
+        if low == "unit":
+            norm.append("Unit")
+        elif low == "smoke":
+            norm.append("Smoke")
+        else:
+            norm.append("End-to-end")
+
+    expected = list(_TEST_LABELS)
+    if norm != expected:
+        errors.append(
+            "How to test must be exactly three lines Unit:/Smoke:/End-to-end: "
+            f"(found {norm!r}). "
+            "Fix: use those three labels in order, one line each."
+        )
+        return
+
+    for label, body in zip(norm, (b for _, b in parsed), strict=True):
+        if not _test_line_ok(body):
+            errors.append(
+                f"How to test {label} line needs a command+result or "
+                "'not needed, because'. "
+                f"Fix: rewrite the {label} line with a command and result, "
+                "or 'not needed, because …'."
+            )
+
+
+def _prose_regions(text: str) -> str:
+    out: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if _FENCE.match(line.strip()):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            continue
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith(("- ", "* ")):
+            continue
+        if _TEST_LINE.match(stripped):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _check_ste(visible: str, errors: list[str]) -> None:
+    prose = _prose_regions(visible)
+    blob = re.sub(r"\s+", " ", prose).strip()
+    if not blob:
+        return
+    for sentence in _SENTENCE_SPLIT.split(blob):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        words = sentence.split()
+        if len(words) > 25:
+            preview = " ".join(words[:12]) + "…"
+            errors.append(
+                f"prose sentence has {len(words)} words (limit 25): {preview!r}. "
+                "Fix: split into shorter STE sentences (about 25 words or fewer)."
+            )
+
+
+def _check_review(text: str, errors: list[str]) -> None:
+    section = _section(text, "Review")
+    if section is None:
+        return
+    visible = _strip_comments(section)
+    if not _DISPOSITION.search(visible):
+        errors.append(
+            "Review has no fixed/accepted/rejected findings. "
+            "Fix: record findings as fixed, accepted, or rejected."
+        )
+
+    labeled = re.findall(
+        r"(?i)\b(?:Head|sha)\s*[:#]?\s*([0-9a-f]{7,40})\b",
+        visible,
+    )
+    if not labeled:
+        errors.append(
+            "Review does not name the current head sha. "
+            "Fix: add a Head: <sha> line in Review (short form is ok)."
+        )
+        return
+    shas = labeled
+
+    expected = os.environ.get("PR_HEAD_SHA") or os.environ.get("HEAD_SHA")
+    if not expected:
+        return
+    expected = expected.strip().lower()
+    if len(expected) < 7:
+        errors.append(
+            "PR_HEAD_SHA env is shorter than 7 characters. "
+            "Fix: pass the full pull request head sha to the check."
+        )
+        return
+    ok = False
+    for found in shas:
+        low = found.lower()
+        if len(low) >= 7 and (expected.startswith(low) or low.startswith(expected)):
+            ok = True
+            break
+    if not ok:
+        errors.append(
+            "Review head sha does not match PR_HEAD_SHA. "
+            f"Fix: name the current head sha ({expected[:7]}…) in Review."
+        )
+
+
+def check_body(text: str) -> list[str]:
+    """Return problem lines for one PR body (empty when clean)."""
+    canonical, errors = canonical_pr_body(text)
+    # Packaging errors still allow shape checks on the best-effort body.
+    _check_markers(canonical, errors)
+    _check_headings(canonical, errors)
+    _check_mermaid(canonical, errors)
+
+    visible = _strip_comments(canonical)
+    _check_placeholders(visible, errors)
+    _check_how_to_test(canonical, errors)
+    _check_ste(visible, errors)
+    _check_review(canonical, errors)
     return errors
 
 

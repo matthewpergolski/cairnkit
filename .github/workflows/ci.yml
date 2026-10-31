@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    # edited: re-run pr-body when the description is cleaned after open
+    # edited: re-run review-gate when the description is cleaned after open
     types: [opened, synchronize, reopened, edited]
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   test:
-    # Body/title edits only need pr-body; skip the matrix.
+    # Body/title edits only need review-gate / pr-standards; skip the matrix.
     if: github.event_name != 'pull_request' || github.event.action != 'edited'
     strategy:
       fail-fast: false
@@ -90,17 +90,8 @@ jobs:
             fi
           fi
 
-  pr-body:
-    if: github.event_name == 'pull_request'
-    name: pr-body
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: PR body shape
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 scripts/check_pr_body.py
+  # pr-body lives in .github/workflows/pr-standards.yml (copyable with
+  # scripts/check_pr_body.py). Keep cairnkit-only jobs below.
 
   review-gate:
     if: github.event_name == 'pull_request'
@@ -112,4 +103,5 @@ jobs:
       - name: Review section gate
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/check_review_gate.py
