@@ -251,6 +251,7 @@ def _split_scp(text: str) -> tuple[str, str | None]:
         pin = None
     return head + rest, pin
 
+
 def _split_vcs(text: str) -> tuple[str, str | None]:
     """Split a remote that has no ``git+`` prefix into ``(clean URL, pin)``.
 
