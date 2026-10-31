@@ -87,8 +87,18 @@ rev with `?rev=`, `#<commit>`, or `@ref`. The check strips that pin and
 talks to the clean remote. The `Source:` line still shows the old pin.
 Without a recorded commit, only the version compare counts. With a recorded
 commit, a different commit still counts as newer when the version matches.
-Without a record, only the version counts. The
-first `memory update` then installs again, to write the record.
+An older release tag is not an update. Without a record, only the version
+counts. The first `memory update` then installs again, to write the record.
+
+A tag-pinned `uv tool install` of 0.3.0 stores `?rev=v0.3.0` in the receipt.
+That build of `memory update` cannot strip the pin, so the check exits 1.
+`uv tool upgrade` also leaves the pin. Install the fixed release by hand:
+
+```text
+uv tool install --force --reinstall git+https://github.com/matthewpergolski/cairnkit@v0.3.1
+```
+
+Use the next release tag once it exists. After that, `memory update` works.
 
 `memory status` and the session start show one line when the source is
 newer. The answer is cached for a day. A local folder is read with local git

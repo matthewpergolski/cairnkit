@@ -484,6 +484,9 @@ def is_newer(source: Source, version: str, commit: str | None, found: Latest) ->
     """True when the source holds a newer memory than the installed one."""
     if is_behind(version, found.version):
         return True
+    # An older release tag is not an update, even when its commit differs.
+    if found.version is not None and is_behind(found.version, version):
+        return False
     if not commit or not found.commit or commit == found.commit:
         return False
     if source.kind == "git" or not is_git_folder(Path(source.spec)):
