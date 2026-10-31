@@ -235,6 +235,7 @@ def test_a_fact_that_names_a_changed_file_ranks_higher():
         ("ui/user.tsx", "The user must confirm the delete.", "session:x"),
         ("src/models/user.py", "The model of a user holds no password.", "session:x"),
         ("src/main.py", "See lib/main.py for the entry point.", "session:x"),
+        ("src/auth/session.py", "Deploys need a clean tree.", "session:2026-10-01"),
     ],
 )
 def test_a_common_word_in_a_fact_does_not_match_a_changed_file(path, text, source):
