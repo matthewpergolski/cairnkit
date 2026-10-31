@@ -9,9 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `memory update` on a git URL detects a newer tagged release when no install
-  commit is recorded (reads a `vX.Y.Z` tag at HEAD, else the highest remote
-  release tag).
+- `memory update` strips a uv git pin (`?rev=`, `#<commit>`, or `@ref`),
+  lists the clean remote, installs the newest release tag, and records
+  `git+<url>@<tag>`. With no release tag it installs `HEAD` and records the
+  clean URL. An older remote tag is not treated as an update. Only strict
+  `X.Y.Z` / `vX.Y.Z` tags count. A trailing `.git` on the record does not
+  drop the recorded commit. A 0.3.0 tag-pinned install still needs a
+  one-time `uv tool install` of the fixed release, because that binary
+  cannot strip the pin.
 
 ### Changed
 
