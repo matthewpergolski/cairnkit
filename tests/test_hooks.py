@@ -163,7 +163,7 @@ def test_install_claude_merges_and_is_idempotent(repo, mem, capsys):
 def test_install_codex_and_cursor_formats(repo, mem, capsys):
     assert install(capsys, "--agent", "codex")[0] == 0
     codex = json.loads((repo / ".codex" / "hooks.json").read_text())
-    assert codex["hooks"]["SessionStart"][0]["matcher"] == "startup|resume"
+    assert codex["hooks"]["SessionStart"][0]["matcher"] == "startup|resume|clear|compact"
     assert len(our_commands(codex["hooks"]["Stop"])) == 1
     assert install(capsys, "--agent", "cursor")[0] == 0
     cursor = json.loads((repo / ".cursor" / "hooks.json").read_text())

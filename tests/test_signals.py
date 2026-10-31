@@ -1,0 +1,201 @@
+"""The tool names events to the agent. It writes no fact itself."""
+
+from __future__ import annotations
+
+import io
+import json
+
+from conftest import git, make_fact, write_facts
+
+from cairnkit.cli import main
+from cairnkit.loopbreak import command_from_payload
+from cairnkit.memory import Memory
+from cairnkit.paths import find_project
+
+
+def hook(capsys, monkeypatch, event, payload, agent="claude"):
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    capsys.readouterr()
+    code = main(["hook", event, "--agent", agent])
+    out = capsys.readouterr()
+    assert code == 0 or event == "stop"
+    return out.out
+
+
+def start(capsys, monkeypatch, **extra):
+    return hook(capsys, monkeypatch, "session-start", {"session_id": "s", **extra})
+
+
+def facts_on_disk(mem):
+    return sum(p.read_text().count("\n") for p in (mem / "facts").glob("*.jsonl"))
+
+
+def bash(command, event):
+    payload = {"session_id": "s", "hook_event_name": event, "tool_name": "Bash"}
+    payload["tool_input"] = {"command": command}
+    if event == "PostToolUseFailure":
+        payload |= {"error": f"Exit code 1\n{command} broke", "is_interrupt": False}
+    else:
+        payload["tool_response"] = {
+            "stdout": "ok",
+            "stderr": "warning: noisy",
+            "interrupted": False,
+        }
+    return payload
+
+
+def test_a_claude_failure_is_read_from_its_failure_event():
+    assert command_from_payload(bash("npm test", "PostToolUseFailure")) == ("npm test", False)
+
+
+def test_a_claude_success_with_stderr_is_not_a_failure():
+    assert command_from_payload(bash("npm test", "PostToolUse")) == ("npm test", True)
+
+
+def test_an_interrupt_is_not_a_failure():
+    payload = bash("npm test", "PostToolUseFailure") | {"is_interrupt": True}
+    assert command_from_payload(payload) is None
+
+
+def test_a_success_of_another_tool_does_not_reset_a_failing_command():
+    payload = {"hook_event_name": "PostToolUse", "tool_name": "Read", "tool_response": {"a": 1}}
+    assert command_from_payload(payload) is None
+
+
+def test_codex_failure_text_is_read():
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "tool_input": {"command": "make"},
+        "tool_response": "Process exited with code 2\nboom",
+    }
+    assert command_from_payload(payload) == ("make", False)
+
+
+def test_a_cursor_shell_result_with_no_exit_code_says_nothing():
+    assert command_from_payload({"command": "make", "output": "text"}) is None
+
+
+def test_three_failures_reach_the_agent_on_the_failure_event(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    out = ""
+    for _ in range(3):
+        out = hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUseFailure"))
+    context = json.loads(out)["hookSpecificOutput"]
+    assert context["hookEventName"] == "PostToolUseFailure"
+    assert "failed 3 times" in context["additionalContext"]
+
+
+def test_stop_names_a_fix_after_repeated_failures_and_writes_no_fact(
+    repo, mem, capsys, monkeypatch
+):
+    start(capsys, monkeypatch)
+    before = facts_on_disk(mem)
+    for _ in range(2):
+        hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUseFailure"))
+    hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUse"))
+    out = hook(capsys, monkeypatch, "stop", {"session_id": "s"})
+    assert "`make` failed 2 times, then passed" in json.loads(out)["reason"]
+    assert facts_on_disk(mem) == before
+    assert hook(capsys, monkeypatch, "stop", {"session_id": "s"}) == ""
+
+
+def test_stop_names_a_revert_even_after_a_fact_was_written(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    (repo / "a.txt").write_text("x\n")
+    git(repo, "add", "a.txt")
+    git(repo, "commit", "-qm", "Add a")
+    git(repo, "revert", "--no-edit", "HEAD")
+    assert main(["add", "A note.", "--basis", "seen", "--source", "session:1"]) == 0
+    out = hook(capsys, monkeypatch, "stop", {"session_id": "s"})
+    assert 'Revert "Add a"' in json.loads(out)["reason"]
+
+
+def test_a_fact_from_another_branch_reaches_a_running_session(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    monkeypatch.setenv("MEMORY_WRITER", "other")
+    assert main(["add", "Learned elsewhere.", "--basis", "seen", "--source", "session:1"]) == 0
+    monkeypatch.delenv("MEMORY_WRITER")
+    out = hook(capsys, monkeypatch, "prompt", {"session_id": "s"})
+    assert "Learned elsewhere." in out
+    assert "Learned elsewhere." not in hook(capsys, monkeypatch, "prompt", {"session_id": "s"})
+
+
+def test_a_fact_that_this_writer_added_is_not_repeated(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    assert main(["add", "Mine.", "--basis", "seen", "--source", "session:1"]) == 0
+    assert hook(capsys, monkeypatch, "prompt", {"session_id": "s"}) == ""
+
+
+def test_an_old_trap_arrives_when_its_area_is_first_changed(repo, mem, capsys, monkeypatch):
+    crowd = [
+        make_fact(f"f-20261001-{i:04x}", " ".join(["word"] * 40) + f" n{i}", area="busy")
+        for i in range(30)
+    ]
+    trap = make_fact(
+        "f-20200101-0001",
+        "Payments retry twice.",
+        kind="trap",
+        area="payments",
+        learned_at="2020-01-01T00:00:00+00:00",
+    )
+    crowd += [
+        make_fact(f"f-20200102-{i:04x}", f"Old trap {i}.", kind="trap", area=f"a{i}")
+        for i in range(20)
+    ]
+    write_facts(mem, [*crowd, trap])
+    text = start(capsys, monkeypatch)
+    folder = repo / "payments"
+    folder.mkdir()
+    (folder / "x.py").write_text("x\n")
+    git(repo, "add", "payments/x.py")
+    out = hook(capsys, monkeypatch, "prompt", {"session_id": "s"})
+    if "f-20200101-0001" not in text:
+        assert "Payments retry twice." in out
+    assert "Payments retry twice." not in hook(capsys, monkeypatch, "prompt", {"session_id": "s"})
+
+
+def test_a_compaction_keeps_the_session_and_loads_again(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch)
+    for _ in range(2):
+        hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUseFailure"))
+    start(capsys, monkeypatch, source="compact")
+    out = hook(capsys, monkeypatch, "stop", {"session_id": "s"})
+    assert "`make` failed 2 times" in json.loads(out)["reason"]
+
+
+def test_a_tool_with_no_reload_hears_about_a_compaction(repo, mem, capsys, monkeypatch):
+    start(capsys, monkeypatch, conversation_id="s")
+    hook(capsys, monkeypatch, "pre-compact", {"session_id": "s"}, agent="cursor")
+    out = hook(capsys, monkeypatch, "stop", {"session_id": "s"}, agent="cursor")
+    assert "Run `memory load`" in json.loads(out)["followup_message"]
+
+
+def test_add_names_a_fact_that_may_now_be_stale_and_ends_nothing(mem, capsys):
+    add = ["--area", "deploy", "--basis", "seen", "--source", "session:1"]
+    assert main(["add", "The deploy pool holds 10 workers per host.", *add]) == 0
+    old = capsys.readouterr().out.strip().split()[-1]
+    assert main(["add", "The deploy pool now holds 40 workers per region.", *add]) == 0
+    out = capsys.readouterr().out
+    assert f"check: {old}" in out
+    assert Memory.open(find_project(), None).states[old]["status"] == "active"
+
+
+def test_add_in_the_default_area_names_no_conflict(mem, capsys):
+    add = ["--basis", "seen", "--source", "session:1"]
+    assert main(["add", "The deploy pool holds 10 workers per host.", *add]) == 0
+    capsys.readouterr()
+    assert main(["add", "The deploy pool now holds 40 workers per region.", *add]) == 0
+    assert "check:" not in capsys.readouterr().out
+
+
+def test_install_wires_the_failure_and_prompt_events(repo, mem):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    events = json.loads((repo / ".claude" / "settings.local.json").read_text())["hooks"]
+    assert {"PostToolUseFailure", "PostToolUse", "UserPromptSubmit"} <= set(events)
+    assert main(["hooks", "install", "--agent", "codex"]) == 0
+    codex = json.loads((repo / ".codex" / "hooks.json").read_text())["hooks"]
+    assert "PostToolUseFailure" not in codex
+    assert "compact" in codex["SessionStart"][0]["matcher"]
+    assert main(["hooks", "install", "--agent", "cursor"]) == 0
+    cursor = json.loads((repo / ".cursor" / "hooks.json").read_text())["hooks"]
+    assert {"postToolUseFailure", "preCompact"} <= set(cursor)
