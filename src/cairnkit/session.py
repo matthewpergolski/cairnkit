@@ -18,10 +18,11 @@ from cairnkit.clock import now, parse_time, stamp
 from cairnkit.install_source import SKIP_DIRS, SKIP_SUFFIXES
 from cairnkit.load import changed_paths
 from cairnkit.memory import Memory
-from cairnkit.paths import current_branch, run_git
+from cairnkit.paths import current_branch, run_git, writer_name
 from cairnkit.selection import areas_for_paths
 
 KEEP_DAYS = 7
+KEY_LIMIT = 80
 GATE = "durable"
 JUNK_DIRS = frozenset(SKIP_DIRS) | {
     ".venv",
@@ -84,7 +85,11 @@ SOURCE_SUFFIXES = frozenset(
 
 
 def _path(memory: Memory, session_id: str) -> Path:
-    safe = re.sub(r"[^A-Za-z0-9._-]", "-", session_id or "default")[:80] or "default"
+    key = session_id or "default"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "-", key)
+    if safe != key or len(safe) > KEY_LIMIT:
+        # Pi keys are long paths with one prefix. A cut or a replaced character must not join two.
+        safe = f"{safe[:KEY_LIMIT]}-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
     return memory.dir / ".sessions" / f"{safe}.json"
 
 
@@ -225,6 +230,7 @@ def mark_loaded(memory: Memory, session_id: str, text: str) -> None:
     state["loaded_at"] = stamp(now())
     state["shown"] = sorted(fact_id for fact_id in memory.states if f"[{fact_id}]" in text)
     root = memory.project.root
+    state["writers"] = sorted({*state.get("writers", []), writer_name(root)})
     paths = changed_paths(root, current_branch(root))
     state["areas"] = sorted(areas_for_paths(paths, memory.config["areas"]))
     state.pop("compacted", None)
