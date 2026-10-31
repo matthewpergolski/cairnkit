@@ -30,12 +30,9 @@ CONFIG = """\
 # Settings for this project's memory.
 
 
-# The untracked rules file. `memory tidy` proposes durable facts for it.
-# Unset, it is CLAUDE.local.md. Must stay out of git.
-# rules_file = "CLAUDE.local.md"
-
 # What the session-start hook does with facts that are clearly redundant (exact
-# repeats, ended short-term facts). The same step runs after a git push or
+# and near repeats, ended short-term facts, short-term facts whose source file
+# is gone). The same step runs after a git push or
 # merge. Those hooks are personal. A push does not count as a session start.
 # "auto" (the default) only reports for the
 # first 3 session starts and 7 days, then turns itself on, unless a retire was
