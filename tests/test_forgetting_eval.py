@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from cairnkit import followups, hygiene, load, selection, usage
+
 PATH = Path(__file__).parents[1] / "benchmarks" / "forgetting" / "harness.py"
 
 
@@ -30,6 +32,15 @@ def _score(harness, scenario: str, label: str = "", seeds: int = 5) -> float:
                 hits += row["text"]
                 needs += row["n_need"]
     return hits / needs
+
+
+def test_a_replay_leaves_the_load_code_as_it_found_it(harness):
+    """Other tests in the same process call the real load, so a stub must not outlive a replay."""
+    modules = (followups, hygiene, load, selection, usage)
+    before = [dict(vars(module)) for module in modules]
+    world = harness.SCENARIOS["busy-day"](0, 1, 0)
+    harness.replay(world, harness.BY_NAME["load"], 0.0, 0, 600)
+    assert [dict(vars(module)) for module in modules] == before
 
 
 def test_a_long_session_finds_its_facts(harness):
