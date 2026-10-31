@@ -186,10 +186,7 @@ def test_cli_render_prints_stripped_body(tmp_path):
 
 def test_cli_check_fails_on_placeholder(tmp_path):
     path = tmp_path / "body.md"
-    path.write_text(
-        clean_six_section().replace("Ship a clean", "Ship a Pending"),
-        encoding="utf-8",
-    )
+    path.write_text(clean_six_section() + "\nPending\n", encoding="utf-8")
     env = os.environ.copy()
     env["PR_HEAD_SHA"] = SAMPLE_SHA
     result = subprocess.run(

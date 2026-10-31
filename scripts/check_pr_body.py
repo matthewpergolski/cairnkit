@@ -285,12 +285,11 @@ def _test_line_ok(body: str) -> bool:
     # No backticks: need a command token and a result separator or word.
     if not re.search(r"[A-Za-z0-9]", body):
         return False
-    if re.search(r"[—–-]|\bResult\b|:", body, re.I):
-        # Split off a trailing result after an em/en dash or "Result".
-        if re.search(r"[—–].*\S", body) or re.search(r"(?i)\bResult\b.*\S", body):
+    dash = "\u2014|\u2013"  # em dash | en dash
+    if re.search(rf"(?:{dash}|-)|\bResult\b|:", body, re.I):
+        if re.search(rf"(?:{dash}).*\S", body) or re.search(r"(?i)\bResult\b.*\S", body):
             return True
-        # "cmd -q — pass" style already covered; also "cmd — pass"
-        return bool(re.search(r"[—–]\s*\S", body))
+        return bool(re.search(rf"(?:{dash})\s*\S", body))
     return False
 
 
