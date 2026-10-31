@@ -253,20 +253,25 @@ def test_mermaid_outside_how_it_works_is_reported(mod):
 @pytest.mark.parametrize(
     "needle",
     [
-        "Pending",
-        "TBD",
-        "TODO",
         "paste the body",
         "once the PR number is known",
     ],
 )
-def test_placeholder_text_is_reported(mod, needle):
+def test_placeholder_phrase_in_prose_is_reported(mod, needle):
     body = good_body().replace(
         "After merge, CI rejects unmarked or AI-attributed PR bodies.",
         f"After merge, CI rejects unmarked bodies. {needle}.",
     )
     errors = mod.check_body(body)
     assert any("placeholder" in e.lower() or needle.lower() in e.lower() for e in errors), errors
+    assert "Fix:" in "\n".join(errors)
+
+
+@pytest.mark.parametrize("needle", ["Pending", "TBD", "TODO"])
+def test_standalone_placeholder_word_line_is_reported(mod, needle):
+    body = good_body() + f"\n{needle}\n"
+    errors = mod.check_body(body)
+    assert any("placeholder" in e.lower() or needle in e for e in errors), errors
     assert "Fix:" in "\n".join(errors)
 
 
@@ -498,3 +503,50 @@ def test_pr_workflow_doc_exists_and_orders_review_before_ci_wait():
     assert "option a" in text
     assert "duplicate" in text
     assert "403" in text or "managepullrequest" in text
+
+
+def test_placeholder_words_in_normal_prose_are_allowed(mod):
+    """H1: Pending/TBD/TODO as English words must not fail."""
+    body = good_body().replace(
+        "Notice that the check reads the PR body text only.",
+        "Notice that a pending review note is not a TBD or a todo for docs.",
+        1,
+    )
+    assert mod.check_body(body) == []
+
+
+def test_standalone_placeholder_line_still_fails(mod):
+    body = good_body().replace(
+        "- accepted: no open findings on this check\n",
+        "- Pending\n",
+        1,
+    )
+    errors = mod.check_body(body)
+    assert any("placeholder" in e.lower() or "Pending" in e for e in errors)
+
+
+def test_todo_inside_code_fence_is_ignored(mod):
+    """H2: placeholders inside fences must not fail."""
+    body = good_body().replace(
+        "Notice that the check reads the PR body text only.",
+        "Notice that the sample shows a marker.\n\n"
+        "```text\n# TODO: refine later\nPending\nTBD\n```\n",
+        1,
+    )
+    assert mod.check_body(body) == []
+
+
+def test_how_to_test_allows_no_bullet_and_no_backticks(mod):
+    """M1: documented rule is labels + command/result, not bullet/backtick."""
+    body = good_body().replace(
+        "## How to test\n\n"
+        "- Unit: `uv run pytest tests/test_check_pr_body.py -q` — pass\n"
+        "- Smoke: not needed, because the unit cases cover the CLI exits\n"
+        "- End-to-end: not needed, because CI only invokes the script on the event body\n",
+        "## How to test\n\n"
+        "Unit: uv run pytest tests/test_check_pr_body.py -q — pass\n"
+        "Smoke: not needed, because the unit cases cover the CLI exits\n"
+        "End-to-end: not needed, because CI only invokes the script on the event body\n",
+        1,
+    )
+    assert mod.check_body(body) == []

@@ -33,7 +33,9 @@ Extra shape rules (copyable with .github/workflows/pr-standards.yml):
     tables, and mermaid)
   - Review: at least one fixed / accepted / rejected finding, and a
     head sha (short ok). When PR_HEAD_SHA is set, the Review sha must
-    match that value (full or unique prefix of length >= 7).
+    match that value (full or prefix of length >= 7).
+
+Requires Python 3.10+ (stdlib only; no third-party imports).
 
 Usage:
   python3 scripts/check_pr_body.py [PATH]
@@ -92,12 +94,15 @@ _GENERATED_WITH = re.compile(r"Generated with", re.I)
 _OPEN_PHRASES = ("Open in Cursor", "Open in Web")
 _TRAILER = re.compile(r"(?im)^\s*(?:Co-authored-by|Co-Authored-By|Signed-off-by|Signed-Off-By)\s*:")
 
-_PLACEHOLDER_WORD = re.compile(r"(?i)\b(?:Pending|TBD|TODO)\b")
+# Whole-line / bullet placeholders only (not mid-sentence English).
+_STANDALONE_PLACEHOLDER = re.compile(
+    r"(?im)^(?:[-*]\s+)?(?:\*\*)?(Pending|TBD|TODO)(?:\*\*)?\s*[.!?]?\s*$"
+)
 _PLACEHOLDER_PHRASE = re.compile(r"(?i)(?:paste the body|once the PR number is known)")
 
 _TEST_LABELS = ("Unit", "Smoke", "End-to-end")
 _TEST_LINE = re.compile(
-    r"^[-*]\s*(Unit|Smoke|End-to-end)\s*:\s*(.+?)\s*$",
+    r"^(?:[-*]\s+)?(Unit|Smoke|End-to-end)\s*:\s*(.+?)\s*$",
     re.I,
 )
 _NOT_NEEDED = re.compile(r"(?i)not needed,\s*because")
@@ -244,9 +249,25 @@ def _check_mermaid(text: str, errors: list[str]) -> None:
         )
 
 
+def _outside_fences(text: str) -> str:
+    """Return text with fenced code blocks removed (same toggle as STE)."""
+    out: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if _FENCE.match(line.strip()):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def _check_placeholders(visible: str, errors: list[str]) -> None:
-    words = sorted({m.group(0) for m in _PLACEHOLDER_WORD.finditer(visible)})
-    phrases = sorted({m.group(0) for m in _PLACEHOLDER_PHRASE.finditer(visible)})
+    # H2: skip fences. H1: Pending/TBD/TODO only as a whole line or bullet.
+    scan = _outside_fences(visible)
+    words = sorted({m.group(1) for m in _STANDALONE_PLACEHOLDER.finditer(scan)})
+    phrases = sorted({m.group(0) for m in _PLACEHOLDER_PHRASE.finditer(scan)})
     for item in words + phrases:
         errors.append(
             f"placeholder text {item!r} found. "
@@ -257,12 +278,20 @@ def _check_placeholders(visible: str, errors: list[str]) -> None:
 def _test_line_ok(body: str) -> bool:
     if _NOT_NEEDED.search(body):
         return True
-    if "`" not in body:
+    # Prefer backticks, but allow a bare command plus trailing result text.
+    if "`" in body:
+        without_cmds = re.sub(r"`[^`]*`", " ", body).strip()
+        return bool(without_cmds and re.search(r"[A-Za-z0-9]", without_cmds))
+    # No backticks: need a command token and a result separator or word.
+    if not re.search(r"[A-Za-z0-9]", body):
         return False
-    without_cmds = re.sub(r"`[^`]*`", " ", body).strip()
-    if not without_cmds:
-        return False
-    return bool(re.search(r"[A-Za-z0-9]", without_cmds))
+    if re.search(r"[—–-]|\bResult\b|:", body, re.I):
+        # Split off a trailing result after an em/en dash or "Result".
+        if re.search(r"[—–].*\S", body) or re.search(r"(?i)\bResult\b.*\S", body):
+            return True
+        # "cmd -q — pass" style already covered; also "cmd — pass"
+        return bool(re.search(r"[—–]\s*\S", body))
+    return False
 
 
 def _check_how_to_test(text: str, errors: list[str]) -> None:
@@ -327,6 +356,8 @@ def _prose_regions(text: str) -> str:
             continue
         if stripped.startswith(("- ", "* ")):
             continue
+        if _TEST_LINE.match(stripped):
+            continue
         out.append(line)
     return "\n".join(out)
 
@@ -360,7 +391,21 @@ def _check_review(text: str, errors: list[str]) -> None:
             "Fix: record findings as fixed, accepted, or rejected."
         )
 
-    shas = _SHA.findall(visible)
+    # Prefer an explicit Head/sha label so words like "defaced" do not count.
+    labeled = re.findall(
+        r"(?i)\b(?:Head|sha)\s*[:#]?\s*([0-9a-f]{7,40})\b",
+        visible,
+    )
+    shas = labeled or _SHA.findall(visible)
+    if not labeled:
+        # Without a Head:/sha label, only accept when PR_HEAD_SHA is set and matches.
+        if not (os.environ.get("PR_HEAD_SHA") or os.environ.get("HEAD_SHA")):
+            errors.append(
+                "Review does not name the current head sha. "
+                "Fix: add a Head: <sha> line in Review (short form is ok)."
+            )
+            return
+        shas = _SHA.findall(visible)
     if not shas:
         errors.append(
             "Review does not name the current head sha. "
