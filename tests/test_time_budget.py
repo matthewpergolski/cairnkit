@@ -162,6 +162,16 @@ def test_budgets_nest_and_end(repo):
     assert deadline.left() == float("inf")
 
 
+def test_the_update_check_git_stays_inside_the_budget():
+    from cairnkit import install_source
+
+    with deadline.within(0):
+        begun = time.monotonic()
+        assert install_source.git(["--version"]) is None
+    assert time.monotonic() - begun < 1
+    assert install_source.git(["--version"])
+
+
 def test_a_timed_out_git_is_not_called_again_in_the_budget(repo, tmp_path, monkeypatch):
     env = _slow_git(tmp_path, 600)
     monkeypatch.setenv("PATH", env["PATH"])
