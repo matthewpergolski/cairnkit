@@ -580,3 +580,122 @@ def test_lines_that_differ_by_a_negation_are_not_repeats(repo, capsys):
     )
     migrate(capsys, "--yes")
     assert {r["tier"] for r in worklist(repo)[1:] if r.get("file") == "traps.md"} == {"likely"}
+
+
+# --- a tracked old folder -----------------------------------------------------------------
+
+
+def tracked_old_folder(repo: Path) -> Path:
+    write(repo / "memory-bank" / "status.md", "# Status\nOld.\n")
+    write(repo / "memory-bank" / "log.md", "# Log\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "tracked notes")
+    return repo
+
+
+def test_the_removal_that_untrack_stages_can_be_committed(repo, capsys, monkeypatch):
+    monkeypatch.setattr(hooks_cmd, "INSTALL_ON_INIT", True)
+    monkeypatch.setattr(adapters, "detect", lambda project: [])
+    tracked_old_folder(repo)
+    migrate(capsys, "--yes", "--untrack")
+    assert main(["hook", "pre-commit"]) == 0
+    git(repo, "commit", "-q", "-m", "remove the old notes")
+    assert "memory-bank" not in git(repo, "ls-files")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "unrelated")
+    assert git(repo, "status", "--short") == ""
+
+
+def test_a_private_path_that_is_added_is_still_refused_beside_a_removal(repo, capsys):
+    tracked_old_folder(repo)
+    migrate(capsys, "--yes", "--untrack")
+    write(repo / ".memory-path", "../elsewhere\n")
+    git(repo, "add", "-f", ".memory-path")
+    capsys.readouterr()
+    assert main(["hook", "pre-commit"]) == 1
+    err = capsys.readouterr().err
+    assert "commit refused" in err and ".memory-path" in err
+    assert "memory-bank/status.md" not in err
+
+
+# --- other old hooks ----------------------------------------------------------------------
+
+
+def settings_with(command: str, event: str = "UserPromptSubmit") -> str:
+    return (
+        '{\n  "hooks": {\n    "' + event + '": [\n      {"hooks": [\n        '
+        '{"type": "command",\n         "command": '
+        + json.dumps(command)
+        + "}\n      ]}\n    ]\n  }\n}\n"
+    )
+
+
+RECALL = 'cd "$CLAUDE_PROJECT_DIR" && uv run tools/recall.py --hook || true'
+
+
+def hook_repo(repo: Path, command: str, script: str = "") -> Path:
+    write(repo / ".gitignore", ".worktrees/\nmemory-bank/\n")
+    write(repo / ".claude" / "settings.json", settings_with(command))
+    if script:
+        write(repo / "tools" / "recall.py", script)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "hooks")
+    write(repo / "memory-bank" / "status.md", "# Status\n")
+    return repo
+
+
+def test_a_prompt_hook_whose_script_reads_the_old_notes_is_named(repo, capsys):
+    hook_repo(repo, RECALL, 'NOTES = Path("memory-bank", "notes")\n')
+    before = (repo / ".claude" / "settings.json").read_text()
+    migrate(capsys, "--yes")
+    task = task_path(repo).read_text()
+    assert "`.claude/settings.json:7` (hook)" in task
+    assert "UserPromptSubmit" in task and "tools/recall.py" in task
+    assert (repo / ".claude" / "settings.json").read_text() == before
+    assert git(repo, "status", "--short") == ""
+
+
+def test_removing_the_old_hook_closes_its_item(repo, capsys):
+    hook_repo(repo, RECALL, 'NOTES = Path("memory-bank", "notes")\n')
+    migrate(capsys, "--yes")
+    write(repo / ".claude" / "settings.json", '{"hooks":{}}\n')
+    assert "Migration finished" in migrate(capsys, "--yes")
+
+
+def test_a_hook_that_names_the_old_folder_in_its_command_is_named(repo, capsys):
+    hook_repo(repo, "cat memory-bank/brief.md")
+    migrate(capsys, "--yes")
+    assert ".claude/settings.json:7" in task_path(repo).read_text()
+
+
+def test_an_unrelated_hook_is_not_named(repo, capsys):
+    hook_repo(repo, "uv run tools/recall.py --lint", "print('nothing about notes')\n")
+    migrate(capsys, "--yes")
+    assert not task_path(repo).exists()
+
+
+def test_a_script_outside_the_repo_is_not_read(repo, capsys):
+    write(repo.parent / "outside.py", "memory-bank\n")
+    hook_repo(repo, "uv run ../outside.py")
+    migrate(capsys, "--yes")
+    assert not task_path(repo).exists()
+
+
+def test_the_hooks_of_the_tool_are_not_named(repo, capsys, monkeypatch):
+    monkeypatch.setattr(hooks_cmd, "INSTALL_ON_INIT", True)
+    monkeypatch.setattr(adapters, "detect", lambda project: ["claude"])
+    write(repo / "memory-bank" / "status.md", "# Status\n")
+    write(repo / ".gitignore", ".worktrees/\nmemory-bank/\n")
+    migrate(capsys, "--yes")
+    assert (repo / ".claude" / "settings.local.json").is_file()
+    assert "Migration finished" in migrate(capsys, "--yes")
+
+
+# --- the task quotes the file ---------------------------------------------------------------
+
+
+def test_the_now_line_is_the_line_in_the_file(repo, capsys):
+    old_layout(repo)
+    write(repo / "CLAUDE.md", "Run tools/check_memory.py, then read memory-bank/log.md.\n")
+    migrate(capsys, "--yes")
+    task = task_path(repo).read_text()
+    assert "- Now: `Run tools/check_memory.py, then read memory-bank/log.md.`" in task
