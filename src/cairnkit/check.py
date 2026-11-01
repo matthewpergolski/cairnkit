@@ -205,12 +205,11 @@ def duplicate_rules(memory: Memory) -> list[str]:
     return warnings
 
 
-def false_enforcement(memory: Memory) -> list[str]:
+def false_enforcement(memory: Memory, state: githook.HookState) -> list[str]:
     """Warnings for active rules that name a check that is not there."""
     moment, is_merged = now(), merged_checker(memory.project.root)
     # The hidden-hook warning already explains a git hook that does not run, and it must not
     # fail --strict.
-    state = githook.hook_state(memory.project)
     hidden = state.dead or state.line.startswith("warning:")
     return [
         f"rule {state['id']}: enforced_by {state['enforced_by']}: no such check here. Add the "
@@ -329,8 +328,7 @@ class Health:
         return 1 if self.errors or (strict and self.warnings) else 0
 
 
-def _hook_lines(project: Project, health: Health) -> None:
-    state = githook.hook_state(project)
+def _hook_lines(state: githook.HookState, health: Health) -> None:
     if state.dead:
         health.errors.append(state.line)
     elif state.line.startswith("git hooks: on"):
@@ -359,7 +357,8 @@ def _read_health(project: Project, flag: str | None) -> Health:
     memory = health.memory = Memory.open(project, flag)
     record_errors, warnings = check_records(memory)
     health.errors += record_errors
-    health.warnings += warnings + duplicate_rules(memory) + false_enforcement(memory)
+    hooks = githook.hook_state(project)
+    health.warnings += warnings + duplicate_rules(memory) + false_enforcement(memory, hooks)
     health.warnings += secrets_in_notes(memory)
     count, words = rule_words(memory)
     if words > RULE_WORD_CAP:
@@ -368,14 +367,11 @@ def _read_health(project: Project, flag: str | None) -> Health:
             f"all. Above {RULE_WORD_CAP} words, merge rules or end the ones that do not apply."
         )
     health.todo += migrate_refs.check_notes(memdir)
-    _hook_lines(project, health)
-    repo_lines = {
-        refresh.gone_python_line(project): None,
-        # For a hook that it can fix, this names what the hook state already named.
-        None if githook.hook_state(project).fixable else refresh.repo_line(project, flag): None,
-        status_line(project) if deadline.has_time() else None: None,
-    }
-    health.todo += [line for line in repo_lines if line]
+    _hook_lines(hooks, health)
+    # For a hook that it can fix, repo_line says only what the hook state already said.
+    repo = refresh.gone_python_line(project) if hooks.fixable else refresh.repo_line(project, flag)
+    docs = status_line(project) if deadline.has_time() else None
+    health.todo += [line for line in (repo, docs) if line]
     note = preset_note(project, memdir)
     if note:
         health.info.append(note)
