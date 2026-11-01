@@ -157,18 +157,21 @@ def test_session_start_after_a_move_brings_the_facts(repo, mem, capsys, monkeypa
     assert code == 0 and FACT in out
 
 
-def test_memory_moved_beside_the_repo_relinks_by_itself(repo, mem, capsys, tmp_path):
+def test_memory_renamed_beside_the_repo_is_named_with_one_command(repo, mem, capsys, tmp_path):
     stored(repo, mem, capsys)
     new = tmp_path / "elsewhere"
     mem.rename(new)
     code, out = run(capsys, "load")
-    assert code == 0 and FACT in out
+    assert code == 0 and FACT not in out
+    assert f"memory init --path {new}" in out
+    assert run(capsys, "init", "--no-default-rules", "--path", str(new))[0] == 0
+    assert FACT in run(capsys, "load")[1]
     assert (repo / "memory-bank").resolve() == new.resolve()
     assert not mem.exists()
     assert run(capsys, "check", "--strict")[0] == 0
 
 
-def test_memory_moved_beside_its_old_place_is_found(repo, capsys, tmp_path):
+def test_memory_renamed_beside_its_old_place_is_named(repo, capsys, tmp_path):
     keep = tmp_path / "keep"
     keep.mkdir()
     place = keep / "one"
@@ -177,8 +180,7 @@ def test_memory_moved_beside_its_old_place_is_found(repo, capsys, tmp_path):
     assert main(["load"]) == 0
     place.rename(keep / "two")
     _code, out = run(capsys, "load")
-    assert FACT in out
-    assert (repo / "memory-bank").resolve() == (keep / "two").resolve()
+    assert FACT not in out and f"memory init --path {keep / 'two'}" in out
 
 
 def test_memory_moved_out_of_reach_says_what_is_needed(repo, mem, capsys, tmp_path):
@@ -261,28 +263,16 @@ def test_old_sibling_with_no_proof_is_named_and_not_replaced(
     assert code == 0
     assert str(mem) in out and f"memory init --path {mem}" in out
     assert FACT not in out
-    code, out = run(capsys, "init", "--no-default-rules")
-    assert code == 1
-    assert f"memory init --path {mem}" in out and "Nothing changed" in out
-    assert memories_beside(new) == ["proj.memory"]
-    assert not os.path.lexists(new / "memory-bank")
     code, out = run(capsys, "check")
     assert code == 0 and str(mem) in out
+    code, out = run(capsys, "init", "--no-default-rules")
+    assert code == 0, out
+    assert f"memory init --path {mem}" in out
+    assert memories_beside(new) == ["proj.memory", "renamed.memory"]
+    assert (new / "memory-bank").resolve() == (new.parent / "renamed.memory").resolve()
     code, out = run(capsys, "init", "--no-default-rules", "--path", str(mem))
     assert code == 0, out
     assert FACT in run(capsys, "load")[1]
-
-
-def test_new_memory_beside_an_unproven_sibling_is_one_named_command(
-    repo, mem, capsys, monkeypatch, tmp_path
-):
-    new = old_install_beside_a_new_clone(repo, mem, capsys, monkeypatch, tmp_path)
-    fresh = tmp_path / "renamed.memory"
-    code, out = run(capsys, "init", "--no-default-rules")
-    assert f"memory init --path {fresh}" in out
-    code, out = run(capsys, "init", "--no-default-rules", "--path", str(fresh))
-    assert code == 0, out
-    assert (new / "memory-bank").resolve() == fresh.resolve()
 
 
 def test_memory_of_a_folder_that_still_exists_is_not_named(repo, capsys, tmp_path, monkeypatch):
@@ -316,7 +306,8 @@ def test_a_clone_beside_a_memory_of_the_same_history_names_it(repo, mem, capsys,
     shutil.rmtree(repo)
     monkeypatch.chdir(clone)
     code, out = run(capsys, "init", "--no-default-rules")
-    assert code == 1 and f"memory init --path {mem}" in out
+    assert code == 0 and f"memory init --path {mem}" in out
+    assert (clone / "memory-bank").resolve() == (repo.parent / "clone.memory").resolve()
 
 
 def test_two_clones_keep_their_own_memories(repo, mem, capsys, monkeypatch):
@@ -337,7 +328,8 @@ def test_record_stays_out_of_git_and_out_of_the_load(repo, mem, capsys):
     stored(repo, mem, capsys)
     record = (repo / ".git" / "cairnkit-memory").read_text().splitlines()
     identity = (mem / ".identity").read_text().splitlines()
-    assert record == [identity[0], str(mem.resolve())]
+    assert record == [identity[0], str(mem.resolve()), str((repo / ".git").resolve())]
+    assert identity[2] == str((repo / ".git").resolve())
     assert identity[1] == git(repo, "rev-list", "--max-parents=0", "HEAD").strip()
     assert git(repo, "status", "--porcelain") == ""
     assert identity[0] not in run(capsys, "load")[1]
