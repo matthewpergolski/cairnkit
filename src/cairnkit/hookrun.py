@@ -172,10 +172,11 @@ def sync_tools(project: Project, flag: str | None) -> None:
 def git_event(project: Project, flag: str | None) -> int:
     """Auto-tidy after a push or a merge. Always exits 0, and prints nothing."""
     try:
-        with _time_budget(GIT_HOOK_BUDGET):
-            sink = io.StringIO()
-            with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                sync_tools(project, flag)
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            # Outside the budget: the sync catches every Exception, so it would swallow the alarm.
+            sync_tools(project, flag)
+            with _time_budget(GIT_HOOK_BUDGET):
                 gated_auto_tidy(project, flag, count_session=False)
     except (Exception, SystemExit):
         pass
