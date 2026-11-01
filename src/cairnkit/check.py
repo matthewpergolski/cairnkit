@@ -13,6 +13,7 @@ from cairnkit import (
     refresh,
 )
 from cairnkit.clock import now
+from cairnkit.config import config_problems
 from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
@@ -67,7 +68,8 @@ def check_links(project: Project, memdir) -> list[str]:
 
 def check_records(memory: Memory) -> tuple[list[str], list[str]]:
     located, errors = read_located(fact_files(memory.dir))
-    warnings: list[str] = []
+    config_errors, warnings = config_problems(memory.dir)
+    errors += config_errors
     ids = Counter(item.record.get("id") for item in located if item.record.get("type") == "fact")
     known = {i for i in ids if i} | {
         item.record.get("id") for item in located if item.record.get("type") == "tombstone"
