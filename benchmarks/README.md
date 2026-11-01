@@ -1,7 +1,9 @@
 # Benchmarks
 
-This folder holds two benchmarks. Neither one asks a model anything.
+This folder holds these benchmarks. None of them asks a model anything.
 
+- `session_words.py` counts the words of a session start that are not facts, per adapter.
+- `connect_cost.py` measures what the look for a new agent tool adds to a session start.
 - `retrieval_eval.py` scores `memory search` and `memory load` on probe questions.
 - `forgetting/` replays synthetic project histories through the real load under each
   forgetting policy. See [Forgetting benchmark](#forgetting-benchmark).
