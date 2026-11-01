@@ -23,7 +23,11 @@ def commit(message):
 
 
 PLAIN = [
-    ("add a retry helper to src/net.py", [edit("src/net.py", "def retry(): pass")], [("pytest", 1)]),
+    (
+        "add a retry helper to src/net.py",
+        [edit("src/net.py", "def retry(): pass")],
+        [("pytest", 1)],
+    ),
     (
         "write a test for the retry helper",
         [edit("tests/test_net.py", "def test_r(): pass")],
@@ -45,7 +49,11 @@ PLAIN = [
         [("git commit", 1)],
     ),
     ("add a small cache to the client", [edit("src/client.py", "cache={}")], [("pytest", 1)]),
-    ("add a test for the cache", [edit("tests/test_client.py", "def test_c(): pass")], [("pytest", 1)]),
+    (
+        "add a test for the cache",
+        [edit("tests/test_client.py", "def test_c(): pass")],
+        [("pytest", 1)],
+    ),
     ("looks good, thanks. how big is the diff", [], [("git diff --stat", 1)]),
     ("commit", [commit("cache")], [("git commit", 1)]),
     ("format the code", [edit("src/client.py", "# fmt")], [("ruff format", 1)]),
@@ -68,7 +76,11 @@ MIXED[9] = (
     ["git rm -qf src/old_helper.py", edit("src/config.py", "BASE=1")],
     [("pytest", 1)],
 )
-MIXED[13] = ("you forgot the cache eviction, add it", [edit("src/client.py", "cache={}")], [("pytest", 1)])
+MIXED[13] = (
+    "you forgot the cache eviction, add it",
+    [edit("src/client.py", "cache={}")],
+    [("pytest", 1)],
+)
 MIXED[17] = (
     "remove scratch files, format the code",
     ["rm -f scratch.txt", edit("src/client.py", "# fmt")],
@@ -182,7 +194,7 @@ def test_a_real_event_at_turn_15_is_named_after_an_earlier_fact(session):
     session.replay(PLAIN[:2])
     write_a_fact()
     session.replay(PLAIN[2:14])
-    session.shell("git revert --no-edit HEAD")
+    session.shell(f"{commit('cache')}; git revert --no-edit HEAD")
     said = session.turn(15, *PLAIN[14])
     assert said and "A revert" in said
 

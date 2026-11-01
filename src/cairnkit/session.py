@@ -10,11 +10,10 @@ import hashlib
 import json
 import re
 import time
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from cairnkit.autotidy import WRITER as AUTO_TIDY_WRITER
-from cairnkit.clock import now, parse_time, stamp
+from cairnkit.clock import now, stamp
 from cairnkit.install_source import SKIP_DIRS, SKIP_SUFFIXES
 from cairnkit.load import changed_paths
 from cairnkit.memory import Memory
@@ -24,7 +23,10 @@ from cairnkit.selection import areas_for_paths
 KEEP_DAYS = 7
 OTHERS_LIMIT = 2000
 KEY_LIMIT = 80
-GATE = "durable"
+REMINDER = (
+    "No fact was written for this work. If a later session needs something from it, record it: "
+    '`memory add "TEXT" --kind lesson|trap|decision`. If not, carry on.'
+)
 JUNK_DIRS = frozenset(SKIP_DIRS) | {
     ".venv",
     ".pytest_cache",
@@ -171,48 +173,23 @@ def _durable_tracked_paths(root: Path, memory_dir: Path | None) -> list[str]:
     return paths
 
 
-@dataclass(frozen=True)
-class DurableSnapshot:
-    """The part of the worktree a later session could need a fact about."""
-
-    head: str
-    tracked_diff: str
-    untracked: tuple[str, ...]
-
-    def digest(self) -> str:
-        blob = "\0".join(("durable-v1", self.head, self.tracked_diff, *self.untracked))
-        return hashlib.sha1(blob.encode()).hexdigest()
-
-
-class ReminderGate:
-    """Whether stop should ask for a memory write. Junk files do not count."""
-
-    def snapshot(self, root: Path, memory_dir: Path | None = None) -> DurableSnapshot:
-        head = run_git(root, "rev-parse", "HEAD", timeout=2.0) or ""
-        durable = _durable_tracked_paths(root, memory_dir)
-        tracked = (
-            (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "") if durable else ""
-        )
-        untracked = tuple(
-            sorted(
-                path
-                for path in _untracked_paths(root)
-                if durable_untracked(path) and not _memory_path(path, root, memory_dir)
-            )
-        )
-        return DurableSnapshot(head, tracked, untracked)
-
-    def names(self, root: Path, memory_dir: Path | None = None) -> list[str]:
-        names = list(_durable_tracked_paths(root, memory_dir))
-        for path in self.snapshot(root, memory_dir).untracked:
-            if path not in names:
-                names.append(path)
-        return names
-
-
 def fingerprint(root: Path, memory_dir: Path | None = None) -> str:
-    """A hash of the durable snapshot. Junk and unchanged trees keep the same hash."""
-    return ReminderGate().snapshot(root, memory_dir).digest()
+    """A hash of the work that a later session could need a fact about. Junk does not count."""
+    durable = _durable_tracked_paths(root, memory_dir)
+    untracked = sorted(
+        path
+        for path in _untracked_paths(root)
+        if durable_untracked(path) and not _memory_path(path, root, memory_dir)
+    )
+    blob = "\0".join(
+        (
+            "durable-v1",
+            run_git(root, "rev-parse", "HEAD", timeout=2.0) or "",
+            (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "") if durable else "",
+            *untracked,
+        )
+    )
+    return hashlib.sha1(blob.encode()).hexdigest()
 
 
 def files_outside_git(root: Path, memory_dir: Path | None) -> list[str]:
@@ -282,37 +259,6 @@ def take_load(memory: Memory, session_id: str) -> str | None:
     return text
 
 
-def reminder_text(memory: Memory) -> str:
-    """The stop message. It names the durable paths and says the agent may finish."""
-    root = memory.project.root
-    gate = ReminderGate()
-    snap = gate.snapshot(root, memory.dir)
-    names = gate.names(root, memory.dir)
-    if names:
-        lines = [f"- {name}" for name in names[:5]]
-        if len(names) > 5:
-            lines.append(f"- and {len(names) - 5} more")
-        listing = "\n".join(lines)
-    else:
-        listing = f"- new commit {(snap.head or 'unknown')[:7]}"
-    return (
-        "Tracked work changed and no fact was written.\n"
-        f"{listing}\n"
-        "Search before adding: `memory search WORDS`. Open a hit with `memory show ID`.\n"
-        "Record what a later session needs:\n"
-        "- a decision, trap, or lesson: "
-        '`memory add "TEXT" --kind decision|trap|lesson --area AREA '
-        "--basis seen|told|guess --source commit:HASH|file:PATH`\n"
-        "- a note for this branch only: "
-        '`memory add "TEXT" --short --area AREA '
-        "--basis seen --source session:DATE`\n"
-        "- a fact that is now wrong: "
-        '`memory change ID --status wrong|expired --reason "..."` '
-        'or `memory add "TEXT" --supersedes ID`\n'
-        "If none of this is worth a fact, say so and finish."
-    )
-
-
 def load_state(memory: Memory, session_id: str) -> dict | None:
     try:
         return json.loads(_path(memory, session_id).read_text())
@@ -347,41 +293,45 @@ def start_session(memory: Memory, session_id: str) -> None:
             "start": fingerprint(memory.project.root, memory.dir),
             "start_head": head,
             "others": files_outside_git(memory.project.root, memory.dir),
-            "gate": GATE,
+            "writes": agent_writes(memory),
         },
     )
 
 
-def wrote_since(memory: Memory, moment: str) -> bool:
-    since = parse_time(moment)
-    for rec in memory.records:
-        if rec.get("writer") == AUTO_TIDY_WRITER:
-            continue
-        when = rec.get("learned_at") if rec.get("type") == "fact" else rec.get("at")
-        try:
-            if when and parse_time(when) >= since:
-                return True
-        except ValueError:
-            continue
-    return False
+def agent_writes(memory: Memory) -> int:
+    """How many records anyone but auto-tidy has written. A rise means that a fact was written.
+
+    A count has no tie, where a time has one-second steps.
+    """
+    return sum(record.get("writer") != AUTO_TIDY_WRITER for record in memory.records)
 
 
-def needs_reminder(memory: Memory, session_id: str) -> bool:
-    """True once per new durable snapshot, when no agent fact was written for it."""
+def mark_reminder(memory: Memory, session_id: str) -> None:
+    """At a stop: tracked work changed and no fact came of it, so one reminder is due.
+
+    Only a stop looks, because it has the time for the git calls. After one answer it makes none.
+    """
     state = load_state(memory, session_id)
-    current = fingerprint(memory.project.root, memory.dir)
-    if state is None or state.get("gate") != GATE:
+    if state is None:
         start_session(memory, session_id)
-        return False
-    if current in (state.get("start"), state.get("reminded")):
-        return False
-    if wrote_since(memory, state.get("reminded_at") or state["started_at"]):
-        return False
-    state["reminded"] = current
-    state["reminded_at"] = stamp(now())
-    state["gate"] = GATE
+    elif "reminder" not in state:
+        if agent_writes(memory) > state.get("writes", 0):
+            state["reminder"] = "ended"
+        elif fingerprint(memory.project.root, memory.dir) != state.get("start"):
+            state["reminder"] = "due"
+        else:
+            return
+        save_state(memory, session_id, state)
+
+
+def take_reminder(memory: Memory, session_id: str) -> str | None:
+    """The one reminder of a session, unless a fact was written after it fell due."""
+    state = load_state(memory, session_id)
+    if not state or state.get("reminder") != "due":
+        return None
+    state["reminder"] = "ended"
     save_state(memory, session_id, state)
-    return True
+    return None if agent_writes(memory) > state.get("writes", 0) else REMINDER
 
 
 def note_failure(memory: Memory, session_id: str, command: str) -> str | None:
