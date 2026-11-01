@@ -93,7 +93,10 @@ def test_the_list_stops_at_the_limit_with_the_likeliest_repeats_first(mem, capsy
     facts = []
     for n in range(30):
         words = f"alpha{n} beta{n} gamma{n} delta{n} epsilon{n} zeta{n} eta{n} theta{n} iota{n}"
-        facts += [make_fact(fid(2 * n), words), make_fact(fid(2 * n + 1), f"{words} added{n}")]
+        facts += [
+            make_fact(fid(2 * n), words),
+            make_fact(fid(2 * n + 1), f"{words} extra{chr(97 + n)}"),
+        ]
     twice = "kappa lambda mu nu xi omicron pi rho sigma"
     facts += [make_fact(fid(900), twice), make_fact(fid(901), twice.upper())]
     write_facts(mem, facts)
@@ -108,19 +111,24 @@ def test_the_list_stops_at_the_limit_with_the_likeliest_repeats_first(mem, capsy
     assert text.count("- Older:") == followups.MAX_PAIRS
     assert len(text) < 16_000
     assert f"stops at {followups.MAX_PAIRS}" in text
-    assert f"Open similar pairs: {followups.MAX_PAIRS}" in out and "stops at" in out
+    assert f"Open similar pairs: {followups.MAX_PAIRS}" in out and "the list stops there" in out
 
 
 def test_settling_a_pair_brings_the_next_one(mem):
     facts = []
     for n in range(25):
         words = f"alpha{n} beta{n} gamma{n} delta{n} epsilon{n} zeta{n} eta{n} theta{n} iota{n}"
-        facts += [make_fact(fid(2 * n), words), make_fact(fid(2 * n + 1), f"{words} added{n}")]
+        facts += [
+            make_fact(fid(2 * n), words),
+            make_fact(fid(2 * n + 1), f"{words} extra{chr(97 + n)}"),
+        ]
     write_facts(mem, facts)
     first = followups.open_pairs(opened())
     older, newer = first[0][:2]
     reason = "Both hold."
-    assert main(["change", newer["id"], "--link", f"related:{older['id']}", "--reason", reason]) == 0
+    assert (
+        main(["change", newer["id"], "--link", f"related:{older['id']}", "--reason", reason]) == 0
+    )
     second = followups.open_pairs(opened())
     assert len(second) == followups.MAX_PAIRS
     assert (older["id"], newer["id"]) not in [(a["id"], b["id"]) for a, b, _, _ in second]
