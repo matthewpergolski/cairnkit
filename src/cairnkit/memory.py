@@ -85,7 +85,7 @@ class Memory:
 
     def reload(self) -> None:
         located, bad = scan(fact_files(self.dir))
-        done = repaired_lines(located)
+        done = repaired_lines(self.dir, located)
         self.records = [item.record for item in located]
         self.errors = [b.message for b in bad if (b.path.name, b.sha) not in done]
         self.secret_lines = []

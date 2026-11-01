@@ -103,6 +103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A roll back to 0.3.1 keeps working after a dev repair or a branch tip note. `memory repair` writes
+  to `repairs.jsonl` beside the fact files, and it still reads an older `repair` record. A branch
+  tip record now holds a field that 0.3.1 accepts.
 - The rule word limit fills with rules that a person stands behind, and then with agent data rules.
   An owner rule is never held while a data rule prints. Inside a class the newest wins a tie, and
   the warning names up to 5 held rules by id.

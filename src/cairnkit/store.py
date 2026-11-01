@@ -28,6 +28,7 @@ LOCK_WAIT = 5.0
 WRITE_LOCK = ".write.lock"
 # A write still waits this long after git used the whole budget: the fact comes first.
 WRITE_LOCK_FLOOR = 1.0
+REPAIRS = "repairs.jsonl"
 
 
 class LockBusy(Exception):
@@ -163,19 +164,29 @@ def scan(files: list[Path]) -> tuple[list[Located], list[BadLine]]:
     return found, bad
 
 
-def repaired_lines(located: list[Located]) -> set[tuple[str, str]]:
-    """(file name, line hash) of each line that a `repair` record settled."""
-    return {
+def repaired_lines(memdir: Path, located: list[Located]) -> set[tuple[str, str]]:
+    """(file name, line hash) of each line that `memory repair` settled.
+
+    The tool of 0.3.1 refuses each commit when a fact file holds a record type it does not know, so
+    the settlements live beside the fact files. A dev build before that wrote `repair` records.
+    """
+    done = {
         (item.record["file"], item.record["sha"])
         for item in located
         if item.record.get("type") == "repair"
     }
+    with contextlib.suppress(OSError):
+        for raw in (memdir / REPAIRS).read_bytes().split(b"\n"):
+            with contextlib.suppress(ValueError, TypeError, KeyError):
+                row = json.loads(raw)
+                done.add((row["file"], row["sha"]))
+    return done
 
 
 def read_located(files: list[Path]) -> tuple[list[Located], list[str]]:
     """Return the records, and one message per bad line that no repair settled."""
     found, bad = scan(files)
-    done = repaired_lines(found)
+    done = repaired_lines(files[0].parent.parent, found) if files else set()
     return found, [b.message for b in bad if (b.path.name, b.sha) not in done]
 
 

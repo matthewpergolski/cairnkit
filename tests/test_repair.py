@@ -101,8 +101,8 @@ def test_a_repair_record_copies_no_text_from_the_line(mem, capsys):
     }
     _append(mem, json.dumps(line) + "\n")
     _run(capsys, "repair")
-    written = (mem / "facts" / "main.jsonl").read_text().splitlines()[-1]
-    assert json.loads(written)["type"] == "repair"
+    written = (mem / "repairs.jsonl").read_text()
+    assert json.loads(written)["file"] == "main.jsonl"
     assert "q1w2e3r4" not in written
 
 

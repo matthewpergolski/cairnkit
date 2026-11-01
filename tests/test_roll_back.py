@@ -13,7 +13,7 @@ import pytest
 from conftest import git
 
 HERE = Path(__file__).parent.parent
-ADD = ["--basis", "seen", "--source", "session:2026-11-01"]
+ADD = ["--area", "general", "--basis", "seen", "--source", "session:2026-11-01"]
 BAD_TEXT = '{"type":"fact","id":"f-20261001-dead","text":"A true fact that a crash cu'
 
 
@@ -149,6 +149,10 @@ def test_a_torn_line_stops_the_old_tool_the_same_with_or_without_a_repair(tools)
     assert with_repair == no_repair
     assert "type 'repair'" not in with_repair
     assert kept in tools.old("load").stdout
+    refused = tools.old_commit("still-torn.txt")
+    assert refused.returncode != 0
+    assert "not valid JSON" in refused.stderr
+    assert "repair" not in refused.stderr.replace("memory repair", "")
     assert tools.new("check", "--strict").returncode == 0
 
 

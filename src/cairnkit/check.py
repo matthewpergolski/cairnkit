@@ -131,7 +131,7 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
     errors += [line + REPAIR for line in config_errors]
     errors += [line + REPAIR for line in secrets_in_config(memory.dir, memory.env)]
     warnings = [line + REPAIR for line in warnings]
-    done = repaired_lines(located)
+    done = repaired_lines(memory.dir, located)
     index = RecordIndex.of(located)
     for item in located:
         rec, where = item.record, f"{item.path.name}:{item.line}"
