@@ -26,7 +26,6 @@ from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, drop_id, fact_files
 
-
 DEFAULT_BASIS = "guess"
 
 

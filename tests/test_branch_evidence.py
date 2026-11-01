@@ -201,6 +201,16 @@ def test_the_session_report_mode_also_records_a_branch(mem, repo, capsys):
     assert "branch_tip" in _memory().fact(fact)
 
 
+def test_show_names_the_record_in_the_history(mem, repo, capsys):
+    fact, _ = _add(capsys, "--until-merged", "later")
+    git(repo, "branch", "later")
+    assert main(["tidy", "--auto"]) == 0
+    capsys.readouterr()
+    assert main(["show", fact]) == 0
+    tip = git(repo, "rev-parse", "later").strip()
+    assert f"branch tip {tip}" in capsys.readouterr().out
+
+
 def test_a_dry_run_writes_no_record(mem, repo, capsys):
     fact, _ = _add(capsys, "--until-merged", "later")
     git(repo, "branch", "later")
