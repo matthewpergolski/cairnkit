@@ -7,6 +7,10 @@ memory() { uv run --project "$here" -q memory "$@"; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+# Nothing here may read or write the real home. uv keeps its own cache so that it needs no download.
+UV_CACHE_DIR="$(uv cache dir)"
+export UV_CACHE_DIR HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" XDG_CACHE_HOME="$tmp/home/.cache"
+mkdir -p "$HOME"
 # This run acts as a person. A rule that an agent adds prints as data, so an agent's markers change the output.
 unset CLAUDECODE CODEX_CI CODEX_SANDBOX CODEX_THREAD_ID CURSOR_AGENT CURSOR_TRACE_ID \
   OPENCODE OPENCODE_SESSION_ID PI_CODING_AGENT GROK_SESSION_ID GROK_HOOK_EVENT GROK_WORKSPACE_ROOT
