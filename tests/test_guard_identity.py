@@ -153,8 +153,8 @@ def test_the_lines_that_tools_add_are_refused_with_the_setting_to_turn_off(guard
     result = commit(guarded, f"Fix bug\n\n{line}\n")
     assert result.returncode != 0
     assert line in result.stderr
-    assert "attribution.commit" in result.stderr
-    assert "attribution.attributeCommitsToAgent" in result.stderr
+    assert '"attribution": {"commit": ""} in ~/.claude/settings.json' in result.stderr
+    assert '"attributeCommitsToAgent": false} in ~/.cursor/cli-config.json' in result.stderr
 
 
 def test_made_with_something_else_is_fine(guarded):
@@ -253,7 +253,7 @@ def test_a_push_of_human_commits_passes(guarded, remote):
 
 def test_a_commit_already_on_a_remote_does_not_stop_later_pushes(guarded, remote, tmp_path):
     other = tmp_path / "other"
-    git(tmp_path, "clone", "-q", str(remote), str(other))
+    git(tmp_path, "clone", "-q", "-b", "main", str(remote), str(other))
     git(other, "config", "user.name", "Teammate")
     git(other, "config", "user.email", "t@example.com")
     (other / "t.txt").write_text("t\n")

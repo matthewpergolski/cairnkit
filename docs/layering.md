@@ -95,9 +95,9 @@ agent.
 | `.opencode/plugins/cairnkit.js` | No | OpenCode found. A generated plugin. Added to `.git/info/exclude`. |
 | `.git/hooks/pre-commit` | No: it is inside `.git` | Refuses a commit that stages a private memory path. Prints a stored trap that matches the staged files. A problem in the memory does not stop the commit. `--no-hooks` skips it. |
 | `.git/hooks/post-checkout` | No | Links the memory into a new worktree made with `git worktree add`, and writes the adapter files that the main checkout has. |
-| `.git/hooks/pre-push` | No: it is inside `.git`. Not shared. | Runs auto-tidy before a push. It never blocks the push. `git push --no-verify` skips it, as git does for every pre-push hook. A held tidy lock can add up to about three seconds. |
+| `.git/hooks/pre-push` | No: it is inside `.git`. Not shared. | Runs auto-tidy before a push. Tidy never blocks the push; only the attribution guard can. `git push --no-verify` skips it, as git does for every pre-push hook. A held tidy lock can add up to about three seconds. |
 | `.git/hooks/post-merge` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a merge. It prints nothing. It never blocks the merge. A held tidy lock can add up to about three seconds. |
-| `.git/hooks/commit-msg` | No | Only when the memory holds a rule against AI attribution, or with `memory hooks install --commit-msg-guard`. Refuses AI attribution lines in a commit message. |
+| `.git/hooks/commit-msg` | No | Only when the memory holds a rule against AI attribution, or with `memory hooks install --commit-msg-guard`. Refuses AI attribution lines in a commit message, and an author or committer that is an AI tool. With this guard, `pre-push` refuses the same in commits that no remote holds. |
 
 The adapter files go into every checkout and worktree that exists when the command
 runs. An existing JSON file is merged, never replaced. When git tracks an adapter

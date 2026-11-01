@@ -18,11 +18,14 @@ SEEN_FILE = ".agents-seen.json"
 GROK_RUNS_HOOKS_OF = frozenset({"claude", "cursor"})
 
 
-def guard_patterns(project: Project, flag: str | None) -> list[str]:
+def guard_patterns(project: Project, flag: str | None) -> githook.GuardPatterns:
     try:
-        return Memory.open(project, flag).config["guard_patterns"]
+        config = Memory.open(project, flag).config
     except MemoryMissing:
-        return list(githook.DEFAULT_GUARD_PATTERNS)
+        return githook.GuardPatterns(
+            list(githook.DEFAULT_GUARD_PATTERNS), list(githook.DEFAULT_IDENTITY_PATTERNS)
+        )
+    return githook.GuardPatterns(config["guard_patterns"], config["guard_identity_patterns"])
 
 
 def _sync_rules(project: Project, flag: str | None, dry_run: bool) -> list[str]:
@@ -106,6 +109,11 @@ def _install_guard(
     return steps
 
 
+def _install_push_check(project: Project, flag: str | None, on: bool, dry: bool) -> list[str]:
+    body = githook.pre_push_body(guard_patterns(project, flag) if on else None)
+    return githook.install(project, "pre-push", body, dry)
+
+
 def githook_connected(project: Project) -> bool:
     """True when the memory git hooks run here."""
     folder = githook.hooks_dir(project) if project.is_git else None
@@ -116,7 +124,10 @@ def githook_connected(project: Project) -> bool:
 def sync_guard_only(project: Project, flag: str | None) -> None:
     """A rule added after setup gets its check now, with no second setup step."""
     guard, tool_added, remove = _plan_guard(project, flag, None, True)
-    for step in _install_guard(project, flag, guard, tool_added, remove, False):
+    steps = _install_guard(project, flag, guard, tool_added, remove, False)
+    if guard or remove:
+        steps += _install_push_check(project, flag, bool(guard), False)
+    for step in steps:
         print(step)
     for step in _sync_rules(project, flag, False):
         print(step)
@@ -255,10 +266,14 @@ def run_install(
     if project.is_git and git_hook:
         steps += githook.install(project, "pre-commit", githook.pre_commit_body(), dry_run)
         steps += githook.install(project, "post-checkout", githook.post_checkout_body(), dry_run)
-        steps += githook.install(project, "pre-push", githook.pre_push_body(), dry_run)
         steps += githook.install(project, "post-merge", githook.post_merge_body(), dry_run)
         steps += githook.uninstall(project, "post-commit", dry_run)  # 0.3.1 mined commits here
+    guarded = bool(guard) or (
+        project.is_git and githook.guard_installed(project) and not remove_guard
+    )
     steps += _install_guard(project, flag, guard, tool_added, remove_guard, dry_run)
+    if project.is_git and (git_hook or guard):
+        steps += _install_push_check(project, flag, guarded, dry_run)
     steps += _sync_rules(project, flag, dry_run)
     if dry_run:
         print("Dry run: nothing will change.")

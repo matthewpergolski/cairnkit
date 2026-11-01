@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `session:<today>`. The output names the default basis. A near repeat with basis `guess`
   no longer retires a `seen` fact in auto-tidy.
 - `evals/agents`: a kit that runs real agents on `dev` against production.
+- The attribution guard refuses a commit whose author or committer is an AI tool, and a
+  `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
+  `commit-msg`. A person whose name holds a tool word passes.
+- `memory add` of a rule against AI attribution turns the guard on at once.
 - `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
 - Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
 - A subagent gets a load of 300 words at its start on Claude Code and Codex.

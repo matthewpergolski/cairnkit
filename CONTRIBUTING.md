@@ -43,8 +43,8 @@ show that the step is intended.
 6. **Keep the core generic.** No personal data, no names of private
    projects. Agent tools are named only where hooks and skills connect to
    them: `adapters.py`, `hookrun.py`, `hooks_cmd.py`, `loopbreak.py`, `native.py`,
-   `harness_local.py`, `skills.py`, the CLI choices, and the commit-msg guard
-   patterns. Check each adapter against the tool's public docs before you change it.
+   `harness_local.py`, `skills.py`, the CLI choices, and the attribution guard
+   in `githook.py`. Check each adapter against the tool's public docs before you change it.
 7. **Plain docs.** Short sentences. One instruction per sentence. Active voice.
 8. **Neutral git identity.** Author, committer, and any `Co-authored-by` /
    `Signed-off-by` trailer must be

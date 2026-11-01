@@ -497,6 +497,8 @@ def run(args) -> int:
         if args.command == "add":
             new = add_fact(memory, args)
             if new:
+                if args.kind == "rule" and hooks_cmd.githook_connected(project):
+                    hooks_cmd.sync_guard_only(project, args.path)
                 print(f"added {new}")
         elif args.command == "change":
             change_fact(memory, args)

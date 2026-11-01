@@ -317,11 +317,21 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   command runs in a group that discards output, so the shell's alarm line is
   not printed. With none of those tools the command runs unbounded. It ends
   with `|| true`. It does not read the hook arguments. It never fails the push.
+  When the commit-msg guard is installed, a check comes first. It begins with
+  `# Refuse a pushed commit with an AI identity or attribution line.`, reads the
+  ref list on stdin and puts it back for the rest of the file. For each ref it greps
+  the commits that no remote holds, with the identity patterns on
+  `Name <email>`, a tab and the short id, and with the message patterns on the
+  message. A match prints the lines and exits 1.
 - `post-merge`: that same quiet tidy block. It never fails the merge.
 - `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
-  match prints the line and exits 1. It installs when an active rule fact matches
+  match prints the line and the settings that stop a tool adding it, and exits 1.
+  Then a line `# Refuse an AI author or committer.`, and `grep -iE` with
+  `identity_patterns` of `[commit_msg_guard]` on `git var GIT_AUTHOR_IDENT` and
+  `git var GIT_COMMITTER_IDENT`, as `Name <email>`. An identity pattern must not end
+  in `$`. A match prints the identity and exits 1. It installs when an active rule fact matches
   `attribution`, `co-author` or `generated with` (no case), or with
   `--commit-msg-guard`.
 

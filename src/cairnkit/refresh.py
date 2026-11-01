@@ -100,7 +100,14 @@ def _hook_text_is_old(project: Project) -> bool:
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder is None or githook._inside_worktree(project, folder):
         return False
-    return _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK)
+    if _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK):
+        return True
+    if not githook.guard_installed(project):
+        return False
+    return not (
+        _holds(folder / "commit-msg", githook.IDENTITY_MARK)
+        and _holds(folder / "pre-push", githook.PUSH_MARK)
+    )
 
 
 def _local_hooks(project: Project) -> list[str]:
@@ -190,11 +197,13 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     except adapters.BadConfig as exc:
         print(f"error: {exc}")
         return 1
+    patterns = guard_patterns(project, flag)
     bodies = {
         "pre-commit": githook.pre_commit_body(),
         "post-checkout": githook.post_checkout_body(),
-        "pre-push": githook.pre_push_body(),
+        "pre-push": githook.pre_push_body(patterns if githook.guard_installed(project) else None),
         "post-merge": githook.post_merge_body(),
+        "commit-msg": githook.guard_body(patterns),
     }
     hooks = _local_hooks(project)
     broken += githook.broken_paths(project, hooks)
@@ -204,8 +213,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         if hook == "post-commit":  # 0.3.1 mined commits here. Nothing runs there now.
             steps += githook.uninstall(project, hook, dry_run)
             continue
-        body = bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
-        steps += githook.install(project, hook, body, dry_run)
+        steps += githook.install(project, hook, bodies[hook], dry_run)
     if dry_run:
         print("Dry run: nothing will change.")
     for step in steps:

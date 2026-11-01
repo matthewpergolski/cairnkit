@@ -120,7 +120,7 @@ complete. Remove a row in the change that fixes it.
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
 | A repo with notes before the tool | A tracked file that teaches the old layout keeps teaching it until an agent edits it, and a hook keeps running the old checker. The tool names each line and never edits it. The worklist marks a repeat only when the words match. It does not mark the same rule in other words. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
-| Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. |
+| Enforce what must never happen | The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
 ## Install
@@ -587,8 +587,15 @@ When git runs the commit-msg guard, the co-author rule is **enforced**
 (`enforced_by: githook:commit-msg`). All other rules are **advisory**:
 no check fails when one is broken. `memory load` shows the two groups apart.
 `memory init` and `memory hooks install` add the guard by themselves when the
-memory holds a rule against AI attribution. The guard is local to this clone. It
-refuses AI attribution lines, and it needs only `sh` and `grep`.
+memory holds a rule against AI attribution. The guard is local to this clone, and
+it needs only `sh`, `git` and `grep`. `commit-msg` refuses an AI attribution line, and
+an author or committer that is an AI tool, such as `Cursor Agent`. A person named
+Cursor Smith or Claude Monet passes. `pre-push` refuses the same in a commit that
+skipped `commit-msg`, such as a rebase. It reads only commits that no remote holds, so
+another person's commit does not stop your push. A refused trailer names the setting
+that turns it off in Claude Code and Cursor. The tool does not write those settings,
+because they are global. To change what counts as a tool, set `identity_patterns` under
+`[commit_msg_guard]` in `config.toml`.
 
 Once you add a preset, its rules live in memory. Every session loads them
 first. Nothing is written to a tracked file. An instruction for every
