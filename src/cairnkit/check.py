@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from collections import Counter
 
-from cairnkit import githook, instruction_files, migrate_refs, presets
+from cairnkit import (
+    enforcement,
+    githook,
+    instruction_files,
+    migrate_refs,
+    presets,
+    refresh,
+)
 from cairnkit.clock import now
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
@@ -144,12 +151,27 @@ def duplicate_rules(memory: Memory) -> list[str]:
     return warnings
 
 
+def false_enforcement(memory: Memory) -> list[str]:
+    """Warnings for active rules that name a check that is not there."""
+    moment, is_merged = now(), merged_checker(memory.project.root)
+    return [
+        f"rule {state['id']}: enforced_by {state['enforced_by']}: no such check here. Add the "
+        f"check, or run `memory change {state['id']} --no-enforced-by --reason WHY`"
+        for state in sorted(memory.states.values(), key=lambda s: s.get("learned_at", ""))
+        if state.get("kind") == "rule"
+        and effective_status(state, moment, is_merged)[0] == "active"
+        and enforcement.is_false(memory.project, state)
+    ]
+
+
 def advisory_rules(memory: Memory) -> list[str]:
     """Active rules that no check enforces: they are prose only."""
     moment, is_merged = now(), merged_checker(memory.project.root)
     lines = []
     for state in sorted(memory.states.values(), key=lambda s: s.get("learned_at", "")):
-        if state.get("kind") != "rule" or state.get("enforced_by"):
+        if state.get("kind") != "rule":
+            continue
+        if state.get("enforced_by") and not enforcement.is_false(memory.project, state):
             continue
         if effective_status(state, moment, is_merged)[0] == "active":
             lines.append(f"- [{state['id']}] {state.get('text', '')}")
@@ -208,11 +230,6 @@ def run_check(
     if not memdir.is_dir() and not link_exists:
         print(f"memory check: skipped: no memory folder at {memdir}")
         return 0
-    # Printed here, not added to warnings: --strict must not fail on what git runs, and an
-    # older git cannot fix a hidden hook.
-    hooks = githook.hook_state(project).line
-    if hooks:
-        print(hooks)
     errors = check_links(project, memdir)
     warnings: list[str] = []
     if (memdir / "facts").is_dir():
@@ -220,6 +237,7 @@ def run_check(
         record_errors, warnings = check_records(memory)
         errors += record_errors
         warnings += duplicate_rules(memory)
+        warnings += false_enforcement(memory)
         warnings += secrets_in_notes(memory)
         count, words = rule_words(memory)
         if words > RULE_WORD_CAP:
@@ -243,8 +261,13 @@ def run_check(
         print(f"error: {line}")
     if errors:
         print(f"memory check: {len(errors)} error(s) in {memdir} (from {source})")
-        return 1
-    print(f"memory check: ok ({len(fact_files(memdir))} fact file(s) in {memdir})")
-    for line in migrate_refs.check_notes(memdir):
-        print(line)
-    return 0
+    else:
+        print(f"memory check: ok ({len(fact_files(memdir))} fact file(s) in {memdir})")
+        for line in migrate_refs.check_notes(memdir):
+            print(line)
+    # After the result, and not in warnings: --strict must not fail on what git runs, and an
+    # older git cannot fix a hidden hook.
+    for line in (githook.hook_state(project).line, refresh.gone_python_line(project)):
+        if line:
+            print(line)
+    return 1 if errors else 0

@@ -310,7 +310,9 @@ removes the file when only `#!/bin/sh` is left.
 
 Block bodies (`PY` is the full path of the Python that runs the tool):
 
-- `pre-commit`: `if [ -x PY ]; then PY -m cairnkit hook pre-commit || exit 1; fi`.
+- `pre-commit`: when `PY` can import the tool, `PY -m cairnkit hook pre-commit || exit 1`.
+  Otherwise it prints one line that names `memory init --refresh`, and refuses only
+  `memory-bank` and `.memory-path` in the staged files, with `sh`, `git` and `grep`.
 - `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
 - `pre-push`: a short shell block. When `PY` is executable it

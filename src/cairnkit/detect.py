@@ -115,7 +115,7 @@ def _hook_files(folder: Path | None) -> list[Path]:
     return [p for p in sorted(folder.iterdir()) if p.is_file() and not p.name.endswith(".sample")]
 
 
-def _entries(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
+def entries(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
     """Files that git or CI runs, and hook files that git does not run, with why."""
     runs = [p for g in CI_GLOBS for p in sorted(root.glob(g)) if p.is_file()]
     idle: list[tuple[Path, str]] = []
@@ -193,7 +193,7 @@ def _runs(root: Path, tool: str) -> Finding:
     """Does a CI file, or a hook that git runs, run the tool?"""
     pattern = TOOLS[tool]
     scripts = _package_scripts(root)
-    runs, idle = _entries(root)
+    runs, idle = entries(root)
     for entry in runs:
         chain = _calls(root, entry, pattern, scripts)
         if chain:

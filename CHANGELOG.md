@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
   `commit-msg`. A person whose name holds a tool word passes.
 - `memory add` of a rule against AI attribution turns the guard on at once.
+- The guard knows model names such as Fable and Opus, and `Assisted-by`, `Signed-off-by` and
+  `Written by` lines. A co-author named Claude Monet now passes.
+- With a Python that is gone, the pre-commit hook still refuses the private paths and lets other
+  commits through. `memory status`, `memory check` and the load name the gone Python, for git
+  hooks and agent hooks.
+- A rule whose `enforced_by` check is not there loads as advisory, and `memory check` warns.
 - Under a `core.hooksPath` in the repo, git 2.54 or newer runs the personal hooks beside the
   tracked ones, from the local git config. No tracked file changes.
 - `memory check` and `memory status` print the real hook state, and warn when `core.hooksPath`

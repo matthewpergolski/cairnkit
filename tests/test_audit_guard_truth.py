@@ -158,7 +158,7 @@ def test_python_gone_still_refuses_a_private_path(no_python, path):
     )
     assert result.returncode != 0
     assert path in result.stderr
-    assert path not in git(no_python, "ls-files")
+    assert path not in git(no_python, "ls-tree", "-r", "--name-only", "HEAD")
 
 
 def test_a_python_without_the_tool_does_not_stop_a_commit(repo, mem, tmp_path):

@@ -141,6 +141,7 @@ src/cairnkit/
   refresh.py     the tool version that wrote the repo files; memory init --refresh
   hooks_cmd.py   memory hooks install / uninstall
   check.py       memory check
+  enforcement.py  whether the check that a rule names is really there
   selection.py   rank for load; the budget and one place per area
   usage.py       when a fact was last looked up; feeds the rank
   load.py        memory load

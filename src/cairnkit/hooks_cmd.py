@@ -45,7 +45,7 @@ INSTALL_ON_INIT = True
 # only when it forbids attribution and names AI. "Keep license attribution in NOTICE" does not.
 ATTRIBUTION = re.compile(r"(?i)\b(?:attribution|co-?author|generated[- ](?:with|by))")
 AI_WORDS = re.compile(
-    r"(?i)\b(?:ai|llm|gpt|agents?|claude|anthropic|openai|chatgpt|codex|copilot|cursor|gemini|grok)\b"
+    r"(?i)\b(?:ai|llm|gpt|agents?|claude|anthropic|openai|chatgpt|codex|copilot|cursor|gemini|grok|opus|sonnet|haiku|fable)\b"
 )
 FORBIDS = re.compile(r"(?i)\b(?:never|no|not|don't|avoid|without|remove|forbid|ban)\b")
 TOOL_ADDED_GUARD = "cairnkit.guardaddedbytool"

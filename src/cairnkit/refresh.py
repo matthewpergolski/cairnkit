@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +29,7 @@ BLOCK_FILES = (
     ".pi/APPEND_SYSTEM.md",
 )
 COMMAND = "memory init --refresh"
+_HOOK_PYTHON = re.compile(r"""(?:'([^']+)'|([^\s"'`\\]+)) -m cairnkit hook""")
 # 0.3.1 builds on the dev channel wrote this line into post-merge. It printed on each merge.
 OLD_DOCS_CHECK_MARK = "# cairnkit:docs-check"
 
@@ -102,6 +105,10 @@ def _hook_text_is_old(project: Project) -> bool:
         return False
     if _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK):
         return True
+    if _has_block(folder / "pre-commit") and not _holds(
+        folder / "pre-commit", githook.PYTHON_GONE_MARK
+    ):
+        return True
     if not githook.guard_installed(project):
         return False
     return not (
@@ -133,6 +140,31 @@ def wrote_files(project: Project, memdir: Path) -> bool:
     )
 
 
+def gone_pythons(project: Project) -> list[str]:
+    """The absolute Python paths in this repo's hooks that no longer run."""
+    folder = githook.hooks_dir(project) if project.is_git else None
+    hooks = [folder / hook for hook in _local_hooks(project)] if folder else []
+    files = hooks + [c / adapters.ADAPTERS[n].rel for n, hs in _agents(project).items() for c in hs]
+    found = set()
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        found.update(a or b for a, b in _HOOK_PYTHON.findall(text))
+    return sorted(p for p in found if p.startswith("/") and not os.access(p, os.X_OK))
+
+
+def gone_python_line(project: Project) -> str | None:
+    gone = gone_pythons(project)
+    if not gone:
+        return None
+    return (
+        f"memory: this repo's hooks run {', '.join(gone)}, which is gone, so they do nothing. "
+        f"Run `{COMMAND}` now. It rewrites them in place."
+    )
+
+
 def repo_line(project: Project, flag: str | None) -> str | None:
     """One line when repo files are older than this tool. Never raises."""
     try:
@@ -142,6 +174,9 @@ def repo_line(project: Project, flag: str | None) -> str | None:
         state = githook.hook_state(project)
         if state.fixable:
             return "memory: " + state.line.removeprefix("warning: ")
+        line = gone_python_line(project)
+        if line:
+            return line
         version = read_stamp(memdir).get("version")
         stale_hook = _hook_text_is_old(project)
         if version:
