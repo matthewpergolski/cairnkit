@@ -7,7 +7,8 @@ import re
 import subprocess
 import sys
 
-from conftest import git, make_fact, write_facts
+import pytest
+from conftest import make_fact, write_facts
 
 from cairnkit.cli import main
 from cairnkit.instructions import text as instruction_text
@@ -145,29 +146,27 @@ def test_an_owner_rule_past_the_bound_is_named_in_a_warning(mem, capsys):
     assert f"warning: {held} rule(s) held back" in whole
 
 
-def test_a_rule_against_ai_attribution_past_the_bound_installs_the_guard(mem, repo, capsys):
+@pytest.mark.parametrize("basis", [[], ["--basis", "told"]], ids=["bare", "told"])
+def test_an_attribution_rule_past_the_bound_installs_the_guard_at_once(
+    mem, repo, capsys, monkeypatch, basis
+):
+    assert main(["hooks", "install"]) == 0
     _pile_of_owner_rules(mem)
     rule = "No AI attribution in commits or pull requests."
-    write_facts(
-        mem,
-        [
-            make_fact(
-                "f-20261102-0001",
-                rule,
-                kind="rule",
-                basis="told",
-                learned_at="2026-11-02T00:00:00+00:00",
-            )
-        ],
-    )
+    monkeypatch.setenv("CLAUDECODE", "1")
+    _add(capsys, ["add", rule, "--kind", "rule", *basis])
     _, whole = _load(capsys)
     assert rule not in whole, "this rule must be one that the bound held back"
-    assert main(["hooks", "install"]) == 0
-    git(repo, "config", "user.name", "x")
-    (repo / "x").write_text("x")
-    git(repo, "add", "x")
+    assert "rule(s) held back" in whole
     refused = subprocess.run(
-        ["git", "commit", "-q", "-m", "x\n\nCo-authored-by: Claude <noreply@anthropic.com>"],
+        [
+            "git",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "x\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+        ],
         cwd=repo,
         capture_output=True,
         text=True,
