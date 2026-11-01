@@ -20,6 +20,7 @@ sources:
   - src/cairnkit/docs_modules.py
   - src/cairnkit/docs_pages_cairnkit.py
   - src/cairnkit/docs_pages_generic.py
+  - src/cairnkit/enforcement.py
   - src/cairnkit/followups.py
   - src/cairnkit/githook.py
   - src/cairnkit/harness_local.py
@@ -99,6 +100,7 @@ flowchart TB
     Library --> docs_modules[docs_modules]
     Library --> docs_pages_cairnkit[docs_pages_cairnkit]
     Library --> docs_pages_generic[docs_pages_generic]
+    Library --> enforcement[enforcement]
     Library --> githook[githook]
     Library --> harness_local[harness_local]
     Library --> hygiene[hygiene]
