@@ -826,11 +826,11 @@ def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool, 
     assert skills.running_tool() == tool
 
 
-def test_the_running_tool_is_unknown_with_no_marker_or_with_two(monkeypatch):
+def test_the_running_tool_is_unknown_with_no_marker_and_names_both_of_two(monkeypatch):
     assert skills.running_tool() is None
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv("CURSOR_AGENT", "1")
-    assert skills.running_tool() is None
+    assert skills.running_tool() == "claude+cursor"
 
 
 def test_the_hook_agent_beats_the_environment(monkeypatch):
