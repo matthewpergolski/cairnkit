@@ -10,7 +10,7 @@ import os
 import re
 
 from cairnkit import loopbreak
-from cairnkit.clock import now, parse_time, stamp
+from cairnkit.clock import now, parse_time
 from cairnkit.load import active_states, changed_paths
 from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, run_git, writer_name
@@ -25,12 +25,13 @@ from cairnkit.selection import (
     score_parts,
 )
 from cairnkit.session import (
+    agent_writes,
     load_state,
     loop_nudge,
     save_state,
     tracked_files_gone,
-    wrote_since,
 )
+from cairnkit.similar import analyze
 
 FIX_MIN_FAILS = 2
 MAX_LINES = 5
@@ -50,6 +51,21 @@ NAMED_LIMIT = 200
 QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"", re.DOTALL)
 # A harness turn opens with a tag. A stop follow-up comes back as a prompt on some tools.
 NOT_THE_OWNER = re.compile(r"^\s*<|`memory |\bmemory check\b|\bDoes a trap belong\b")
+# `clean`, `clear` and `drop` also mean a tidy-up with no loss, so they must name a file.
+REMOVAL = re.compile(
+    r"\b(?:remove|delete|rm|get rid of|wipe|purge|prune|erase|trash|discard)\b"
+    r"|\b(?:clean(?:\s+up)?|clear(?:\s+out)?|drop)\b(?=.*\b(?:files?|folders?|director(?:y|ies))\b)",
+    re.IGNORECASE,
+)
+NEGATED = re.compile(
+    r"\b(?:not|never|don't|dont|without|avoid|keep)\b(?:\s+\w+)?\s*$", re.IGNORECASE
+)
+CLAUSE_END = re.compile(r"(?<=[.!?:])\s+|[,;\n]|\s+(?:and|then)\s+", re.IGNORECASE)
+# Words of a request that name no file, after `analyze`.
+NOT_A_NAME = frozenset(
+    {"all", "any", "dir", "directory", "each", "every", "file", "folder", "of", "out", "some"}
+    | {"that", "them", "these", "this", "those", "unused", "up", "my", "our", "in", "from", "it"}
+)
 NOT_CLAUSE = r"(?<!\bif )(?<!\bwhen )(?<!\bonce )(?<!\bafter )(?<!\bbefore )(?<!\bwhether )"
 CORRECTION = re.compile(
     "|".join(
@@ -88,10 +104,6 @@ def _quoted(command: str) -> str:
     return f"`{flat[:COMMAND_WIDTH]}{cut}`"
 
 
-def _fail_token(command: str) -> str:
-    return f"fail:{command}"
-
-
 def _loop_token(command: str) -> str:
     return f"loop:{command}"
 
@@ -108,8 +120,7 @@ def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
         if fails.get(command, 0) >= FIX_MIN_FAILS:
             state.setdefault("fixed", []).append([command, fails[command]])
         fails.pop(command, None)
-        ended = {_fail_token(command), _loop_token(command)}
-        state["told"] = [token for token in state.get("told", []) if token not in ended]
+        state["told"] = [t for t in state.get("told", []) if t != _loop_token(command)]
     save_state(memory, key, state)
 
 
@@ -170,6 +181,22 @@ def is_correction(prompt: str) -> bool:
     return bool(CORRECTION.search(QUOTED.sub(" ", prompt[:PROMPT_HEAD])))
 
 
+def removal_words(prompt: str) -> set[str]:
+    """The words of what the owner asked to remove: `remove scratch files` gives `scratch`.
+
+    A false word would hide a real loss, and a missed word costs one question. So this reads one
+    clause, and it skips a question, a refusal and a correction.
+    """
+    if NOT_THE_OWNER.search(prompt) or is_correction(prompt):
+        return set()
+    found: set[str] = set()
+    for clause in CLAUSE_END.split(prompt[:PROMPT_HEAD]):
+        ask = REMOVAL.search(clause)
+        if ask and not clause.rstrip().endswith("?") and not NEGATED.search(clause[: ask.start()]):
+            found |= analyze(clause[ask.end() :]) - NOT_A_NAME
+    return found
+
+
 def note_prompt(memory: Memory, key: str, prompt: str) -> None:
     """Keep what a stop needs from a prompt: a correction, and the names of files the owner used."""
     state = load_state(memory, key)
@@ -178,17 +205,18 @@ def note_prompt(memory: Memory, key: str, prompt: str) -> None:
     named = {word.strip("`'\",:;!?()").rstrip(".") for word in prompt.split()}
     named = {word for word in named if "." in word or "/" in word}
     state["named"] = sorted({*state.get("named", []), *named})[:NAMED_LIMIT]
+    state["asked"] = sorted({*state.get("asked", []), *removal_words(prompt)})[:NAMED_LIMIT]
     if is_correction(prompt):
         flat = clean(prompt)
         text = "" if find_secrets(flat, memory.env) else flat[:PROMPT_WIDTH]
-        state["correction"] = {"at": stamp(now()), "text": text}
+        state["correction"] = {"writes": agent_writes(memory), "text": text}
     save_state(memory, key, state)
 
 
 def _correction_line(memory: Memory, state: dict) -> str | None:
     """The newest correction, once. A fact written after it is the answer to the question."""
     found = state.pop("correction", None)
-    if not found or wrote_since(memory, found["at"]):
+    if not found or agent_writes(memory) > found.get("writes", 0):
         return None
     words = _quoted(found["text"]) if found["text"] else "(text held back: it looks like a secret)"
     return f"The owner corrected you: {words}. {ASK_TRAP}"
@@ -214,13 +242,14 @@ def _gone_line(memory: Memory, state: dict) -> str | None:
     if state.get("start_head"):
         gone += tracked_files_gone(root, memory.dir, state["start_head"])
     told, named = state.setdefault("told", []), set(state.get("named", []))
+    asked = set(state.get("asked", []))
     fresh = []
     for path in gone:
         token = f"gone:{path}"
         if token in told:
             continue
         told.append(token)
-        known = path in named or os.path.basename(path) in named
+        known = path in named or os.path.basename(path) in named or asked & analyze(path)
         if not known and not _named_in_a_fact(memory, state, path):
             fresh.append(path)
     if not fresh:
@@ -238,15 +267,10 @@ def session_events(memory: Memory, key: str) -> list[str]:
         return []
     told = state.setdefault("told", [])
     found = []
-    for number, (command, count) in enumerate(state.get("fixed", [])):
+    for command, count in state.get("fixed", []):
         shown = _quoted(loopbreak.without_secret(command, memory.env))
         line = f"{shown} failed {count} times, then passed. What fixed it?"
-        found.append((f"fixed:{number}:{command}", line))
-    for command, count in state.get("fails", {}).items():
-        if count >= FIX_MIN_FAILS:
-            shown = _quoted(loopbreak.without_secret(command, memory.env))
-            line = f"{shown} failed {count} times and has not passed."
-            found.append((_fail_token(command), line))
+        found.append((f"fixed:{command}", line))
     for line in _reverts(memory.project.root, state):
         found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))
     fresh = [(token, line) for token, line in found if token not in told]

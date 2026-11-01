@@ -21,7 +21,7 @@ import re
 import sys
 from pathlib import Path
 
-from cairnkit.similar import analyze, repeat_key, similarity
+from cairnkit.similar import analyze, differ_on_purpose, repeat_key, similarity
 from cairnkit.store import read_records
 
 FIXTURE = Path(__file__).parent / "fixtures" / "near_repeats.jsonl"
@@ -55,18 +55,21 @@ def after(a: str, b: str) -> bool:
     return repeat_key(a) == repeat_key(b)
 
 
+def in_the_task(row: dict) -> bool:
+    a, b = analyze(row["a"]), analyze(row["b"])
+    return similarity(a, b) is not None and not differ_on_purpose(a, b)
+
+
 def score(rule, rows: list[dict]) -> dict[str, int]:
     retired = [row for row in rows if rule(row["a"], row["b"])]
+    shown = [row for row in rows if not rule(row["a"], row["b"]) and in_the_task(row)]
     return {
         "repeats": sum(row["label"] == "repeat" for row in rows),
         "repeats_caught": sum(row["label"] == "repeat" for row in retired),
         "different": sum(row["label"] == "different" for row in rows),
         "false_retires": sum(row["label"] == "different" for row in retired),
-        "left_for_the_agent_task": sum(
-            not rule(row["a"], row["b"])
-            and similarity(analyze(row["a"]), analyze(row["b"])) is not None
-            for row in rows
-        ),
+        "left_for_the_agent_task": len(shown),
+        "repeats_left_for_the_agent_task": sum(row["label"] == "repeat" for row in shown),
     }
 
 

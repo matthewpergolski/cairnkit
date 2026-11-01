@@ -160,6 +160,7 @@ def test_a_compaction_keeps_the_session_and_loads_again(repo, mem, capsys, monke
     for _ in range(2):
         hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUseFailure"))
     start(capsys, monkeypatch, source="compact")
+    hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUse"))
     out = hook(capsys, monkeypatch, "stop", {"session_id": "s"})
     assert "`make` failed 2 times" in json.loads(out)["reason"]
 
@@ -423,6 +424,8 @@ def test_long_session_keys_with_one_prefix_do_not_share_a_state(repo, mem, capsy
     failure = bash("make", "PostToolUseFailure") | {"session_id": one}
     for _ in range(2):
         hook(capsys, monkeypatch, "after-shell", failure)
+    passed = bash("make", "PostToolUse") | {"session_id": one}
+    hook(capsys, monkeypatch, "after-shell", passed)
     hook(capsys, monkeypatch, "session-start", {"session_id": two})
     out = hook(capsys, monkeypatch, "stop", {"session_id": one})
     assert "`make` failed 2 times" in json.loads(out)["reason"]
@@ -447,24 +450,6 @@ def test_a_failed_edit_is_not_a_failed_command_at_stop(repo, mem, capsys, monkey
     passed = edit | {"hook_event_name": "PostToolUse", "tool_response": {"ok": True}}
     hook(capsys, monkeypatch, "after-shell", passed)
     assert "`Edit`" not in stop(capsys, monkeypatch)
-
-
-def test_a_rising_count_does_not_block_stop_again(repo, mem, capsys, monkeypatch):
-    start(capsys, monkeypatch)
-    fail(capsys, monkeypatch, 2)
-    assert "`make` failed 2 times" in json.loads(stop(capsys, monkeypatch))["reason"]
-    fail(capsys, monkeypatch)
-    assert stop(capsys, monkeypatch) == ""
-
-
-def test_a_new_failure_run_after_a_pass_is_a_new_event(repo, mem, capsys, monkeypatch):
-    start(capsys, monkeypatch)
-    fail(capsys, monkeypatch, 2)
-    assert "failed 2 times" in stop(capsys, monkeypatch)
-    hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUse"))
-    assert "then passed" in stop(capsys, monkeypatch)
-    fail(capsys, monkeypatch, 2)
-    assert "and has not passed" in stop(capsys, monkeypatch)
 
 
 def test_a_loop_nudge_reaches_the_agent_once(repo, mem, capsys, monkeypatch):
@@ -496,6 +481,7 @@ def test_a_resumed_session_keeps_its_events(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     fail(capsys, monkeypatch, 2)
     start(capsys, monkeypatch, source="resume")
+    hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUse"))
     assert "`make` failed 2 times" in json.loads(stop(capsys, monkeypatch))["reason"]
 
 
@@ -506,16 +492,15 @@ def boom(*args, **kwargs):
 @pytest.mark.parametrize(
     ("broken", "kept"),
     [
-        ("hookrun.read_health", ("Elsewhere number 1.", "`make` failed 2 times")),
-        ("signals.news", ("`make` failed 2 times",)),
-        ("signals.session_events", ("Elsewhere number 1.",)),
-        ("hookrun.needs_reminder", ("Elsewhere number 1.", "`make` failed 2 times")),
+        ("hookrun.read_health", ("`make` failed 2 times",)),
+        ("signals.stop_nudge", ("`make` failed 2 times",)),
+        ("hookrun.mark_reminder", ("`make` failed 2 times",)),
     ],
 )
 def test_one_broken_step_leaves_the_others_at_stop(repo, mem, capsys, monkeypatch, broken, kept):
     start(capsys, monkeypatch)
     fail(capsys, monkeypatch, 2)
-    write_facts(mem, [elsewhere_fact(1)])
+    hook(capsys, monkeypatch, "after-shell", bash("make", "PostToolUse"))
     (repo / "new.py").write_text("x\n")
     monkeypatch.setattr(f"cairnkit.{broken}", boom)
     reason = json.loads(stop(capsys, monkeypatch))["reason"]

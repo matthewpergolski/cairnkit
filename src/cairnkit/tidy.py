@@ -139,6 +139,7 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
         items = len(followups.open_items(memory))
         print(
             f"Open similar pairs: {pairs}"
+            + (" (the list stops there)" if pairs >= followups.MAX_PAIRS else "")
             + (f". An agent task lists them: {followups.TASK_PATH}" if pairs else "")
         )
         if items:

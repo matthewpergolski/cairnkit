@@ -7,6 +7,8 @@ Two tests:
   symbol can make a different fact: `Foo` and `foo`, `users` and `user`, `-1` and `1`.
 - `similarity`: at least 75 percent of the words (Jaccard), with a plural and a stop word ignored.
   This test only flags a pair for an agent, so a false match costs one look and loses nothing.
+
+`differ_on_purpose` then takes the pairs that are separate facts out of the agent's task.
 """
 
 from __future__ import annotations
@@ -16,13 +18,15 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 
+from cairnkit import deadline
 from cairnkit.state import effective_status
 
 NEAR = 0.75
 # Same area and this much overlap: 11 of 13 stale pairs and 0 false pairs on the fixture.
 # See docs/forgetting-tests.md. The fixture is hand-written, so this only prompts the agent.
 CONFLICT_OVERLAP = 0.25
-MAX_COMPARISONS = 200_000
+# About 0.1 s. A hook runs this at each session start and each write.
+MAX_COMPARISONS = 30_000
 
 # `!` and `?` stay: `println!` is not `println`, and `is it on?` is not `is it on`.
 _FINAL_MARKS = ".,;: "
@@ -73,26 +77,41 @@ class Pair:
     score: float
 
 
-def similar_pairs(words: dict[str, set[str]]) -> list[Pair]:
-    """Similar pairs among {id: word set}. A prefix filter keeps it fast for many facts.
+def differ_on_purpose(a: set[str], b: set[str]) -> bool:
+    """True when a similar pair is two facts: one word swapped, or a change in numbers alone.
 
-    Facts that use few distinct words defeat the filter. This runs at session start and it is only
-    a clean-up, so at MAX_COMPARISONS it stops and returns what it found. It starts from the newest
-    ids, because a new repeat is the one that was not seen in an earlier session.
+    `port 8080` and `port 9090` both stay and lose nothing. On the labelled set, a swap is a repeat
+    in 1 of 10 pairs. A word added is a repeat in 13 of 19, so an added word stays in the task.
+    """
+    only_a, only_b = a - b, b - a
+    if len(only_a) == 1 and len(only_b) == 1:
+        return True
+    changed = only_a | only_b
+    return bool(changed) and all(any(char.isdigit() for char in word) for word in changed)
+
+
+def similar_pairs(words: dict[str, set[str]], limit: int = MAX_COMPARISONS) -> list[Pair]:
+    """Similar pairs among {id: word set}, with at most `limit` comparisons in all.
+
+    A prefix filter finds them. Facts that use few distinct words defeat the filter, so each fact
+    gets an equal share of the comparisons, nearest ids first. A real pair deep in a large memory
+    still gets its turn, and a pair that shares a rare word comes first in that share.
     """
     freq = Counter(word for w in words.values() for word in w)
+    share = limit // max(len(words), 1)
     index: dict[str, list[str]] = defaultdict(list)
-    seen: set[tuple[str, str]] = set()
     found: list[Pair] = []
     for fid in sorted(words, reverse=True):
+        if not deadline.has_time():
+            break
         ws = sorted(words[fid], key=lambda w: (freq[w], w))
+        compared: set[str] = set()
         for word in ws[: len(ws) - math.ceil(NEAR * len(ws)) + 1]:
-            for other in index[word]:
-                pair = (fid, other)
-                if pair not in seen:
-                    if len(seen) >= MAX_COMPARISONS:
-                        return found
-                    seen.add(pair)
+            for other in reversed(index[word][-share:] if share else ()):
+                if len(compared) >= share:
+                    break
+                if other not in compared:
+                    compared.add(other)
                     score = similarity(words[fid], words[other])
                     if score is not None:
                         found.append(Pair(fid, other, score))

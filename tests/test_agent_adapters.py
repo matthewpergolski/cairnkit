@@ -98,10 +98,10 @@ def test_a_text_adapter_reads_stop_on_stdout_with_exit_zero(repo, mem, capsys, m
         return code, capsys.readouterr().out
 
     hook("session-start")
-    (repo / "new.py").write_text("x\n")
+    (repo / "README.md").unlink()
     code, out = hook("stop")
     assert code == 0
-    assert "new.py" in out
+    assert "README.md" in out
 
 
 def _ls_remote(calls):
@@ -178,7 +178,9 @@ def test_grok_prompt_news_waits_for_a_channel_that_reaches_the_model(
     assert main(["add", "Learned elsewhere.", "--basis", "seen", "--source", "session:1"]) == 0
     monkeypatch.delenv("MEMORY_WRITER")
     assert _grok_hook(capsys, monkeypatch, "prompt", session) == ""
-    assert "Learned elsewhere." in _grok_hook(capsys, monkeypatch, "stop", session)
+    assert _grok_hook(capsys, monkeypatch, "stop", session) == ""
+    tool = session | {"hook_event_name": "PostToolUse", "tool_name": "Read"}
+    assert "Learned elsewhere." in _grok_hook(capsys, monkeypatch, "after-shell", tool)
 
 
 def test_the_generic_help_names_what_stop_says_now():
@@ -207,7 +209,7 @@ def test_the_tracked_file_message_lists_each_command_and_no_team(repo, mem, name
 
 
 PI_DRIVER = """
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import extension from "./cairnkit.ts";
 
 const handlers = {};
@@ -227,13 +229,14 @@ const ctx = {
   },
 };
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
-const told = () => "reminded" in JSON.parse(readFileSync("../proj.memory/.sessions/s.json"));
+const told = () =>
+  (JSON.parse(readFileSync("../proj.memory/.sessions/s.json")).told ?? []).length > 0;
 const assistant = (stopReason) => ({ messages: [{ role: "assistant", stopReason }] });
 const report = {};
 
 await handlers.session_start({ reason: "startup" }, ctx);
 report.first = (await handlers.before_agent_start({}, ctx))?.message?.content ?? "";
-writeFileSync("new.py", "x = 1\\n");
+rmSync("README.md", { force: true });
 
 await handlers.agent_end(assistant("aborted"), ctx);
 idle = true;
@@ -289,18 +292,18 @@ def test_pi_with_a_ui_tells_stop_only_when_a_turn_can_start(repo, mem):
     assert report["aborted"] == {"sent": 0, "told": False}
     assert report["busy"] == {"sent": 0, "told": False}
     assert report["idle"] == {"told": True, "sent": [{"triggerTurn": True}]}
-    assert "new.py" in report["text"]
+    assert "README.md" in report["text"]
     assert report["again"] == 1
-    assert "new.py" not in report["next"]
+    assert "README.md" not in report["next"]
 
 
 def test_pi_in_print_mode_holds_stop_for_the_next_prompt(repo, mem):
     report = _drive_pi(repo, "print")
     assert report["idle"] == {"told": False, "sent": []}
     assert report["again"] == 0
-    assert "new.py" in report["next"]
+    assert "README.md" in report["next"]
 
 
 def test_pi_in_print_mode_delivers_a_held_stop_after_a_continued_run(repo, mem):
-    assert "new.py" not in _drive_pi(repo, "print", "first-run")["first"]
-    assert "new.py" in _drive_pi(repo, "print", "resume")["first"]
+    assert "README.md" not in _drive_pi(repo, "print", "first-run")["first"]
+    assert "README.md" in _drive_pi(repo, "print", "resume")["first"]

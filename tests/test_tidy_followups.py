@@ -92,7 +92,7 @@ def test_the_task_is_regenerated_the_same_way(mem, capsys):
     assert (mem / TASK).read_bytes() == first
 
 
-def test_a_number_in_the_difference_goes_to_the_agent(mem, capsys):
+def test_a_number_in_the_difference_is_no_task(mem, capsys):
     write_facts(
         mem,
         [
@@ -100,8 +100,8 @@ def test_a_number_in_the_difference_goes_to_the_agent(mem, capsys):
             make_fact(B, "Retry the upload up to 5 times, short delay, each job and each host"),
         ],
     )
-    assert "Open similar pairs: 1" in run(capsys, "tidy")[1]
-    assert (mem / TASK).exists()
+    assert "Open similar pairs: 0" in run(capsys, "tidy")[1]
+    assert not (mem / TASK).exists()
 
 
 def test_near_pairs_are_not_tidy_proposals_any_more(mem, capsys):

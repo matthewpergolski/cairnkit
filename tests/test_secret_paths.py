@@ -113,6 +113,8 @@ def test_an_ordinary_failed_command_keeps_its_text(mem, capsys, monkeypatch):
     hook(capsys, monkeypatch, "session-start", start)
     for _ in range(2):
         hook(capsys, monkeypatch, "post-tool", failed("pytest -x"))
+    passed = {k: v for k, v in failed("pytest -x").items() if k != "error"}
+    hook(capsys, monkeypatch, "post-tool", passed | {"hook_event_name": "PostToolUse"})
     assert "pytest -x" in hook(capsys, monkeypatch, "stop", {"session_id": "s"})
 
 
@@ -121,7 +123,7 @@ def test_a_stored_command_from_before_is_not_echoed(mem, capsys, monkeypatch):
     hook(capsys, monkeypatch, "session-start", start)
     path = next((mem / ".sessions").glob("*.json"))
     state = json.loads(path.read_text())
-    state["fails"] = {CURL: 3}
+    state["fixed"] = [[CURL, 3]]
     path.write_text(json.dumps(state))
     assert BEARER not in hook(capsys, monkeypatch, "stop", {"session_id": "s"})
 

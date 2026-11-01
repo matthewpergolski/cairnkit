@@ -1,10 +1,11 @@
 """Similar pairs that need judgment go to an agent task, not to a person.
 
 `refresh` finds the open pairs and writes `<memory>/proposals/tidy-followups.md`,
-a task an agent can follow. It writes the same file for the same pairs, and
-removes the file when no pair is open. `memory load` shows one line while the
-file exists. A pair is open while both facts are active and no `related` or
-`contradicts` link joins them.
+a short task an agent can finish: at most `MAX_PAIRS` pairs, the likeliest repeats
+first. It writes only when the text changes, and removes the file when nothing is
+open. `memory load` shows one line while the file exists. A pair is open while both
+facts are active and no `related` or `contradicts` link joins them. A pair that
+`differ_on_purpose` accepts is no task.
 """
 
 from __future__ import annotations
@@ -12,19 +13,29 @@ from __future__ import annotations
 import contextlib
 import re
 
-from cairnkit import autotidy, presets
+from cairnkit import autotidy, deadline, presets
 from cairnkit.autotidy import _protected, outranks
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, merged_checker
 from cairnkit.selection import name
-from cairnkit.similar import Pair, analyze, repeat_key, similar_pairs
+from cairnkit.similar import (
+    MAX_COMPARISONS,
+    analyze,
+    differ_on_purpose,
+    overlap,
+    repeat_key,
+    similar_pairs,
+)
 from cairnkit.state import effective_status
 
 TASK_PATH = "proposals/tidy-followups.md"
 HEADER = "# Tidy follow-up (pending)"
 RESOLVING = ("related", "contradicts")
 SNIPPET = 200
+MAX_PAIRS = 20
+# A hook writes facts and starts sessions through this. It is a clean-up, so it can wait.
+SCAN_SECONDS = 1.0
 
 
 def _active(memory: Memory) -> dict[str, dict]:
@@ -72,33 +83,43 @@ def _returned(memory: Memory) -> list[str]:
 
 
 def open_pairs(memory: Memory) -> list[tuple[dict, dict, float, str]]:
-    """Return (older, newer, score, how found) for each open pair, in id order."""
+    """Return (older, newer, score, how found) for up to MAX_PAIRS, the likeliest repeats first."""
     active = _active(memory)
     resolved = _resolved(memory)
+    words: dict[str, set[str]] = {}
     groups: dict[tuple, dict[str, set[str]]] = {}
     for fid, state in active.items():
-        key = (state.get("kind", "fact"), state["scope"])
-        groups.setdefault(key, {})[fid] = analyze(str(state.get("text", "")))
-    found: dict[frozenset, tuple[Pair, str]] = {}
-    for words in groups.values():
-        for pair in similar_pairs(words):
+        if not deadline.has_time():
+            break
+        words[fid] = analyze(str(state.get("text", "")))
+        groups.setdefault((state.get("kind", "fact"), state["scope"]), {})[fid] = words[fid]
+    found: dict[frozenset, tuple[float, str]] = {}
+    for group in groups.values():
+        limit = MAX_COMPARISONS * len(group) // len(words)
+        for pair in similar_pairs(group, limit):
             a, b = active[pair.a], active[pair.b]
             same = repeat_key(str(a.get("text", ""))) == repeat_key(str(b.get("text", "")))
             if same and not (_protected(a) or _protected(b) or outranks(a, b) or outranks(b, a)):
                 continue  # `memory tidy --auto` retires an exact repeat
-            found[frozenset((pair.a, pair.b))] = (pair, "found by scan")
-    for fid, state in active.items():
-        for link in state.get("links", []):
-            if link.get("rel") == "similar_to" and link["id"] in active:
-                key = frozenset((fid, link["id"]))
-                found.setdefault(key, (Pair(link["id"], fid, 0.0), "flagged by memory add"))
-    out = []
-    for key, (pair, how) in found.items():
-        if key in resolved:
-            continue
-        a, b = sorted((active[pair.a], active[pair.b]), key=lambda s: (s["learned_at"], s["id"]))
-        out.append((a, b, pair.score, how))
-    return sorted(out, key=lambda p: (p[0]["id"], p[1]["id"]))
+            found[frozenset((pair.a, pair.b))] = (pair.score, "found by scan")
+    for fid in words:
+        for link in active[fid].get("links", []):
+            if link.get("rel") == "similar_to" and link["id"] in words:
+                score = overlap(words[fid], words[link["id"]])
+                found.setdefault(frozenset((fid, link["id"])), (score, "flagged by memory add"))
+    rows = []
+    for key, (score, how) in found.items():
+        one, two = sorted(key)
+        if key not in resolved and not differ_on_purpose(words[one], words[two]):
+            older, newer = sorted(
+                (active[one], active[two]), key=lambda s: (s["learned_at"], s["id"])
+            )
+            rows.append((older, newer, score, how))
+    # Many shared words, and few that differ. Pair by pair on the labelled set, this puts 11 repeats
+    # in the first 20 and the share of words alone puts 7, because two short texts tie it easily.
+    rows.sort(key=lambda row: (row[0]["id"], row[1]["id"]), reverse=True)
+    rows.sort(key=lambda row: -row[2] * len(words[row[0]["id"]] & words[row[1]["id"]]))
+    return rows[:MAX_PAIRS]
 
 
 def _line(state: dict) -> str:
@@ -140,7 +161,25 @@ def open_items(memory: Memory) -> list[str]:
     return items
 
 
+CAPPED = (
+    f"This list stops at {MAX_PAIRS} pairs, the likeliest repeats first. A pair not listed loses",
+    "nothing by staying.",
+    "",
+)
+DONE = [
+    "Acceptance check: run `memory tidy`. It must print `Open similar pairs: 0`, and this",
+    "file must be gone. If you cannot decide an item, leave it and say so.",
+    "",
+]
+DONE_CAPPED = [
+    "Acceptance check: each pair here is settled. A later session lists what remains.",
+    "If you cannot decide an item, leave it and say so.",
+    "",
+]
+
+
 def render(pairs: list[tuple[dict, dict, float, str]], items: list[str]) -> str:
+    capped = len(pairs) >= MAX_PAIRS
     count = f"{len(pairs)} pair(s)" + (f", {len(items)} item(s)" if items else "")
     lines = [
         f"{HEADER}: {count}",
@@ -155,6 +194,7 @@ def render(pairs: list[tuple[dict, dict, float, str]], items: list[str]) -> str:
         lines.append("")
     if pairs:
         lines += [
+            *(CAPPED if capped else ()),
             "Similar pairs. Each pair says nearly the same thing. For each pair:",
             "1. Read both facts: `memory show ID`.",
             "2. Check the code, the docs or the source of each fact. Find which one is",
@@ -172,9 +212,7 @@ def render(pairs: list[tuple[dict, dict, float, str]], items: list[str]) -> str:
         ]
     for older, newer, score, how in pairs:
         a, b = older["id"], newer["id"]
-        shown = (
-            "same word set" if score == 1.0 else (f"{score:.0%} the same words" if score else how)
-        )
+        shown = "same word set" if score == 1.0 else f"{score:.0%} the same words"
         lines += [
             f"- Older: {_line(older)}",
             f"  Newer: {_line(newer)}",
@@ -185,18 +223,18 @@ def render(pairs: list[tuple[dict, dict, float, str]], items: list[str]) -> str:
             f'  - disagree: `memory change {b} --link contradicts:{a} --reason "..."`',
             "",
         ]
-    lines += [
-        "Acceptance check: run `memory tidy`. It must print `Open similar pairs: 0`, and this",
-        "file must be gone. If you cannot decide an item, leave it and say so.",
-        "",
-    ]
+    lines += DONE_CAPPED if capped else DONE
     return "\n".join(lines)
 
 
 def refresh(memory: Memory) -> int:
     """Write or remove the task file. Return the number of open pairs and items."""
-    pairs = open_pairs(memory)
+    with deadline.within(SCAN_SECONDS):
+        pairs = open_pairs(memory)
+        whole = deadline.has_time()
     items = open_items(memory)
+    if not whole:
+        return len(pairs) + len(items)  # what is on disk is the last whole answer, so it stays
     path = memory.dir / TASK_PATH
     if not pairs and not items:
         path.unlink(missing_ok=True)
@@ -217,7 +255,7 @@ def pending_line(memory: Memory) -> str | None:
     except OSError:
         return None
     found = re.match(rf"{re.escape(HEADER)}: (\d+) pair\(s\)(?:, (\d+) item\(s\))?", first)
-    if not found:
-        return None
+    if not found or int(found.group(1)) > MAX_PAIRS:
+        return None  # a file from a tool with no limit: its count is not one this tool made
     counts = f"{found.group(1)} pairs" + (f", {found.group(2)} items" if found.group(2) else "")
     return f"Tidy follow-up pending: {counts}; task: {LINK_NAME}/{TASK_PATH}"

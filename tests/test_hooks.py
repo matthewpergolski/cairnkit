@@ -76,16 +76,13 @@ def test_stop_reminds_once_after_work_with_no_new_facts(repo, mem, capsys, monke
     (repo / "new.py").write_text("x = 1\n")
     code, out, _ = run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
     assert code == 0
-    data = json.loads(out)
-    assert data["decision"] == "block" and "memory add" in data["reason"]
-    # The agent was continued once; it must not loop.
-    _, out, _ = run_hook(
-        capsys, monkeypatch, "stop", "claude", {"session_id": "s1", "stop_hook_active": True}
-    )
-    assert "block" not in out
-    # The same work does not cause a second reminder.
-    _, out, _ = run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
-    assert "block" not in out
+    assert out == ""
+    _, out, _ = run_hook(capsys, monkeypatch, "prompt", "claude", {"session_id": "s1"})
+    assert "memory add" in out
+    (repo / "new.py").write_text("x = 2\n")
+    run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
+    _, out, _ = run_hook(capsys, monkeypatch, "prompt", "claude", {"session_id": "s1"})
+    assert "memory add" not in out
 
 
 def test_stop_is_quiet_when_a_fact_was_written(repo, mem, capsys, monkeypatch):
@@ -110,7 +107,7 @@ def test_stop_formats_for_codex_cursor_and_generic(repo, mem, capsys, monkeypatc
     start(capsys, monkeypatch, "generic", sid="default")  # generic hooks send no payload
     _, out, _ = run_hook(capsys, monkeypatch, "stop", "codex", {"session_id": "codex"})
     assert json.loads(out) == {}
-    (repo / "new.py").write_text("x = 1\n")
+    (repo / "README.md").unlink()
     _, out, _ = run_hook(capsys, monkeypatch, "stop", "codex", {"session_id": "codex"})
     assert json.loads(out)["decision"] == "block"
     _, out, _ = run_hook(
