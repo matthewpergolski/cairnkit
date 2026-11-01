@@ -21,6 +21,7 @@ from cairnkit import (
     autotidy,
     deadline,
     followups,
+    githook,
     hooks_cmd,
     legacy,
     loopbreak,
@@ -259,6 +260,8 @@ def _optional_work(project: Project, flag: str | None) -> str:
 
 
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
+    with contextlib.suppress(Exception):  # before all else: an old command stops each commit
+        githook.heal_wiring(project)
     if not has_memory(project, flag):
         with contextlib.suppress(Exception):
             lost = lost_memory(project)
