@@ -457,10 +457,11 @@ def test_the_plan_names_all_that_it_installs_and_installs_only_that(repo, capsys
     for name in named:
         assert name in plan
     assert not (hooks / "pre-commit").exists()
-    assert not (worktree / ".claude" / "settings.local.json").exists()
+    assert not (repo / ".claude" / "settings.local.json").exists()
     out = migrate(capsys, "--yes")
     assert "connect the agent tools (claude)" in out
-    assert (worktree / ".claude" / "settings.local.json").is_file()
+    assert (repo / ".claude" / "settings.local.json").is_file()
+    assert not (worktree / ".claude" / "settings.local.json").exists()
     assert {p.name for p in hooks.iterdir() if not p.name.endswith(".sample")} == named
     assert git(repo, "status", "--short") == ""
 

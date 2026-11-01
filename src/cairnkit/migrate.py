@@ -554,6 +554,9 @@ def _say_install(project: Project, would: str) -> None:
             f"{would}connect the agent tools ({', '.join(names)}) in this checkout: "
             f"{project.root}. Each file it writes there is untracked."
         )
+        others = [str(checkout) for checkout in project.checkouts if checkout != project.root]
+        if others:
+            print(f"It writes no agent file in the other checkouts: {', '.join(others)}.")
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder:
         print(

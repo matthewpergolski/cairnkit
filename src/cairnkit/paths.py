@@ -336,7 +336,7 @@ def owner_line(project: Project, memdir: Path) -> str | None:
         run_git(project.root, "config", "--local", "--bool", "--get", SHARED_SETTING) == "true"
     ):
         return None
-    share = f" To share it on purpose: `git config {SHARED_SETTING} true`." if project.is_git else ""
+    share = f" To share on purpose: `git config {SHARED_SETTING} true`." if project.is_git else ""
     return (
         f"note: {memdir} belongs to {_shown(owner)}, so both projects read and write its facts. "
         f"For a memory of its own: `memory init --path {default_memory_dir(project)}`.{share}"
