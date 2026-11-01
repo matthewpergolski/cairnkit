@@ -414,3 +414,18 @@ def test_a_backup_does_not_beat_the_project_name(repo, mem, capsys, tmp_path, mo
     _, out = run(capsys, "load")
     assert FACT in out
     assert (new / "memory-bank").resolve() == good.resolve()
+
+
+def test_a_copied_plain_folder_hears_no_git_advice_and_gets_its_own(tmp_path, monkeypatch, capsys):
+    plain = tmp_path / "pl"
+    plain.mkdir()
+    monkeypatch.chdir(plain)
+    assert init() == 0
+    with_fact(capsys)
+    copy = tmp_path / "pl2"
+    shutil.copytree(plain, copy, symlinks=True)
+    monkeypatch.chdir(copy)
+    _, out = run(capsys, "load")
+    assert OTHER in out and "git config" not in out
+    assert init() == 0
+    assert (copy / "memory-bank").resolve() == (tmp_path / "pl2.memory").resolve()
