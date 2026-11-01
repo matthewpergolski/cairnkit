@@ -234,6 +234,14 @@ def test_a_word_from_a_env_file_is_masked_and_can_stay(repo, mem, capsys):
     assert VALUE in stored(mem)
 
 
+def test_mixed_case_under_a_plain_name_can_stay(repo, mem, capsys):
+    plant(mem, fact(BAD, "the login goes through GitHub on staging"))
+    (repo / ".env").write_text("BRAND_TEXT=GitHub\n")
+    assert main(["check"]) == 0
+    assert main(["load"]) == 0
+    assert "[secret: BRAND_TEXT]" in capsys.readouterr().out
+
+
 def test_a_value_with_its_own_shape_stays_an_error(repo, mem, capsys):
     plant(mem, fact(BAD, "login uses abc123xyz789 on staging"))
     (repo / ".env").write_text("HOST_CODE=abc123xyz789\n")

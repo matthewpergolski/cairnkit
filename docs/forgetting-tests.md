@@ -207,8 +207,18 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
   ordinary lines are refused and 39 of 39 secrets are refused, the same as before. Of 8 lines that
   were stored by mistake, 7 are now refused (0 before). A bare word after `password is` still passes,
   because no shape tells it from English. `tests/test_secret_shapes.py` lists what still passes.
-  A fact stored before the scan caught it loads as an ID and a purge command. A note line loads
-  as its line number. A failed command that holds a secret is stored and shown as a stand-in.
+  A value in an untracked `.env*` file counts under any name when its own shape is no ordinary
+  word: it holds a digit, it has mixed case, or it is long. The password of a URL counts too.
+  `NODE_ENV=production` and `PORT=3000` stay clean. A name that says what the value is, such as
+  `AWS_REGION`, stays clean with any value.
+  A fact stored before the scan caught it loads in its normal section at its normal rank, with the
+  value replaced by `[secret: NAME]`. An owner's rule keeps its force. Show, search, change, keep
+  and supersede work on it and print only the mask. One short load line tells the agent to write a
+  clean replacement with `--supersedes`, then to purge the old record. A plain word from a `.env`
+  file can stay: the mask is harmless, and a stop names each fact once. A note line loads masked.
+  A damaged line is scanned too, also after `memory repair`, and `memory purge line-HASH` removes
+  it. The value stays on disk until a purge, and `memory check` says so. A failed command that
+  holds a secret is stored and shown as a stand-in.
 
 ## Limits
 

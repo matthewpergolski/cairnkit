@@ -165,7 +165,8 @@ def _classify(name: str, value: str) -> bool | None:
         return None
     if label is Label.NONE and (value.isdigit() or PLAIN_FIELDS & {*name_parts(name)[-1:]}):
         return None
-    return False
+    # BRAND_TEXT=GitHub: mixed case with no secret name can be a plain word in a true fact.
+    return label is Label.NONE and len(value) < LONG_VALUE and not re.search(r"\d", value)
 
 
 def _values_in(path: Path) -> list[tuple[str, str, bool]]:

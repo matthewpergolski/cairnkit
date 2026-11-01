@@ -85,8 +85,10 @@ semantic.
   check that fails, such as a git hook.
 
 Forgetting needs no approval, because a retired fact stays in the archive and
-can come back. The agent can purge a flagged secret by itself. The agent asks
-the developer only when a decision is consequential: a purge of anything else,
+can come back. A value that looks secret is masked at each read, and the rest of
+the fact stays readable. The agent can replace that fact and purge the old record
+by itself. The agent asks the developer only when a decision is consequential: a
+purge of anything else,
 because it deletes data for good, or overruling a stated fact in a way that
 changes what an agent does. A new fact that only disagrees stays beside the
 old one.
@@ -123,7 +125,7 @@ complete. Remove a row in the change that fixes it.
 | Forget correctly | A repeat in other words loads twice until an agent settles the pair, because auto-tidy retires only a change in form. On the labelled set it catches 9 of 29 repeats, and 36 pairs go to the agent task. See [the test record](docs/forgetting-tests.md#results-near-repeats). |
 | Forget correctly | A fact that the 0.3.1 miner wrote and that a later gate run accepted stays, because nothing proves who accepted it. |
 | The load never blocks | With `skills_auto_update = true`, an update of pstack runs inside the session start and can pass the budget. A disk that hangs on a read is not covered: the budget limits git and locks. |
-| Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
+| Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. A phrase with spaces after a label has only its first word masked, unless it is in quotes. The tool reads `.env*` files only near the checkout root. Under a name such as `AWS_REGION`, `APP_VERSION` or `CLIENT_ID` that says what the value is, no value counts. A secret stays on disk until `memory purge` removes it, and `memory check` says so. A plain `.env` word in a fact is a warning, because no shape tells a secret from a word, and the fact can stay masked. A hit in `notes/`, `branches/` or `<repo>.memory-old` is a warning too, and these files have no purge. Git history keeps what was committed: `memory check` says so, and the tool does not rewrite history. The tool names a value in Claude Code's own memory and never edits that store. A token cut short by a torn line matches no shape, so `memory repair` prints only plain words from a torn line. |
 | Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
 | No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git, and that name can block `memory init` once for a new project beside an old memory. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
@@ -167,7 +169,8 @@ memory status
 - `memory search` finds facts by words or by a question. You do not need quotes
   around more than one word.
 - `memory check` checks the facts and the link, and looks for common secret
-  shapes in the facts, `notes/` and `branches/`.
+  shapes in the facts, damaged lines, `config.toml`, `notes/`, `branches/`, the
+  `.memory-old` copy of a migration, git history and Claude Code's own memory.
 - `memory status` prints the version, the installed short commit when one is
   recorded, the install source, the channel of a git install, and the update
   lines. When a newer commit exists, it also shows what changed (subjects, or a
@@ -534,7 +537,10 @@ keeps it, so an agent can answer "did we try this before?".
 
 **The only deletion is `purge`**, for a secret or private data stored by
 mistake: `memory purge ID --reason secret --yes`. It removes every line for
-that id and writes a tombstone (id, date, reason, no content).
+that id and writes a tombstone (id, date, reason, no content). The ID is a
+record's id, or the `line-HASH` that `memory check` prints for a damaged line.
+Purge refuses a fact with a mask that holds true text, until a new fact replaces
+it with `--supersedes` or you give both `--reason secret` and `--yes`.
 
 ## Memory types
 
@@ -737,8 +743,8 @@ level only. It writes nothing into a repo.
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]] [--instructions-file PATH]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. `shared` is refused. |
 | `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--force` rewrites the pages and removes other Markdown files in that folder. No hook runs it, because the folder may be tracked. `memory status` shows one line when the pages differ from the code. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
-| `memory repair` | an agent, when a stop or `memory check` names it | Settles a bad line with an appended record, and the bytes stay. Drops a bad setting from `config.toml` and keeps a copy in `config.toml.bad`. It deletes no fact. |
-| `memory purge ID --reason secret --yes` | you, rarely | Removes a secret for good. |
+| `memory repair` | an agent, when a stop or `memory check` names it | Settles a bad line with an appended record, and the bytes stay. It prints only plain words and masks. It does not settle a value that looks secret. Drops a bad setting from `config.toml`, masks each value, and keeps a copy in the next free `config.toml.bad` name. It deletes no fact. |
+| `memory purge ID --reason secret --yes` | an agent, after a clean replacement | Removes a secret for good. `ID` can be `line-HASH` for a damaged line. |
 
 ### Where the memory lives
 

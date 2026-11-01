@@ -7,8 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A stored value that looks secret is masked, not withheld. The fact loads in its normal section
+  with `[secret: NAME]` in place of the value, and an owner's rule keeps its force. Show, search,
+  change, keep and supersede work on it. The load tells the agent to write a clean replacement and
+  then to purge. A plain word from a `.env` file can stay masked, and a stop names each fact once.
+- A clean fact that supersedes a masked fact keeps its kind, its pin and the force of an owner's rule.
+- `memory purge` refuses a masked fact with true text, unless a live fact supersedes it or the call
+  gives both `--reason secret` and `--yes`.
+- A note line that holds a secret loads masked, not as a line number.
+
 ### Fixed
 
+- `memory repair` prints no secret: only plain words and masks of a damaged line, and only the key of
+  a dropped setting. A value does not stay in `config.toml` or in a copy, and a second repair keeps
+  the first `config.toml.bad`.
+- `memory repair` does not close the alarm on a secret. Each damaged line is scanned. `memory check`
+  names it until `memory purge line-HASH` removes it. `memory show line-HASH` reads the rest.
+- `memory purge` refuses text that is no record's id, and it scans the id and the reason, so a secret
+  no longer lands in a tombstone.
+- A `.env` value counts under any name when its own shape is no ordinary word, and the password of a
+  URL counts. `INVITE_CODE=blue-tulip-42`, `HOST_CODE=abc123xyz789` and the password in `DATABASE_URL`
+  are refused at add and masked at read.
+- `memory repair` keeps auto-tidy off after a mistyped `auto_tidy` line.
+- `memory check` names a secret in the `.memory-old` copy of a migration, says that git history keeps
+  what was committed, and names a secret in Claude Code's own memory with no value and no edit.
 - Auto-tidy retires a near repeat only when the words match in order after case, plural,
   punctuation and stop words. Staging against production and three times against five now go to
   the agent task. An exact repeat now needs the same order, and it keeps symbols and non-ASCII
