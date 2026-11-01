@@ -29,6 +29,7 @@ from cairnkit.paths import (
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_in_record, find_secrets
+from cairnkit.selection import clean
 from cairnkit.state import effective_status
 from cairnkit.store import fact_files, read_located
 
@@ -188,7 +189,7 @@ def advisory_rules(memory: Memory) -> list[str]:
         if state.get("enforced_by") and not enforcement.is_false(memory.project, state):
             continue
         if effective_status(state, moment, is_merged)[0] == "active":
-            lines.append(f"- [{state['id']}] {state.get('text', '')}")
+            lines.append(clean(f"- [{state['id']}] {state.get('text', '')}"))
     return lines
 
 

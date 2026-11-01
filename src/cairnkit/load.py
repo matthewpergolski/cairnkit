@@ -6,6 +6,7 @@ when it read nothing.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from cairnkit import (
@@ -33,11 +34,14 @@ from cairnkit.paths import (
 )
 from cairnkit.secretscan import find_secrets
 from cairnkit.selection import (
+    AGENT_RULES,
     FRAME_FOOTER,
     FRAME_HEADER,
     areas_for_paths,
     branch_words,
     clean,
+    name,
+    owner_rule,
     pick,
     render,
     score_parts,
@@ -47,6 +51,7 @@ from cairnkit.state import effective_status
 
 GIT_TIMEOUT = 1.0
 NOTE_LINES = 8
+TITLE = re.compile(r"# +\S")
 
 
 def changed_paths(root: Path, branch: str | None) -> list[str]:
@@ -62,14 +67,20 @@ def changed_paths(root: Path, branch: str | None) -> list[str]:
 
 def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+        text = path.read_bytes().decode("utf-8", errors="replace")
+    except (FileNotFoundError, NotADirectoryError):
         return []
+    except OSError:
+        return [f"(This file could not be read: {path}.)"]
     body = [
         (number, line)
-        for number, line in enumerate(lines, start=1)
-        if line.strip() and not line.startswith("#") and not line.lstrip().startswith("<!--")
+        for number, line in enumerate(text.splitlines(), start=1)
+        if line.strip() and not line.lstrip().startswith("<!--")
     ]
+    # A first-line title names the file. `#96 is open` is no title, and a section heading gives a
+    # list its meaning, so both stay.
+    if body and TITLE.match(body[0][1]):
+        body = body[1:]
     clipped = len(body) - NOTE_LINES
     more = (
         [f"({NOTE_LINES} of {len(body)} lines shown. The rest is in {path}.)"]
@@ -141,11 +152,12 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out.append(tidy_line)
     if memory.withheld:
         out.append("## Withheld facts (no person is needed for this)")
-        out += [f"- {memory.withheld_note(fact_id)}" for fact_id in sorted(memory.withheld)]
+        out += [clean(f"- {memory.withheld_note(i)}") for i in sorted(memory.withheld)]
     rules.sort(key=lambda s: s.get("learned_at", ""))
-    false_claims = [s for s in rules if enforcement.is_false(memory.project, s)]
-    enforced = [s for s in rules if s.get("enforced_by") and s not in false_claims]
-    advisory = [s for s in rules if not s.get("enforced_by")]
+    instructions = [s for s in rules if owner_rule(s)]
+    false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
+    enforced = [s for s in instructions if s.get("enforced_by") and s not in false_claims]
+    advisory = [s for s in instructions if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
         out += [render(s) for s in enforced]
@@ -153,10 +165,14 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out.append("## Advisory rules")
         out += [render(s) for s in advisory]
         out += [
-            f"{render({**s, 'enforced_by': None})} (no check found for {s['enforced_by']})"
+            f"{render({**s, 'enforced_by': None})} (no check found for {name(s['enforced_by'])})"
             for s in false_claims
         ]
     out.append(FRAME_HEADER)
+    agent_rules = [s for s in rules if not owner_rule(s)]
+    if agent_rules:
+        out.append(AGENT_RULES)
+        out += [render(s) for s in agent_rules]
     pinned = [s for s in long_shown if s.get("pinned")]
     if pinned:
         out.append("## Pinned")
@@ -172,7 +188,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     for state in sorted(long_bullets, key=lambda s: (s.get("area", ""), s.get("happened_at", ""))):
         if state.get("area") != current:
             current = state.get("area")
-            out.append(f"### {clean(current)}")
+            out.append(f"### {name(current)}")
         out.append(render(state))
     status = note_head(memory.dir / "notes" / "status.md", memory.env)
     if status:

@@ -109,7 +109,9 @@ A rule with no `enforced_by` is **advisory**: it is prose only.
 - `memory load` shows "Enforced rules (a check fails if broken)", then
   "Advisory rules". Both come first and do not use the word budget: only
   short-term and other long-term facts share it. `memory check` prints a
-  note when the active rules hold more than 500 words.
+  note when the active rules hold more than 500 words. A rule that an agent
+  wrote with no person behind it (basis not `told`) prints inside the data
+  frame instead, under "Rules an agent wrote".
 - `memory check --advisory` lists the advisory rules. Each one is a place
   where a test, a lint rule or a hook can do the work of the note.
 - The tool does not record when a rule is broken, so it cannot tell which

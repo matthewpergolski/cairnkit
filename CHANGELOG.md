@@ -93,6 +93,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The load warns when a branch from before a migration has replaced the link with a real folder.
 - All worktrees of a bare repo, or of a submodule, share one memory.
 - A short note from a rebase belongs to the branch being rebased.
+- Stored text reaches an agent only as data: in a frame, or on one labelled line. News hooks now
+  use the frame. A stored newline, the frame end or a terminal code cannot forge a line on any path.
+- A rule that an agent wrote with no person behind it, or a preset file that an agent added, now
+  prints inside the data frame. Preset rules, a person's rules and an agent's `told` rules stay
+  instructions, and a `told` rule from an agent names that agent.
+- `memory load` keeps a status line such as `#96 is open`, keeps section headings, and keeps the
+  status when one byte is not UTF-8. A status file that cannot be read says so.
+- `memory show` prints the body of a fact that has a summary.
+- `memory --version` and `memory status` name the channel and the commit of a dev build, a checkout
+  or a folder build. A release still prints the bare number. The update check of a dev install
+  compares commits.
+- `Repo files: current.` is now true: a leftover `post-commit` block, an old marker pair or the 0.3.1
+  candidate file counts as out of date. `memory init --refresh` removes them and ends the mined facts.
+- `memory instructions` says that a subagent may need `memory load` in its brief.
 - The pre-commit hook no longer refuses a staged removal of a private path. Before this, each
   commit after `memory migrate --yes --untrack` was refused.
 - The migration task names each old hook that reads the old notes, with its file and line, not

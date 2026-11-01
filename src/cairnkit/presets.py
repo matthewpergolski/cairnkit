@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cairnkit.clock import now, stamp
+from cairnkit.skills import running_tool
 from cairnkit.state import fold
 from cairnkit.store import append_records, fact_files, read_records
 
@@ -348,6 +349,10 @@ def _record(rule: Rule, fid: str, moment, enforced_by: str | None) -> dict:
     }
     if enforced_by:
         rec["enforced_by"] = enforced_by
+    # A preset file is text that an agent can be told to add, so it gets no person's word.
+    agent = running_tool()
+    if agent and rule.origin not in names():
+        rec |= {"author": f"agent:{agent}", "basis": "guess"}
     return rec
 
 

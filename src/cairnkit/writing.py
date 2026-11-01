@@ -20,7 +20,7 @@ from cairnkit.paths import (
 )
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_in_record, find_secrets
-from cairnkit.selection import clean, load_text
+from cairnkit.selection import DATA_LABEL, clean, load_text, name
 from cairnkit.similar import analyze, exact_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
@@ -261,8 +261,8 @@ def add_fact(memory: Memory, args) -> str | None:
     branch = fact.get("until_branch_merged")
     if branch and not branch_exists(memory.project.root, branch):
         print(
-            f"note: no branch {branch} exists here, local or remote. Check the name. This note "
-            "stays open until that branch appears and merges. To end it yourself, run: "
+            f"note: no branch {name(branch)} exists here, local or remote. Check the name. "
+            "This note stays open until that branch appears and merges. To end it yourself, run: "
             f'memory change {fact["id"]} --status expired --reason "..."'
         )
     why = _no_end_event(memory, fact)
@@ -297,7 +297,8 @@ def add_fact(memory: Memory, args) -> str | None:
             else "An agent task lists the pair, and auto-tidy can supersede the older one."
         )
         print(
-            f"similar to {old['id']} ({score:.0%} the same words): {old.get('text')}\n"
+            f"similar to {old['id']} ({score:.0%} the same words; {DATA_LABEL}): "
+            f"{clean(old.get('text'))}\n"
             f"{fate} To replace it now, run: "
             f"memory change {old['id']} --status superseded --superseded-by {fact['id']} "
             f'--reason "..."'
@@ -316,7 +317,7 @@ def _print_conflicts(memory: Memory, fact: dict, moment, skip: set) -> None:
             told = old.get("basis") == "told"
             ask = " A person stated it, so ask before you end it." if told else ""
             print(
-                f"check: {old['id']} is in the same area and may now be stale: "
+                f"check: {old['id']} is in the same area and may now be stale ({DATA_LABEL}): "
                 f"{clean(load_text(old))}\nIf the new fact replaces it, run: memory change "
                 f'{old["id"]} --status superseded --superseded-by {fact["id"]} --reason "..."{ask}'
             )

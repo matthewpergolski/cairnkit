@@ -16,8 +16,9 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from importlib import metadata
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlparse, urlsplit, urlunsplit
 
@@ -372,16 +373,100 @@ def write_record(source: Source, commit: str | None, version: str, release: Rele
     (target_env() / RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
+def _direct_url() -> dict | None:
+    """What the installer recorded about the origin of this package (PEP 610)."""
+    try:
+        data = json.loads(metadata.distribution(PACKAGE).read_text("direct_url.json") or "")
+    except (metadata.PackageNotFoundError, OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def built_from() -> tuple[Source, str | None] | None:
+    """The git source or the editable checkout that runs now, and its commit."""
+    data = _direct_url()
+    url = data.get("url") if data else None
+    if not isinstance(url, str):
+        return None
+    vcs, folder = data.get("vcs_info"), data.get("dir_info")
+    if isinstance(vcs, dict):
+        commit = vcs.get("commit_id")
+        return parse(f"git+{url}"), commit if isinstance(commit, str) else None
+    if isinstance(folder, dict) and folder.get("editable"):
+        path = unquote(urlparse(url).path)
+        return parse(path, editable=True), git(["-C", path, "rev-parse", "HEAD"])
+    return None
+
+
+def _same_place(built: Source, source: Source | None) -> bool:
+    return source is not None and replace(built, editable=source.editable) == source
+
+
 def installed(flag: str | None) -> tuple[Source | None, str | None]:
-    """The source, and the commit installed from it when the record knows it."""
+    """The source, and the commit installed from it when that is known.
+
+    A record names the commit. Else the installer's own note does, for a checkout and for the dev
+    channel. A stable install may sit past its tag with one version number, so only a record
+    compares it, or the older tag would read as an update.
+    """
     record = read_record()
     recorded = parse(record["source"]) if isinstance(record.get("source"), str) else None
-    source = parse(flag) if flag else (from_receipt() or recorded)
+    built = built_from()
+    source = parse(flag) if flag else (from_receipt() or recorded or (built and built[0]))
     commit = record.get("commit")
     # A record for another source or another version is from an older install.
     if source != recorded or record.get("version") != current_version():
         commit = None
-    return source, commit if isinstance(commit, str) else None
+    if not isinstance(commit, str):
+        commit = None
+    trusted = built and _same_place(built[0], source)
+    if commit is None and trusted and (built[0].editable or channel(source) == "dev"):
+        commit = built[1]
+    return source, commit
+
+
+@dataclass(frozen=True)
+class Build:
+    """What `memory --version` and `memory status` name beside the version."""
+
+    channel: str | None
+    commit: str | None
+
+
+def _channel_name(source: Source | None) -> str | None:
+    if source is None:
+        return None
+    if source.kind == "git":
+        return channel(source)
+    if not source.editable:
+        return "folder"
+    branch = git(["-C", source.spec, "rev-parse", "--abbrev-ref", "HEAD"])
+    return "dev" if branch == DEV_BRANCH else f"checkout {branch or 'unknown'}"
+
+
+def running_build() -> Build:
+    source, commit = installed(None)
+    if commit is None:
+        built = built_from()
+        if built and _same_place(built[0], source):
+            commit = built[1]
+    return Build(_channel_name(source), commit)
+
+
+def version_text() -> str:
+    """The version, for `--version`. A build of a release stays the bare number.
+
+    `memory update` in a 0.3.1 tool compares this whole output to the version, so a release must
+    print the number alone or that update fails.
+    """
+    version = current_version()
+    try:
+        build = running_build()
+    except Exception:
+        return version
+    if build.channel in (None, "stable"):
+        return version
+    return f"{version} ({build.channel}{ref_tag(build.commit)})"
 
 
 _VERSION_ASSIGN = re.compile(r"""^(?:__version__|VERSION)\s*=\s*['"]([^'"]+)['"]""", re.M)

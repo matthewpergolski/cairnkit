@@ -7,7 +7,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from cairnkit import __version__
 from cairnkit.clock import parse_time
 from cairnkit.schema import BASES, KINDS, STATUSES
 
@@ -30,11 +29,25 @@ def _time(value: str) -> str:
     return value
 
 
+class _Version(argparse.Action):
+    """Print the version. It imports the install code only when someone asks."""
+
+    def __init__(self, option_strings, dest, **kwargs):
+        text = "show the version; a dev build also names its channel and commit"
+        super().__init__(option_strings, dest, nargs=0, help=text, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from cairnkit.install_source import version_text
+
+        print(f"{parser.prog} {version_text()}")
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Two commands run this: cairnkit, and its short name memory.
     prog = "cairnkit" if Path(sys.argv[0]).name == "cairnkit" else "memory"
     parser = argparse.ArgumentParser(prog=prog, description=__doc__, epilog=_DISCOVER_EPILOG)
-    parser.add_argument("--version", action="version", version=f"{prog} {__version__}")
+    parser.add_argument("--version", action=_Version)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--path", help="memory folder (else MEMORY_DIR, .memory-path, default)")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
