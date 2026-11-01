@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 DISCOVER = (
-    "Look up: `memory search WORDS`. Read one: `memory show ID`. "
-    "Pin for every session: `--pinned`. Link: `memory change ID --link related:OTHER`. "
-    "Clean up: `memory tidy`."
+    "Look up: `memory search WORDS`, then `memory show ID`. All of it: `memory instructions`."
 )
 
 RULES_SHORT = """\
-Memory rules: record what a later session needs with `memory add` (decisions,
-traps, lessons: long-term; working notes: `--short`). Optional `--summary` for a
-long body. To change a fact, add a newer one (`--supersedes ID`)
-or mark it `expired` or `wrong` with `memory change`. Never store secrets. Never
-edit memory files by hand. Run `memory instructions` for the full rules."""
+Memory rules: save a decision, trap, lesson or correction with `memory add "TEXT"`
+(`--short` for a note on this branch). Replace a fact with `--supersedes ID`. End one with
+`memory change ID --status expired|wrong`. Never store a secret or edit memory files."""
