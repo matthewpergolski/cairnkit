@@ -27,7 +27,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from cairnkit import adapters, hooks_cmd, instruction_files, skills
+from cairnkit import adapters, githook, hooks_cmd, instruction_files, skills
 from cairnkit.candidates import Candidate, Counts, scan_text
 from cairnkit.check import run_check
 from cairnkit.hooks_cmd import run_install
@@ -42,6 +42,7 @@ from cairnkit.migrate_refs import (
     checker_references,
     checker_scripts,
     doc_files,
+    dropped_checks,
     hook_line,
     is_stub,
     judgment_items,
@@ -469,7 +470,16 @@ def _old_checker(project: Project) -> tuple[list[str], list[str]]:
     return scripts, checker_references(root, files, scripts)
 
 
-def _write_task(memdir: Path, project: Project, items: list[Item], dry_run: bool) -> None:
+def _drops(project: Project, source: Path) -> list[str]:
+    """Each check that the old tooling made, in the repo and in the old folder."""
+    scripts = {rel: project.root / rel for rel in _old_checker(project)[0]}
+    scripts |= {rel: source / rel for rel in checker_scripts(_files(source))}
+    return dropped_checks(scripts)
+
+
+def _write_task(
+    memdir: Path, project: Project, source: Path, items: list[Item], dry_run: bool
+) -> None:
     """Write the agent task, or remove it when nothing is open. The same input writes the same."""
     path = memdir / TASK
     if not items:
@@ -477,10 +487,40 @@ def _write_task(memdir: Path, project: Project, items: list[Item], dry_run: bool
             path.unlink(missing_ok=True)
         return
     scripts, refs = _old_checker(project)
-    text = render_followups(sorted(items, key=lambda i: (i.file, i.line)), scripts, refs)
+    ordered = sorted(items, key=lambda i: (i.file, i.line))
+    text = render_followups(ordered, scripts, refs, _drops(project, source))
     if not dry_run and (not path.is_file() or path.read_text(encoding="utf-8") != text):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+
+
+def _say_where(project: Project) -> None:
+    print(f"It acts on the main checkout {project.main_root}.")
+    if project.root != project.main_root:
+        print(
+            f"You ran it from the worktree {project.root}. The old notes and links are handled "
+            "from the main checkout. The docs for the agent task are read from this worktree."
+        )
+
+
+def _say_install(project: Project, would: str) -> None:
+    """Name what the install step reaches, in the plan as well as in the run."""
+    if not hooks_cmd.INSTALL_ON_INIT:
+        return
+    names = [name for name in adapters.detect(project) if name != "generic"]
+    if names:
+        places = ", ".join(str(checkout) for checkout in project.checkouts)
+        print(
+            f"{would}connect the agent tools ({', '.join(names)}) in each checkout: {places}. "
+            "Each file it writes there is untracked."
+        )
+    folder = githook.hooks_dir(project) if project.is_git else None
+    if folder:
+        print(
+            f"{would}add the git hooks pre-commit, post-checkout, pre-push and post-merge to "
+            f"{folder}, which every checkout runs. They are not shared. "
+            "It also adds commit-msg when a rule forbids AI attribution."
+        )
 
 
 def _close(project: Project, path_flag: str | None, memdir: Path, source: Path, dry: bool) -> int:
@@ -491,7 +531,7 @@ def _close(project: Project, path_flag: str | None, memdir: Path, source: Path, 
     items = old_copy_items(memdir)
     if (memdir / TASK).is_file():
         items += references + _hooks(project)
-    _write_task(memdir, project, items, dry)
+    _write_task(memdir, project, source, items, dry)
     code = 0 if dry else run_check(project, path_flag, hint=False)
     if items:
         print(f"Migration not finished: {len(items)} item(s) left in {memdir / TASK}.")
@@ -578,6 +618,7 @@ def run_migrate(
 
     if dry_run:
         print("Plan only: nothing will change without --yes.")
+    _say_where(project)
     work = memdir / CANDIDATES
     if not moves and not tracked and work.is_file():
         return _close(project, path_flag, memdir, source_dir, dry_run)
@@ -640,12 +681,17 @@ def run_migrate(
             print("When it and `memory check` disagree, believe `memory check`.")
             if refs:
                 print(f"Still run or named at: {shown}")
+        drops = _drops(project, source_dir)
+        if drops:
+            print("What the old tooling checked. This list prints once. Tell the developer:")
+            for drop in drops:
+                print(f"  {drop}")
         references, named = _references(project, memdir, source_dir)
         _sync_stubs(memdir, named, dry_run)
         items += references + _hooks(project)
     if items:
         print(f"{would}write the follow-up task {memdir / TASK}")
-    _write_task(memdir, project, items, dry_run)
+    _write_task(memdir, project, source_dir, items, dry_run)
 
     text = _worklist(found, counts, homed)
     if work.is_file():
@@ -670,6 +716,7 @@ def run_migrate(
         print("git still tracks the old folder. Run again with --untrack to stage its removal.")
 
     if dry_run:
+        _say_install(project, "would ")
         print()
         print("This was the plan. Nothing changed. Read it, then run `memory migrate --yes`.")
         line = skills.once_line(memdir, record=False)
@@ -682,6 +729,7 @@ def run_migrate(
         print(line)
     print()
     if hooks_cmd.INSTALL_ON_INIT:
+        _say_install(project, "")
         code = code or run_install(project, "auto", False, True, None, path_flag, quiet=True)
     print(f"Optional: add facts from {LINK_NAME}/{CANDIDATES}: `memory add ... --source file:...`.")
     print(f"The old folder is kept at {holder}. Delete it yourself when you are sure.")

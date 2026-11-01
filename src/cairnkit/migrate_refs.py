@@ -58,6 +58,63 @@ class Item:
     suggestion: str
 
 
+@dataclass(frozen=True)
+class OldCheck:
+    """A check that old memory scripts often made, and what happens to it after the move."""
+
+    name: str
+    sign: re.Pattern
+    now: str
+
+
+OLD_CHECKS = (
+    OldCheck(
+        "secret scan",
+        re.compile(r"secret|\.env\b|api[-_ ]?key|password", re.IGNORECASE),
+        "`memory check` reads notes and facts for secrets. It does not run this script's scan, "
+        "so compare what each one finds before you remove the script.",
+    ),
+    OldCheck(
+        "status older than the code",
+        re.compile(r"rev-list|rev-parse|status\w*commit|commit\w*status", re.IGNORECASE),
+        "Dropped as a check. `memory load` says how many commits HEAD is past the newest commit "
+        "that notes/status.md names.",
+    ),
+    OldCheck(
+        "worktree not in queue",
+        re.compile(r"worktree", re.IGNORECASE),
+        "Dropped. Nothing replaces it.",
+    ),
+    OldCheck(
+        "file pointers",
+        re.compile(r"pointer", re.IGNORECASE),
+        "Dropped for notes. `memory load` names a fact whose source file is gone.",
+    ),
+    OldCheck(
+        "note limits",
+        re.compile(r"limit|max_?(?:lines|words|size|bytes)", re.IGNORECASE),
+        "Dropped. `memory check` counts only the words of the rules.",
+    ),
+)
+CHECK_FUNCTION_RE = re.compile(r"^\s*(?:def|function)\s+(\w*(?:check|lint|validate)\w*)", re.M)
+
+
+def dropped_checks(scripts: dict[str, Path]) -> list[str]:
+    """What each old script enforced, by name, from its text. The script does not run."""
+    lines = []
+    for name, path in scripts.items():
+        text = read_text(path) or ""
+        found = [f"{name}: {c.name}: {c.now}" for c in OLD_CHECKS if c.sign.search(text)]
+        found += [
+            f"{name}: {function}: Dropped. Nothing replaces it. Read it before you remove the "
+            "script."
+            for function in CHECK_FUNCTION_RE.findall(text)
+            if not any(c.sign.search(function) for c in OLD_CHECKS)
+        ]
+        lines += found or [f"{name}: no check found by name. Read it before you remove it."]
+    return lines
+
+
 def is_new_layout(rel: str) -> bool:
     return rel.split("/")[0] in NEW_DIRS or rel in NEW_FILES
 
@@ -159,7 +216,7 @@ def judgment_items(
                 (
                     "checker",
                     f"It names the old checker ({named.group(0)}). That script reads the old "
-                    "layout and is now unused.",
+                    "layout, so its answer can differ from `memory check`.",
                     suggestion,
                 )
             )
@@ -276,7 +333,9 @@ def old_copy_items(memdir: Path) -> list[Item]:
     return items
 
 
-def render_followups(items: list[Item], scripts: list[str], refs: list[str]) -> str:
+def render_followups(
+    items: list[Item], scripts: list[str], refs: list[str], drops: list[str]
+) -> str:
     """The task for an agent. Call it only with items open."""
     lines = [
         f"{PENDING}: {len(items)} item(s)",
@@ -308,6 +367,10 @@ def render_followups(items: list[Item], scripts: list[str], refs: list[str]) -> 
         if refs:
             lines.append("- Still run or named at: " + ", ".join(f"`{r}`" for r in refs))
         lines.append("- Remove the script only after nothing names it.")
+    if drops:
+        lines += ["", "## What the old tooling checked", ""]
+        lines += [f"- {drop}" for drop in drops]
+        lines.append("- Say in your final answer what was dropped, once. The developer may care.")
     lines += [
         "",
         "## Done when",
