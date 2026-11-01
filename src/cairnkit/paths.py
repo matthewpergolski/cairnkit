@@ -55,6 +55,7 @@ def run_git(
             cwd=cwd,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=min(timeout, room),
             env=env,
         )

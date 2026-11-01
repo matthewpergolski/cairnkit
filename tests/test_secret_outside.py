@@ -51,6 +51,21 @@ def test_check_says_git_history_holds_what_was_committed(repo, mem, capsys, tmp_
     assert code == 0
 
 
+def test_a_history_with_bytes_that_are_not_text_does_not_stop_check(repo, mem, capsys, tmp_path):
+    side = tmp_path / "side-link"
+    (repo / "memory-bank").rename(side)
+    (repo / "memory-bank").mkdir()
+    (repo / "memory-bank" / "log.md").write_bytes(b"caf\xe9 note\n")
+    git(repo, "add", "-f", "memory-bank/log.md")
+    git(repo, "commit", "-qm", "old notes")
+    git(repo, "rm", "-rqf", "--cached", "memory-bank")
+    git(repo, "commit", "-qm", "untrack")
+    (repo / "memory-bank" / "log.md").unlink()
+    (repo / "memory-bank").rmdir()
+    side.rename(repo / "memory-bank")
+    assert run(capsys, "check")[0] == 0
+
+
 def test_check_is_silent_about_a_clean_history(repo, mem, capsys):
     assert "git history" not in run(capsys, "check")[1]
 
