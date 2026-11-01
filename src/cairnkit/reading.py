@@ -27,6 +27,8 @@ def run_show(memory: Memory, fact_id: str) -> int:
     status, reason = effective_status(state, now(), merged_checker(memory.project.root))
     print(FRAME_HEADER)
     print(render(state))
+    if state.get("summary"):
+        print(f"  text: {clean(state.get('text'))}")
     fields = (
         "kind",
         "area",
