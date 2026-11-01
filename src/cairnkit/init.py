@@ -15,10 +15,11 @@ from cairnkit.paths import (
     LINK_NAME,
     OURS,
     PATH_FILE,
+    UNCLAIMED,
     Identity,
     Project,
+    beside_line,
     default_memory_dir,
-    earlier_note,
     holds_memory,
     inside_git_folder,
     linked_memory,
@@ -29,6 +30,7 @@ from cairnkit.paths import (
     project_key,
     read_identity,
     record_file,
+    recorded_repo,
     resolve_memory_dir,
     root_commits,
     write_identity,
@@ -140,8 +142,9 @@ def remember(project: Project, memdir: Path, source: str, chosen: bool = False) 
     The memory folder gets an id and an owner. The repo records the id, the absolute path and
     its own git folder there, because a relative link says nothing once the repo has moved, and
     because a copied repo brings the record of the first repo along. That record stays until
-    `memory init` runs in the copy (`chosen`). A new place also gets a look for work trees that
-    hold it. The usual call reads two small files, and it runs no git.
+    `memory init` runs in the copy (`chosen`). Only that takes a memory whose owner is gone, so
+    a load moves no ownership. A new place also gets a look for work trees that hold it. The
+    usual call reads two small files, and it runs no git.
     """
     if source in ("flag", ENV_DIR) or not holds_memory(memdir):
         return
@@ -153,12 +156,14 @@ def remember(project: Project, memdir: Path, source: str, chosen: bool = False) 
         state, _ = owner_state(project, memdir)
         if state == COPY and not chosen:
             return
-        if state == OURS and identity.owner != project_key(project):
+        takes = state == OURS or (state == UNCLAIMED and chosen)
+        if takes and identity.owner != project_key(project):
             write_identity(memdir, identity._replace(owner=project_key(project)))
         path = record_file(project)
         if path is None:
             return
-        text = f"{identity.id}\n{memdir.resolve()}\n{project_key(project)}\n"
+        repo = recorded_repo(project) if state == UNCLAIMED and not chosen else project_key(project)
+        text = f"{identity.id}\n{memdir.resolve()}\n{repo}\n"
         if not path.is_file() or path.read_text() != text:
             keep_out_of_git(memdir)
             path.write_text(text)
@@ -253,7 +258,7 @@ def _own_memory_note(project: Project, memdir: Path, source: str) -> tuple[Path,
     if not holds_memory(memdir) or source in ("flag", ENV_DIR):
         return memdir, source, None
     state, _ = owner_state(project, memdir)
-    if state == OURS or (state != COPY and source == PATH_FILE):
+    if state in (OURS, UNCLAIMED) or (state != COPY and source == PATH_FILE):
         return memdir, source, None
     own = default_memory_dir(project)
     return (
@@ -291,7 +296,6 @@ def run_init(
         return 1
     memdir, source = resolve_memory_dir(project, path_flag)
     memdir, source, left_note = _own_memory_note(project, memdir, source)
-    earlier: list[Path] = []
     if not holds_memory(memdir) and not moved and not left_note:
         lost = None if source in ("flag", ENV_DIR) else lost_memory(project)
         refusal = _empty_path_refusal(project, memdir) if source in ("flag", ENV_DIR) else None
@@ -300,7 +304,6 @@ def run_init(
         if refusal:
             print(f"error: {refusal}\nNothing changed.", file=sys.stderr)
             return 1
-        earlier = lost.found if lost else []
     say = print
     if dry_run:
         say("Dry run: nothing will change.")
@@ -377,8 +380,7 @@ def run_init(
     if not dry_run:
         state = "ready" if steps else "already set up"
         say(f"Memory {state}: {memdir} (linked as {LINK_NAME}; nothing in git changes).")
-    earlier_line = earlier_note(earlier) if earlier else None
-    for note in (left_note, earlier_line, owner_line(project, memdir)):
+    for note in (left_note, beside_line(project, memdir), owner_line(project, memdir)):
         if note:
             say(note)
     return 0

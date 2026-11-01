@@ -42,8 +42,10 @@ IDENTITY_MARK = "# Refuse an AI author or committer."
 PUSH_MARK = "# Refuse a new commit with an AI identity or attribution line."
 # In the git folder: one `^HASH` line for each ref at install. Older commits are not new ones.
 BASE_FILE = "cairnkit-guard-base"
-# The rebase that a refused push prints runs the hook with this argument, on each commit.
-FIX_STEP = "cairnkit-fix-commit"
+# In the git folder, not a hook, so nothing that git passes to a hook can select it. The fix that
+# a refused push prints runs it on each commit.
+FIX_FILE = "cairnkit-fix-commit"
+OLD_FIX_MODE = '"$1" = cairnkit-fix-commit'
 PYTHON_GONE_MARK = "# The Python of this hook cannot run the tool."
 PERSONAL_HOOKS = ("pre-commit", "post-checkout", "pre-push", "post-merge")
 # Under a core.hooksPath outside the git folder, our files live here and the git config runs them.
@@ -270,27 +272,120 @@ def _echo(*lines: str) -> str:
     return "".join(f"  echo {_quote(line)} >&2\n" for line in lines)
 
 
+_FIX_RUN = f'sh "$(git rev-parse --git-common-dir)/{FIX_FILE}"'
+
+# One fix for each pushed ref that holds a refused commit. Each command can move only that ref.
+# The oldest refused commit in it is the start, so the rebase leaves older history as it is.
+_FIX_COMMANDS = r"""  cairnkit_q() {
+    case "$1" in
+      (*[!A-Za-z0-9._/@^:+=,~-]*|'') printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+      (*) printf '%s' "$1" ;;
+    esac
+  }
+  cairnkit_here=$(git symbolic-ref -q HEAD)
+  cairnkit_tip=$(git rev-parse -q --verify HEAD)
+  cairnkit_top=$(git rev-parse --show-toplevel 2>/dev/null)
+  if [ -n "$cairnkit_here" ]; then cairnkit_back="$(cairnkit_q "${cairnkit_here#refs/heads/}")"
+  else cairnkit_back="--detach $cairnkit_tip"; fi
+  cairnkit_run='@FIX_RUN@'
+  cairnkit_want=$(printf '%s\n' "$cairnkit_refused" | awk '{print $1}' | tr '\n' ' ')
+  printf '%s\n' "$cairnkit_refs" | while read -r cairnkit_a cairnkit_new cairnkit_b cairnkit_old; do
+    case "$cairnkit_new" in (*[!0]*) ;; (*) continue ;; esac
+    cairnkit_known=
+    if git cat-file -e "$cairnkit_old^{commit}" 2>/dev/null; then
+      cairnkit_known="^$cairnkit_old"
+    fi
+    cairnkit_oldest=$(git rev-list --abbrev-commit --topo-order --reverse "$cairnkit_new" \
+      $cairnkit_known --not --remotes 2>/dev/null | awk -v want="$cairnkit_want" \
+      'BEGIN { n = split(want, w, " "); for (i = 1; i <= n; i++) k[w[i]] = 1 }
+       $1 in k { print; exit }')
+    [ -n "$cairnkit_oldest" ] || continue
+    cairnkit_onto=--root
+    if git rev-parse -q --verify "$cairnkit_oldest^" >/dev/null; then
+      cairnkit_onto="$cairnkit_oldest^"
+    fi
+    cairnkit_step="rebase --rebase-merges --exec '$cairnkit_run' $cairnkit_onto"
+    if [ "$cairnkit_a" = HEAD ] && [ -n "$cairnkit_here" ]; then cairnkit_a=$cairnkit_here; fi
+    case "$cairnkit_a" in
+      (refs/heads/*)
+        cairnkit_name=$(cairnkit_q "${cairnkit_a#refs/heads/}")
+        cairnkit_at=$(git worktree list --porcelain | awk -v want="branch $cairnkit_a" \
+          '/^worktree /{ p = substr($0, 10) } $0 == want { print p; exit }')
+        if [ "$cairnkit_a" = "$cairnkit_here" ]; then
+          cairnkit_fix="git $cairnkit_step $cairnkit_name"
+        elif [ -n "$cairnkit_at" ] && [ "$cairnkit_at" != "$cairnkit_top" ]; then
+          echo "$cairnkit_a is checked out in $cairnkit_at, so the fix runs there:" >&2
+          cairnkit_fix="git -C $(cairnkit_q "$cairnkit_at") $cairnkit_step $cairnkit_name"
+        else
+          cairnkit_fix="git $cairnkit_step $cairnkit_name && git switch $cairnkit_back"
+        fi ;;
+      (refs/tags/*)
+        cairnkit_name=$(cairnkit_q "${cairnkit_a#refs/tags/}")
+        echo "$cairnkit_a is a tag, so the fix also moves that tag:" >&2
+        if [ "$(git cat-file -t "$cairnkit_a")" = tag ]; then
+          cairnkit_move="git tag -l --format='%(contents)' $cairnkit_name"
+          cairnkit_move="$cairnkit_move | git tag -f -a -F - $cairnkit_name"
+        else
+          cairnkit_move="git tag -f $cairnkit_name"
+        fi
+        cairnkit_fix="git switch --detach $(cairnkit_q "$cairnkit_a") && git $cairnkit_step"
+        cairnkit_fix="$cairnkit_fix && $cairnkit_move && git switch $cairnkit_back" ;;
+      (HEAD)
+        echo "HEAD is on no branch, so the fix moves only HEAD. Then push again:" >&2
+        cairnkit_fix="git $cairnkit_step" ;;
+      (*)
+        echo "$cairnkit_a is not a branch, so the fix pushes the fixed commit by itself:" >&2
+        cairnkit_fix="git switch --detach $cairnkit_new && git $cairnkit_step"
+        cairnkit_fix="$cairnkit_fix && git push $(cairnkit_q "$1") HEAD:$(cairnkit_q "$cairnkit_b")"
+        cairnkit_fix="$cairnkit_fix && git switch $cairnkit_back" ;;
+    esac
+    if [ "$cairnkit_a" = "$cairnkit_here" ] || [ "$cairnkit_a" = HEAD ]; then
+      if [ "$cairnkit_oldest" = "$(git rev-list -1 --abbrev-commit HEAD)" ]; then
+        echo "To fix that one commit with no rebase:" >&2
+        printf '  %s\n' "$cairnkit_run" >&2
+      fi
+    fi
+    printf '  %s\n' "$cairnkit_fix" >&2
+  done
+""".replace("@FIX_RUN@", _FIX_RUN)
+
+
+_FIX_HELPERS = ("cairnkit_identity() ", "cairnkit_message() ")
+
+
+def _fix_file(helpers: list[str]) -> str:
+    """Amend HEAD: drop such lines and an AI author. A commit that a remote holds stays."""
+    return (
+        "#!/bin/sh\n"
+        + "".join(f"{line}\n" for line in helpers)
+        + '[ -n "$(git rev-list -1 HEAD --not --remotes)" ] || exit 0\n'
+        "cairnkit_reset=\n"
+        "if git log -1 --format='%an <%ae>' | cairnkit_identity -q; then "
+        "cairnkit_reset=--reset-author; fi\n"
+        'if [ -n "$cairnkit_reset" ] '
+        "|| git log -1 --format='%cn <%ce>' | cairnkit_identity -q "
+        "|| git log -1 --format=%B | cairnkit_message -q; then\n"
+        "  git log -1 --format=%B | cairnkit_message -v | "
+        "git commit -q --amend --allow-empty --allow-empty-message $cairnkit_reset -F - || exit 1\n"
+        "fi\n"
+    )
+
+
 def _push_refusal() -> str:
     return (
         '  echo "push refused: these new commits have an AI identity or attribution line:" >&2\n'
         "  printf '%s\\n' \"$cairnkit_refused\" >&2\n"
+        '  if [ ! -f "$cairnkit_base" ]; then\n'
         + _echo(
-            "A fix rewrites each commit from that point, so their hashes change.",
-            "To fix the last commit, remove the line in the editor:",
-            "  git commit --amend --allow-empty --reset-author",
-            "To fix them all on the branch you push, with each other author kept:",
-        )
-        # The oldest refused commit, so the rebase leaves older history as it is.
-        + "  cairnkit_oldest=$(printf '%s\\n' \"$cairnkit_refused\" "
-        "| awk '{print $1}' | git rev-list --stdin --abbrev-commit --topo-order --reverse "
-        "2>/dev/null | awk -v want=\"$(printf '%s\\n' \"$cairnkit_refused\" | awk '{print $1}' "
-        "| tr '\\n' ' ')\" "
-        '\'BEGIN { n = split(want, w, " "); for (i = 1; i <= n; i++) k[w[i]] = 1 } '
-        "$1 in k { print; exit }')\n"
-        '  if git rev-parse -q --verify "$cairnkit_oldest^" >/dev/null; then '
-        'cairnkit_onto="$cairnkit_oldest^"; else cairnkit_onto=--root; fi\n'
-        '  echo "  git rebase --rebase-merges --exec '
-        f'\'sh \\"$0\\" {FIX_STEP}\' $cairnkit_onto" >&2\n'
+            f"The file {BASE_FILE} is gone, so each commit that no remote holds counts as new."
+        ).replace("  echo", "    echo")
+        + "  fi\n"
+        f'  if [ -f "$(git rev-parse --git-common-dir)/{FIX_FILE}" ]; then\n'
+        + _echo("A fix rewrites each commit from that point, so their hashes change.")
+        + _FIX_COMMANDS
+        + "  else\n"
+        + _echo(f"The file {FIX_FILE} is gone. Run `memory hooks install`, then push again.")
+        + "  fi\n"
         + _echo(
             "To allow such lines here, add this to memory-bank/config.toml, "
             "then run `memory hooks install`:",
@@ -306,18 +401,6 @@ def _push_check(patterns: GuardPatterns) -> str:
         f"{PUSH_MARK} `[commit_msg_guard]` in config.toml sets the patterns.\n"
         f'cairnkit_identity() {{ grep "$@" -iE {identity}; }}\n'
         f'cairnkit_message() {{ grep "$@" -iE {message}; }}\n'
-        f'if [ "$1" = {FIX_STEP} ]; then\n'
-        "  cairnkit_reset=\n"
-        "  if git log -1 --format='%an <%ae>' | cairnkit_identity -q; then "
-        "cairnkit_reset=--reset-author; fi\n"
-        '  if [ -n "$cairnkit_reset" ] '
-        "|| git log -1 --format='%cn <%ce>' | cairnkit_identity -q "
-        "|| git log -1 --format=%B | cairnkit_message -q; then\n"
-        "    git log -1 --format=%B | cairnkit_message -v | "
-        "git commit -q --amend --allow-empty --allow-empty-message $cairnkit_reset -F - || exit 1\n"
-        "  fi\n"
-        "  exit 0\n"
-        "fi\n"
         # A hook that runs after this block in the same file also reads the ref list on stdin.
         # The here-document gives it back.
         "cairnkit_refs=\n"
@@ -328,10 +411,6 @@ def _push_check(patterns: GuardPatterns) -> str:
         "CAIRNKIT_REFS\n"
         "fi\n"
         f'cairnkit_base="$(git rev-parse --git-common-dir)/{BASE_FILE}"\n'
-        'if [ ! -f "$cairnkit_base" ]; then\n'
-        "  { git for-each-ref --format='^%(objectname)'; git rev-parse -q --verify HEAD "
-        "| sed 's/^/^/'; } > \"$cairnkit_base\" 2>/dev/null\n"
-        "fi\n"
         # Tab-separated: age, hash, who answers for it, then the identity or the line.
         "cairnkit_scan() {\n"
         "  cairnkit_list=$(grep .)\n"
@@ -595,22 +674,32 @@ def _runs_memory(path: Path, hook: str) -> bool:
     return holds_block(text) or f"-m cairnkit hook {hook}" in text
 
 
-def _keep_base(project: Project, on: bool) -> None:
-    """Record the refs when the push check starts. A base that exists stays."""
-    path = project.common_dir / BASE_FILE if project.common_dir else None
-    if path is None or not path.parent.is_dir():
+def _keep_guard_files(project: Project, body: str) -> None:
+    """The files of the push check. An install's base stays, and a lost one is not an install.
+
+    Only a push check that was not running gets a new base. The body holds the check's patterns,
+    so the fix file takes its helpers from the text that the hook runs.
+    """
+    if project.common_dir is None or not project.common_dir.is_dir():
         return
-    if not on:
-        path.unlink(missing_ok=True)
-    elif not path.exists():
+    base, fix = project.common_dir / BASE_FILE, project.common_dir / FIX_FILE
+    if PUSH_MARK not in body:
+        base.unlink(missing_ok=True)
+        fix.unlink(missing_ok=True)
+        return
+    running = _running_file(project, "pre-push")
+    was_on = running is not None and PUSH_MARK in running.read_text(errors="replace")
+    if not was_on and not base.exists():
         tips = run_git(project.root, "for-each-ref", "--format=%(objectname)") or ""
         head = run_git(project.root, "rev-parse", "-q", "--verify", "HEAD") or ""
-        path.write_text("".join(f"^{sha}\n" for sha in [*tips.split(), *head.split()]))
+        base.write_text("".join(f"^{sha}\n" for sha in [*tips.split(), *head.split()]))
+    helpers = [line for line in body.splitlines() if line.startswith(_FIX_HELPERS)]
+    fix.write_text(_fix_file(helpers))
 
 
 def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
     if hook == "pre-push" and not dry_run:
-        _keep_base(project, PUSH_MARK in body)
+        _keep_guard_files(project, body)
     folder = git_folder(project)
     if folder is None:
         return []
@@ -721,7 +810,7 @@ def hook_state(project: Project) -> HookState:
 
 def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
     if hook == "pre-push" and not dry_run:
-        _keep_base(project, False)
+        _keep_guard_files(project, "")
     folder = git_folder(project)
     if folder is None:
         return []

@@ -30,6 +30,7 @@ from cairnkit.paths import (
     LINK_NAME,
     PATH_FILE,
     Project,
+    beside_line,
     lost_memory,
     lost_note,
     merged_checker,
@@ -449,9 +450,7 @@ def _read_health(project: Project, flag: str | None) -> Health:
         if memory.only_plain(fact_id)
     ]
     health.info += list(filter(None, (history_note(memory), native.secret_note(memory))))
-    owner = owner_line(project, memdir)
-    if owner:
-        health.info.append(owner)
+    health.info += list(filter(None, (owner_line(project, memdir), beside_line(project, memdir))))
     count, words = rule_words(memory)
     if words > RULE_WORD_CAP:
         health.todo.append(

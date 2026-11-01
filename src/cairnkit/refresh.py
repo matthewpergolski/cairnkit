@@ -103,7 +103,9 @@ def _hook_text_is_old(project: Project) -> bool:
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder is None:
         return False
-    if _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK):
+    if _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK) or _holds(
+        folder / "pre-push", githook.OLD_FIX_MODE
+    ):
         return True
     if _has_block(folder / "pre-commit") and not _holds(
         folder / "pre-commit", githook.PYTHON_GONE_MARK

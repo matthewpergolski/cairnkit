@@ -84,16 +84,15 @@ def test_a_custom_named_folder_with_no_id_is_never_offered(repo, capsys, tmp_pat
     assert "some-notes" not in out
 
 
-def test_a_memory_with_a_gone_project_name_is_named_once(repo, capsys, tmp_path):
+def test_a_memory_with_a_name_this_project_never_had_is_not_named(repo, capsys, tmp_path):
     gone = tmp_path / "gone.memory"
     (gone / "facts").mkdir(parents=True)
     (gone / "config.toml").write_text("")
     code, out = run(capsys, "init", "--no-default-rules")
     assert code == 0, out
-    assert out.count(str(gone)) == 1 and f"memory init --path {gone}" in out
-    assert (repo / "memory-bank").resolve() == (tmp_path / "proj.memory").resolve()
-    code, out = run(capsys, "load")
     assert str(gone) not in out
+    assert (repo / "memory-bank").resolve() == (tmp_path / "proj.memory").resolve()
+    assert str(gone) not in run(capsys, "load")[1]
 
 
 def test_an_empty_repo_is_not_offered_a_memory_that_had_commits(tmp_path, monkeypatch, capsys):
@@ -117,6 +116,7 @@ def test_session_start_gives_a_connected_project_its_memory(tmp_path, monkeypatc
     (gone / "facts").mkdir(parents=True)
     (gone / "config.toml").write_text("")
     new = new_repo(tmp_path, "new", commit=False)
+    git(new, "remote", "add", "origin", "https://example.com/someone/gone.git")
     monkeypatch.chdir(new)
     (new / ".claude").mkdir()
     assert main(["hooks", "install", "--agent", "claude"]) == 0

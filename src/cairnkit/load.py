@@ -27,6 +27,7 @@ from cairnkit.memory import Memory, MemoryMissing, listed
 from cairnkit.paths import (
     UNREAD_WRITER,
     Project,
+    beside_line,
     current_branch,
     default_branch,
     earlier_names,
@@ -273,10 +274,13 @@ def run_load(
         notice = install_source.notice_once() if update_notice else None
         warning = real_folder_warning(project, memory.dir)
         owner = load_owner_line(project, memory.dir)
+        beside = beside_line(project, memory.dir)
         answer = [] if health.is_ok else [health.answer()]
         if health.errors or health.warnings:
             answer.append("`memory check` lists each one with its fix.")
-        lines[1:1] = [line for line in (owner, warning, notice, *answer, *health.todo) if line]
+        lines[1:1] = [
+            line for line in (owner, beside, warning, notice, *answer, *health.todo) if line
+        ]
         if update_notice:
             lines[1:1] = rule_notices.take_lines(memory)
     except MemoryMissing as exc:

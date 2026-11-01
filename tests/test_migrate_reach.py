@@ -31,6 +31,10 @@ def test_a_run_from_a_worktree_stages_only_there(tracked_notes, capsys, monkeypa
     assert staged(worktree) == ["memory-bank/status.md"]
     assert staged(tracked_notes) == []
     assert f"git -C {tracked_notes} rm -r --cached memory-bank" in out
+    assert "All checkouts share one memory, so the move changes each" in out
+    run_as_printed = git(tracked_notes, "rm", "-r", "-q", "--cached", "memory-bank")
+    assert run_as_printed == ""
+    assert staged(tracked_notes) == ["memory-bank/status.md"]
 
 
 def test_a_run_from_main_stages_only_there(tracked_notes, capsys, monkeypatch):
@@ -51,6 +55,8 @@ def test_the_plan_names_the_same_reach(tracked_notes, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert f"would run git rm -r --cached memory-bank in {worktree}" in out
     assert f"git rm -r --cached memory-bank in {tracked_notes}\n" not in out
+    assert "All checkouts share one memory, so the move changes each" in out
+    assert f"git -C {tracked_notes} rm -r --cached memory-bank" in out
     assert staged(worktree) == [] and staged(tracked_notes) == []
 
 
