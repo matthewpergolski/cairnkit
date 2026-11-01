@@ -92,6 +92,20 @@ def test_repair_clears_a_bad_line_and_keeps_every_byte(mem, capsys):
     assert "bad line" not in load and "A true fact." in load
 
 
+def test_a_repair_record_copies_no_text_from_the_line(mem, capsys):
+    line = {
+        "type": "fact",
+        "id": GOOD,
+        "text": "Old.",
+        "source": "NOT A SOURCE CRON_SECRET=q1w2e3r4",
+    }
+    _append(mem, json.dumps(line) + "\n")
+    _run(capsys, "repair")
+    written = (mem / "facts" / "main.jsonl").read_text().splitlines()[-1]
+    assert json.loads(written)["type"] == "repair"
+    assert "q1w2e3r4" not in written
+
+
 def test_repair_is_safe_to_repeat(mem, capsys):
     _append(mem, '{"typ\n')
     assert _run(capsys, "repair")[0] == 0

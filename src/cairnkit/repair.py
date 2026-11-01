@@ -13,7 +13,6 @@ from cairnkit.clock import now, stamp
 from cairnkit.config import repair_config
 from cairnkit.memory import Memory
 from cairnkit.paths import writer_name
-from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_secrets
 from cairnkit.selection import clean
 from cairnkit.store import append_records, encode, fact_files, repaired_lines, scan
@@ -34,18 +33,19 @@ def run_repair(memory: Memory) -> int:
     records: list[dict] = []
 
     def settle(path, line: int, sha: str, why: str, text: str) -> None:
-        print(f"{path.name}:{line}: {why}\n  It held: {_shown(text)}")
-        record = {
-            "type": "repair",
-            "file": path.name,
-            "sha": sha,
-            "line": line,
-            "why": why,
-            "at": at,
-            "writer": writer,
-        }
-        if not validate_record(record):
-            records.append(record)
+        print(f"{path.name}:{line}: {_shown(why)}\n  It held: {_shown(text)}")
+        # No text from the line goes in the record: the line can hold a secret, and purge must find
+        # each copy by its id.
+        records.append(
+            {
+                "type": "repair",
+                "file": path.name,
+                "sha": sha,
+                "line": line,
+                "at": at,
+                "writer": writer,
+            }
+        )
 
     for item in bad:
         if item.sha and (item.path.name, item.sha) not in done:

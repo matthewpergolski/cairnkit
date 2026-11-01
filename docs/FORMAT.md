@@ -227,7 +227,6 @@ A tombstone holds no content.
 | `file` | yes | The name of the fact file that holds the line. |
 | `sha` | yes | The first 16 characters of the SHA-1 of the line, with no outer white space. |
 | `line` | no | The line number when it was written. |
-| `why` | no | What was wrong. |
 | `at` | yes | The time. |
 | `writer` | yes | The writer. |
 

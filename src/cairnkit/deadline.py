@@ -43,7 +43,7 @@ def git_stuck() -> bool:
 
 def note_git_timeout() -> None:
     global _git_stuck
-    _git_stuck = True
+    _git_stuck = _end is not None
 
 
 @contextlib.contextmanager
