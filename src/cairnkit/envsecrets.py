@@ -9,9 +9,20 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import NamedTuple
+from urllib.parse import unquote
 
 from cairnkit.paths import Project, run_git
-from cairnkit.secretscan import Label, is_not_a_value, label_of, name_parts
+from cairnkit.secretscan import (
+    ENV_VALUE,
+    FIELD_PARTS,
+    Label,
+    is_not_a_value,
+    label_of,
+    looks_made_up,
+    mask_token,
+    name_parts,
+)
 
 ENV_NAME = re.compile(r"\.env(?:rc)?(?:[._-].+)?")
 NOT_REAL = re.compile(r"(?i)example|sample|template|dist\b|defaults?\b")
@@ -25,6 +36,11 @@ MAX_FILE_BYTES = 256 * 1024
 GIT_TIMEOUT = 1.0
 # Below this length, a value is an ordinary word too often: `admin`, `root`.
 MIN_LENGTH = 6
+# At this length, a value with no space is no word that a fact would name by chance.
+LONG_VALUE = 20
+# These names say what the value is: `AWS_REGION=us-east-1` is no secret and a fact can name it.
+PLAIN_FIELDS = FIELD_PARTS | {"version", "email"}
+URL_PASSWORD = re.compile(r"[a-z][a-z0-9+.-]*://[^\s/:@]*:([^\s/@]+)@")
 # Local defaults. A fact can name these without any secret in it.
 ORDINARY_VALUES = frozenset(
     {
@@ -43,24 +59,49 @@ ORDINARY_VALUES = frozenset(
 )
 
 
+class Found(NamedTuple):
+    name: str
+    file: str
+    # Only its name says secret. The value is a plain word, so a fact can hold it by chance.
+    plain: bool
+
+    @property
+    def label(self) -> str:
+        return f"value of {self.name} in {self.file}"
+
+
 class EnvValues:
     """The values, each with the variable and the file that hold it."""
 
-    def __init__(self, labels: dict[str, str] | None = None) -> None:
-        self._labels = labels or {}
-        longest_first = sorted(self._labels, key=len, reverse=True)
+    def __init__(self, found: dict[str, Found] | None = None) -> None:
+        self._found = found or {}
+        longest_first = sorted(self._found, key=len, reverse=True)
         words = "|".join(map(re.escape, longest_first))
         self._pattern = (
             re.compile(rf"(?<![A-Za-z0-9_])(?:{words})(?![A-Za-z0-9_])") if words else None
         )
+        self._plain = {item.label for item in self._found.values() if item.plain}
 
     def __repr__(self) -> str:
-        return f"EnvValues({len(self._labels)} value(s))"
+        return f"EnvValues({len(self._found)} value(s))"
 
     def find(self, text: str) -> list[str]:
         if self._pattern is None:
             return []
-        return sorted({self._labels[match[0]] for match in self._pattern.finditer(text)})
+        return sorted({self._found[match[0]].label for match in self._pattern.finditer(text)})
+
+    def mask(self, text: str) -> str:
+        if self._pattern is None:
+            return text
+        return self._pattern.sub(lambda match: self._token(self._found[match[0]].name), text)
+
+    @staticmethod
+    def _token(name: str) -> str:
+        return mask_token(name if re.fullmatch(r"[A-Z][A-Z0-9_]{0,39}", name) else ENV_VALUE)
+
+    def only_plain(self, names: list[str]) -> bool:
+        """Each name comes from a plain word in a `.env` file, and no shape matched."""
+        return bool(names) and all(name in self._plain for name in names)
 
 
 def _env_files(root: Path) -> list[Path]:
@@ -106,37 +147,57 @@ def _parse_value(raw: str) -> str:
     return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
 
 
-def _is_real(name: str, value: str) -> bool:
-    if label_of(name) is not Label.STRONG or len(value) < MIN_LENGTH:
-        return False
+def _not_a_word(value: str) -> bool:
+    return looks_made_up(value) or (len(value) >= LONG_VALUE and not re.search(r"\s", value))
+
+
+def _classify(name: str, value: str) -> bool | None:
+    """None: no secret. Else whether the value is a plain word, the `Found.plain` flag."""
+    if len(value) < MIN_LENGTH or is_not_a_value(value):
+        return None
     # POSTGRES_PASSWORD=postgres: a local default that each mention of the tool would match.
     if value.lower() in ORDINARY_VALUES or value.lower() in name_parts(name):
-        return False
-    return not is_not_a_value(value)
+        return None
+    label = label_of(name)
+    if label is Label.STRONG:
+        return not _not_a_word(value)
+    if not _not_a_word(value) or re.search(r"\s", value):
+        return None
+    if label is Label.NONE and (value.isdigit() or PLAIN_FIELDS & {*name_parts(name)[-1:]}):
+        return None
+    return False
 
 
-def _values_in(path: Path) -> list[tuple[str, str]]:
+def _values_in(path: Path) -> list[tuple[str, str, bool]]:
     try:
         if path.stat().st_size > MAX_FILE_BYTES:
             return []
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
-    pairs = []
+    found = []
     for line in text.splitlines():
         match = LINE.fullmatch(line)
-        if match and not line.lstrip().startswith("#"):
-            value = _parse_value(match[2])
-            if _is_real(match[1], value):
-                pairs.append((match[1], value))
-    return pairs
+        if not match or line.lstrip().startswith("#"):
+            continue
+        name, value = match[1], _parse_value(match[2])
+        plain = _classify(name, value)
+        if plain is not None:
+            found.append((name, value, plain))
+        url = URL_PASSWORD.match(value)
+        if url:
+            for password in {url[1], unquote(url[1])}:
+                plain = _classify("PASSWORD", password)
+                if plain is not None:
+                    found.append((name, password, plain))
+    return found
 
 
 def read_env_values(project: Project) -> EnvValues:
     """Read the checkout and, from a worktree, the main checkout. This never raises."""
-    labels: dict[str, str] = {}
+    found: dict[str, Found] = {}
     for root in dict.fromkeys((project.root, project.main_root)):
         for path in _untracked(root, _env_files(root), project.is_git):
-            for name, value in _values_in(path):
-                labels.setdefault(value, f"value of {name} in {path.relative_to(root)}")
-    return EnvValues(labels)
+            for name, value, plain in _values_in(path):
+                found.setdefault(value, Found(name, str(path.relative_to(root)), plain))
+    return EnvValues(found)

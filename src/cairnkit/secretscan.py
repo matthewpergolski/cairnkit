@@ -301,7 +301,7 @@ def _value(match: re.Match[str]) -> tuple[str, bool]:
     return bare, False
 
 
-def _looks_made_up(value: str) -> bool:
+def looks_made_up(value: str) -> bool:
     """English does not hold this word: it has a digit, a capital inside it, or a symbol."""
     if ALGORITHM.fullmatch(value) or AMOUNT.fullmatch(value) or VERSION.fullmatch(value):
         return False
@@ -331,7 +331,7 @@ def _spoken(match: re.Match[str]) -> bool:
     value, quoted = _value(match)
     if len(value) < MIN_VALUE or is_not_a_value(value):
         return True
-    return not (quoted or _looks_made_up(value))
+    return not (quoted or looks_made_up(value))
 
 
 def _url_parameter(match: re.Match[str]) -> bool:
