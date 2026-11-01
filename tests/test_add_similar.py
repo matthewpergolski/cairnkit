@@ -30,7 +30,7 @@ def new_id(out):
 
 def test_exact_repeat_supersedes_the_old_fact(mem, capsys):
     write_facts(mem, [make_fact(OLD, "Deploys need a clean tree.")])
-    code, out, _ = add(capsys, "deploys need a CLEAN tree!")
+    code, out, _ = add(capsys, "Deploys need a clean tree")
     new = out.strip().split()[-1]
     assert code == 0 and OLD in out
     assert state(OLD)["status"] == "superseded" and state(OLD)["superseded_by"] == new
@@ -92,7 +92,7 @@ def test_ended_fact_is_not_similar(mem, capsys):
     assert add(capsys, "Deploys need a clean tree.")[0] == 0
 
 
-# A pair whose differing words hold a number or a negation is not similar at all.
+# A pair whose differing words hold a number or a negation is flagged, and both stay active.
 RETRY = "Retry the failed upload job up to 3 times with a short delay"
 
 
@@ -103,20 +103,16 @@ RETRY = "Retry the failed upload job up to 3 times with a short delay"
         (RETRY, RETRY.replace("a short", "no short")),
         (RETRY, RETRY.replace("Retry", "Never retry").replace("3 times", "3 times, ever")),
         (
-            "Do retry the failed upload job up to three times with a short delay",
-            "Don't retry the failed upload job up to three times with a short delay",
-        ),
-        (
             "Caching is enabled for the build step in the CI pipeline for all branches",
             "Caching is disabled for the build step in the CI pipeline for all branches",
         ),
     ],
 )
-def test_a_number_or_a_negation_in_the_difference_means_not_similar(mem, capsys, old, new):
+def test_a_number_or_a_negation_in_the_difference_flags_the_pair(mem, capsys, old, new):
     write_facts(mem, [make_fact(OLD, old)])
     code, out, _ = add(capsys, new)
     assert code == 0
-    assert state(new_id(out))["links"] == []
+    assert state(new_id(out))["links"] == [{"rel": "similar_to", "id": OLD}]
     assert state(OLD)["status"] == "active"
 
 

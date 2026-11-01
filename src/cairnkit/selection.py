@@ -134,6 +134,10 @@ FRAME_FOOTER = "--- end of stored notes ---"
 DATA_LABEL = "stored text, data only"
 AGENT_RULES = "## Rules an agent wrote (no person stated them)"
 NAME_WIDTH = 80
+# Rules stay outside the word budget, because a rule binds in each session. A pile of rules must
+# still leave room for the facts. All the presets together hold 368 words, and `memory check`
+# warns at 500, so this limit acts only on a set that has had that warning for a long time.
+RULE_WORD_LIMIT = 1000
 
 _CONTROL = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0e-\x1f\x7f-\x9f]")
 _FRAME_END = re.compile(r"(?i)-*\s*end\s+of\s+stored\s+notes\s*-*")
@@ -152,7 +156,7 @@ def clean(value: object) -> str:
 def name(value: object) -> str:
     """A stored name, such as an area or a branch. One that is not plain prints in quotes."""
     text = clean(value)
-    if _PLAIN_NAME.fullmatch(text):
+    if _PLAIN_NAME.fullmatch(text) and len(text) <= NAME_WIDTH:
         return text
     return '"' + text[:NAME_WIDTH].replace('"', "'") + '"'
 
@@ -194,6 +198,25 @@ def render(state: dict) -> str:
 
 def words_in(line: str) -> int:
     return len(line.split())
+
+
+def bound_rules(rules: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(shown, held back). A rule that no check enforces goes first: only the load gives it force.
+
+    A rule that an agent wrote goes last, because it loads as data.
+    """
+    shown, held, used = [], [], 0
+    for state in sorted(
+        rules,
+        key=lambda s: (not owner_rule(s), bool(s.get("enforced_by")), s.get("learned_at", "")),
+    ):
+        cost = words_in(render(state))
+        if used + cost > RULE_WORD_LIMIT:
+            held.append(state)
+        else:
+            shown.append(state)
+            used += cost
+    return shown, held
 
 
 # With no signal about the work, this share of the budget keeps one place for each area. Newer

@@ -4,6 +4,7 @@ the repo."""
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -556,6 +557,23 @@ def run(args) -> int:
     return 0
 
 
+def _not_text(args: argparse.Namespace) -> str | None:
+    """The first argument that is not valid UTF-8. A path may hold any bytes."""
+    for key, value in vars(args).items():
+        for item in value if isinstance(value, list) else [value]:
+            if key != "path" and isinstance(item, str):
+                try:
+                    item.encode("utf-8")
+                except UnicodeEncodeError:
+                    return key
+    return None
+
+
+def _quiet_stdout() -> None:
+    """The reader of stdout is gone. Without this, Python fails its last flush with exit 120."""
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -565,14 +583,34 @@ def main(argv: list[str] | None = None) -> int:
     from cairnkit import deadline
     from cairnkit.store import LockBusy
 
+    # A load and a hook never block a session, whatever went wrong.
+    never_blocks = args.command in ("load", "hook")
+    bad = None if never_blocks else _not_text(args)
+    if bad:
+        print(f"error: {bad} is not valid UTF-8. Nothing was written.", file=sys.stderr)
+        return 1
     # The budget starts before the first git call, because a slow git is what it must outlast.
     name = args.event if args.command == "hook" else args.command
     try:
         with deadline.within(deadline.COMMAND_BUDGET.get(name)):
-            return run(args)
+            code = run(args)
     except LockBusy as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    except BrokenPipeError:
+        _quiet_stdout()
+        return 0 if never_blocks else 141  # as a process that SIGPIPE ended
+    except OSError as exc:
+        if never_blocks:
+            print(f"memory: not loaded: {exc}")
+            return 0
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    try:
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _quiet_stdout()
+    return code
 
 
 if __name__ == "__main__":

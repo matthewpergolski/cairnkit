@@ -8,5 +8,5 @@ DISCOVER = (
 
 RULES_SHORT = """\
 Memory rules: save a decision, trap, lesson or correction with `memory add "TEXT"`
-(`--short` for a note on this branch). Replace a fact with `--supersedes ID`. End one with
+(`--short` for a branch note). Replace a fact with `--supersedes ID`. End one with
 `memory change ID --status expired|wrong`. Never store a secret or edit memory files."""

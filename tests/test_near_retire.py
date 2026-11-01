@@ -1,4 +1,8 @@
-"""Auto-tidy retires a near repeat only when no differing word can change the meaning."""
+"""A fact ends with no agent only when the text is the same, byte for byte, in its words.
+
+Whitespace and a final `.`, `,`, `;` or `:` may differ. Any other change goes to the agent task,
+and both facts stay active: a repeat costs words, and a false retire loses a fact.
+"""
 
 from __future__ import annotations
 
@@ -11,10 +15,34 @@ from conftest import make_fact, write_facts
 from cairnkit.cli import main
 from cairnkit.memory import Memory
 from cairnkit.paths import find_project
-from cairnkit.similar import exact_key, near_key
+from cairnkit.similar import repeat_key
 
 OLD, NEW = "f-20261001-0001", "f-20261002-0002"
-DIFFERENT = [
+FLAGS = ["--basis", "seen", "--source", "session:2026-11-01"]
+ADD_WOULD_END = [
+    ("-1 is the limit", "1 is the limit"),
+    ("retries != 0", "retries = 0"),
+    ("≤ 200 ms", "≥ 200 ms"),
+    ("Deploy ✅", "Deploy ❌"),
+    ("foo.bar is on", "foo bar is on"),
+    ("use --no-cache here", "use no cache here"),
+    ("Foo", "foo"),
+    ("foo-bar", "foo bar"),
+]
+TIDY_WOULD_END = [
+    ("rails", "rail"),
+    ("plan A", "plan"),
+    ("table users", "table user"),
+    ("cluster A", "cluster"),
+    ("GitHub Pages", "GitHub Page"),
+    ("a.example.com", "example.com"),
+    ("Run step A then step B", "Run step then step B"),
+    ("a/b test", "b test"),
+    ("Deploys need a clean tree", "deploys need a clean tree"),
+    ("The classes pass", "The class passes"),
+    ("The release job warms the caches", "Release job warms a cache"),
+]
+DIFFERENT_WORD = [
     (
         "The staging database lives in us-east-1 and uses replica set alpha for all reads",
         "The production database lives in us-east-1 and uses replica set alpha for all reads",
@@ -24,29 +52,25 @@ DIFFERENT = [
         "Payments retry five times before the job gives up and alerts on call",
     ),
     ("Use https for the billing API here", "Use http for the billing API here"),
-    ("Runs only on Windows after the build", "Runs only on window after the build"),
-    ("The news feed loads from the cache", "The new feed loads from the cache"),
     ("The parser module is written in C++", "The parser module is written in C#"),
     ("Connect to 東京 before the deploy", "Connect to 大阪 before the deploy"),
     ("Service alpha calls service beta at startup", "Service beta calls service alpha at startup"),
-    ("Merge the branch then run the tests", "Run the tests then merge the branch"),
     ("The limit x < 5 holds in the loader", "The limit x > 5 holds in the loader"),
-    ("The old job was broken in the release", "The old job is broken in the release"),
-    ("The cache must be warmed before the job runs", "The cache must be warmed before the job now"),
-    ("A push does not count as a session start", "A push or a merge does not count"),
-    ("Deploys read the config file on the host", "Deploys read this config file on the host"),
     ("Retry 3 times at the gateway", "Retry 4 times at the gateway"),
     ("Tests must not run in the release job", "Tests must run in the release job"),
-    ("Keep the session token out of the logs", "Keep the session token out of the log files"),
 ]
-TRIVIAL = [
-    ("Deploys need a clean tree.", "deploys need a CLEAN tree!"),
-    ("Deploys need a clean tree", "Deploy needs a clean tree"),
-    ("The release job warms the caches", "Release jobs warms a cache"),
-    ("The cache is cold after a deploy", "Cache are cold after the deploy"),
-    ("Branches retries the batches", "Branch retry the batch"),
-    ("The `foo_bar` module (see docs)", "the foo bar module - see docs"),
-    ("The classes pass", "The class passes"),
+SAME = [
+    ("Deploys need a clean tree", "Deploys need a clean tree"),
+    ("Deploys need a clean tree", "  Deploys  need\ta clean\ntree  "),
+    ("Deploys need a clean tree", "Deploys need a clean tree."),
+    ("Deploys need a clean tree;", "Deploys need a clean tree:"),
+    ("Deploys need a clean tree .", "Deploys need a clean tree"),
+]
+NOT_SAME = [
+    ("Is it on", "Is it on?"),
+    ("println", "println!"),
+    ("café", "café"),
+    (".", ","),
 ]
 
 
@@ -70,144 +94,114 @@ def _pair(mem, a, b, **older):
     )
 
 
-@pytest.mark.parametrize("a,b", DIFFERENT)
-def test_a_pair_with_a_differing_word_is_not_retired(mem, capsys, a, b):
-    _pair(mem, a, b)
-    code, out = _ask(capsys, "tidy", "--auto")
-    assert code == 0 and "Nothing to retire." in out
+@pytest.mark.parametrize("a,b", ADD_WOULD_END)
+def test_add_keeps_both_facts_when_any_character_differs(mem, capsys, a, b):
+    write_facts(mem, [make_fact(OLD, a)])
+    code, out = _ask(capsys, "add", b, *FLAGS)
+    assert code == 0 and "has the same words" not in out
     assert _status(OLD) == "active"
 
 
-@pytest.mark.parametrize("a,b", TRIVIAL)
-def test_a_trivial_form_change_is_retired(mem, capsys, a, b):
+@pytest.mark.parametrize("a,b", ADD_WOULD_END + TIDY_WOULD_END + DIFFERENT_WORD)
+def test_auto_tidy_keeps_both_facts_and_the_agent_task_lists_the_pair(mem, capsys, a, b):
+    _pair(mem, a, b)
+    code, out = _ask(capsys, "tidy", "--auto")
+    assert code == 0 and "Nothing to retire." in out
+    assert _status(OLD) == _status(NEW) == "active"
+
+
+@pytest.mark.parametrize("a,b", ADD_WOULD_END + TIDY_WOULD_END)
+def test_a_change_in_form_reaches_the_agent_task(mem, capsys, a, b):
+    _pair(mem, a, b)
+    _ask(capsys, "tidy")
+    task = (mem / "proposals" / "tidy-followups.md").read_text()
+    assert OLD in task and NEW in task
+
+
+@pytest.mark.parametrize("a,b", SAME)
+def test_the_same_text_is_retired(mem, capsys, a, b):
     _pair(mem, a, b)
     _ask(capsys, "tidy", "--auto")
     assert _status(OLD) == "superseded"
     assert _status(NEW) == "active"
 
 
-def test_the_labelled_set_has_no_false_retire():
-    fixture = Path(__file__).parent.parent / "benchmarks" / "fixtures" / "near_repeats.jsonl"
-    rows = [json.loads(line) for line in fixture.read_text(encoding="utf-8").splitlines()]
-    retired = [row for row in rows if near_key(row["a"]) == near_key(row["b"])]
-    assert retired, "the set must hold repeats that differ only in form"
-    assert [row["a"] for row in retired if row["label"] == "different"] == []
-
-
-def test_each_key_keeps_order_and_needs_words():
-    assert exact_key("alpha calls beta") != exact_key("beta calls alpha")
-    assert near_key("alpha calls beta") != near_key("beta calls alpha")
-    assert near_key("The") == ()
-
-
-def test_a_flagged_pair_goes_to_the_agent_task(mem, capsys):
-    _pair(mem, *DIFFERENT[0])
-    _ask(capsys, "tidy")
-    task = (mem / "proposals" / "tidy-followups.md").read_text()
-    assert OLD in task and NEW in task
-
-
-@pytest.mark.parametrize(
-    "a,b",
-    [
-        (
-            "Service alpha calls service beta at startup",
-            "Service beta calls service alpha at startup",
-        ),
-        ("The parser module is written in C++", "The parser module is written in C#"),
-    ],
-)
-def test_add_does_not_supersede_when_the_same_words_say_something_else(mem, capsys, a, b):
+@pytest.mark.parametrize("a,b", SAME)
+def test_add_supersedes_the_same_text(mem, capsys, a, b):
     write_facts(mem, [make_fact(OLD, a)])
-    code, out = _ask(capsys, "add", b, "--basis", "seen", "--source", "session:2026-11-01")
-    assert code == 0 and "superseded" not in out.split("similar to")[0]
-    assert _status(OLD) == "active"
+    _, out = _ask(capsys, "add", b, *FLAGS)
+    assert "has the same words" in out
+    assert _status(OLD) == "superseded"
 
 
-def test_add_says_auto_tidy_leaves_a_pair_with_a_differing_word(mem, capsys):
-    a, b = DIFFERENT[0]
-    write_facts(mem, [make_fact(OLD, a)])
-    _, out = _ask(capsys, "add", b, "--basis", "seen", "--source", "session:2026-11-01")
-    assert "auto-tidy can supersede" not in out
-    assert "agent task" in out
-
-
-def test_add_says_auto_tidy_can_retire_a_trivial_change(mem, capsys):
-    a = "The cache must be warmed before the release job runs in staging"
-    b = "The cache must be warmed before the release jobs runs in staging"
-    write_facts(mem, [make_fact(OLD, a)])
-    _, out = _ask(capsys, "add", b, "--basis", "seen", "--source", "session:2026-11-01")
-    assert "auto-tidy can supersede" in out
-
-
-@pytest.mark.parametrize("a,b", TRIVIAL[:3])
-def test_a_stated_fact_is_not_retired_by_a_fact_with_another_basis(mem, capsys, a, b):
-    _pair(mem, a, b, basis="told")
+@pytest.mark.parametrize("a,b", NOT_SAME)
+def test_a_mark_that_can_change_the_meaning_keeps_both_facts(mem, capsys, a, b):
+    assert repeat_key(a) != repeat_key(b)
+    _pair(mem, a, b)
     _ask(capsys, "tidy", "--auto")
     assert _status(OLD) == "active"
 
 
-def test_a_stated_fact_is_retired_only_by_a_stated_trivial_change(mem, capsys):
-    a, b = TRIVIAL[2]
+def test_a_symbol_only_repeat_is_still_a_repeat(mem, capsys):
+    write_facts(mem, [make_fact(OLD, "✅")])
+    _, out = _ask(capsys, "add", "✅", *FLAGS)
+    assert "has the same words" in out
+    assert _status(OLD) == "superseded"
+
+
+def test_a_rule_repeat_writes_nothing_and_a_rule_in_other_case_is_a_new_rule(mem, capsys):
+    write_facts(mem, [make_fact(OLD, "Never force push", kind="rule", basis="told")])
+    code, out = _ask(capsys, "add", "Never force push.", "--kind", "rule", *FLAGS)
+    assert code == 0 and "already exists" in out
+    code, out = _ask(capsys, "add", "never force push", "--kind", "rule", *FLAGS)
+    assert code == 0 and "added" in out
+    assert _status(OLD) == "active"
+
+
+def test_the_labelled_set_has_no_false_retire():
+    fixture = Path(__file__).parent.parent / "benchmarks" / "fixtures" / "near_repeats.jsonl"
+    rows = [json.loads(line) for line in fixture.read_text(encoding="utf-8").splitlines()]
+    retired = [row for row in rows if repeat_key(row["a"]) == repeat_key(row["b"])]
+    assert retired, "the set must hold a repeat that differs only in whitespace or a final mark"
+    assert [row["a"] for row in retired if row["label"] == "different"] == []
+
+
+def test_add_says_both_stay_for_a_similar_fact(mem, capsys):
+    a, b = DIFFERENT_WORD[0]
+    write_facts(mem, [make_fact(OLD, a)])
+    _, out = _ask(capsys, "add", b, *FLAGS)
+    assert "auto-tidy can supersede" not in out
+    assert "Both stay active" in out and "agent task" in out
+    assert _status(OLD) == "active"
+
+
+def test_a_stated_fact_is_not_retired_by_a_fact_with_another_basis(mem, capsys):
+    _pair(mem, "Deploys need a clean tree", "Deploys need a clean tree", basis="told")
+    _ask(capsys, "tidy", "--auto")
+    assert _status(OLD) == "active"
+
+
+def test_a_stated_fact_is_retired_by_the_same_stated_text(mem, capsys):
+    text = "Deploys need a clean tree"
     write_facts(
         mem,
         [
-            make_fact(OLD, a, basis="told", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(NEW, b, basis="told", learned_at="2026-10-02T00:00:00+00:00"),
+            make_fact(OLD, text, basis="told", learned_at="2026-10-01T00:00:00+00:00"),
+            make_fact(NEW, text, basis="told", learned_at="2026-10-02T00:00:00+00:00"),
         ],
     )
     _ask(capsys, "tidy", "--auto")
     assert _status(OLD) == "superseded"
 
 
-def test_two_stated_facts_with_a_differing_word_both_stay(mem, capsys):
-    a = "The staging cluster has four nodes and runs in region east"
-    b = "The staging cluster has six nodes and runs in region east"
-    write_facts(
-        mem,
-        [
-            make_fact(OLD, a, basis="told", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(NEW, b, basis="told", learned_at="2026-10-02T00:00:00+00:00"),
-        ],
-    )
-    _ask(capsys, "tidy", "--auto")
-    assert _status(OLD) == "active"
-
-
-def test_a_stated_newer_fact_does_not_retire_a_different_older_fact(mem, capsys):
-    a, b = DIFFERENT[0]
-    write_facts(
-        mem,
-        [
-            make_fact(OLD, a, learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(NEW, b, basis="told", learned_at="2026-10-02T00:00:00+00:00"),
-        ],
-    )
-    _ask(capsys, "tidy", "--auto")
-    assert _status(OLD) == "active"
-
-
-def test_a_guess_does_not_retire_an_observation_on_a_trivial_change(mem, capsys):
-    a, b = TRIVIAL[2]
-    write_facts(
-        mem,
-        [
-            make_fact(OLD, a, basis="seen", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(NEW, b, basis="guess", learned_at="2026-10-02T00:00:00+00:00"),
-        ],
-    )
-    _ask(capsys, "tidy", "--auto")
-    assert _status(OLD) == "active"
-
-
 def test_notes_for_two_branches_stay_apart(mem, capsys):
-    a, b = TRIVIAL[2]
+    text = "Deploys need a clean tree"
     write_facts(
         mem,
         [
             make_fact(
                 OLD,
-                a,
+                text,
                 scope="short",
                 until_branch_merged="alpha",
                 expires_at="2099-01-01",
@@ -215,7 +209,7 @@ def test_notes_for_two_branches_stay_apart(mem, capsys):
             ),
             make_fact(
                 NEW,
-                b,
+                text,
                 scope="short",
                 until_branch_merged="beta",
                 expires_at="2099-01-01",
@@ -224,4 +218,4 @@ def test_notes_for_two_branches_stay_apart(mem, capsys):
         ],
     )
     _, out = _ask(capsys, "tidy", "--auto", "--dry-run")
-    assert "near-duplicate" not in out
+    assert "duplicate" not in out

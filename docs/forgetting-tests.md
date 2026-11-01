@@ -147,23 +147,31 @@ overlap only prompts the agent. It never ends a fact.
 
 ## Results: near repeats
 
-`benchmarks/near_repeat_eval.py` runs a labelled set of 64 pairs. It holds 40 real sentence pairs
-from the docs of this repo, 4 from an audit, 7 from the tests and 13 that one author wrote. A pair
-is `repeat` when the newer text says all that the older one says, else `different`.
+`benchmarks/near_repeat_eval.py` runs a labelled set of 80 pairs. It holds 40 real sentence pairs
+from the docs of this repo, 20 from two audits, 7 from the tests and 13 that one author wrote. A
+pair is `repeat` when the newer text says all that the older one says, else `different`.
 
-| Rule | False retires, of 35 | Repeats caught, of 29 | Pairs left for the agent task |
+| Rule | False retires, of 51 | Repeats caught, of 29 | Pairs left for the agent task |
 |---|---:|---:|---:|
-| 80 percent of the words, the same numbers, negations and opposites | 21 | 23 | 0 |
-| The same words in order, after case, plural, punctuation and stop words | 0 | 9 | 36 |
+| The same words in order, after case, plural, punctuation and stop words | 16 | 9 | 51 |
+| The same text byte for byte, apart from whitespace and a final `.`, `,`, `;` or `:` | 0 | 3 | 73 |
 
-**The cost is explicit.** 20 of the 29 repeats now load twice until an agent settles them. A false
+The 16 false retires of the older rule are all audit rows: `-1` and `1`, `retries != 0` and
+`retries = 0`, `Foo` and `foo`, `users` and `user`, `plan A` and `plan`. On the 64 older rows, which
+held no such pair, the older rule made 0 false retires.
+
+**The cost is explicit.** 26 of the 29 repeats now load twice until an agent settles them. A false
 retire loses a true fact, and a repeat costs some words in the load, so this is the right side of
-the trade. Both rules retire 0 pairs on a copy of this repo's own memory (66 facts), on the coding
-and synthetic fixtures (122 facts) and on the test fixture (9 facts), because none of them holds
-such a pair. So the real memory gives no evidence for either rule. One author wrote the labels.
+the trade. One author wrote the labels.
 
-The forgetting replay does not run auto-tidy, so these numbers do not move it. A run before and
-after this change gave the same summary in all rows.
+The similarity flag lost its lists of negations and opposites, and of words that look plural. A
+flag only asks an agent to look, so a pair that differs by `not` or by a number now reaches the
+agent task. It did not before, so the agent task can grow. On a copy of this repo's own memory (99
+active facts) and on the coding and synthetic fixtures (114 facts), both versions flag 0 pairs and
+retire 0, so the real memory gives no evidence for the rule, and no sign of noise.
+
+The forgetting replay does not run auto-tidy, and `harness.py` does not import the repeat test, so
+these numbers do not move it.
 
 ## Reproduced defects in 0.3.1
 

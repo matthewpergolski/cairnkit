@@ -230,9 +230,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory search` takes several words with no quotes. `memory add --kind rule --summary`
   writes the rule and says that it does not store the summary. `--area` is optional.
 - `post-merge` allows 3 seconds for the docs check, so a slow start does not lose its line.
+- A purge that raced an add lost facts that were reported added, with `memory check: ok`. Each write of a
+  fact file now takes one lock, and purge reads the files inside it. The audit's race scripts: 9 facts lost
+  in 12 runs before, 0 after.
+- 8 parallel adds of one text gave 8 active copies. They now give one, because add reads the memory again
+  inside the lock.
+- A load cut by git now says in one line what it could not read and how many facts it held back. A timeout
+  no longer reads as "not in git" or as branch `main`. The branch comes from the git folder. When that names
+  none, a note goes to `branch-unread`, which each branch loads.
+- `memory add`, `change`, `keep` and `purge` have a total budget. Under a hung git, `add` took 24 seconds and
+  now takes about 3. The fact is written, and the checks that need git are skipped.
+- A stored name prints at most 80 characters. `--area` with 5000 characters gave a 5004-character load line.
+- A small `--budget` now says that rules are outside it. Rules past 1000 words are held back with a count and
+  the command that prints them.
+- Text that is not UTF-8, a read-only fact folder and a bad `.memory-path` give a clean error, not a Traceback.
+  `memory check` names the bad file. A load exits 0 from a deleted folder too.
+- A closed stdout pipe after a successful command exits 0. It exited 120, and a retry made a repeat.
+- Auto-tidy and `memory add` end a fact with no agent only for the same text, byte for byte, apart
+  from whitespace and a final `.`, `,`, `;` or `:`. `-1` and `1`, `Foo` and `foo`, `users` and
+  `user`, `plan A` and `plan` now keep both facts, and the agent task lists the pair. On the labelled
+  set: 0 false retires of 51 (16 before), 3 repeats caught of 29 (9 before).
+- A damaged line loses only that line. A cut inside a character no longer hides each fact of that
+  writer. An add after a torn tail loads, purge works, and U+2028 in a text no longer splits a record.
+- One record that the code cannot use is skipped and counted. It no longer stops the load or crashes
+  `memory check`.
+- A session start has a total budget of 7 seconds, under the shortest adapter timeout. Optional
+  steps stop first, and the load still prints the facts. A lock wait ends after 5 seconds, and
+  `memory add` says that it wrote nothing. With a slow git, `memory add` still lands soon.
+- A bad value or a typo in `config.toml` keeps auto-tidy off, and `memory check` names it.
+- The clean-up of 0.3.1 ends a mined fact only with proof that its gate wrote it, so a fact that a
+  person accepted stays.
+- A stop blocks once for a given problem, and each line names its command.
 
 ### Removed
 
+- The `grep` and the skills demand in the done test of `memory migrate`, and the `(done)` state of
+  its task. A task file exists only while items are open.
+- Each path that wrote to a tracked file: `--gitignore`, `--commit-msg-guard=shared`, the
+  `AGENTS.md` pointer and `memory migrate --fix-references`. Migrate now lists old paths in the
+  agent task. `memory init --refresh` no longer rewrites `.githooks/`, and no command removes an
+  old block from a tracked `CLAUDE.md` or `AGENTS.md`: it writes `CLAUDE.local.md` and says so.
+- Scenario folding in `memory load`. Each fact that loads now shows its text.
+- The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
+  writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session
+  start. They stay in the archive.
+- The `docs/state` line that `post-merge` printed on each merge. `memory status` shows the state,
+  and says what `memory docs --force` writes. Nobody has to act at a merge.
+- Every rule that ended a fact because of its age: `STALE_DAYS`, the 14-day default of `--short`,
+  `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
+- Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
 - The `grep` and the skills demand in the done test of `memory migrate`, and the `(done)` state of
   its task. A task file exists only while items are open.
 - Each path that wrote to a tracked file: `--gitignore`, `--commit-msg-guard=shared`, the

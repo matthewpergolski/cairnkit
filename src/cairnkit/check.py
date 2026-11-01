@@ -28,6 +28,7 @@ from cairnkit.migrate_refs import OLD_SUFFIX
 from cairnkit.paths import (
     ENV_DIR,
     LINK_NAME,
+    PATH_FILE,
     Project,
     lost_memory,
     lost_note,
@@ -39,7 +40,7 @@ from cairnkit.paths import (
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_in_record, find_secrets, mask, real_secrets
-from cairnkit.selection import clean
+from cairnkit.selection import RULE_WORD_LIMIT, clean
 from cairnkit.state import effective_status
 from cairnkit.store import Located, fact_files, read_located, repaired_lines
 
@@ -344,6 +345,17 @@ def print_advisory(memory: Memory) -> None:
         print("To enforce one: add a check, then `memory change ID --enforced-by TYPE:VALUE`.")
 
 
+def _bad_path_file(project: Project) -> list[str]:
+    """A path file that is not text is ignored, so the memory can be a different one."""
+    try:
+        (project.home / PATH_FILE).read_text()
+    except OSError:
+        return []
+    except UnicodeDecodeError:
+        return [f"{PATH_FILE} is not text, so it is ignored. Fix it: memory init --path FOLDER"]
+    return []
+
+
 @dataclass
 class Health:
     """The one answer about a memory. Status, check, load and stop read it.
@@ -409,6 +421,7 @@ def _hook_lines(state: githook.HookState, health: Health) -> None:
 def _read_health(project: Project, flag: str | None) -> Health:
     memdir, source = resolve_memory_dir(project, flag)
     health = Health(memdir, source, linked=ensure_all_linked(project, flag))
+    health.warnings += _bad_path_file(project)
     has_facts = (memdir / "facts").is_dir()
     if not has_facts and source not in ("flag", ENV_DIR):
         lost = lost_memory(project)
@@ -442,8 +455,9 @@ def _read_health(project: Project, flag: str | None) -> Health:
     count, words = rule_words(memory)
     if words > RULE_WORD_CAP:
         health.todo.append(
-            f"note: {count} active rule(s) hold {words} words; every session loads them "
-            f"all. Above {RULE_WORD_CAP} words, merge rules or end the ones that do not apply."
+            f"note: {count} active rule(s) hold {words} words; every session loads up to "
+            f"{RULE_WORD_LIMIT} words of them. Above {RULE_WORD_CAP} words, merge rules or end "
+            "the ones that do not apply."
         )
     health.todo += migrate_refs.check_notes(memdir)
     _hook_lines(hooks, health)

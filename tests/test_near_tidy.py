@@ -32,7 +32,7 @@ def status_of(fid):
     return Memory.open(find_project(), None).states[fid]
 
 
-def test_near_duplicate_with_the_same_meaning_is_superseded(mem, capsys, monkeypatch):
+def test_near_duplicate_in_form_stays_for_the_agent_task(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(
         mem,
@@ -43,11 +43,8 @@ def test_near_duplicate_with_the_same_meaning_is_superseded(mem, capsys, monkeyp
     )
     code, _ = auto(capsys)
     assert code == 0
-    old = status_of(A)
-    assert old["status"] == "superseded"
-    assert old["superseded_by"] == B
-    log = (mem / "auto-tidy.log").read_text()
-    assert "similar_to" in log
+    assert status_of(A)["status"] == "active"
+    assert status_of(B)["status"] == "active"
 
 
 def test_a_near_pair_with_a_different_meaning_stays_active(mem, capsys, monkeypatch):
@@ -131,7 +128,7 @@ def test_stop_tidies_when_the_tidy_state_is_old(repo, mem, capsys, monkeypatch):
         mem,
         [
             make_fact(A, "Deploys need a clean tree.", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(B, "deploys need a CLEAN tree!", learned_at="2026-10-02T00:00:00+00:00"),
+            make_fact(B, "Deploys need a clean tree", learned_at="2026-10-02T00:00:00+00:00"),
         ],
     )
     (mem / ".auto-tidy-state.json").write_text(

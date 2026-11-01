@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 import subprocess
 
 import pytest
@@ -209,8 +210,11 @@ def test_generic_prints_commands_and_writes_no_agent_file(repo, mem, capsys):
         assert not (repo / folder).exists()
 
 
-def test_auto_detects_agent_folders(repo, mem, capsys, monkeypatch):
-    monkeypatch.setenv("PATH", "/nonexistent")
+def test_auto_detects_agent_folders(repo, mem, capsys, monkeypatch, tmp_path):
+    only_git = tmp_path / "only-git"
+    only_git.mkdir()
+    (only_git / "git").symlink_to(shutil.which("git"))
+    monkeypatch.setenv("PATH", str(only_git))
     (repo / ".claude").mkdir()
     code, _ = install(capsys)
     assert code == 0

@@ -30,8 +30,8 @@ itself. If its output is not in your context, run it. Read it before you work.
   `session:` and today's date.
 - **Look before you add.** Run `memory search WORDS` first. If a fact already says
   it, use `--supersedes ID`. `memory add` refuses text that looks like a secret. It
-  does not refuse a repeat: it supersedes an exact repeat by itself. It writes a near
-  repeat and flags the pair; an agent task
+  does not refuse a repeat: it supersedes the same text by itself. It writes a near
+  repeat, in another case or plural too, and flags the pair; an agent task
   (`proposals/tidy-followups.md`) lists each flagged pair.
 - **Long or short.** Decisions, traps and lessons are long-term (the default).
   Working notes for this branch or task are short-term: add `--short`. They end

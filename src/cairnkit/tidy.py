@@ -19,7 +19,7 @@ from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
 from cairnkit.selection import clean
-from cairnkit.similar import exact_key
+from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records
 
@@ -42,7 +42,7 @@ def _duplicates(active: list[dict]) -> list[Proposal]:
     """Exact repeats only. A near repeat is a flagged pair, which an agent task handles."""
     out = []
     ordered = sorted(active, key=lambda s: (s.get("learned_at", ""), s["id"]))
-    toks = {s["id"]: exact_key(s.get("text", "")) for s in ordered}
+    toks = {s["id"]: repeat_key(s.get("text", "")) for s in ordered}
     done: set[str] = set()
     for i, older in enumerate(ordered):
         if older["id"] in done:

@@ -94,7 +94,7 @@ def state_bytes(mem):
 def cases():
     return [
         make_fact(A, "Deploys need a clean tree.", learned_at="2026-10-01T00:00:00+00:00"),
-        make_fact(B, "deploys need a CLEAN tree!", learned_at="2026-10-02T00:00:00+00:00"),
+        make_fact(B, "Deploys need a clean tree", learned_at="2026-10-02T00:00:00+00:00"),
         make_fact(C, "Working note.", scope="short", expires_at="2026-10-10T00:00:00+00:00"),
     ]
 
@@ -169,7 +169,7 @@ def test_a_merge_after_the_gate_retires_too(repo, mem, capsys, monkeypatch):
         mem,
         [
             make_fact(D, "Fonts load from the CDN.", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(E, "FONTS load from the CDN!", learned_at="2026-10-02T00:00:00+00:00"),
+            make_fact(E, "Fonts load from the CDN", learned_at="2026-10-02T00:00:00+00:00"),
         ],
     )
     before = state_bytes(mem)
@@ -186,7 +186,7 @@ def test_a_git_hook_retire_is_not_written_again_by_session_start(repo, mem, caps
         mem,
         [
             make_fact(A, "Deploys need a clean tree.", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(B, "deploys need a CLEAN tree!", learned_at="2026-10-02T00:00:00+00:00"),
+            make_fact(B, "Deploys need a clean tree", learned_at="2026-10-02T00:00:00+00:00"),
         ],
     )
     hook = repo / ".git" / "hooks" / "pre-push"

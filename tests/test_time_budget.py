@@ -110,7 +110,7 @@ def test_a_held_fact_lock_makes_add_fail_clearly_and_a_retry_lands(mem, repo):
     write_facts(mem, [make_fact(PINNED, "Something.")])
     text = "A fact written while the file is locked."
     path = mem / "facts" / "main.jsonl"
-    with path.open("ab") as held:
+    with (mem / "facts" / store.WRITE_LOCK).open("ab") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
         done, took = _command(repo, os.environ, "add", text, *FLAGS)
     assert done.returncode == 1
@@ -288,6 +288,9 @@ def test_each_budget_is_under_the_shortest_timeout_of_each_adapter(repo, mem, ca
     assert {"session-start", "stop", "after-shell", "prompt", "subagent-start"} <= events
     for event, limit in found:
         assert deadline.COMMAND_BUDGET[event] < limit, event
+    shortest = min(limit for _, limit in found)
+    for command in ("add", "change", "keep", "purge"):
+        assert deadline.COMMAND_BUDGET[command] + store.WRITE_LOCK_FLOOR < shortest
     for rel in (".pi/extensions/cairnkit.ts", ".opencode/plugins/cairnkit.js"):
         millis = {int(m) for m in re.findall(r"timeout: (\d+)", (repo / rel).read_text())}
         assert max(deadline.COMMAND_BUDGET.values()) * 1000 < min(millis)

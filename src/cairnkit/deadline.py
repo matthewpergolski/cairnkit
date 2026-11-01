@@ -21,10 +21,17 @@ COMMAND_BUDGET = {
     "prompt": 3.0,  # timeout 5
     "pre-compact": 3.0,  # timeout 5
     "stop": 20.0,  # timeout 30
+    # No hook runs these, but a tool that runs one should get an answer as fast as its shortest
+    # hook. With the wait for the write lock (`store.WRITE_LOCK_FLOOR`), they stay under 5.
+    "add": 3.0,
+    "change": 3.0,
+    "keep": 3.0,
+    "purge": 3.0,
 }
 
 _end: float | None = None
 _git_stuck = False
+_git_cuts = 0
 
 
 def left() -> float:
@@ -39,6 +46,20 @@ def has_time() -> bool:
 def git_stuck() -> bool:
     """True after a git call used its whole timeout. Inside a budget, git is not called again."""
     return _end is not None and _git_stuck
+
+
+def git_cuts() -> int:
+    """How many git calls of this process got no answer. Compare two reads, one before a step.
+
+    A failed exit is an answer: git said no. A timeout, a call past the budget and a git that does
+    not run are not. A caller must not read those as "no repo" or as "no branch".
+    """
+    return _git_cuts
+
+
+def note_git_cut() -> None:
+    global _git_cuts
+    _git_cuts += 1
 
 
 def note_git_timeout() -> None:

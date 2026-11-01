@@ -17,7 +17,8 @@ from cairnkit.autotidy import _protected, outranks
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, merged_checker
-from cairnkit.similar import Pair, Words, analyze, exact_key, similar_pairs
+from cairnkit.selection import name
+from cairnkit.similar import Pair, analyze, repeat_key, similar_pairs
 from cairnkit.state import effective_status
 
 TASK_PATH = "proposals/tidy-followups.md"
@@ -53,7 +54,7 @@ def _returned(memory: Memory) -> list[str]:
             old = memory.states.get(link["id"]) if link.get("rel") == "similar_to" else None
             if not old or old.get("status") not in ("wrong", "expired"):
                 continue
-            if exact_key(str(old["text"])) != exact_key(str(state["text"])):
+            if repeat_key(str(old["text"])) != repeat_key(str(state["text"])):
                 continue
             if frozenset((fid, old["id"])) in resolved:
                 continue
@@ -74,7 +75,7 @@ def open_pairs(memory: Memory) -> list[tuple[dict, dict, float, str]]:
     """Return (older, newer, score, how found) for each open pair, in id order."""
     active = _active(memory)
     resolved = _resolved(memory)
-    groups: dict[tuple, dict[str, Words]] = {}
+    groups: dict[tuple, dict[str, set[str]]] = {}
     for fid, state in active.items():
         key = (state.get("kind", "fact"), state["scope"])
         groups.setdefault(key, {})[fid] = analyze(str(state.get("text", "")))
@@ -82,7 +83,7 @@ def open_pairs(memory: Memory) -> list[tuple[dict, dict, float, str]]:
     for words in groups.values():
         for pair in similar_pairs(words):
             a, b = active[pair.a], active[pair.b]
-            same = exact_key(str(a.get("text", ""))) == exact_key(str(b.get("text", "")))
+            same = repeat_key(str(a.get("text", ""))) == repeat_key(str(b.get("text", "")))
             if same and not (_protected(a) or _protected(b) or outranks(a, b) or outranks(b, a)):
                 continue  # `memory tidy --auto` retires an exact repeat
             found[frozenset((pair.a, pair.b))] = (pair, "found by scan")
@@ -103,7 +104,8 @@ def open_pairs(memory: Memory) -> list[tuple[dict, dict, float, str]]:
 def _line(state: dict) -> str:
     text = " ".join(str(state.get("text", "")).split())
     return (
-        f"[{state['id']}] ({state.get('kind', 'fact')}, {state.get('area', '?')}) {text[:SNIPPET]}"
+        f"[{state['id']}] ({state.get('kind', 'fact')}, {name(state.get('area', '?'))}) "
+        f"{text[:SNIPPET]}"
     )
 
 
@@ -170,7 +172,9 @@ def render(pairs: list[tuple[dict, dict, float, str]], items: list[str]) -> str:
         ]
     for older, newer, score, how in pairs:
         a, b = older["id"], newer["id"]
-        shown = "same words" if score == 1.0 else (f"{score:.0%} the same words" if score else how)
+        shown = (
+            "same word set" if score == 1.0 else (f"{score:.0%} the same words" if score else how)
+        )
         lines += [
             f"- Older: {_line(older)}",
             f"  Newer: {_line(newer)}",

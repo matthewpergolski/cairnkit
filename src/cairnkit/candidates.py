@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from cairnkit.schema import MAX_TEXT
-from cairnkit.similar import Words, analyze, similar_pairs
+from cairnkit.similar import repeat_key
 
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(\S.*)$")
 DATED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\b")
@@ -174,28 +174,14 @@ def mark_repeats(found: list[Candidate], facts: dict[str, str]) -> int:
     """Set `repeat_of` by the test that `memory add` uses. Return how many are repeats.
 
     Ids are `c0001` and up, in list order, as in the worklist. A date at the start of a line
-    is left out, because a number that differs means that two facts differ.
+    is left out. A stored fact is a better origin than another candidate.
     """
-    words: dict[str, Words] = {
-        f"c{number:04d}": analyze(DATED_RE.sub("", cand.text))
-        for number, cand in enumerate(found, start=1)
-    }
-    words |= {fid: analyze(text) for fid, text in facts.items()}
-    origin: dict[str, str] = {}
-    pairs = similar_pairs(words)
-    for pair in pairs:
-        if pair.a not in facts and pair.b not in facts:
-            later, earlier = max(pair.a, pair.b), min(pair.a, pair.b)
-            origin[later] = min(origin.get(later, earlier), earlier)
-    for pair in pairs:  # a stored fact is a better origin than another candidate
-        if (pair.a in facts) != (pair.b in facts):
-            cand, fact = (pair.b, pair.a) if pair.a in facts else (pair.a, pair.b)
-            origin[cand] = fact
+    stored = {repeat_key(text): fid for fid, text in facts.items()}
+    first: dict[str, str] = {}
     count = 0
     for number, cand in enumerate(found, start=1):
-        first = origin.get(f"c{number:04d}")
-        while first in origin:
-            first = origin[first]
-        cand.repeat_of = first
-        count += first is not None
+        key = repeat_key(DATED_RE.sub("", cand.text))
+        cand.repeat_of = stored.get(key) or first.get(key)
+        first.setdefault(key, f"c{number:04d}")
+        count += cand.repeat_of is not None
     return count

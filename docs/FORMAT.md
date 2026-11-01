@@ -197,7 +197,7 @@ A change does not edit the fact. It adds a new state.
 | `enforced_by` | no | Rules only. A `<type>:<value>` string sets it. `null` clears it (the rule is advisory again). |
 | `branch_tip` | no | Auto-tidy only. The first tip that it saw of the end branch of a fact with no `branch_tip`. It changes no status. |
 | `cid` | no | A hash that auto-tidy writes. Two sessions that write the same change write it once. A reader applies only the first change with a `cid`. |
-| `case` | no | Auto-tidy only. Why it retired the fact: `duplicate`, `near-duplicate`, `ended`, `file-gone` or `mined`. |
+| `case` | no | Auto-tidy only. Why it retired the fact: `duplicate`, `ended`, `file-gone` or `mined`. An older record can hold `near-duplicate`. |
 | `writer` | yes | The writer name. |
 
 A change must set at least one of `status`, `scope`, `add_links`, `enforced_by` or

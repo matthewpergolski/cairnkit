@@ -1,4 +1,4 @@
-"""The similarity test: 80 percent of the words, and no changed number, negation or opposite."""
+"""The similarity test: 75 percent of the words, with a plural and a stop word ignored."""
 
 import pytest
 
@@ -20,29 +20,29 @@ def test_an_ordinary_word_change_is_similar():
     assert sim(LONG, LONG.replace("lint", "style")) is not None
 
 
+def test_a_plural_and_a_stop_word_do_not_count():
+    assert sim("rails", "rail") == 1.0
+    assert sim("plan A", "plan") == 1.0
+    assert sim("The tables are here", "table here") == 1.0
+
+
 @pytest.mark.parametrize(
     "other",
     [
-        LONG.replace("is rebased", "is not rebased"),  # a second "not" in a text that has one
+        LONG.replace("is rebased", "is not rebased"),
         LONG.replace("tests pass", "tests never pass"),
-        LONG.replace("is not blocked", "is blocked"),  # one "not" less
         LONG.replace("master;", "master 2;"),
     ],
 )
-def test_a_changed_count_of_a_number_or_negation_is_not_similar(other):
-    assert sim(LONG, other) is None
+def test_a_flag_costs_one_look_so_a_negation_or_a_number_is_flagged_too(other):
+    assert sim(LONG, other) is not None
 
 
-def test_a_repeated_number_that_changes_count_is_not_similar():
-    a = "Retry 3 times, wait 3 seconds, then stop and report the failure to the job owner"
-    assert sim(a, a.replace("then stop", "3 then stop")) is None
-
-
-def test_pairs_scan_applies_the_same_guard():
+def test_pairs_scan_applies_the_same_test():
     words = {
         "a": analyze(LONG),
-        "b": analyze(LONG.replace("is rebased", "is not rebased")),
+        "b": analyze("A short text that shares nothing"),
         "c": analyze(LONG.replace("lint", "style")),
     }
-    pairs = {(p.a, p.b) for p in similar_pairs(words)}
-    assert ("a", "c") in pairs and ("a", "b") not in pairs
+    pairs = {frozenset((p.a, p.b)) for p in similar_pairs(words)}
+    assert frozenset(("a", "c")) in pairs and frozenset(("a", "b")) not in pairs

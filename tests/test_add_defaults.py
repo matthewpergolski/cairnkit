@@ -90,7 +90,7 @@ def test_auto_tidy_does_not_let_a_near_repeat_guess_retire_a_seen_fact(mem, caps
     assert autotidy.find(_memory()) == []
 
 
-def test_auto_tidy_still_lets_a_near_repeat_seen_retire_a_guess(mem, capsys):
+def test_auto_tidy_leaves_a_near_repeat_for_the_agent(mem, capsys):
     words = "the deploy script needs a clean tree before each staging release run"
     write_facts(
         mem,
@@ -99,7 +99,7 @@ def test_auto_tidy_still_lets_a_near_repeat_seen_retire_a_guess(mem, capsys):
             make_fact(NEW, words + "s", basis="seen", learned_at="2026-10-02T00:00:00+00:00"),
         ],
     )
-    assert [item.id for item in autotidy.find(_memory())] == [OLD]
+    assert autotidy.find(_memory()) == []
 
 
 def test_instructions_and_help_name_the_defaults(capsys):
