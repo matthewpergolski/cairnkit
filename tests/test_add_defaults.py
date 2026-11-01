@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
 from conftest import make_fact, write_facts
 
 from cairnkit import autotidy
 from cairnkit.cli import main
+from cairnkit.clock import parse_time
 from cairnkit.memory import Memory
 from cairnkit.paths import find_project
 from cairnkit.selection import score_parts
@@ -49,7 +51,7 @@ def test_the_default_shows_as_a_guess_in_the_load(mem, capsys):
 
 
 def test_basis_does_not_change_the_rank():
-    moment = autotidy.parse_time(NOW)
+    moment = parse_time(NOW)
     guess = make_fact(OLD, "Same.", basis="guess")
     seen = make_fact(OLD, "Same.", basis="seen")
     assert score_parts(guess, moment, set(), set()) == score_parts(seen, moment, set(), set())
@@ -105,10 +107,8 @@ def test_instructions_and_help_name_the_defaults(capsys):
 
     assert "defaults to `guess`" in instructions.text()
     assert "session:" in instructions.text()
-    try:
+    with pytest.raises(SystemExit):
         main(["add", "--help"])
-    except SystemExit:
-        pass
     out = capsys.readouterr().out
     assert "default: guess" in " ".join(out.split())
     assert "default: session:" in " ".join(out.split())

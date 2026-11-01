@@ -104,6 +104,11 @@ def outranks(old: dict, new: dict) -> bool:
     return stated(old) and not stated(new)
 
 
+def _guess_over_seen(old: dict, new: dict) -> bool:
+    """A guess with other words must not end an observation. `guess` is also the default basis."""
+    return old.get("basis") == "seen" and new.get("basis") == "guess"
+
+
 def _file_gone(memory: Memory, state: dict) -> str | None:
     source = str(state.get("source", ""))
     if not source.startswith("file:"):
@@ -178,7 +183,9 @@ def _near_duplicates(candidates: list[dict], taken: set[str]) -> list[Retirement
             if pair.score == 1.0:  # the same words and meaning: an exact repeat, handled above
                 continue
             older_id, newer_id = sorted((pair.a, pair.b), key=age.__getitem__)
-            if outranks(by_id[older_id], by_id[newer_id]):
+            if outranks(by_id[older_id], by_id[newer_id]) or _guess_over_seen(
+                by_id[older_id], by_id[newer_id]
+            ):
                 continue
             held = best.get(older_id)
             if (
