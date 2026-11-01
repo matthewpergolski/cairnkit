@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import pytest
 from conftest import git
 from test_migrate import sibling, snapshot
 
@@ -167,9 +166,8 @@ def test_a_doc_named_for_the_old_folder_may_be_rewritten_in_place(repo, capsys):
     assert "Migration finished" in migrate(capsys, "--yes")
 
 
-@pytest.mark.parametrize("found", ["pstack skills: missing for Codex. Run: x"])
-def test_the_done_test_asks_for_no_skills(repo, capsys, monkeypatch, found):
-    monkeypatch.setattr(skills, "advisory", lambda tools=None: found)
+def test_the_done_test_asks_for_no_skills(repo, capsys, monkeypatch):
+    monkeypatch.setattr(skills, "advisory", lambda tools=None: "pstack skills: missing. Run: x")
     old_layout(repo)
     migrate(capsys, "--yes")
     task = task_path(repo).read_text()
@@ -177,3 +175,159 @@ def test_the_done_test_asks_for_no_skills(repo, capsys, monkeypatch, found):
     assert "memory skills status" not in task
     fix_every_item(repo)
     assert "Migration finished" in migrate(capsys, "--yes")
+
+
+# --- one active copy of each file -----------------------------------------------------
+
+
+def memdir(repo: Path) -> Path:
+    return sibling(repo, ".memory")
+
+
+def half_moved(repo: Path) -> Path:
+    """An old folder with both layouts, and the two status files disagree."""
+    old_layout(repo)
+    write(repo / "memory-bank" / "notes" / "status.md", "# Status\nPR 96 merged. Open: 97.\n")
+    return repo
+
+
+def test_an_old_notes_folder_is_not_nested_and_its_file_wins(repo, capsys):
+    half_moved(repo)
+    migrate(capsys, "--yes")
+    mem = memdir(repo)
+    assert "PR 96 merged" in (mem / "notes" / "status.md").read_text()
+    assert not (mem / "notes" / "notes").exists()
+    out = load(capsys)
+    assert "PR 96 merged" in out
+    assert "Do not merge" not in out
+
+
+def test_the_copy_that_lost_is_kept_and_is_a_task_for_the_agent(repo, capsys):
+    half_moved(repo)
+    migrate(capsys, "--yes")
+    copy = memdir(repo) / "proposals" / "old-copies" / "status.md"
+    assert "Do not merge" in copy.read_text()
+    task = task_path(repo).read_text()
+    assert "`memory-bank/proposals/old-copies/status.md:2`" in task
+    assert "memory-bank/notes/status.md" in task
+
+
+def test_deleting_the_old_copy_closes_its_item(repo, capsys):
+    half_moved(repo)
+    migrate(capsys, "--yes")
+    fix_every_item(repo)
+    assert "Migration not finished: 1 item(s)" in migrate(capsys, "--yes")
+    (memdir(repo) / "proposals" / "old-copies" / "status.md").unlink()
+    assert "Migration finished" in migrate(capsys, "--yes")
+
+
+def test_a_note_that_differs_from_the_old_file_gets_the_same_task(repo, capsys):
+    old_layout(repo)
+    write(memdir(repo) / "notes" / "log.md", "# Log\nA newer log.\n")
+    (memdir(repo) / "facts").mkdir()
+    migrate(capsys, "--yes")
+    assert (memdir(repo) / "notes" / "log.md").read_text() == "# Log\nA newer log.\n"
+    assert "`memory-bank/proposals/old-copies/log.md:2`" in task_path(repo).read_text()
+
+
+def test_a_candidate_in_an_old_notes_folder_points_at_the_note(repo, capsys):
+    old_layout(repo)
+    write(repo / "memory-bank" / "notes" / "traps.md", "# Traps\n- Never run pip.\n")
+    migrate(capsys, "--yes")
+    text = (memdir(repo) / "proposals" / "migrate-candidates.jsonl").read_text()
+    assert "file:memory-bank/notes/traps.md:2" in text
+    assert "notes/notes" not in text
+
+
+def test_the_old_path_that_a_doc_names_holds_only_a_pointer(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    pointer = (repo / "memory-bank" / "status.md").read_text()
+    assert "memory-bank/notes/status.md" in pointer
+    assert "Do not merge" not in pointer
+    assert not (repo / "memory-bank" / "decisions.md").exists(), "no doc names it"
+
+
+def test_the_pointer_goes_when_no_doc_names_the_path(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    fix_every_item(repo)
+    migrate(capsys, "--yes")
+    assert not (memdir(repo) / "status.md").exists()
+
+
+def test_the_pointer_stays_for_a_line_that_stays(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    task_path(repo).unlink()
+    migrate(capsys, "--yes")
+    assert "memory-bank/notes/status.md" in (memdir(repo) / "status.md").read_text()
+
+
+def test_a_doc_path_cannot_put_a_pointer_outside_the_memory(repo, capsys):
+    old_layout(repo)
+    outside = repo.parent / "outside.md"
+    outside.write_text("mine\n")
+    write(repo / "CLAUDE.md", "See memory-bank/notes/../../outside.md and memory-bank/../x.md\n")
+    write(repo.parent / "x.md", "mine\n")
+    write(repo / "CONTRIBUTING.md", "See memory-bank/../../outside.md\n")
+    migrate(capsys, "--yes")
+    assert outside.read_text() == "mine\n"
+    assert (repo.parent / "x.md").read_text() == "mine\n"
+    assert not (repo.parent.parent / "outside.md").exists()
+
+
+def test_a_status_file_written_to_the_old_path_later_is_moved_away(repo, capsys):
+    """Old instructions lead an agent to write there, and that is how two copies come back."""
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    fix_every_item(repo)
+    migrate(capsys, "--yes")
+    write(repo / "memory-bank" / "status.md", "# Status\nA later status.\n")
+    out = migrate(capsys, "--yes")
+    assert "Migration not finished: 1 item(s)" in out
+    assert not (memdir(repo) / "status.md").exists()
+    assert "A later status" in (memdir(repo) / "proposals" / "old-copies" / "status.md").read_text()
+    assert "Do not merge" in (memdir(repo) / "notes" / "status.md").read_text()
+
+
+def test_a_later_file_with_no_note_moves_into_notes(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    write(repo / "memory-bank" / "specs" / "new.md", "# New\n")
+    migrate(capsys, "--yes")
+    assert not (memdir(repo) / "specs").exists()
+    assert (memdir(repo) / "notes" / "specs" / "new.md").read_text() == "# New\n"
+
+
+def test_a_later_file_with_the_same_text_as_the_note_is_removed(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    write(memdir(repo) / "log.md", (memdir(repo) / "notes" / "log.md").read_text())
+    migrate(capsys, "--yes")
+    assert "old-copies/log.md" not in task_path(repo).read_text()
+    assert "memory-bank/notes/log.md" in (memdir(repo) / "log.md").read_text(), "a doc names it"
+
+
+def test_a_repo_already_half_moved_with_no_old_folder_gets_settled(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    old = sibling(repo, ".memory-old")
+    for path in sorted(old.rglob("*"), reverse=True):
+        path.rmdir() if path.is_dir() else path.unlink()
+    old.rmdir()
+    (memdir(repo) / "proposals" / "migrate-candidates.jsonl").unlink()
+    write(repo / "memory-bank" / "status.md", "# Status\nStale.\n")
+    assert "Migration not finished" in migrate(capsys, "--yes")
+    assert "Stale" in (memdir(repo) / "proposals" / "old-copies" / "status.md").read_text()
+    assert "memory-bank/notes/status.md" in (memdir(repo) / "status.md").read_text()
+
+
+def test_the_plan_of_a_rerun_moves_nothing(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    write(repo / "memory-bank" / "status.md", "# Status\nA later status.\n")
+    before = snapshot(repo.parent)
+    out = migrate(capsys)
+    assert "would" in out
+    assert snapshot(repo.parent) == before
