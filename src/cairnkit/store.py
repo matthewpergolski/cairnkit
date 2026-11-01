@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import os
 import tempfile
@@ -28,20 +29,27 @@ def fact_files(memdir: Path) -> list[Path]:
 
 
 def read_located(files: list[Path]) -> tuple[list[Located], list[str]]:
-    """Parse every line. Return the records and one message per bad line."""
+    """Parse every line. Return the records and one message per bad line.
+
+    This reads bytes, because a crash can cut a file inside a character. A bad byte loses its own
+    line. Only a newline ends a line, because a text can hold U+2028 and JSON keeps it as it is.
+    """
     found: list[Located] = []
     errors: list[str] = []
     for path in files:
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError) as exc:
+            lines = path.read_bytes().split(b"\n")
+        except OSError as exc:
             errors.append(f"{path}: cannot read: {exc}")
             continue
         for number, raw in enumerate(lines, start=1):
             if not raw.strip():
                 continue
             try:
-                record = json.loads(raw)
+                record = json.loads(raw.decode("utf-8"))
+            except UnicodeDecodeError:
+                errors.append(f"{path.name}:{number}: not valid UTF-8")
+                continue
             except json.JSONDecodeError as exc:
                 errors.append(f"{path.name}:{number}: not valid JSON: {exc.msg}")
                 continue
@@ -102,21 +110,21 @@ def drop_id(path: Path, fact_id: str) -> int:
 
     A line goes when it parses to that id, or when it does not parse and holds the id.
     """
-    kept: list[str] = []
+    kept: list[bytes] = []
     dropped = 0
-    for raw in path.read_text(encoding="utf-8").splitlines(keepends=True):
+    for raw in io.BytesIO(path.read_bytes()):
         try:
-            record = json.loads(raw)
+            record = json.loads(raw.decode("utf-8"))
             match = isinstance(record, dict) and record.get("id") == fact_id
-        except json.JSONDecodeError:
-            match = fact_id in raw
+        except ValueError:
+            match = fact_id.encode() in raw
         if match:
             dropped += 1
         else:
             kept.append(raw)
     if dropped:
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".purge-")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "wb") as fh:
             fh.writelines(kept)
             fh.flush()
             os.fsync(fh.fileno())

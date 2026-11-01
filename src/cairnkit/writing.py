@@ -378,7 +378,7 @@ def keep_fact(memory: Memory, fact_id: str, reason: str | None) -> None:
 def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
     """Remove every line for fact_id and leave a tombstone. The only real deletion."""
     if fact_id not in memory.states and not any(
-        fact_id in path.read_text(encoding="utf-8") for path in fact_files(memory.dir)
+        fact_id.encode() in path.read_bytes() for path in fact_files(memory.dir)
     ):
         raise Refused(f"no record with id {fact_id}")
     tomb = memory.states.get(fact_id, {})
