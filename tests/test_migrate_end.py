@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from conftest import git
+from conftest import add_worktree, git
 from test_migrate import sibling, snapshot
 
-from cairnkit import skills
+from cairnkit import adapters, hooks_cmd, skills
 from cairnkit.cli import main
 
 OLD_CHECKER = """\
@@ -331,3 +331,129 @@ def test_the_plan_of_a_rerun_moves_nothing(repo, capsys):
     out = migrate(capsys)
     assert "would" in out
     assert snapshot(repo.parent) == before
+
+
+# --- what the old tooling did -----------------------------------------------------------
+
+
+NAMED_CHECKS = (
+    "secret scan",
+    "status older than the code",
+    "worktree not in queue",
+    "file pointers",
+    "note limits",
+    "check_changelog_entry",
+)
+
+
+def test_the_plan_and_the_run_list_each_old_check_by_name(repo, capsys):
+    old_layout(repo)
+    for out in (migrate(capsys), migrate(capsys, "--yes")):
+        for name in NAMED_CHECKS:
+            assert out.count(name) == 1, name
+
+
+def test_the_list_says_what_the_check_reads_and_does_not_call_the_checker_unused(repo, capsys):
+    old_layout(repo)
+    out = migrate(capsys, "--yes")
+    assert "`memory check` reads notes and facts for secrets" in out
+    assert "unused" not in out
+    assert "unused" not in task_path(repo).read_text()
+
+
+def test_a_rerun_does_not_list_the_checks_again(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    again = migrate(capsys, "--yes")
+    for name in NAMED_CHECKS:
+        assert name not in again, name
+
+
+def test_the_task_holds_the_list_so_the_agent_can_tell_the_developer(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    task = task_path(repo).read_text()
+    for name in NAMED_CHECKS:
+        assert task.count(name) == 1, name
+
+
+def test_no_old_tooling_means_no_list(repo, capsys):
+    write(repo / "memory-bank" / "status.md", "# Status\n")
+    write(repo / ".gitignore", ".worktrees/\nmemory-bank/\n")
+    out = migrate(capsys, "--yes")
+    assert "old tooling" not in out
+
+
+def test_a_checker_with_no_known_check_is_named_for_the_agent_to_read(repo, capsys):
+    old_layout(repo)
+    write(repo / "tools" / "check_memory.py", "print('hello')\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "plain")
+    assert "tools/check_memory.py: no check found by name" in migrate(capsys, "--yes")
+
+
+def test_a_checker_inside_the_old_folder_is_read_too(repo, capsys):
+    write(repo / "memory-bank" / "check_memory.py", "def check_secrets():\n    pass\n")
+    write(repo / ".gitignore", ".worktrees/\nmemory-bank/\n")
+    assert "check_memory.py: secret scan" in migrate(capsys, "--yes")
+
+
+# --- which checkout, and what it installs ----------------------------------------------
+
+
+def test_the_plan_from_a_worktree_says_which_checkout_it_acts_on(repo, capsys, monkeypatch):
+    old_layout(repo)
+    worktree = add_worktree(repo, "feature-x")
+    monkeypatch.chdir(worktree)
+    out = migrate(capsys)
+    assert f"It acts on the main checkout {repo}" in out
+    assert f"You ran it from the worktree {worktree}" in out
+
+
+def test_the_plan_from_the_main_checkout_names_it_too(repo, capsys):
+    old_layout(repo)
+    out = migrate(capsys)
+    assert f"It acts on the main checkout {repo}" in out
+    assert "You ran it from the worktree" not in out
+
+
+def test_a_fix_on_a_branch_counts_when_the_rerun_runs_there(repo, capsys, monkeypatch):
+    old_layout(repo)
+    worktree = add_worktree(repo, "feature-x")
+    migrate(capsys, "--yes")
+    fix_every_item(worktree)
+    monkeypatch.chdir(worktree)
+    assert "Migration finished" in migrate(capsys, "--yes")
+
+
+def test_the_plan_names_all_that_it_installs_and_installs_only_that(repo, capsys, monkeypatch):
+    monkeypatch.setattr(hooks_cmd, "INSTALL_ON_INIT", True)
+    monkeypatch.setattr(adapters, "detect", lambda project: ["claude"])
+    old_layout(repo)
+    worktree = add_worktree(repo, "feature-x")
+    plan = migrate(capsys)
+    assert "would connect the agent tools (claude)" in plan
+    assert str(worktree) in plan
+    hooks = repo / ".git" / "hooks"
+    named = {"pre-commit", "post-checkout", "pre-push", "post-merge"}
+    assert str(hooks) in plan
+    for name in named:
+        assert name in plan
+    assert not (hooks / "pre-commit").exists()
+    assert not (worktree / ".claude" / "settings.local.json").exists()
+    out = migrate(capsys, "--yes")
+    assert "connect the agent tools (claude)" in out
+    assert (worktree / ".claude" / "settings.local.json").is_file()
+    assert {p.name for p in hooks.iterdir() if not p.name.endswith(".sample")} == named
+    assert git(repo, "status", "--short") == ""
+
+
+def test_a_rerun_installs_nothing(repo, capsys, monkeypatch):
+    monkeypatch.setattr(hooks_cmd, "INSTALL_ON_INIT", True)
+    monkeypatch.setattr(adapters, "detect", lambda project: ["claude"])
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    (repo / ".git" / "hooks" / "post-merge").unlink()
+    again = migrate(capsys, "--yes")
+    assert not (repo / ".git" / "hooks" / "post-merge").exists()
+    assert "connect" not in again
