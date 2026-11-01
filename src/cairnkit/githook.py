@@ -114,6 +114,9 @@ DEFAULT_IDENTITY_PATTERNS = [
 ]
 
 
+ALL_HOOKS = ("pre-commit", "post-checkout", "pre-push", "post-merge", "post-commit", "commit-msg")
+
+
 class GuardPatterns(NamedTuple):
     message: list[str]
     identity: list[str]

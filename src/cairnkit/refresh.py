@@ -80,7 +80,7 @@ def _has_block(path: Path) -> bool:
     return _holds(path, *(mark for pair in githook.PAIRS for mark in pair))
 
 
-def _block_paths(project: Project, memdir: Path) -> list[Path]:
+def block_paths(project: Project, memdir: Path) -> list[Path]:
     # Include legacy CLAUDE.md / AGENTS.md so wrote_files still sees old installs.
     rels = sorted(
         set(BLOCK_FILES) | {"CLAUDE.md", "AGENTS.md"} | set(read_stamp(memdir).get("blocks") or [])
@@ -149,7 +149,7 @@ def _leftovers(project: Project, memdir: Path) -> list[str]:
 
 def wrote_files(project: Project, memdir: Path) -> bool:
     return bool(
-        any(_holds(p, *(s for s, _ in instructions.PAIRS)) for p in _block_paths(project, memdir))
+        any(_holds(p, *(s for s, _ in instructions.PAIRS)) for p in block_paths(project, memdir))
         or _agents(project)
         or _local_hooks(project)
     )
@@ -254,7 +254,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     if any(step.startswith("note: tracked") for step in migrate_steps):
         steps += _ensure_local_block(project, dry_run)
     shared_names = {"CLAUDE.md", "AGENTS.md"}
-    for path in _block_paths(project, memdir):
+    for path in block_paths(project, memdir):
         if path.name in shared_names:
             continue  # migrated above; never refresh a tracked shared file in place
         result = instructions.replace_block(path, dry_run)

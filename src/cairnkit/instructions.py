@@ -121,6 +121,20 @@ def remove_block(path: Path, dry_run: bool = False) -> str:
     return "removed"
 
 
+def take_back_block(path: Path, checkout: Path, dry_run: bool = False) -> str:
+    """Remove the block, and the file when only what the tool wrote around the block is left."""
+    from cairnkit import harness_local, rules_target
+    from cairnkit.ignore import remove_file
+
+    result = remove_block(path, dry_run)
+    if result != "removed" or dry_run:
+        return result
+    left = path.read_text(encoding="utf-8").strip()
+    if left in ("", rules_target.IMPORT, *(t.prefix.strip() for t in harness_local.TARGETS)):
+        remove_file(path, checkout)
+    return result
+
+
 def replace_block(path: Path, dry_run: bool = False) -> str:
     """Replace the one marked block in place. Never append.
 

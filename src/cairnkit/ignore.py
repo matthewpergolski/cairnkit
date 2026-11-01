@@ -15,17 +15,41 @@ def missing_lines(path: Path, lines: list[str]) -> list[str]:
 
 
 def append_lines(path: Path, lines: list[str], header: str = HEADER) -> None:
+    """Add lines under one header. Older versions wrote the header again with each new line."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    old = path.read_text() if path.is_file() else ""
-    prefix = "" if not old or old.endswith("\n") else "\n"
-    with path.open("a") as fh:
-        fh.write(prefix + header + "\n" + "\n".join(lines) + "\n")
+    old = path.read_text().splitlines() if path.is_file() else []
+    first = old.index(header) if header in old else len(old)
+    kept = old[: first + 1] + [line for line in old[first + 1 :] if line != header]
+    head = [] if header in old else [header]
+    path.write_text("\n".join([*kept, *head, *lines]) + "\n")
 
 
 def exclude_file(project: Project) -> Path | None:
     if project.common_dir is None:
         return None
     return project.common_dir / "info" / "exclude"
+
+
+def drop_lines(project: Project, lines: list[str]) -> list[str]:
+    """Take lines back out of .git/info/exclude. Return the steps."""
+    target = exclude_file(project)
+    if target is None or not target.is_file():
+        return []
+    old = target.read_text().splitlines()
+    found = [line for line in lines if line in old]
+    if found:
+        target.write_text("\n".join(line for line in old if line not in found) + "\n")
+        return [f"remove {', '.join(found)} from {target}"]
+    return []
+
+
+def remove_file(path: Path, checkout: Path) -> None:
+    """Remove a file the tool wrote, and each folder that this leaves empty, up to the checkout."""
+    path.unlink()
+    for folder in path.parents:
+        if folder == checkout or any(folder.iterdir()):
+            return
+        folder.rmdir()
 
 
 def is_tracked(project: Project, rel: str, checkout: Path | None = None) -> bool:

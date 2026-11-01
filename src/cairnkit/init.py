@@ -7,14 +7,16 @@ import sys
 import uuid
 from pathlib import Path
 
-from cairnkit.ignore import append_lines, exclude, is_tracked, keep_out_of_git, missing_lines
+from cairnkit.ignore import exclude, is_tracked, keep_out_of_git
 from cairnkit.paths import (
     ENV_DIR,
+    GIT_FOLDER_REFUSAL,
     IDENTITY_FILE,
     LINK_NAME,
     PATH_FILE,
     Project,
     holds_memory,
+    inside_git_folder,
     linked_memory,
     lost_memory,
     lost_note,
@@ -92,21 +94,6 @@ def plan_link(
     if link.exists():
         return "refuse", f"{link} is a file, not a link"
     return "create", None
-
-
-def _ignore_targets(project: Project) -> list[Path]:
-    targets = []
-    if project.common_dir is not None:
-        targets.append(project.common_dir / "info" / "exclude")
-    return targets
-
-
-def _missing_ignore_lines(path: Path) -> list[str]:
-    return missing_lines(path, IGNORE_LINES)
-
-
-def _append_ignore(path: Path, lines: list[str]) -> None:
-    append_lines(path, lines)
 
 
 def _write_skeleton(memdir: Path) -> list[str]:
@@ -266,6 +253,9 @@ def run_init(
     The rules about memory itself ship inside the tool (`memory instructions`).
     """
     cwd = Path.cwd().absolute()
+    if inside_git_folder(cwd):
+        print(GIT_FOLDER_REFUSAL.format(cwd=cwd), file=sys.stderr)
+        return 1
     if not project.is_git and project.root != cwd:
         memdir, _ = resolve_memory_dir(project, None)
         print(
@@ -340,12 +330,7 @@ def run_init(
             link.rmdir()
         link.symlink_to(target, target_is_directory=True)
 
-    for ignore_file in _ignore_targets(project):
-        missing = _missing_ignore_lines(ignore_file)
-        if missing:
-            steps.append(f"add {', '.join(missing)} to {ignore_file}")
-            if not dry_run:
-                _append_ignore(ignore_file, missing)
+    steps += exclude(project, IGNORE_LINES, dry_run)
 
     if not dry_run:
         remember(project, *resolve_memory_dir(project))

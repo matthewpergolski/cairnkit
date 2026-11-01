@@ -92,6 +92,17 @@ def find_project(cwd: Path | None = None) -> Project:
     )
 
 
+def inside_git_folder(cwd: Path) -> bool:
+    """True in a bare repo or in a .git folder. No setup belongs there, because no checkout is."""
+    return run_git(cwd, "rev-parse", "--is-inside-git-dir") == "true"
+
+
+GIT_FOLDER_REFUSAL = (
+    "error: {cwd} is a git folder, not a checkout. Nothing changed. Run this in a checkout. "
+    "For a bare repo, add a worktree first: `git worktree add ../NAME`."
+)
+
+
 def plain_root(cwd: Path) -> Path:
     """Outside git: the nearest folder, from cwd up, with a memory link or .memory-path.
 

@@ -115,8 +115,9 @@ def test_uninstall_removes_the_empty_tool_folders_it_left(repo, mem):
     connect_all(repo)
     assert main(["instructions", "--write-instructions"]) == 0
     assert main(["hooks", "uninstall"]) == 0
-    left = {p.name for p in repo.iterdir()} - {".git", "memory-bank"}
-    assert not {f".{name}" for name in ALL_TOOLS} & left
+    left = {p.name for p in repo.iterdir()}
+    # Grok stays out of install beside Claude Code, so nothing was written in .grok.
+    assert not {f".{name}" for name in ALL_TOOLS if name != "grok"} & left
     assert "CLAUDE.local.md" not in left
 
 
