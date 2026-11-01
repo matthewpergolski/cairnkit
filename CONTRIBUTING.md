@@ -100,7 +100,7 @@ src/cairnkit/
   init.py        memory init
   migrate.py     memory migrate (move the old folder aside, init, copy, worklist)
   candidates.py  candidate facts from prose notes (read only, no model)
-  migrate_refs.py  old-layout paths: rewrite exact ones, list the rest, the agent task
+  migrate_refs.py  old-layout paths, old checks, files outside the layout, the agent task
   clock.py       times
   schema.py      record fields and checks of one record
   secretscan.py  secret patterns

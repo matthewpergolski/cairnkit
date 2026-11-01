@@ -62,7 +62,8 @@ before the home folder and the file system root.
   proposals/<date>.md           output of `memory tidy`
   proposals/tidy-followups.md   the agent task for similar pairs (rebuilt; removed when empty)
   proposals/migrate-candidates.jsonl   output of `memory migrate`
-  proposals/migrate-followups.md       the agent task of `memory migrate`
+  proposals/migrate-followups.md       the agent task of `memory migrate` (removed when nothing is open)
+  proposals/old-copies/**              copies that lost to a note; an agent compares, then deletes each one
   auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)

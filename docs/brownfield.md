@@ -13,9 +13,10 @@ refuses, merges, or adds a marked block.
    lists the files. Use `memory migrate`. It folds the old notes into the new
    memory, and it deletes nothing.
    1. Run `memory migrate` (add `--preset dev` for a codebase). **It changes
-      nothing.** It shows the plan: every step, and the counts of candidate
-      facts. Read it. (`--dry-run` means the same and is kept for old
-      scripts. `--dry-run` with `--yes` is refused.)
+      nothing.** It shows the plan: which checkout it acts on, every step, the
+      counts of candidate facts, each check of the old tooling, and what the
+      install step reaches. Read it. (`--dry-run` means the same and is kept for
+      old scripts. `--dry-run` with `--yes` is refused.)
    2. Then run `memory migrate --yes`. It does these steps in this order:
       1. Moves the old folder out of the repo, to `../my-app.memory-old`.
          It refuses when that folder exists. A worktree with its own old
@@ -23,7 +24,9 @@ refuses, merges, or adds a marked block.
          not merged. The command says how many of its files differ.
       2. Runs `memory init` (the memory folder, the links, the presets).
       3. Copies every old file into `memory-bank/notes/`, with the same
-         relative path. It never overwrites a note.
+         relative path. It never overwrites a note. An old `notes/REL` stays
+         `notes/REL`, and it wins over an old `REL`. A copy that lost goes to
+         `memory-bank/proposals/old-copies/`, with a task item to compare them.
       4. Writes `memory-bank/proposals/migrate-candidates.jsonl`: one line for
          each bullet, numbered item or dated line of the old notes, with the
          file, the line and a suggested kind. It also counts lines in and
@@ -38,12 +41,21 @@ refuses, merges, or adds a marked block.
          there, is left out: it has a home. The summary
          counts it in `in_instruction_files`, and the plan says
          `N candidate(s) skipped`.
+         A line that says what an earlier line or a stored fact says gets
+         `tier: repeat` and `repeat_of`, by the test that `memory add` uses. The
+         same words pass that test. Other words for the same rule do not.
       5. Finds the lines of your top-level and `docs/` `*.md` files that name
          the old layout, and writes the task for them (see step 6 below).
-         It edits no project doc.
-      6. Runs `memory check`, then connects the agent tools and the git hooks, as
-         `memory init` does.
-   3. Turn the candidates into facts. An agent can do this step. Each
+         It edits no project doc. An old path that a doc names, such as
+         `memory-bank/status.md`, holds only a pointer to the note until no doc
+         names it. A later text file outside `notes/` moves the same way, and
+         `memory check` names it.
+      6. Lists each check of the old checker, by name, once. It says what happens
+         to each check now. It reads the script's text and does not run it.
+      7. Runs `memory check`, then connects the agent tools and the git hooks, as
+         `memory init` does. It names each checkout and the hook folder first.
+   3. Turn the candidates into facts, if you want them. This step is optional. It
+      is not part of the end of the migration. An agent can do it. Each
       candidate has a `source` to pass on:
       `memory add "..." --kind decision --area AREA --basis told --source file:memory-bank/notes/decisions.md:12`.
       Start with `"tier": "likely"` (decision, trap, lesson, event and brief
@@ -55,9 +67,10 @@ refuses, merges, or adds a marked block.
       and commits nothing. Review `git status`, then commit.
    5. A rerun is safe. After a failure, run `memory migrate --yes` again: the old
       notes are always in the `.memory-old` folder, and each step skips what
-      is done. When the old folder is not called `memory-bank`, use
-      `--from DIR`. The follow-up task applies only to the `memory-bank` folder, so
-      the command skips it with `--from`.
+      is done. After the worklist exists, a rerun does not copy, scan or install.
+      It reads the task again and prints what is left. When the old folder is not
+      called `memory-bank`, use `--from DIR`. The references to the old folder apply
+      only to `memory-bank`, so the command skips them with `--from`.
       A link inside the old folder is not copied. It stays in the
       `.memory-old` folder, and the command says how many. When `memory-bank`
       is a link to another folder, the command refuses and names the target.
@@ -72,16 +85,23 @@ refuses, merges, or adds a marked block.
       - A line that needs judgment, such as "run the old checker at session start", or
         a doc about the old folder.
       - A hook in an agent settings file that runs the old checker. The memory hooks
-        are already next to it. The task says to remove the old handler. A tracked
-        file needs a branch and the team's OK.
+        are already next to it. The task says to remove the old handler.
+      - An older copy in `proposals/old-copies/`. The agent compares it with the note,
+        carries over what is still true, and deletes the copy.
 
-      The task ends with the exact check: a `grep` of the old names that must print
-      nothing, and `memory check`. The command does not delete the old checker. It
-      says the checker is now unused, and where it is still named.
-      Until the task is done, `memory load` shows one line:
-      `Migration follow-up pending: see memory-bank/proposals/migrate-followups.md`.
-      When the agent is done, it runs `memory migrate --yes`. That marks the file
-      done, and the line goes away.
+      The command does not delete the old checker. It says where the checker is still
+      named. When the old checker and `memory check` disagree, believe `memory check`.
+      Where a repo doc and `memory instructions` disagree about the memory,
+      `memory instructions` wins. The rest of that doc still stands.
+      While the task is open, `memory load` shows one line with the count, and
+      `memory check` says that its `ok` covers only the facts and the links.
+
+      **The migration has one end.** The agent runs `memory migrate --yes`. It reads each
+      item again, in the checkout where it runs. A fix on a branch counts when the agent
+      runs it there. With nothing left it prints `Migration finished.` and removes the
+      task. The load then says nothing about it. If a line must stay, because the agent
+      may not change a shared file or the line is history, the agent deletes the task.
+      That also ends the migration, and a rerun does not bring it back.
 
    **By hand**, if you cannot use the command:
    1. Move the old folder out of the repo, for example
