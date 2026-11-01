@@ -48,12 +48,19 @@ the folder of a project with no git. Neither file holds a time. A file with fewe
 an earlier version, and the next load adds the line when the memory is this project's.
 
 A memory belongs to another project when its owner still exists and that owner's record names
-the memory, or when its owner is gone and its root commits share none with this repo. An owner
-that is gone, or that now uses another memory, means that the repo moved: the memory passes to
-this project. A record that names another live git folder means that this repo is a copy.
-`<common git folder>/cairnkit-copy-noted` holds that repo's git folder after the copy has heard
-this once. The local git setting `cairnkit.sharedmemory = true` says that a project shares
-another project's memory on purpose.
+the memory at this folder, or when its owner is gone and its root commits share none with this
+repo. With its owner gone and the roots not against it, a memory is unclaimed: the repo can be the
+owner moved or a copy of it. A load does not change the owner line. `memory init` in such a repo
+writes it. The record of an unclaimed memory keeps the repo line that it had, and only the place
+can change. A repo that sees another repo beside it, or beside the old owner, with a record of the
+same id and place, says so. A record that names another git folder, with a live owner, means that
+this repo is a copy or a move. `<common git folder>/cairnkit-copy-noted` holds that repo's git
+folder and the state, after it has heard this once in that state. The local git setting
+`cairnkit.sharedmemory = true` says that a project shares another project's memory on purpose.
+
+A folder `<name>.memory` with no folder `<name>` is named as this project's earlier memory only
+when `<name>` is the last part of a path in the record or of the `origin` URL. The local git
+setting `cairnkit.notearlier`, which can hold many values, denies a folder by its name.
 
 Each checkout (the main checkout and each worktree) holds a symbolic link
 named `memory-bank` to the memory folder. The link target is a relative path,

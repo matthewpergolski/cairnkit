@@ -762,6 +762,11 @@ def run_migrate(
             work.write_text(text, encoding="utf-8")
 
     if untrack and tracked:
+        if len(project.checkouts) > 1:
+            print(
+                "All checkouts share one memory, so the move changes each: in each other checkout "
+                "git then shows the old files as deleted, and they stay in its index."
+            )
         for path, checkout in tracked:
             rel = os.path.relpath(path, checkout)
             if checkout != project.root:

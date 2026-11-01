@@ -131,7 +131,9 @@ complete. Remove a row in the change that fixes it.
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. A phrase with spaces after a label has only its first word masked, unless it is in quotes. The tool reads `.env*` files only near the checkout root. Under a name such as `AWS_REGION`, `APP_VERSION` or `CLIENT_ID` that says what the value is, no value counts. A secret stays on disk until `memory purge` removes it, and `memory check` says so. A plain `.env` word in a fact is a warning, because no shape tells a secret from a word, and the fact can stay masked. A hit in `notes/`, `branches/` or `<repo>.memory-old` is a warning too, and these files have no purge. Git history keeps what was committed: `memory check` says so, and the tool does not rewrite history. The tool names a value in Claude Code's own memory and never edits that store. A token cut short by a torn line matches no shape, so `memory repair` prints only plain words from a torn line. |
 | Enforce what must never happen | A standing wish, such as "Every PR must attach a demo video", has no "did this still happen" check. `--enforced-by githook:pre-push` reads as enforced because of the tool's own block, which never looks at the wish. `--enforced-by test:PATH` looks only for the file, and nothing runs it. `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. An AI commit from before the guard goes out with a count, and a trailer that another person committed is named, because the guard must not trap a person. The tool lists known names, so a new tool passes until it has a known shape, such as a dotted version. |
 | No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory renamed to a name that is not its recorded name or the project's name needs the same command, and so do several copies with its id, because a copy can be an old backup. The load names each one for the agent. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git. |
-| Each project has its own memory | A copied repo uses the first repo's memory until the next `memory init` in the copy. It hears this once, at its first load or add, and `memory check` says it each time. |
+| Each project has its own memory | A copied repo uses the first repo's memory until it takes a memory of its own. It hears this once, at its first load or add, and `memory check` says it each time. With the owner's old path gone, a move and a copy look alike, so a load gives the memory to neither. Each repo that sees the other on its record hears the memory's name, and `memory init` in one of them takes it. A copy moved away from both parent folders is not seen, so such a pair hears nothing and both write there. A new clone at the owner's old path reads as the owner. |
+| Each project has its own memory | A project with no record and no `origin` that names an earlier place has no proof of an earlier name, so a memory left beside it under that name is not named. |
+| A repo with notes before the tool | `memory migrate --yes --untrack` stages the removal only in the checkout where it runs, and all checkouts share one memory, so the move changes each. From a worktree, the main checkout shows ` D memory-bank/status.md` until you run the printed `git -C MAIN rm -r --cached memory-bank`. The plan and the run print that command. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
 ## Install
@@ -318,7 +320,7 @@ These stay, and you can remove them by hand:
 - the `memory-bank` link in each other worktree. Remove it there too;
 - the files `.git/cairnkit-memory`, which records where the memory is, and
   `.git/cairnkit-copy-noted`;
-- the local git setting `cairnkit.sharedmemory`, if you set it;
+- the local git settings `cairnkit.sharedmemory` and `cairnkit.notearlier`, if you set them;
 - the user cache `~/.cache/cairnkit/`;
 - the pstack skills, if you installed them: they are at user level, in
   Claude Code and in `~/.codex/skills`, `~/.cursor/skills`,
@@ -783,17 +785,21 @@ backup. The load names each folder, and `memory init --path FOLDER` picks one. F
 farther away, the load names the old place and asks for `memory init --path NEW_PLACE`.
 
 `memory init` never refuses because of a neighbor. It makes this project's own memory. A
-folder `<name>.memory` with no folder `<name>` could be this project's memory under an
-earlier name, so one note names it with the command that adopts it. Other memories are not
-named. `memory init` makes no empty memory only when this project is known to have had one
+folder `<name>.memory` with no folder `<name>` is named only when `<name>` is a name that this
+project is known to have had: in its record, or the last part of its `origin` URL. The load and
+`memory check` then keep a note with the command that adopts it, until you adopt it, until you
+run the printed `git config --add cairnkit.notearlier NAME`, or until no such folder sits
+there. Other memories are not named. `memory init` makes no empty memory only when this project is known to have had one
 that is gone. It names what it found and exits 1. A connected project with no memory and no
 such proof gets its memory at session start.
 
 A memory has one owner. `--path` to a memory that another project uses is honored, and
 `memory init` and each load say so in one line. To silence that line because you share the
-memory on purpose, run `git config cairnkit.sharedmemory true` in that repo. A copied repo
-hears it once, and the next `memory init` there gives it its own memory. The first repo keeps
-its memory.
+memory on purpose, run `git config cairnkit.sharedmemory true` in that repo. A load never
+moves the owner. Only `memory init` by a repo takes a memory, and only when its owner is gone.
+A copied repo hears once which memory it uses and the command that keeps those facts in a memory
+of its own. The first repo keeps its memory. `memory init` in a copy whose first repo is still
+there starts an empty memory on purpose.
 
 A memory that lands inside a work tree (an older memory, a `--path`, or no
 writable folder outside) gets a line in that repo's `.git/info/exclude`. Git must then

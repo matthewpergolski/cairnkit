@@ -19,6 +19,7 @@ IDENTITY_FILE = ".identity"
 RECORD_FILE = "cairnkit-memory"
 COPY_NOTED_FILE = "cairnkit-copy-noted"
 SHARED_SETTING = "cairnkit.sharedmemory"
+NOT_EARLIER_SETTING = "cairnkit.notearlier"
 UNREAD_WRITER = "branch-unread"
 _GIT_LOCATION_ENV = frozenset(
     {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX"}
@@ -288,6 +289,12 @@ def _read_record(project: Project) -> Record | None:
     return Record(lines[0], Path(lines[1]), Path(lines[2]) if len(lines) > 2 else None)
 
 
+def recorded_repo(project: Project) -> Path:
+    """The repo that this repo's record names. A copied or a moved repo brings the first one's."""
+    record = _read_record(project)
+    return record.repo if record and record.repo else project_key(project)
+
+
 def _has_id(folder: Path, memory_id: str) -> bool:
     identity = read_identity(folder)
     return holds_memory(folder) and identity is not None and identity.id == memory_id
@@ -319,27 +326,31 @@ def _recorded_memory(project: Project) -> Path | None:
     return found[0] if len(found) == 1 and found[0].name in expected else None
 
 
-OURS, COPY, ANOTHER = "ours", "copy", "another"
+OURS, COPY, ANOTHER, UNCLAIMED = "ours", "copy", "another", "unclaimed"
 
 
 def _still_uses(owner: Path, memory_id: str, memdir: Path) -> bool:
-    """True when the project at `owner` still exists and still uses this memory."""
+    """True when the project at `owner` still exists and still uses this folder.
+
+    A copy of a memory has the same id, so the place in the record tells the two apart.
+    """
     try:
         lines = (owner / RECORD_FILE).read_text().splitlines()
     except (OSError, UnicodeDecodeError):
         lines = []
     if lines:
-        return lines[0] == memory_id
+        return lines[0] == memory_id and lines[1:2] in ([], [str(memdir.resolve())])
     link = owner / LINK_NAME
     return link.is_symlink() and link.resolve() == memdir.resolve()
 
 
 def owner_state(project: Project, memdir: Path) -> tuple[str, Path | None]:
-    """Whose memory this is: (OURS, None), (COPY, owner) or (ANOTHER, owner, when known).
+    """Whose memory this is: (OURS, None), (COPY, owner), (ANOTHER, owner, when known) or
+    (UNCLAIMED, the owner that left).
 
-    An owner that is gone, or that now uses another memory, is a repo that moved, so the memory
-    is ours unless its root commits say that it belongs to another history. The usual call
-    reads two small files and runs no git.
+    A move and a copy look alike from inside a repo, so with its owner gone, this memory belongs
+    to no repo until one of them takes it with `memory init`, unless its root commits say that it
+    belongs to another history. The usual call reads two small files and runs no git.
     """
     identity = read_identity(memdir)
     here = project_key(project)
@@ -352,13 +363,36 @@ def owner_state(project: Project, memdir: Path) -> tuple[str, Path | None]:
     ours = root_commits(project)
     if identity.roots and ours and not identity.roots & ours:
         return ANOTHER, None
-    return OURS, None
+    return (UNCLAIMED, identity.owner) if identity.owner else (OURS, None)
+
+
+def _repo_of(key: Path) -> Path:
+    return key.parent if key.name == ".git" else key
 
 
 def _shown(owner: Path | None) -> str:
-    if owner is None:
-        return "another project"
-    return f"another project ({owner.parent if owner.name == '.git' else owner})"
+    return f"another project ({_repo_of(owner)})" if owner else "another project"
+
+
+def _other_claimants(project: Project, memdir: Path, gone: Path) -> list[Path]:
+    """Repos beside this one or beside the gone owner whose record names this memory."""
+    identity = read_identity(memdir)
+    here = project_key(project)
+    parents = dict.fromkeys((project.home.parent, _repo_of(gone).parent))
+    return [
+        folder
+        for parent in parents
+        for folder in _folders(parent)
+        if (folder / ".git").resolve() != here and _still_uses(folder / ".git", identity.id, memdir)
+    ]
+
+
+def _keep_apart(project: Project, memdir: Path) -> str:
+    """The command for a memory of this repo that keeps these facts."""
+    place = default_memory_dir(project)
+    if place.exists():
+        place = place.with_name(f"{project.home.name}-own.memory")
+    return f"`cp -R {memdir} {place} && memory init --path {place}`"
 
 
 def owner_line(project: Project, memdir: Path) -> str | None:
@@ -368,13 +402,25 @@ def owner_line(project: Project, memdir: Path) -> str | None:
         return None
     if state == COPY:
         return (
-            f"note: this repo is a copy, and {memdir} belongs to {_shown(owner)}. What you add "
-            "here goes there. `memory init` gives this copy its own memory."
+            f"note: {memdir} belongs to {_shown(owner)}, and this repo holds a record from before "
+            "a copy or a move. What you add here goes there. To keep these facts in a memory of "
+            f"this repo: {_keep_apart(project, memdir)}."
         )
     if project.is_git and (
         run_git(project.root, "config", "--local", "--bool", "--get", SHARED_SETTING) == "true"
     ):
         return None
+    if state == UNCLAIMED:
+        others = _other_claimants(project, memdir, owner)
+        if not others:
+            return None
+        names = " and ".join(str(folder) for folder in others)
+        return (
+            f"note: {memdir} was set up by {_repo_of(owner)}, which is gone, and {names} also "
+            "uses it. Each can be that repo moved or a copy of it, so each reads and writes its "
+            "facts. `memory init` in the repo that keeps it takes it. To keep these facts in a "
+            f"memory of this repo: {_keep_apart(project, memdir)}."
+        )
     share = f" To share on purpose: `git config {SHARED_SETTING} true`." if project.is_git else ""
     return (
         f"note: {memdir} belongs to {_shown(owner)}, so both projects read and write its facts. "
@@ -383,24 +429,26 @@ def owner_line(project: Project, memdir: Path) -> str | None:
 
 
 def copy_line_once(project: Project, memdir: Path) -> str | None:
-    """The line for a copied repo, the first time only."""
-    if owner_state(project, memdir)[0] != COPY:
+    """The line for a copied or a moved repo, the first time only in each state."""
+    state = owner_state(project, memdir)[0]
+    line = owner_line(project, memdir) if state in (COPY, UNCLAIMED) else None
+    if line is None or not project.is_git:
         return None
     marker = project_key(project) / COPY_NOTED_FILE
-    here = str(project_key(project))
+    noted = f"{project_key(project)} {state}"
     try:
-        if marker.read_text() == here:  # a second copy brings this file along
+        if marker.read_text() == noted:  # a second copy brings this file along
             return None
     except (OSError, UnicodeDecodeError):
         pass
     with contextlib.suppress(OSError):
-        marker.write_text(here)
-    return owner_line(project, memdir)
+        marker.write_text(noted)
+    return line
 
 
 def load_owner_line(project: Project, memdir: Path) -> str | None:
-    """Each load says it, unless this is a copied repo, which hears it once."""
-    if owner_state(project, memdir)[0] == COPY:
+    """Each load says it, unless this is a copied or a moved repo, which hears it once."""
+    if owner_state(project, memdir)[0] in (COPY, UNCLAIMED):
         return copy_line_once(project, memdir)
     return owner_line(project, memdir)
 
@@ -479,9 +527,18 @@ def lost_memory(project: Project) -> LostMemory | None:
 
 
 def earlier_note(found: list[Path]) -> str:
-    """One short note. It names only a folder whose name could be this project's earlier name."""
+    """One short note. It names only a folder under a name this project is known to have had."""
     commands = " or ".join(f"`memory init --path {folder}`" for folder in found)
     return f"A memory beside this project could be its own under an earlier name: {commands}."
+
+
+def beside_line(project: Project, memdir: Path) -> str | None:
+    """Said at each load and check until the folder is adopted, denied or gone."""
+    found = [f for f in _earlier_memories(project) if f.resolve() != memdir.resolve()]
+    if not found:
+        return None
+    deny = " and ".join(f"`git config --add {NOT_EARLIER_SETTING} {f.name}`" for f in found)
+    return f"note: {earlier_note(found)} If not: {deny}."
 
 
 def lost_note(lost: LostMemory) -> str:
@@ -507,19 +564,44 @@ def _dangling_target(project: Project) -> Path | None:
     return None
 
 
+def _known_names(project: Project) -> set[str]:
+    """Names this project is known to have had: in its record, and its remote's last part."""
+    record = _read_record(project)
+    names = {record.place.name.removesuffix(".memory")} if record else set()
+    if record and record.repo:
+        names.add(_repo_of(record.repo).name)
+    url = run_git(project.root, "config", "--local", "--get", "remote.origin.url")
+    if url:
+        names.add(url.rstrip("/").replace(":", "/").rpartition("/")[2].removesuffix(".git"))
+    return names
+
+
 def _earlier_memories(project: Project) -> list[Path]:
-    """Memories beside the project whose name could be this project's earlier name.
+    """Memories beside the project under a name that it is known to have had.
 
     Only `<name>.memory` with no folder `<name>` fits. An owner that still uses the memory rules
     it out, and so do root commits that this repo lacks. An empty repo has no root commits, so
-    no memory that had commits can be its own.
+    no memory that had commits can be its own. A local setting can deny a folder by name.
     """
+    orphans = [
+        folder
+        for folder in _folders(project.home.parent)
+        if folder.name.endswith(".memory")
+        and not folder.with_suffix("").is_dir()
+        and holds_memory(folder)
+        and (folder / "config.toml").is_file()
+    ]
+    if not orphans or not project.is_git:
+        return []
+    names = _known_names(project)
+    orphans = [folder for folder in orphans if folder.with_suffix("").name in names]
+    if not orphans:
+        return []
+    denied = run_git(project.root, "config", "--local", "--get-all", NOT_EARLIER_SETTING) or ""
     ours = root_commits(project)
     found = []
-    for folder in _folders(project.home.parent):
-        if not folder.name.endswith(".memory") or folder.with_suffix("").is_dir():
-            continue
-        if not holds_memory(folder) or not (folder / "config.toml").is_file():
+    for folder in orphans:
+        if folder.name in denied.splitlines():
             continue
         identity = read_identity(folder)
         if identity and identity.owner and _still_uses(identity.owner, identity.id, folder):

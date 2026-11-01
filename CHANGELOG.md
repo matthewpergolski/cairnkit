@@ -106,6 +106,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A refused push prints a fix that can move only the pushed ref. It names the branch, runs in the
   worktree that holds the branch, and returns the checkout to where it was. It has a form for a
   tag, a detached HEAD and a commit pushed by hash. Before, the rebase acted on the current branch.
+- A load never moves the owner of a memory. Only `memory init` by that repo takes one whose owner
+  is gone. Copy then move no longer tells the real repo that it is the copy. Each repo hears the
+  memory's name, and no printed fix gives it an empty memory.
+- A folder beside a project is named only under a name that the project is known to have had, so
+  a clone no longer hears of an unrelated orphan. A memory made beside a likely earlier one keeps
+  the note in the load and `memory check` until it is settled. `cairnkit.notearlier` denies it.
+- `memory migrate --untrack` from a worktree says that the move changes each checkout.
 - The short fix needs no editor. It prints only when it is enough.
 - The fix step moved out of `pre-push` to `.git/cairnkit-fix-commit`, so a remote named
   `cairnkit-fix-commit` no longer skips the push check and amends HEAD.
