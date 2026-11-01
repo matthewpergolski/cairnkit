@@ -550,10 +550,9 @@ def _say_install(project: Project, would: str) -> None:
         return
     names = [name for name in adapters.detect(project) if name != "generic"]
     if names:
-        places = ", ".join(str(checkout) for checkout in project.checkouts)
         print(
-            f"{would}connect the agent tools ({', '.join(names)}) in each checkout: {places}. "
-            "Each file it writes there is untracked."
+            f"{would}connect the agent tools ({', '.join(names)}) in this checkout: "
+            f"{project.root}. Each file it writes there is untracked."
         )
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder:
@@ -759,6 +758,12 @@ def run_migrate(
     if untrack and tracked:
         for path, checkout in tracked:
             rel = os.path.relpath(path, checkout)
+            if checkout != project.root:
+                print(
+                    f"The index of {checkout} stays as it is. "
+                    f"To stage the removal there: git -C {checkout} rm -r --cached {rel}"
+                )
+                continue
             print(f"{would}run git rm -r --cached {rel} in {checkout}")
             if not dry_run:
                 run_git(checkout, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", rel)
@@ -781,7 +786,9 @@ def run_migrate(
     print()
     if hooks_cmd.INSTALL_ON_INIT:
         _say_install(project, "")
-        code = code or run_install(project, "auto", False, True, None, path_flag, quiet=True)
+        code = code or run_install(
+            project, "auto", False, True, None, path_flag, quiet=True, this_checkout=True
+        )
     print(f"Optional: add facts from {LINK_NAME}/{CANDIDATES}: `memory add ... --source file:...`.")
     print(f"The old folder is kept at {holder}. Delete it yourself when you are sure.")
     if items:

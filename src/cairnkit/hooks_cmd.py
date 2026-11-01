@@ -225,6 +225,7 @@ def run_install(
     guard: str | None,
     flag: str | None = None,
     quiet: bool = False,
+    this_checkout: bool = False,
 ) -> int:
     if inside_git_folder(Path.cwd()):
         print(GIT_FOLDER_REFUSAL.format(cwd=Path.cwd()), file=sys.stderr)
@@ -266,6 +267,13 @@ def run_install(
     else:
         # No project memory yet: never put stop-hook config into an unlinked worktree.
         targets = [project.main_root]
+    if this_checkout:
+        targets = [c for c in targets if c == project.root]
+        steps += [
+            f"note not connected: {c}. To connect it, run `memory hooks install` there."
+            for c in project.checkouts
+            if c != project.root
+        ]
     bad: set[str] = set()
     for name in names:
         if name == "generic":
