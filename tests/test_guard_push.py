@@ -431,3 +431,29 @@ def test_the_fix_step_leaves_a_clean_commit_alone(pushed):
     )
     assert done.returncode == 0, done.stderr
     assert git(pushed, "rev-parse", "HEAD").strip() == sha
+
+
+def test_the_printed_rebase_works_from_a_subfolder(pushed, remote):
+    sub = pushed / "deep" / "er"
+    sub.mkdir(parents=True)
+    tree_commit(pushed, TRAILER)
+    refused = run(sub, "push", "origin", "main")
+    assert refused.returncode != 0
+    done = run_printed(sub, printed(refused.stderr, "git rebase"))
+    assert done.returncode == 0, done.stderr
+    assert run(sub, "push", "origin", "main").returncode == 0
+
+
+@pytest.mark.skipif(not githook.git_runs_config_hooks(), reason="needs git 2.54")
+def test_the_printed_rebase_works_beside_a_tracked_hooks_folder(repo, mem, capsys, remote):
+    (repo / ".githooks").mkdir()
+    git(repo, "config", "core.hooksPath", ".githooks")
+    guard_on(capsys)
+    assert (repo / ".git" / githook.PRIVATE_DIR / "pre-push").is_file()
+    assert run(repo, "push", str(remote), "main").returncode == 0
+    tree_commit(repo, TRAILER)
+    refused = run(repo, "push", str(remote), "main")
+    assert refused.returncode != 0
+    done = run_printed(repo, printed(refused.stderr, "git rebase"))
+    assert done.returncode == 0, done.stderr
+    assert run(repo, "push", str(remote), "main").returncode == 0

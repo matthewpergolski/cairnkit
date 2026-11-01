@@ -215,3 +215,12 @@ def test_the_session_rules_do_not_grow():
 
 def test_the_migrate_worklist_states_the_force_of_a_rule():
     assert "--basis told" in _worklist([], {}, 0)
+
+
+def test_a_waiting_notice_is_no_problem_for_the_check(mem, agent, capsys):
+    fid = add_rule(capsys, "Never force push to main.", "--basis", "told")
+    agent("change", fid, "--status", "expired", "--reason", "x")
+    assert (mem / ".rule-notices").is_file()
+    assert main(["check", "--strict"]) == 0
+    assert fid in load(capsys)
+    assert not (mem / ".rule-notices").exists()
