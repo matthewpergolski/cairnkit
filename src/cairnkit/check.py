@@ -326,8 +326,8 @@ def run_check(
             print(note)
     else:
         errors.append(f"{memdir}: no facts/ folder; run `memory init`")
-    if strict:
     warnings += _bad_path_file(project)
+    if strict:
         errors += warnings
         warnings = []
     for line in warnings:

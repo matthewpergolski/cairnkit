@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ PATH_FILE = ".memory-path"
 ENV_DIR = "MEMORY_DIR"
 IDENTITY_FILE = ".identity"
 RECORD_FILE = "cairnkit-memory"
+UNREAD_WRITER = "branch-unread"
 _GIT_LOCATION_ENV = frozenset(
     {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX"}
 )
@@ -48,6 +50,7 @@ def run_git(
     """Run git. Return its output, or None when git fails, is missing or has no time left."""
     room = deadline.left()
     if room <= 0 or deadline.git_stuck():
+        deadline.note_git_cut()
         return None
     try:
         result = subprocess.run(
@@ -59,10 +62,12 @@ def run_git(
             env=env,
         )
     except subprocess.TimeoutExpired:
+        deadline.note_git_cut()
         if timeout <= room:
             deadline.note_git_timeout()
         return None
     except (OSError, subprocess.SubprocessError):
+        deadline.note_git_cut()
         return None
     if result.returncode != 0:
         return None
@@ -71,8 +76,14 @@ def run_git(
 
 def find_project(cwd: Path | None = None) -> Project:
     cwd = Path(cwd or Path.cwd()).absolute()
+    cuts = deadline.git_cuts()
     top = run_git(cwd, "rev-parse", "--show-toplevel")
     if top is None:
+        found = _repo_above(cwd) if deadline.git_cuts() > cuts else None
+        if found:
+            return Project(
+                root=found[0], main_root=found[0], checkouts=[found[0]], common_dir=found[1]
+            )
         root = plain_root(cwd)
         return Project(root=root, main_root=root, checkouts=[root])
     root = Path(top)
@@ -90,6 +101,30 @@ def find_project(cwd: Path | None = None) -> Project:
     return Project(
         root=root, main_root=main_root, checkouts=checkouts, common_dir=common, home=home, bare=bare
     )
+
+
+def _git_dir(folder: Path) -> Path | None:
+    """The git dir of this checkout, read with no git. None when `.git` here holds no repo."""
+    marker = folder / ".git"
+    try:
+        if marker.is_file():
+            marker = folder / marker.read_text().removeprefix("gitdir:").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return marker if (marker / "HEAD").is_file() else None
+
+
+def _repo_above(cwd: Path) -> tuple[Path, Path] | None:
+    """(root, common git dir) when git gave no answer: a timeout does not mean "no repo"."""
+    for folder in (cwd, *cwd.parents):
+        found = _git_dir(folder)
+        if found:
+            try:
+                shared = (found / "commondir").read_text().strip()
+            except (OSError, UnicodeDecodeError):
+                shared = "."
+            return folder, Path(os.path.normpath(found / shared))
+    return None
 
 
 def plain_root(cwd: Path) -> Path:
@@ -345,25 +380,39 @@ def root_commits(project: Project) -> set[str]:
 def current_branch(root: Path) -> str | None:
     """The branch of this checkout. During a rebase, the branch being rebased."""
     name = run_git(root, "symbolic-ref", "--quiet", "--short", "HEAD")
-    return name or _rebased_branch(root)
+    return name or _branch_from_files(root)
 
 
-def _rebased_branch(root: Path) -> str | None:
-    for state in ("rebase-merge", "rebase-apply"):
-        path = run_git(
-            root, "rev-parse", "--path-format=absolute", "--git-path", f"{state}/head-name"
-        )
+def _branch_from_files(root: Path) -> str | None:
+    """The branch that the git dir names: a rebase's branch, else HEAD's. This needs no git."""
+    folder = _git_dir(root)
+    if folder is None:
+        return None
+    for path in (
+        folder / "rebase-merge/head-name",
+        folder / "rebase-apply/head-name",
+        folder / "HEAD",
+    ):
         try:
-            head = Path(path or "").read_text().strip()
-        except OSError:
+            text = path.read_text().strip().removeprefix("ref: ")
+        except (OSError, UnicodeDecodeError):
             continue
-        return head.removeprefix("refs/heads/") if head.startswith("refs/heads/") else None
+        # A reftable repo keeps this placeholder in HEAD.
+        name = text.removeprefix("refs/heads/")
+        return None if name == text or name == ".invalid" else name
     return None
 
 
 def writer_name(root: Path) -> str:
-    """The writer is MEMORY_WRITER, else the branch name, else `main`."""
-    name = os.environ.get("MEMORY_WRITER") or current_branch(root) or "main"
+    """The writer is MEMORY_WRITER, else the branch name, else `main`.
+
+    In a repo where git gave no answer and the files name no branch, the name says so. Such a
+    note must not land on `main`, because no session on another branch would see it.
+    """
+    cuts = deadline.git_cuts()
+    name = os.environ.get("MEMORY_WRITER") or current_branch(root)
+    if not name:
+        name = UNREAD_WRITER if deadline.git_cuts() > cuts and _git_dir(root) else "main"
     safe = "".join(c if c.isalnum() or c in "._-" else "-" for c in name).strip(".-")
     return safe or "main"
 
@@ -409,14 +458,14 @@ def branch_reader(root: Path):
     comes later, a branch that is not fetched, or a branch in another clone.
     A renamed branch reads as its new name.
     """
-    base = default_branch(root)
+    base = functools.cache(lambda: default_branch(root))
     cache: dict[tuple[str, str | None], str] = {}
 
     def read(branch: str, tip: str | None = None) -> str:
         key = (branch, tip)
         if key not in cache:
-            can_end = base and branch != base
-            cache[key] = _read_branch(root, branch, base, tip) if can_end else OPEN
+            can_end = base() and branch != base()
+            cache[key] = _read_branch(root, branch, base(), tip) if can_end else OPEN
         return cache[key]
 
     return read

@@ -27,8 +27,7 @@ from cairnkit.state import effective_status
 from cairnkit.store import append_records, drop_id, fact_files, write_lock
 
 DEFAULT_BASIS = "guess"
-# What git adds to a write is a note. With a slow git, the fact still lands in a tool's time limit.
-LOOK_BUDGET = 3.0
+REASON_WIDTH = 200
 
 
 class Refused(Exception):
@@ -82,7 +81,7 @@ def _validated(record: dict) -> dict:
 
 def _refresh_followups(memory: Memory) -> None:
     """Keep the tidy task file true to the facts. A failure here never fails a write."""
-    with contextlib.suppress(Exception), deadline.within(LOOK_BUDGET):
+    with contextlib.suppress(Exception):
         memory.reload()
         followups.refresh(memory)
 
@@ -92,7 +91,7 @@ def _scope(args) -> str:
     return "short" if args.short or args.expires or args.until_merged is not None else "long"
 
 
-def _no_end_event(memory: Memory, fact: dict) -> str | None:
+def _no_end_event(memory: Memory, fact: dict, cuts: int) -> str | None:
     """Why nothing will end this short note by itself, or None when something will."""
     if fact["scope"] != "short" or fact.get("expires_at"):
         return None
@@ -100,10 +99,13 @@ def _no_end_event(memory: Memory, fact: dict) -> str | None:
         return "this folder is not in git"
     branch = fact.get("until_branch_merged")
     if not branch:
-        return "this is a detached HEAD"
+        no_answer = deadline.git_cuts() > cuts
+        return (
+            "git did not answer, so no branch is known" if no_answer else "this is a detached HEAD"
+        )
     base = default_branch(memory.project.root)
     if not base:
-        return "this repo has no default branch"
+        return None if deadline.git_cuts() > cuts else "this repo has no default branch"
     return f"{branch} is the default branch" if branch == base else None
 
 
@@ -144,10 +146,9 @@ def _find_similar(memory: Memory, args, moment, is_merged) -> tuple[dict, float]
     return None if best is None else (best[1], best[0][0])
 
 
-def _retired_match(memory: Memory, args, moment) -> tuple[dict, str, str | None] | None:
+def _retired_match(memory: Memory, args, moment, is_merged) -> tuple[dict, str, str | None] | None:
     """The newest retired fact of the same kind with the new words: (state, status, reason)."""
     key = repeat_key(args.text)
-    is_merged = merged_checker(memory.project.root)
     best = None
     for state in memory.states.values():
         if state.get("status") == "purged" or state.get("kind", "fact") != args.kind:
@@ -173,6 +174,7 @@ def add_fact(memory: Memory, args) -> str | None:
     What git adds is read before the lock, because a slow git must not hold the lock.
     """
     moment = now()
+    cuts = deadline.git_cuts()
     claimed = args.basis
     args.basis = claimed or DEFAULT_BASIS
     args.source = args.source or f"session:{moment.date().isoformat()}"
@@ -207,7 +209,8 @@ def add_fact(memory: Memory, args) -> str | None:
         named = "" if args.until_merged == "HEAD" else args.until_merged
         branch = named or current_branch(root)
         if not branch and not branch_note:
-            raise Refused("--until-merged needs a branch name (HEAD is detached)")
+            why = "git did not answer" if deadline.git_cuts() > cuts else "HEAD is detached"
+            raise Refused(f"--until-merged needs a branch name ({why})")
         if branch:
             ends["until_branch_merged"] = branch
             tip = branch_tip(root, branch)
@@ -215,7 +218,7 @@ def add_fact(memory: Memory, args) -> str | None:
                 ends["branch_tip"] = tip
     is_merged = merged_checker(root)
     near = None if args.supersedes else _find_similar(memory, args, moment, is_merged)
-    retired = _retired_match(memory, args, moment)
+    retired = _retired_match(memory, args, moment, is_merged)
     with write_lock(memory.dir):
         memory.reload()
         repeat = kept = None
@@ -294,7 +297,12 @@ def add_fact(memory: Memory, args) -> str | None:
             "This note stays open until that branch appears and merges. To end it yourself, run: "
             f'memory change {fact["id"]} --status expired --reason "..."'
         )
-    why = _no_end_event(memory, fact)
+    why = _no_end_event(memory, fact, cuts)
+    if memory.project.is_git and deadline.git_cuts() > cuts:
+        print(
+            f"note: git did not answer in time. This fact went to facts/{writer}.jsonl, and the "
+            "checks that need git were skipped."
+        )
     if why:
         print(
             f"note: no end event for this short note, because {why}. End it yourself: "
@@ -310,14 +318,13 @@ def add_fact(memory: Memory, args) -> str | None:
         )
     if retired:
         old, status, reason = retired
-        why = f": {clean(reason)}" if reason else ""
+        why = f": {clean(reason)[:REASON_WIDTH]}" if reason else ""
         check = " An agent task asks for a check." if status in ("wrong", "expired") else ""
         print(
             f"note: this text was retired before: {old['id']} ({status}{why}). Written as "
             f"{fact['id']}, linked with similar_to.{check}"
         )
-    with deadline.within(LOOK_BUDGET):
-        _print_conflicts(memory, fact, moment, {supersedes} | ({near[0]["id"]} if near else set()))
+    _print_conflicts(memory, fact, moment, {supersedes} | ({near[0]["id"]} if near else set()))
     if near:
         old, score = near
         if outranks(old, mine):

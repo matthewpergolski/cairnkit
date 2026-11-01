@@ -519,7 +519,7 @@ def run_load(states, specs, point, pol, ctx, budget, rng):
                 used += cost
         return shown, set(), 0, len(shown)
     memory = SimpleNamespace(
-        project=SimpleNamespace(root=Path("/nonexistent")),
+        project=SimpleNamespace(root=Path("/nonexistent"), is_git=False),
         dir=Path("/nonexistent"),
         states={},
         withheld={},

@@ -99,15 +99,11 @@ def test_a_load_that_cannot_name_the_branch_counts_what_it_held_back(mem, repo, 
     assert "(branch main)" not in done.stdout
 
 
-def test_a_failed_git_binary_is_a_cut_too(mem, repo, tmp_path):
+def test_a_missing_git_binary_is_a_cut_too(mem, repo, tmp_path):
     _on_feat(repo, mem)
-    folder = tmp_path / "broken-bin"
-    folder.mkdir()
-    fake = folder / "git"
-    fake.write_text("#!/nonexistent/interpreter\n")
-    fake.chmod(0o755)
-    env = {**os.environ, "PATH": f"{folder}{os.pathsep}{os.environ['PATH']}"}
-    done, _ = _command(repo, env, "load")
+    empty = tmp_path / "no-git-here"
+    empty.mkdir()
+    done, _ = _command(repo, {**os.environ, "PATH": str(empty)}, "load")
     assert "Note one on feat." in done.stdout
     assert "git did not answer" in done.stdout
 
@@ -124,7 +120,7 @@ def test_add_short_under_a_hung_git_lands_on_the_known_branch(mem, repo, tmp_pat
     record = next(r for r in read_jsonl(mem / "facts" / "feat.jsonl") if r.get("text") == text)
     assert record["until_branch_merged"] == "feat"
     assert record["writer"] == "feat"
-    assert text not in (mem / "facts" / "main.jsonl").read_text()
+    assert not (mem / "facts" / "main.jsonl").exists()
     shown, _ = _command(repo, os.environ, "load")
     assert text in shown.stdout
 
@@ -140,7 +136,7 @@ def test_add_short_with_an_unreadable_branch_says_so_and_stays_visible(mem, repo
     assert took < SHORTEST_HOOK_TIMEOUT
     assert "not in git" not in done.stdout
     assert "branch-unread" in done.stdout
-    assert text not in (mem / "facts" / "main.jsonl").read_text()
+    assert not (mem / "facts" / "main.jsonl").exists()
     assert text in (mem / "facts" / "branch-unread.jsonl").read_text()
     head.write_text(good)
     shown, _ = _command(repo, os.environ, "load")
@@ -219,7 +215,10 @@ def test_add_with_a_hung_git_and_a_held_lock_refuses_under_the_shortest_hook_tim
 
 @pytest.mark.parametrize(
     "extra",
-    [["change", "f-20261001-0003", "--reason", "looked"], ["keep", "f-20261001-0001"]],
+    [
+        ["change", "f-20261001-0003", "--status", "wrong", "--reason", "looked"],
+        ["keep", "f-20261001-0001"],
+    ],
     ids=["change", "keep"],
 )
 def test_other_writes_stay_under_the_shortest_hook_timeout(mem, repo, tmp_path, extra):

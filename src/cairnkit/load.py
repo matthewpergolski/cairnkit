@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from cairnkit import (
+    deadline,
     enforcement,
     followups,
     hygiene,
@@ -24,6 +25,7 @@ from cairnkit.envsecrets import EnvValues
 from cairnkit.init import link_here, real_folder_warning
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import (
+    UNREAD_WRITER,
     Project,
     current_branch,
     default_branch,
@@ -37,11 +39,11 @@ from cairnkit.selection import (
     AGENT_RULES,
     FRAME_FOOTER,
     FRAME_HEADER,
-    areas_for_paths,
-    branch_words,
     RULE_WORD_LIMIT,
-    clean,
+    areas_for_paths,
     bound_rules,
+    branch_words,
+    clean,
     name,
     owner_rule,
     pick,
@@ -110,6 +112,7 @@ def active_states(memory: Memory) -> list[dict]:
 
 def build_output(memory: Memory, area: str | None, budget: int, explain: bool = False) -> list[str]:
     root = memory.project.root
+    cuts = deadline.git_cuts()
     branch = current_branch(root)
     writer = writer_name(root)
     moment = now()
@@ -121,11 +124,12 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
 
     def mine(state: dict) -> bool:
         owner = state.get("until_branch_merged")
-        return owner in names if owner else state.get("writer") == writer
+        return owner in names if owner else state.get("writer") in (writer, UNREAD_WRITER)
 
     rules = [s for s in states if s.get("kind") == "rule"]
     states = [s for s in states if s.get("kind") != "rule"]
     short = [s for s in states if s.get("scope") == "short" and mine(s)]
+    other_short = [s for s in states if s.get("scope") == "short" and not mine(s)]
     long = [s for s in states if s.get("scope", "long") == "long"]
     paths = changed_paths(root, branch)
     areas = areas_for_paths(paths, memory.config["areas"])
@@ -155,10 +159,6 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     if memory.withheld:
         out.append("## Withheld facts (no person is needed for this)")
         out += [clean(f"- {memory.withheld_note(i)}") for i in sorted(memory.withheld)]
-    rules.sort(key=lambda s: s.get("learned_at", ""))
-    instructions = [s for s in rules if owner_rule(s)]
-    false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
-    enforced = [s for s in instructions if s.get("enforced_by") and s not in false_claims]
     rule_words = sum(words_in(render(s)) for s in rules)
     rules, held_rules = bound_rules(rules) if budget else (rules, [])
     if held_rules:
@@ -172,6 +172,10 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             f"note: {len(rules) + len(held_rules)} rule(s) hold {rule_words} words, outside the "
             f"word budget of {budget}, because a rule binds in each session."
         )
+    rules.sort(key=lambda s: s.get("learned_at", ""))
+    instructions = [s for s in rules if owner_rule(s)]
+    false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
+    enforced = [s for s in instructions if s.get("enforced_by") and s not in false_claims]
     advisory = [s for s in instructions if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
@@ -193,7 +197,8 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out.append("## Pinned")
         out += [render(s) for s in sorted(pinned, key=lambda s: s.get("learned_at", ""))]
     if short_shown:
-        out.append(f"## Short-term (branch {branch or writer})")
+        cut = memory.project.is_git and deadline.git_cuts() > cuts
+        out.append(f"## Short-term (branch {name(branch or ('unknown' if cut else writer))})")
         out += [render(s) for s in sorted(short_shown, key=lambda s: s.get("learned_at", ""))]
     long_bullets = [s for s in long_shown if not s.get("pinned")]
     out.append("## Long-term")
@@ -216,7 +221,17 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             out.append(f"## Branch notes (branches/{branch}.md)")
             out += [f"- [branch] {clean(x)}" for x in branch_note]
     out.append(FRAME_FOOTER)
-    hidden = len(short) + len(long) - len(short_shown) - len(long_shown)
+    cut = memory.project.is_git and deadline.git_cuts() > cuts
+    held = len(other_short) if cut and not branch else 0
+    if cut:
+        unread = "the branch, the changed files" if not branch else "the changed files"
+        out.insert(
+            1,
+            f"warning: this load is partial: git did not answer, so it could not read {unread} "
+            f"and which branches merged. {held} fact(s) held back. Run `memory load` again when "
+            "git answers.",
+        )
+    hidden = held + len(held_rules) + len(short) + len(long) - len(short_shown) - len(long_shown)
     shown = len(rules) + len(short_shown) + len(long_shown)
     parts = [f"{shown} fact(s) shown"]
     if hidden > 0:
