@@ -291,7 +291,10 @@ marker with no end marker runs to the end of the file.
 Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `commit-msg`
 in the hooks folder that git uses (`git rev-parse --git-path hooks`).
 When that folder is inside a checkout (`core.hooksPath` points into the repo), the
-tool writes nothing and says so. Install and refresh remove a `post-commit` block
+files go to `.git/cairnkit-hooks` instead, and each one gets `hook.cairnkit-NAME.event`
+and `hook.cairnkit-NAME.command` in the local git config, so git 2.54 or newer runs it
+beside that folder. A hook there that already runs memory gets no second run. An older
+git gets nothing, and the tool says so. Install and refresh remove a `post-commit` block
 that 0.3.1 wrote.
 
 | | Start | End |
@@ -307,7 +310,9 @@ removes the file when only `#!/bin/sh` is left.
 
 Block bodies (`PY` is the full path of the Python that runs the tool):
 
-- `pre-commit`: `if [ -x PY ]; then PY -m cairnkit hook pre-commit || exit 1; fi`.
+- `pre-commit`: when `PY` can import the tool, `PY -m cairnkit hook pre-commit || exit 1`.
+  Otherwise it prints one line that names `memory init --refresh`, and refuses only
+  `memory-bank` and `.memory-path` in the staged files, with `sh`, `git` and `grep`.
 - `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
 - `pre-push`: a short shell block. When `PY` is executable it
@@ -317,25 +322,21 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   command runs in a group that discards output, so the shell's alarm line is
   not printed. With none of those tools the command runs unbounded. It ends
   with `|| true`. It does not read the hook arguments. It never fails the push.
-- `post-merge`: that same quiet tidy block, after a docs check that runs
-  only when `docs/state` is a directory and `PY` is executable. The docs
-  check half begins with the line `# cairnkit:docs-check` so
-  `memory init --refresh` can tell an older post-merge body apart without a
-  package version bump. A comment names `docs --check` for that same
-  refresh scan. The timed child is `PY -c` directly (same pattern as
-  the quiet hooks, with a bound of 3 seconds), so a hung start is not left orphaned
-  under a nested shell.
-  That `-c` asks `has_memory(find_project(), None)`, then runs the same
-  compare as `memory docs --check` via `atlas_freshness`. When the result
-  is stale, it prints
-  `cairnkit: docs/state looks out of date; run memory docs --force`
-  on its own stdout. It does not print the page list. Stderr of the timed
-  child goes to `/dev/null`. The timed command ends with `|| true`. The
-  hook writes nothing and never fails the merge.
+  When the commit-msg guard is installed, a check comes first. It begins with
+  `# Refuse a pushed commit with an AI identity or attribution line.`, reads the
+  ref list on stdin and puts it back for the rest of the file. For each ref it greps
+  the commits that no remote holds, with the identity patterns on
+  `Name <email>`, a tab and the short id, and with the message patterns on the
+  message. A match prints the lines and exits 1.
+- `post-merge`: that same quiet tidy block. It never fails the merge.
 - `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
-  match prints the line and exits 1. It installs when an active rule fact matches
+  match prints the line and the settings that stop a tool adding it, and exits 1.
+  Then a line `# Refuse an AI author or committer.`, and `grep -iE` with
+  `identity_patterns` of `[commit_msg_guard]` on `git var GIT_AUTHOR_IDENT` and
+  `git var GIT_COMMITTER_IDENT`, as `Name <email>`. An identity pattern must not end
+  in `$`. A match prints the identity and exits 1. It installs when an active rule fact matches
   `attribution`, `co-author` or `generated with` (no case), or with
   `--commit-msg-guard`.
 
@@ -380,11 +381,9 @@ and hooks of this repo:
 `blocks` lists the files that got a rules block, relative to the checkout.
 When `version` is lower than the running tool, the session start prints one
 line that asks for `memory init --refresh`. The same line appears when the
-local `post-merge` hook holds a cairnkit block that either lacks
-`# cairnkit:docs-check` or lacks `docs --check`, even when `version` equals
-the running tool. A release that changes a block or hook raises the version.
-This post-merge docs check does not. Refresh reads the comment
-`# cairnkit:docs-check` in the hook.
+local `post-merge` hook still holds `# cairnkit:docs-check`, the docs check
+that older builds of the same version wrote. A release that changes a block
+or hook raises the version.
 
 ## 7. The hook commands
 
@@ -435,10 +434,7 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   `post-commit` does the same, for a hook that 0.3.1 wrote.
   They do not count as a session start. The tidy command prints nothing
   (including when the interpreter lacks cairnkit). They always exit 0. With no
-  memory folder the tidy does nothing. Before the tidy command, the
-  `post-merge` shell runs the docs-check half described above (timed
-  `PY -c` with the same compare as `memory docs --check`). When that
-  compare is stale, the shell prints one warn line on stdout. The tidy
+  memory folder the tidy does nothing. The tidy
   command's shell bounds hung process start to 3 seconds when
   `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`).
   The perl command runs in a group that discards output, so the shell's

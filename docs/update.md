@@ -176,8 +176,7 @@ These stay, because the tool writes no tracked file and removes none:
 - lines in a tracked `.gitignore` that `--gitignore` wrote.
 
 Remove them by hand if you do not want them. With `core.hooksPath` set to `.githooks`,
-the tool writes no git hook. To use the personal hooks, unset `core.hooksPath` and run
-`memory init`.
+the tool writes no file there. Git 2.54 or newer runs the personal hooks beside that folder.
 
 ## From project-memory to cairnkit
 

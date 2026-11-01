@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import followups, hygiene, install_source, migrate_refs, refresh, usage
+from cairnkit import (
+    enforcement,
+    followups,
+    hygiene,
+    install_source,
+    migrate_refs,
+    refresh,
+    usage,
+)
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.envsecrets import EnvValues
@@ -135,14 +143,19 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out.append("## Withheld facts (no person is needed for this)")
         out += [f"- {memory.withheld_note(fact_id)}" for fact_id in sorted(memory.withheld)]
     rules.sort(key=lambda s: s.get("learned_at", ""))
-    enforced = [s for s in rules if s.get("enforced_by")]
+    false_claims = [s for s in rules if enforcement.is_false(memory.project, s)]
+    enforced = [s for s in rules if s.get("enforced_by") and s not in false_claims]
     advisory = [s for s in rules if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
         out += [render(s) for s in enforced]
-    if advisory:
+    if advisory or false_claims:
         out.append("## Advisory rules")
         out += [render(s) for s in advisory]
+        out += [
+            f"{render({**s, 'enforced_by': None})} (no check found for {s['enforced_by']})"
+            for s in false_claims
+        ]
     out.append(FRAME_HEADER)
     pinned = [s for s in long_shown if s.get("pinned")]
     if pinned:

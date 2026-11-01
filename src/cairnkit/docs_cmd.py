@@ -175,6 +175,21 @@ def atlas_freshness(project: Project) -> AtlasFreshness:
     return Stale(changed)
 
 
+def status_line(project: Project) -> str | None:
+    """One line for `memory status` when the atlas differs from the code. Never raises."""
+    try:
+        result = atlas_freshness(project)
+    except Exception:
+        return None
+    if not isinstance(result, Stale):
+        return None
+    return (
+        f"Docs atlas: {len(result.changed)} page(s) in {STATE_DIR.as_posix()} differ from the "
+        "code. `memory docs --force` rewrites them with no model and no network, and removes "
+        "other Markdown files there. The folder may be tracked, so nothing runs it by itself."
+    )
+
+
 def run_docs_check(project: Project) -> int:
     result = atlas_freshness(project)
     if isinstance(result, Stale):

@@ -5,6 +5,7 @@ import subprocess
 import pytest
 from conftest import add_worktree, git, make_fact, write_facts
 
+from cairnkit import githook
 from cairnkit.cli import main
 
 
@@ -274,7 +275,8 @@ def test_pre_commit_keeps_a_foreign_hook(repo, mem, capsys):
     assert hook.read_text() == "#!/bin/sh\necho team-check\nexit 0\n"
 
 
-def test_hooks_path_inside_repo_is_left_alone(repo, mem, capsys):
+def test_hooks_path_inside_repo_is_left_alone(repo, mem, capsys, monkeypatch):
+    monkeypatch.setattr(githook, "git_runs_config_hooks", lambda: False)
     (repo / ".githooks").mkdir()
     git(repo, "config", "core.hooksPath", ".githooks")
     code, out = install(capsys, "--agent", "generic")

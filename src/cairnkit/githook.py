@@ -1,20 +1,32 @@
 """Git hooks: the pre-commit memory guard, the post-checkout link for a new
-worktree, personal pre-push / post-merge hooks, and the commit-msg guard, which
+worktree, personal pre-push / post-merge hooks, and the attribution guard, which
 installs by itself when the memory holds a rule against AI attribution.
 
-Personal quiet hooks never fail git. pre-push and post-merge run auto-tidy
-(~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
+The guard is two checks. commit-msg refuses an AI attribution line and an AI author
+or committer. pre-push refuses the same in a commit that skipped commit-msg, such as
+a rebase or a commit from plumbing. Only commits that no remote holds count, so
+another person's commit never stops a push.
+
+When core.hooksPath points into the repo, git does not read .git/hooks. Our files then
+live in .git/cairnkit-hooks, and the local git config runs them beside that folder (git 2.54
+or newer). This writes no tracked file and leaves core.hooksPath as it is.
+
+Personal quiet hooks never fail git, apart from that guard. pre-push and post-merge
+run auto-tidy (~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
 the block goes right after its first line. Uninstall removes only the block.
 """
 
 from __future__ import annotations
 
+import re
 import shlex
 import sys
+from functools import lru_cache
 from pathlib import Path
+from typing import NamedTuple
 
 from cairnkit import markers
-from cairnkit.paths import Project, run_git
+from cairnkit.paths import LINK_NAME, PATH_FILE, Project, run_git
 
 START = "# >>> cairnkit >>>"
 END = "# <<< cairnkit <<<"
@@ -23,21 +35,114 @@ PAIRS = ((START, END), ("# >>> project-memory >>>", "# <<< project-memory <<<"))
 SHELLS = ("sh", "bash", "zsh", "dash", "ksh")
 GUARD_MARK = "# Refuse AI self-attribution lines."
 GUARD_REF = "githook:commit-msg"
+IDENTITY_MARK = "# Refuse an AI author or committer."
+PUSH_MARK = "# Refuse a pushed commit with an AI identity or attribution line."
+PYTHON_GONE_MARK = "# The Python of this hook cannot run the tool."
+PERSONAL_HOOKS = ("pre-commit", "post-checkout", "pre-push", "post-merge")
+# Under a core.hooksPath in the repo, our hook files live here and the local git config runs them.
+PRIVATE_DIR = "cairnkit-hooks"
+CONFIG_PREFIX = "cairnkit-"
+CONFIG_HOOKS_SINCE = "2.54"
 
-# Extended regular expressions, matched without case on each line that is not a
-# comment. They name AI tools on purpose: the guard exists to catch them.
+# Extended regular expressions, matched without case. They name AI tools on purpose: the
+# guard exists to catch them. A name counts only as a whole name, so "Cursor Smith" and
+# "Jane Cursor" pass. These names are also people's names, so alone they need a tool word,
+# a version or a tool address: "Opus 4.7" is refused, and "Opus <opus@example.com>" passes.
+_PERSON_LIKE = "(claude|devin|fable|opus|sonnet|haiku|mythos|jules|kimi)"
+_NO_REPLY = "<no-?reply[^@>]*@"
+_FAMILY = "(opus|sonnet|haiku|fable|mythos)"
+_TOOL_WORD = f"(agent|ai|bot|code|cli|assistant|build|model|{_FAMILY})"
+_VERSION_END = "( [0-9][0-9.]*)?( \\([^)]*\\))?"
+_TOOL = (
+    "(anthropic|openai|cursor|copilot|codex|chatgpt|gpt-?[0-9][a-z0-9.]*|gemini|grok|aider"
+    "|windsurf|codeium|tabnine|amazon q|opencode|deepseek|llama|qwen|mistral)"
+)
+_MAKER = "((github|openai|anthropic|google|amazon|microsoft) )?"
+_NAME = (
+    f"{_MAKER}({_TOOL}(-[a-z0-9.-]+)?( {_TOOL_WORD})*{_VERSION_END}"
+    f"|{_PERSON_LIKE}(-({_FAMILY}|code|ai|[0-9])[a-z0-9.-]*|( {_TOOL_WORD})+|( [0-9][0-9.]*))"
+    f"{_VERSION_END})"
+)
+_BOT_NAME = (
+    "[^<@]*(claude|codex|copilot|cursor|devin|gemini|grok|jules|aider|windsurf|opencode)"
+    "[^<@]*\\[bot\\]"
+)
+_ADDRESSES = (
+    f"<([0-9]+\\+)?{_BOT_NAME}@users\\.noreply\\.github\\.com>",
+    "<([0-9]+\\+)?copilot@users\\.noreply\\.github\\.com>",
+    "<copilot@github\\.com>",
+    "<(cursoragent|cursor-agent)@",
+    "<(noreply|cursor|agent)@cursor\\.(com|sh)>",
+    "<(noreply|claude|claude-code)@anthropic\\.com>",
+    "<(noreply|codex|chatgpt)@openai\\.com>",
+    "<(noreply|aider)@aider\\.(chat|ai)>",
+    "<(noreply|devin)@(cognition\\.ai|devin\\.ai)>",
+    "<noreply@(opencode\\.ai|x\\.ai|windsurf\\.com|codeium\\.com)>",
+)
+_TRAILER = (
+    "^(co-authored-by|co-developed-by|signed-off-by|assisted-by|authored-by|written-by"
+    "|generated-by|made-with|ai-assisted): *"
+)
+_ANY_NAME = (
+    "(\\bai\\b|claude|anthropic|openai|chatgpt|gpt-?[0-9]|codex|copilot|cursor|gemini|grok|devin"
+    "|aider|windsurf|codeium|tabnine|amazon q|deepseek|opus|sonnet|haiku|fable|mythos)"
+)
+# Matched on each line of a commit message that is not a comment.
 DEFAULT_GUARD_PATTERNS = [
-    "^co-authored-by:.*(claude|anthropic|openai|chatgpt|gpt-?[0-9]|codex|copilot|cursor"
-    "|gemini|grok|devin|aider|windsurf|codeium|tabnine|amazon q)",
+    f"{_TRAILER}{_NAME}( *<|[ :.]*$|:)",
+    f"{_TRAILER}{_PERSON_LIKE}([ .]*$|:| {_NO_REPLY})",
+    f"{_TRAILER}{_BOT_NAME}",
+    f"{_TRAILER}[^<]*({'|'.join(_ADDRESSES)})",
     "^[^a-z0-9]*generated with ",
-    "^[^a-z0-9]*generated by .*(\\bai\\b|claude|anthropic|openai|chatgpt|gpt-?[0-9]|codex|copilot"
-    "|cursor|gemini|grok|devin|aider|windsurf|codeium|tabnine|amazon q)",
+    f"^[^a-z0-9]*generated by .*{_ANY_NAME}",
+    f"^[^a-z0-9]*(made|written|authored|created|assisted|drafted|co-written)[- ](with|by):? *"
+    f"(the )?({_NAME}|{_PERSON_LIKE})[ .!]*$",
+]
+
+# Matched on "Name <email>". A pushed commit follows that with a tab and its id, so a
+# pattern must not end in $.
+DEFAULT_IDENTITY_PATTERNS = [
+    f"^{_NAME} <",
+    f"^{_PERSON_LIKE} {_NO_REPLY}",
+    f"^{_BOT_NAME} <",
+    "^[^<]*\\(aider\\) <",
+    *_ADDRESSES,
 ]
 
 
-def hooks_dir(project: Project) -> Path | None:
+class GuardPatterns(NamedTuple):
+    message: list[str]
+    identity: list[str]
+
+
+class HookState(NamedTuple):
+    line: str
+    fixable: bool = False
+
+
+def git_folder(project: Project) -> Path | None:
+    """The folder that git reads hooks from. core.hooksPath can put it in the repo."""
     out = run_git(project.root, "rev-parse", "--path-format=absolute", "--git-path", "hooks")
     return Path(out) if out else None
+
+
+def _private_dir(project: Project) -> Path | None:
+    return project.common_dir / PRIVATE_DIR if project.common_dir else None
+
+
+def hooks_dir(project: Project) -> Path | None:
+    """The folder that holds our hook files. It is never a folder in the repo."""
+    folder = git_folder(project)
+    if folder is None or not _inside_worktree(project, folder):
+        return folder
+    return _private_dir(project)
+
+
+@lru_cache(maxsize=1)
+def git_runs_config_hooks() -> bool:
+    """Git 2.54 runs hook.<name>.command beside the hooks folder, for each hook event."""
+    found = re.search(r"(\d+)\.(\d+)", run_git(Path("."), "version") or "")
+    return bool(found) and (int(found[1]), int(found[2])) >= (2, 54)
 
 
 def _inside_worktree(project: Project, folder: Path) -> bool:
@@ -62,7 +167,27 @@ def _quote(pattern: str) -> str:
 
 def pre_commit_body() -> str:
     py = shlex.quote(sys.executable)
-    return f"if [ -x {py} ]; then {py} -m cairnkit hook pre-commit || exit 1; fi\n"
+    private = f"^({re.escape(LINK_NAME)}(/|$)|{re.escape(PATH_FILE)}$)"
+    gone = f"memory: the hooks here need {sys.executable}, and it cannot run the tool."
+    # With no working Python the fixed private names are still refused, and nothing else is.
+    # The import comes first, because a Python without the tool also exits 1.
+    return (
+        f"if [ -x {py} ] && {py} -c 'import cairnkit' >/dev/null 2>&1; then\n"
+        f"  {py} -m cairnkit hook pre-commit || exit 1\n"
+        "else\n"
+        f"  {PYTHON_GONE_MARK}\n"
+        f"  echo {_quote(gone + ' Run `memory init --refresh`.')} >&2\n"
+        "  cairnkit_found=$(git diff --cached --name-only --diff-filter=d | "
+        f"grep -E {_quote(private)}) || true\n"
+        '  if [ -n "$cairnkit_found" ]; then\n'
+        '    echo "memory: commit refused. These paths are private memory and must not be '
+        'committed:" >&2\n'
+        "    printf '%s\\n' \"$cairnkit_found\" >&2\n"
+        '    echo "Unstage them with git reset." >&2\n'
+        "    exit 1\n"
+        "  fi\n"
+        "fi\n"
+    )
 
 
 # Wall-clock bound for quiet git hooks. Matches hookrun budgets: the
@@ -100,60 +225,52 @@ def quiet_body(event: str) -> str:
     )
 
 
-def pre_push_body() -> str:
-    return quiet_body("pre-push")
+def _grep_args(patterns: list[str]) -> str:
+    return " ".join(f"-e {_quote(p)}" for p in patterns)
 
 
-# refresh.repo_line nudges when a post-merge block lacks this line.
-DOCS_CHECK_MARK = "# cairnkit:docs-check"
-DOCS_CHECK_WARN = "cairnkit: docs/state looks out of date; run memory docs --force"
-_DOCS_CHECK_BUDGET = 3
-
-
-def _docs_check_python() -> str:
-    # Timed child must be PY itself (quiet_body pattern). A nested `sh -c`
-    # under timeout orphans the hung interpreter on macOS after the bound.
-    # Same compare as `docs --check`; print only the one warn line when stale.
-    # One physical shell line (via exec of a small block) so redirects stay
-    # on the timeout/gtimeout line with the PY path.
-    block = (
-        "from cairnkit.paths import find_project\n"
-        "from cairnkit.hookrun import has_memory\n"
-        "from cairnkit.docs_cmd import Stale, atlas_freshness\n"
-        "p = find_project()\n"
-        "if not has_memory(p, None):\n"
-        "    raise SystemExit(0)\n"
-        "r = atlas_freshness(p)\n"
-        f"if isinstance(r, Stale):\n"
-        f"    print({DOCS_CHECK_WARN!r})\n"
-    )
-    return f"exec({block!r})"
-
-
-def docs_check_stanza() -> str:
-    py = shlex.quote(sys.executable)
-    seconds = _DOCS_CHECK_BUDGET
-    run = f"{py} -c {shlex.quote(_docs_check_python())}"
+def _push_check(patterns: GuardPatterns) -> str:
+    identity, message = _grep_args(patterns.identity), _grep_args(patterns.message)
+    # A hook that runs after this block in the same file also reads the ref list on stdin.
+    # The here-document gives it back.
     return (
-        f"{DOCS_CHECK_MARK}\n"
-        f"# same compare as memory docs --check\n"
-        f"if [ -d docs/state ] && [ -x {py} ]; then\n"
-        "  if command -v timeout >/dev/null 2>&1; then\n"
-        f"    timeout -k 1 {seconds} {run} </dev/null 2>/dev/null || true\n"
-        "  elif command -v gtimeout >/dev/null 2>&1; then\n"
-        f"    gtimeout -k 1 {seconds} {run} </dev/null 2>/dev/null || true\n"
-        "  elif command -v perl >/dev/null 2>&1; then\n"
-        f"    {{ perl -e 'alarm {seconds}; exec @ARGV' -- {run} || true; }} "
-        "</dev/null 2>/dev/null\n"
-        "  else\n"
-        f"    {run} </dev/null 2>/dev/null || true\n"
-        "  fi\n"
+        f"{PUSH_MARK} Edit the patterns to change the rule.\n"
+        "cairnkit_refs=\n"
+        "if [ ! -t 0 ]; then cairnkit_refs=$(cat); fi\n"
+        'if [ -n "$cairnkit_refs" ]; then\n'
+        "  exec <<CAIRNKIT_REFS\n"
+        "$cairnkit_refs\n"
+        "CAIRNKIT_REFS\n"
+        "fi\n"
+        "cairnkit_found=$(printf '%s\\n' \"$cairnkit_refs\" | "
+        "while read -r cairnkit_a cairnkit_new cairnkit_b cairnkit_old; do\n"
+        # The leading parens are for bash 3.2, /bin/sh on macOS: it misreads a bare `)` in $().
+        '  case "$cairnkit_new" in (*[!0]*) ;; (*) continue ;; esac\n'
+        "  cairnkit_known=\n"
+        '  if git cat-file -e "$cairnkit_old^{commit}" 2>/dev/null; then '
+        'cairnkit_known="^$cairnkit_old"; fi\n'
+        "  git log --format='%an <%ae>%x09%h%n%cn <%ce>%x09%h' \"$cairnkit_new\" $cairnkit_known "
+        f"--not --remotes 2>/dev/null | grep -iE {identity}\n"
+        '  git log --format=%B "$cairnkit_new" $cairnkit_known --not --remotes '
+        f"2>/dev/null | grep -v '^#' | grep -iE {message}\n"
+        "done | sort -u) || true\n"
+        'if [ -n "$cairnkit_found" ]; then\n'
+        '  echo "push refused: these commits have an AI identity or attribution line:" >&2\n'
+        "  printf '%s\\n' \"$cairnkit_found\" >&2\n"
+        '  echo "Rewrite them under the owner\'s name, with no such line. Then push again." >&2\n'
+        "  echo \"One way: git rebase --exec 'git commit --amend --no-edit --reset-author' "
+        'BASE" >&2\n'
+        "  exit 1\n"
         "fi\n"
     )
 
 
+def pre_push_body(check: GuardPatterns | None = None) -> str:
+    return (_push_check(check) if check else "") + quiet_body("pre-push")
+
+
 def post_merge_body() -> str:
-    return docs_check_stanza() + quiet_body("post-merge")
+    return quiet_body("post-merge")
 
 
 def post_checkout_body() -> str:
@@ -168,14 +285,36 @@ def post_checkout_body() -> str:
     )
 
 
-def guard_body(patterns: list[str]) -> str:
-    args = " ".join(f"-e {_quote(p)}" for p in patterns)
+# Each tool's own switch for the line it adds. They are the owner's global settings, so the
+# tool only names them. Check them against each tool's public docs before a change.
+TOOL_SETTINGS = (
+    'Claude Code: "attribution": {"commit": ""} in ~/.claude/settings.json',
+    'Cursor: "attribution": {"attributeCommitsToAgent": false} in ~/.cursor/cli-config.json',
+)
+
+
+def guard_body(patterns: GuardPatterns) -> str:
+    message, identity = _grep_args(patterns.message), _grep_args(patterns.identity)
+    settings = "".join(f"  echo {_quote('  ' + line)} >&2\n" for line in TOOL_SETTINGS)
     return (
         f"{GUARD_MARK} Edit the patterns to change the rule.\n"
-        f"if grep -v '^#' \"$1\" | grep -iqE {args}; then\n"
+        f"if grep -v '^#' \"$1\" | grep -iqE {message}; then\n"
         '  echo "commit refused: the message has an AI attribution line:" >&2\n'
-        f"  grep -v '^#' \"$1\" | grep -inE {args} >&2\n"
+        f"  grep -v '^#' \"$1\" | grep -inE {message} >&2\n"
         '  echo "Remove the line and commit again." >&2\n'
+        '  echo "If a tool added it, tell the owner once. This setting stops it:" >&2\n'
+        f"{settings}"
+        "  exit 1\n"
+        "fi\n"
+        f"{IDENTITY_MARK}\n"
+        "cairnkit_found=$({ git var GIT_AUTHOR_IDENT; git var GIT_COMMITTER_IDENT; } 2>/dev/null "
+        f"| sed 's/ [0-9]* [-+][0-9]*$//' | grep -iE {identity}) || true\n"
+        'if [ -n "$cairnkit_found" ]; then\n'
+        '  echo "commit refused: the author or committer is an AI tool:" >&2\n'
+        "  printf '%s\\n' \"$cairnkit_found\" >&2\n"
+        "  echo \"Commit under the owner's name. Check user.name, user.email and the "
+        'GIT_AUTHOR_* and GIT_COMMITTER_* variables." >&2\n'
+        '  echo "To fix the last commit: git commit --amend --reset-author" >&2\n'
         "  exit 1\n"
         "fi\n"
     )
@@ -216,11 +355,8 @@ def is_broken(path: Path) -> bool:
 
 def broken_paths(project: Project, hooks: list[str]) -> list[Path]:
     """The hook files that this install would write and that have broken markers."""
-    paths = []
     folder = hooks_dir(project) if project.is_git else None
-    if folder is not None and not _inside_worktree(project, folder):
-        paths += [folder / hook for hook in hooks]
-    return [p for p in paths if is_broken(p)]
+    return [folder / hook for hook in hooks if is_broken(folder / hook)] if folder else []
 
 
 def write_block(path: Path, body: str, dry_run: bool) -> list[str]:
@@ -245,42 +381,37 @@ def write_block(path: Path, body: str, dry_run: bool) -> list[str]:
     return [f"write {path}"]
 
 
-def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
-    folder = hooks_dir(project)
-    if folder is None:
+def _config_name(hook: str) -> str:
+    return f"hook.{CONFIG_PREFIX}{hook}"
+
+
+def _command(path: Path) -> str:
+    return shlex.quote(str(path))
+
+
+def _is_wired(project: Project, hook: str) -> bool:
+    private = _private_dir(project)
+    return bool(private) and run_git(
+        project.root, "config", "--local", "--get", f"{_config_name(hook)}.command"
+    ) == _command(private / hook)
+
+
+def _wire(project: Project, hook: str, path: Path, dry_run: bool) -> list[str]:
+    """Ask git to run path for this hook event, beside the folder that core.hooksPath names."""
+    if _is_wired(project, hook):
         return []
-    if _inside_worktree(project, folder):
-        return [
-            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
-            f"The memory hooks are not shared, so {hook} does not run here."
-        ]
-    return write_block(folder / hook, body, dry_run)
+    if not dry_run:
+        run_git(project.root, "config", "--local", f"{_config_name(hook)}.event", hook)
+        run_git(project.root, "config", "--local", f"{_config_name(hook)}.command", _command(path))
+    return [f"connect {hook} in the local git config, beside core.hooksPath"]
 
 
-def guard_installed(project: Project) -> bool:
-    """True when git runs our commit-msg guard (local hooks or core.hooksPath)."""
-    folder = hooks_dir(project) if project.is_git else None
-    hook = folder / "commit-msg" if folder else None
-    if hook is None or not hook.is_file():
-        return False
-    text = hook.read_text(errors="replace")
-    return holds_block(text) and GUARD_MARK in text
-
-
-def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
-    folder = hooks_dir(project)
-    if folder is None or not (folder / hook).exists():
+def _remove_block(path: Path, dry_run: bool) -> list[str]:
+    if not path.is_file():
         return []
-    path = folder / hook
     old = path.read_text()
     if not holds_block(old):
         return []
-    if _inside_worktree(project, folder):
-        # Shared hooks are tracked: removing them changes the team's files.
-        return [
-            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
-            f"Remove the marked block from {path} by hand if you mean to."
-        ]
     new = _strip(old)
     if not dry_run:
         if new.strip() in ("#!/bin/sh", ""):
@@ -288,3 +419,121 @@ def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
         else:
             path.write_text(new)
     return [f"update {path}"]
+
+
+def _unwire(project: Project, hook: str, dry_run: bool) -> list[str]:
+    private = _private_dir(project)
+    if private is None:
+        return []
+    steps = _remove_block(private / hook, dry_run)
+    if _is_wired(project, hook):
+        steps.append(f"disconnect {hook} from the local git config")
+        if not dry_run:
+            run_git(project.root, "config", "--local", "--remove-section", _config_name(hook))
+    if not dry_run and private.is_dir() and not any(private.iterdir()):
+        private.rmdir()
+    return steps
+
+
+def _runs_memory(path: Path, hook: str) -> bool:
+    """True for a block of ours, or for a line that someone pasted into their own hook."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return False
+    return holds_block(text) or f"-m cairnkit hook {hook}" in text
+
+
+def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
+    folder = git_folder(project)
+    if folder is None:
+        return []
+    if not _inside_worktree(project, folder):
+        return _unwire(project, hook, dry_run) + write_block(folder / hook, body, dry_run)
+    if _runs_memory(folder / hook, hook):
+        return _unwire(project, hook, dry_run)
+    if not git_runs_config_hooks():
+        return [
+            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
+            f"The memory hooks are not shared, so {hook} does not run here. "
+            f"Git {CONFIG_HOOKS_SINCE} or newer can run them beside that folder."
+        ]
+    path = _private_dir(project) / hook
+    idle = project.common_dir / "hooks" / hook
+    steps = write_block(path, body, dry_run)
+    return steps + _wire(project, hook, path, dry_run) + _remove_block(idle, dry_run)
+
+
+def _running_file(project: Project, hook: str) -> Path | None:
+    """The file of ours that git runs for this hook, or None."""
+    folder = git_folder(project) if project.is_git else None
+    if folder is None:
+        return None
+    private = _private_dir(project) / hook
+    if private.is_file() and _is_wired(project, hook) and git_runs_config_hooks():
+        return private
+    return folder / hook if _runs_memory(folder / hook, hook) else None
+
+
+def is_running(project: Project, hook: str) -> bool:
+    return _running_file(project, hook) is not None
+
+
+def guard_installed(project: Project) -> bool:
+    """True when git runs our commit-msg guard, wherever that file is."""
+    path = _running_file(project, "commit-msg")
+    return path is not None and GUARD_MARK in path.read_text(errors="replace")
+
+
+def hook_state(project: Project) -> HookState:
+    """What git really runs here, for `memory check` and `memory status`."""
+    folder = git_folder(project) if project.is_git else None
+    if folder is None:
+        return HookState("")
+    setting = run_git(project.root, "config", "--get", "core.hooksPath")
+    missing = [hook for hook in PERSONAL_HOOKS if not is_running(project, hook)]
+    idle = any(
+        folder != project.common_dir / "hooks"
+        and _runs_memory(project.common_dir / "hooks" / hook, hook)
+        for hook in PERSONAL_HOOKS
+    )
+    if missing and (idle or _inside_worktree(project, folder)):
+        can_fix = git_runs_config_hooks() or not _inside_worktree(project, folder)
+        fix = (
+            "Run `memory hooks install` to run them beside it. Tracked hooks stay as they are."
+            if can_fix
+            else f"Git {CONFIG_HOOKS_SINCE} or newer can run them beside it."
+        )
+        return HookState(
+            f"warning: core.hooksPath is {setting}, so git does not run the memory hooks. {fix}",
+            fixable=can_fix,
+        )
+    if len(missing) == len(PERSONAL_HOOKS):
+        return HookState("git hooks: not installed. `memory hooks install` adds them.")
+    if missing:
+        names = ", ".join(missing)
+        return HookState(f"git hooks: {names} missing. `memory hooks install` adds them.")
+    where = _running_file(project, PERSONAL_HOOKS[0]).parent
+    shown = (
+        where.relative_to(project.root).as_posix() if where.is_relative_to(project.root) else where
+    )
+    if where == _private_dir(project):
+        return HookState(f"git hooks: on, beside core.hooksPath {setting} ({shown})")
+    return HookState(f"git hooks: on ({shown})")
+
+
+def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
+    folder = git_folder(project)
+    if folder is None:
+        return []
+    steps = _unwire(project, hook, dry_run)
+    if not _inside_worktree(project, folder):
+        return steps + _remove_block(folder / hook, dry_run)
+    steps += _remove_block(project.common_dir / "hooks" / hook, dry_run)
+    if (folder / hook).is_file() and holds_block((folder / hook).read_text()):
+        # Shared hooks are tracked: removing them changes the team's files.
+        steps.append(
+            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
+            f"Remove the marked block from {folder / hook} by hand if you mean to."
+        )
+    return steps

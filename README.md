@@ -107,7 +107,7 @@ complete. Remove a row in the change that fixes it.
 | Goal | What happens today |
 |---|---|
 | Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`. `memory init` and `memory status` say so only after Codex has run a session. Codex does not record the approval in a place the tool reads, so `memory status` keeps the line while Codex is in use. |
-| Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo, the git hooks are not written. |
+| Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo and git is older than 2.54, the git hooks do not run, and `memory check` says so. |
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
 | Each agent gets the same result | Grok Build reads only `systemMessage` from `SessionStart`, so a hook cannot add the memory to the context there. The memory reaches the model at the first tool result. A reply before the first tool has no memory. |
@@ -120,7 +120,7 @@ complete. Remove a row in the change that fixes it.
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
 | A repo with notes before the tool | A tracked file that teaches the old layout keeps teaching it until an agent edits it, and a hook keeps running the old checker. The tool names each line and never edits it. The worklist marks a repeat only when the words match. It does not mark the same rule in other words. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
-| Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. |
+| Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
 ## Install
@@ -173,12 +173,12 @@ session end. To see the plan first, run `memory init --dry-run`. To skip the
 agent tools and the git hooks, run `memory init --no-hooks`.
 
 `memory init` adds four personal git hooks: `pre-commit`, `post-checkout`,
-`pre-push` and `post-merge`. They are not shared. The last two run auto-tidy after
-a push or a merge. On a merge, when memory exists and `docs/state` is out of date,
-`post-merge` prints
-`cairnkit: docs/state looks out of date; run memory docs --force`.
-The merge still succeeds. Git hooks work for every agent, including an agent with
-no adapter.
+`pre-push` and `post-merge`. They are not shared. When `core.hooksPath` points into the
+repo, they live in `.git/cairnkit-hooks`, and the local git config runs them beside the
+tracked hooks (git 2.54 or newer). The tool changes no tracked hook and leaves
+`core.hooksPath` as it is. `memory check` and `memory status` print the real hook state. The last two run auto-tidy after
+a push or a merge. They print nothing. Git hooks work for every agent, including an
+agent with no adapter.
 
 `memory hooks install` remains for repair and for one specific agent. For example,
 `memory hooks install --agent pi` writes the Pi adapter when the tool does not find
@@ -376,8 +376,7 @@ The same step runs after a push or a merge. In a long session, the stop hook als
 runs it when the last tidy is more than one day old. This timing never ends a fact
 by its age. The git hooks are personal. They live in this clone's `.git/hooks`.
 They are not shared, and a teammate never runs them. A push or a merge does not
-count as a session start. The git hook never stops git. It prints nothing, except
-the `docs/state` line from `post-merge`. A shell bound of 3 seconds covers a hung
+count as a session start. The git hook never stops git, and it prints nothing. A shell bound of 3 seconds covers a hung
 python start when `timeout`, `gtimeout`, or `perl` is available (stock macOS
 has `perl`). The perl command runs in a group that discards output, so the
 shell's alarm line is not printed. Without any of those the start is unbounded.
@@ -591,8 +590,15 @@ When git runs the commit-msg guard, the co-author rule is **enforced**
 (`enforced_by: githook:commit-msg`). All other rules are **advisory**:
 no check fails when one is broken. `memory load` shows the two groups apart.
 `memory init` and `memory hooks install` add the guard by themselves when the
-memory holds a rule against AI attribution. The guard is local to this clone. It
-refuses AI attribution lines, and it needs only `sh` and `grep`.
+memory holds a rule against AI attribution. The guard is local to this clone, and
+it needs only `sh`, `git` and `grep`. `commit-msg` refuses an AI attribution line, and
+an author or committer that is an AI tool, such as `Cursor Agent`. A person named
+Cursor Smith or Claude Monet passes. `pre-push` refuses the same in a commit that
+skipped `commit-msg`, such as a rebase. It reads only commits that no remote holds, so
+another person's commit does not stop your push. A refused trailer names the setting
+that turns it off in Claude Code and Cursor. The tool does not write those settings,
+because they are global. To change what counts as a tool, set `identity_patterns` under
+`[commit_msg_guard]` in `config.toml`.
 
 Once you add a preset, its rules live in memory. Every session loads them
 first. Nothing is written to a tracked file. An instruction for every
@@ -711,7 +717,7 @@ level only. It writes nothing into a repo.
 | `memory load [--area AREA] [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]] [--instructions-file PATH]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. `shared` is refused. |
-| `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
+| `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--force` rewrites the pages and removes other Markdown files in that folder. No hook runs it, because the folder may be tracked. `memory status` shows one line when the pages differ from the code. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
 | `memory purge ID --reason secret --yes` | you, rarely | Removes a secret for good. |
 
 ### Where the memory lives

@@ -43,8 +43,8 @@ show that the step is intended.
 6. **Keep the core generic.** No personal data, no names of private
    projects. Agent tools are named only where hooks and skills connect to
    them: `adapters.py`, `hookrun.py`, `hooks_cmd.py`, `loopbreak.py`, `native.py`,
-   `harness_local.py`, `skills.py`, the CLI choices, and the commit-msg guard
-   patterns. Check each adapter against the tool's public docs before you change it.
+   `harness_local.py`, `skills.py`, the CLI choices, and the attribution guard
+   in `githook.py`. Check each adapter against the tool's public docs before you change it.
 7. **Plain docs.** Short sentences. One instruction per sentence. Active voice.
 8. **Neutral git identity.** Author, committer, and any `Co-authored-by` /
    `Signed-off-by` trailer must be
@@ -87,7 +87,8 @@ show that the step is intended.
 12. **No tool text loads as a fact.** A hook names an event to the agent. Only the
    agent writes a fact.
 13. **No tracked writes.** A setup or hook path must not write a tracked file. When a
-   file is tracked, the code skips it and says so.
+   file is tracked, the code skips it and says so. Under a tracked `core.hooksPath`, the hooks
+   run from `.git/cairnkit-hooks` through the local git config.
 
 ## Layout
 
@@ -140,6 +141,7 @@ src/cairnkit/
   refresh.py     the tool version that wrote the repo files; memory init --refresh
   hooks_cmd.py   memory hooks install / uninstall
   check.py       memory check
+  enforcement.py  whether the check that a rule names is really there
   selection.py   rank for load; the budget and one place per area
   usage.py       when a fact was last looked up; feeds the rank
   load.py        memory load
