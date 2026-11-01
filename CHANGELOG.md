@@ -56,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A stop blocks only for a new event, and each event once per session: a health problem, a command
+  that failed at least twice and then passed, a revert, a correction, or a lost file that no prompt
+  named or asked to remove. In 20 ordinary turns, an agent that never writes sees 0 blocks on a plain
+  script, where it saw 15, and 2 on a mixed one, where it saw 17.
+- Plain work gets one short reminder per session, at the next prompt or tool result, with no block.
+  News waits for the same hooks. The generic adapter has only stop, so it hears both there.
+- A command that failed and has not passed is no longer named at stop. The loop nudge covers a
+  stuck command.
+- The similar-pair task lists at most 20 pairs, the likeliest repeats first. A pair with one swapped
+  word or a change in numbers alone is no task. `memory load` and `memory tidy` state only that
+  listed count, and the load line says nothing for a count past the limit.
 - A rule that an agent saves with no `--basis` is still written. The first line of the add output
   says that it loads as data, and that the same command with `--basis told` lifts it, if the owner
   stated it. The heading of that load section says the same, and `memory instructions` shows
@@ -103,6 +114,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 30 facts that differ by one number made a 245 KB task, and 2000 made 113 MB and took session start
+  past its 10 s hook timeout. Now they make no task, and session start takes about 1.3 s. The scan
+  has a limit of 30000 comparisons and 1 second, and each fact gets an equal share. A scan that runs
+  out of time keeps the last whole answer.
 - An agent's change to a rule that binds is never silent. `memory change`, `--supersedes` and
   `memory purge` under an agent print a line at once, and the next load names the rule once.
   The agent must tell the owner. It stays allowed.

@@ -154,7 +154,7 @@ pair is `repeat` when the newer text says all that the older one says, else `dif
 | Rule | False retires, of 51 | Repeats caught, of 29 | Pairs left for the agent task |
 |---|---:|---:|---:|
 | The same words in order, after case, plural, punctuation and stop words | 16 | 9 | 51 |
-| The same text byte for byte, apart from whitespace and a final `.`, `,`, `;` or `:` | 0 | 3 | 73 |
+| The same text byte for byte, apart from whitespace and a final `.`, `,`, `;` or `:` | 0 | 3 | 62, 24 of them repeats |
 
 The 16 false retires of the older rule are all audit rows: `-1` and `1`, `retries != 0` and
 `retries = 0`, `Foo` and `foo`, `users` and `user`, `plan A` and `plan`. On the 64 older rows, which
@@ -169,6 +169,12 @@ flag only asks an agent to look, so a pair that differs by `not` or by a number 
 agent task. It did not before, so the agent task can grow. On a copy of this repo's own memory (99
 active facts) and on the coding and synthetic fixtures (114 facts), both versions flag 0 pairs and
 retire 0, so the real memory gives no evidence for the rule, and no sign of noise.
+
+A later change took two shapes out of the agent task, on this count: one swapped word (10 pairs, 1 a
+repeat) and a change in numbers alone (1 pair, not a repeat). 62 pairs stay, which is down from 73.
+A word added stays in the task, because 13 of those 19 pairs are repeats. The task shows at most 20
+at a time, ranked by shared words and by the share of words. On this set the first 20 hold 11
+repeats. The rest appear as the first ones are settled.
 
 The forgetting replay does not run auto-tidy, and `harness.py` does not import the repeat test, so
 these numbers do not move it.

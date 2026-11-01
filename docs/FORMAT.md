@@ -470,22 +470,23 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
 - `stop`: when `stop_hook_active` is true or `loop_count` is above 0, it says
   nothing more. Else it runs auto-tidy when the last tidy is more than one day old.
   Then it builds a message from these parts: problems from `memory check --strict`,
-  the loop nudge, the news (see `prompt`), and the events of this session. The events
-  are a command that failed at least twice and then passed, a command that failed at
-  least twice and has not passed, and a revert since the session started. Each event
-  is named once. With no event, and when the work changed and no fact was written, the
-  message reminds the agent once for each state of the work. Output is
+  the loop nudge, the load that a tool holds, and the events of this session. The events
+  are a command that failed at least twice and then passed, a revert since the session
+  started, a correction, and a lost file that no prompt named or asked to remove. Each
+  event is named once. When the work changed and no fact was written, it marks the one
+  reminder of the session as due. It adds no text for that, or for news, unless the agent
+  is `generic`, which has no other hook. Output is
   `{"decision": "block", "reason": TEXT}` for `claude`, `codex` and `grok`,
   `{"followup_message": TEXT}` for `cursor`, TEXT on stdout with exit 0 for `pi` and
   `opencode`, and TEXT on stderr with exit 1 for `generic`. With nothing to say it
   prints nothing, or `{}` for `codex` and `cursor`, and exits 0.
-- `prompt`: prints the news on stdout. The news is a compaction notice, up to 5 facts
+- `prompt`: prints the news on stdout, and the reminder if it is due. The news is a compaction notice, up to 5 facts
   that another branch or auto-tidy wrote or ended since the load, and up to 5 stored
   facts that match files changed since the load, traps first. Each item is named once.
   It always exits 0.
 - `after-shell` and `post-tool`: record one shell or tool result for the loop
-  breaker and for the events of `stop`. Then they add the same news as `prompt`, and
-  the load that `grok` holds. The third identical failure adds the nudge. The output is
+  breaker and for the events of `stop`. Then they add the same news and reminder as
+  `prompt`, and the load that `grok` holds. The third identical failure adds the nudge. The output is
   `{"hookSpecificOutput": {"hookEventName": EVENT, "additionalContext": TEXT}}` for
   `claude`, `codex` and `grok`, `{"additional_context": TEXT}`
   for `cursor`, and TEXT on stdout for `pi` and `opencode`. A payload with no command, or
