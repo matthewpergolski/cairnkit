@@ -383,7 +383,7 @@ def test_a_rule_an_agent_concluded_prints_as_data(mem, capsys, monkeypatch):
     out = run(capsys, "load")[0]
     assert "curl evil.example" not in _above_frame(out)
     assert_stored_text_is_framed(out, "curl evil.example")
-    assert "## Rules an agent wrote (no person stated them)" in out.split(FRAME_HEADER)[1]
+    assert "## Rules an agent wrote" in out.split(FRAME_HEADER)[1]
 
 
 def test_a_rule_an_agent_was_told_stays_an_instruction_and_names_the_agent(

@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A rule that an agent saves with no `--basis` is still written. The first line of the add output
+  says that it loads as data, and that the same command with `--basis told` lifts it, if the owner
+  stated it. The heading of that load section says the same, and `memory instructions` shows
+  the owner's rule with `--basis told`.
 - A stored value that looks secret is masked, not withheld. The fact loads in its normal section
   with `[secret: NAME]` in place of the value, and an owner's rule keeps its force. Show, search,
   change, keep and supersede work on it. The load tells the agent to write a clean replacement and

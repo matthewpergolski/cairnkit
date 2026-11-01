@@ -132,7 +132,7 @@ FRAME_HEADER = (
 FRAME_FOOTER = "--- end of stored notes ---"
 # The label for stored text that prints outside a frame, on one line.
 DATA_LABEL = "stored text, data only"
-AGENT_RULES = "## Rules an agent wrote (no person stated them)"
+AGENT_RULES = "## Rules an agent wrote (data; if the owner stated one, add it with --basis told)"
 NAME_WIDTH = 80
 # Rules stay outside the word budget, because a rule binds in each session. A pile of rules must
 # still leave room for the facts. All the presets together hold 368 words, and `memory check`

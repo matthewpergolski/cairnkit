@@ -31,8 +31,8 @@ from cairnkit.store import append_records, drop_id, drop_line, fact_files, scan,
 DEFAULT_BASIS = "guess"
 REASON_WIDTH = 200
 DATA_RULE = (
-    "This rule loads as data, not as an instruction, because an agent wrote it. "
-    "Restate it with --basis told only if the owner stated it."
+    "This rule loads as data, because an agent wrote it. "
+    "If the owner stated it, the same command with --basis told lifts it."
 )
 
 
@@ -319,11 +319,12 @@ def add_fact(memory: Memory, args) -> str | None:
             records.append(_validated(change))
         append_records(memory.writer_file(writer), records)
     _refresh_followups(memory)
+    data_rule = fact["kind"] == "rule" and not owner_rule(fact)
+    if data_rule:
+        print(f"note: {DATA_RULE}")
     if target and supersedes:
         note_change(memory, target, f"replaced by {fact['id']}")
-    if fact["kind"] == "rule" and not owner_rule(fact):
-        print(f"note: {DATA_RULE}")
-    elif not claimed and fact["basis"] == DEFAULT_BASIS:
+    if not data_rule and not claimed and fact["basis"] == DEFAULT_BASIS:
         print(
             f"note: saved with basis {DEFAULT_BASIS}, the default. Add --basis seen if you "
             "observed it, or --basis told if a person said it."
