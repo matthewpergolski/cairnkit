@@ -224,10 +224,10 @@ def test_a_word_from_a_env_file_is_masked_and_can_stay(repo, mem, capsys):
     assert main(["load"]) == 0
     out = capsys.readouterr().out
     assert VALUE not in out and "login uses [secret: DB_PASSWORD] on staging" in out
-    assert "leave the fact" in out
+    assert "Leave the fact" in out
     assert main(["check"]) == 0
     out = capsys.readouterr().out
-    assert VALUE not in out and f"memory purge {BAD}" in out and "on disk" in out
+    assert VALUE not in out and "Leave the fact" in out and "memory purge" not in out
     assert main(["check", "--strict"]) == 0
     (repo / ".env").unlink()
     assert main(["check", "--strict"]) == 0

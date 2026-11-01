@@ -20,6 +20,10 @@ from cairnkit.store import encode, fact_files, repaired_lines, scan
 
 SHOWN_IDS = 5
 ON_DISK = "Reads mask it, and it stays on disk until purged."
+LEAVE_IT = (
+    "Leave the fact. The file keeps the true word, the mask is harmless, and nothing more is "
+    "needed. A rewrite cannot hold the word."
+)
 
 
 class MemoryMissing(Exception):
@@ -134,11 +138,7 @@ class Memory:
                 f"Read the rest with `memory show {fact_id}`, then run `{purge}`."
             )
         if self.only_plain(fact_id):
-            return (
-                f"{fact_id} holds a word that a `.env` secret also uses ({found}). {ON_DISK} "
-                f"If the word is the secret, {_replace(fact_id)}. If it is not, leave the fact: "
-                "the mask is harmless, and nothing more is needed."
-            )
+            return f"{fact_id} holds a word that a `.env` secret also uses ({found}). {LEAVE_IT}"
         return (
             f"{fact_id} holds a value that looks secret ({found}). {ON_DISK} "
             f"To end this, {_replace(fact_id)}. The new text needs no value."
@@ -168,8 +168,7 @@ class Memory:
         if plain:
             notes.append(
                 f"{_listed(plain)}: holds a word that a `.env` secret also uses, shown as "
-                f"`[secret: NAME]`. If the word is the secret, {_replace('ID')}. If it is not, "
-                "leave the fact: the mask is harmless, and nothing more is needed."
+                f"`[secret: NAME]`. {LEAVE_IT}"
             )
         if ended:
             notes.append(

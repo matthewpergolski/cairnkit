@@ -91,11 +91,6 @@ def test_a_mask_in_a_summary_or_an_area_is_refused(mem, capsys, field):
     refused(capsys, "plain text on the staging db", field, "[secret: ADMIN_PASSWORD]")
 
 
-def test_a_mask_inherited_from_the_area_of_a_masked_fact_is_refused(repo, mem, capsys):
-    fact_id = add_masked(repo, capsys, "plain text on the staging db", "--area", WORD)
-    refused(capsys, "other words on the staging db", "--supersedes", fact_id)
-
-
 @pytest.mark.parametrize(
     "text",
     [

@@ -452,10 +452,17 @@ _MASK_NAMES = "|".join(re.escape(name) for name in [*(s.name for s in SHAPES), H
 # token inside the brackets is no mask.
 MASK = re.compile(rf"(\[secret: (?:(?:{_MASK_NAMES}|[A-Z][A-Z0-9_]{{0,39}})\]|[A-Za-z_ ]*$))")
 PLAIN_WORD = re.compile(r"[(\[]?[A-Za-z][a-z]{0,20}(?:['-][a-z]{1,20})*[.,;:!?)\]]?|\d{1,4}[.,;:]?")
+# A search snippet can cut a mask at either end, and it marks the cut with dots.
+_CUT_MASK = re.compile(r"\[secret:\s*[A-Za-z_ ]*(?:\.{3}|…|$)|^(?:\.{3}|…)[A-Za-z_: ]*\]")
 
 
 def mask_token(name: str) -> str:
     return f"[secret: {name}]"
+
+
+def holds_mask(text: str) -> bool:
+    """The text holds what a read prints in place of a value, whole or cut."""
+    return bool(MASK.search(text) or _CUT_MASK.search(text))
 
 
 # Fields that a tool writes from a closed set, or reads as a name. A known value is no catch here:
