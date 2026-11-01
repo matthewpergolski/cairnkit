@@ -314,6 +314,18 @@ def test_a_type_with_no_way_to_look_stays_as_written(repo, mem, capsys):
     assert main(["check", "--strict"]) == 0
 
 
+def test_a_hidden_hook_warns_once_and_does_not_fail_strict(guarded, mem, capsys):
+    _rule(mem, githook.GUARD_REF)
+    (guarded / ".githooks").mkdir()
+    git(guarded, "config", "core.hooksPath", ".githooks")
+    assert not _load(capsys)[1]
+    capsys.readouterr()
+    assert main(["check", "--strict"]) == 0
+    out = capsys.readouterr().out
+    assert "warning: core.hooksPath is .githooks" in out
+    assert "enforced_by" not in out
+
+
 def test_advisory_lists_a_rule_whose_check_is_gone(repo, mem, capsys):
     _rule(mem, f"ci:{CHECK_ENFORCED}")
     capsys.readouterr()
