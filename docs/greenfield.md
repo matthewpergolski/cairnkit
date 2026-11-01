@@ -41,7 +41,7 @@ no agent hooks and no agent rules.
    records facts as it works.
 
 You have nothing more to do. Rule facts load first in every session. Auto-tidy
-retires exact and near repeats and ended short-term notes at each session start, and
+retires repeats of the same text and ended short-term notes at each session start, and
 also after a push or a merge (see `auto-tidy.log`). The first sessions only report. A
 push does not count as a session start. Similar pairs and other judgment cases go to
 the agent as a task (`proposals/tidy-followups.md`).

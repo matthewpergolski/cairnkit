@@ -92,7 +92,7 @@ def stale_atlas(repo: Path, tmp_path: Path, monkeypatch) -> None:
 
 
 def rename_break(repo: Path, tmp_path: Path, monkeypatch) -> None:
-    """A move breaks only the absolute command of an earlier install. Today's command holds no path."""
+    """A move breaks only the absolute command of an earlier install. Today's holds no path."""
     (repo / ".githooks").mkdir()
     git(repo, "config", "core.hooksPath", ".githooks")
     init(repo)

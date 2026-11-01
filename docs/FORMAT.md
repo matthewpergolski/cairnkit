@@ -166,7 +166,7 @@ hex characters. A new id must not exist in any fact file.
 | `happened_at` | yes | When it happened or became true. A date (`2026-10-03`) or a date-time. |
 | `learned_at` | yes | When it was written. A date-time with an offset. |
 | `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. `memory add` writes `session:<today>` when no source is given. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. |
-| `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. `memory add` writes `guess` when no basis is given. An exact repeat with no basis keeps the basis of the older fact. A `told` fact is never superseded or retired by a fact with another basis. Auto-tidy does not let a near repeat with basis `guess` retire a `seen` fact. |
+| `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. `memory add` writes `guess` when no basis is given. An exact repeat with no basis keeps the basis of the older fact. A `told` fact is never superseded or retired by a fact with another basis. |
 | `author` | no | `agent:<tool>` (`claude`, `codex`, `cursor`, `opencode`, `pi` or `grok`) when the tool could tell that an agent wrote the fact. Two tools' markers give `agent:claude+cursor`. Absent otherwise, and in older facts. |
 | `status` | yes | Always `active` in a fact record. Changes set other values. |
 | `scope` | no | `long` (default) or `short`. |

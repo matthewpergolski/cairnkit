@@ -55,8 +55,8 @@ CONFIG = """\
 # Settings for this project's memory.
 
 
-# What the session-start hook does with facts that are clearly redundant (exact
-# and near repeats, ended short-term facts, short-term facts whose source file
+# What the session-start hook does with facts that are clearly redundant (repeats
+# of the same text, ended short-term facts, short-term facts whose source file
 # is gone). The same step runs after a git push or
 # merge. Those hooks are personal. A push does not count as a session start.
 # "auto" (the default) only reports for the
