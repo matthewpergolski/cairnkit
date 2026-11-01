@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator
 from enum import Enum
+from functools import lru_cache
 from typing import NamedTuple, Protocol
 
 
@@ -207,7 +208,8 @@ MIN_VALUE = 4
 MIN_PROSE_DIGITS = 6
 MIN_WEAK_VALUE = 6
 
-VALUE = r"""(?:"(?P<dq>[^"\n]*)"|'(?P<sq>[^'\n]*)'|`(?P<bq>[^`\s]*)`|(?P<bare>[^\s'"`]+))"""
+# A lookahead, so that `login: password=abc` still finds the second label.
+VALUE = r"""(?="(?P<dq>[^"\n]*)"|'(?P<sq>[^'\n]*)'|`(?P<bq>[^`\s]*)`|(?P<bare>[^\s'"`]+))"""
 
 
 def name_parts(name: str) -> list[str]:
@@ -276,7 +278,7 @@ def _is_reference(value: str) -> bool:
     return parts[0] in CODE_ROOTS or last.isupper() or label_of(last) is Label.STRONG
 
 
-def _is_not_a_value(value: str) -> bool:
+def is_not_a_value(value: str) -> bool:
     """The text names where a value is, or stands in for one."""
     return (
         value[:1] in ("$", "<", "{")
@@ -314,7 +316,7 @@ def _assigned_name(match: re.Match[str]) -> bool:
     if label is Label.NONE:
         return True
     value, _ = _value(match)
-    if value.lower() == match["name"].lower() or _is_not_a_value(value):
+    if value.lower() == match["name"].lower() or is_not_a_value(value):
         return True
     if label is Label.WEAK:
         words = re.split(r"[_-]", value)
@@ -327,7 +329,7 @@ def _spoken(match: re.Match[str]) -> bool:
     if "name" in match.groupdict() and label_of(match["name"]) is not Label.STRONG:
         return True
     value, quoted = _value(match)
-    if len(value) < MIN_VALUE or _is_not_a_value(value):
+    if len(value) < MIN_VALUE or is_not_a_value(value):
         return True
     return not (quoted or _looks_made_up(value))
 
@@ -437,13 +439,31 @@ UNSCANNED_FIELDS = frozenset(
 )
 
 
-def find_secrets(text: str, known: KnownValues | None = None) -> list[str]:
-    """Return the names of the secret shapes and known values found in text."""
-    found = [
+# Each shape needs one of these. Each memory open scans each fact, and most facts hold none.
+# tests/test_secret_shapes.py proves that this finds all that the shapes find.
+CLUE = re.compile(
+    r"-----BEGIN|\b(?:AKIA|ASIA|xox|AIza|eyJ)|\bgh[pousr]_|github_pat_|\b[sr]k[-_]|\bBearer\b|[?&]\w+="
+    r"|://|(?i:pass|pwd|secret|token|credential|key)|[A-Z]_CODE\b"
+)
+
+
+def match_shapes(text: str) -> tuple[str, ...]:
+    return tuple(
         shape.name
         for shape in SHAPES
         if any(not shape.harmless(match) for match in shape.pattern.finditer(text))
-    ]
+    )
+
+
+# A session start opens the memory more than once, and each fact has the same text each time.
+@lru_cache(maxsize=50_000)
+def _shapes_in(text: str) -> tuple[str, ...]:
+    return match_shapes(text) if CLUE.search(text) else ()
+
+
+def find_secrets(text: str, known: KnownValues | None = None) -> list[str]:
+    """Return the names of the secret shapes and known values found in text."""
+    found = list(_shapes_in(text))
     return found + known.find(text) if known else found
 
 

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import find_secrets, match_shapes
+
+CORPUS = Path(__file__).parent / "test_goal_fixes.py"
 
 
 @pytest.mark.parametrize(
@@ -186,3 +190,12 @@ def test_english_about_a_password_passes(text):
 def test_the_remaining_misses_are_these(text):
     """No shape tells these from English or a placeholder. A real value in .env is still found."""
     assert find_secrets(text) == []
+
+
+def test_the_fast_clue_never_hides_a_shape():
+    this_file = Path(__file__).read_text()
+    lines = [*this_file.splitlines(), *CORPUS.read_text().splitlines()]
+    texts = [line.strip(' ",') for line in lines]
+    hits = [text for text in texts if match_shapes(text)]
+    assert len(hits) > 40
+    assert [text for text in hits if not find_secrets(text)] == []
