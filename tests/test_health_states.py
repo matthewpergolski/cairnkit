@@ -25,6 +25,7 @@ def fresh_clone(repo: Path, tmp_path: Path, monkeypatch) -> None:
 
 def init(repo: Path) -> Path:
     assert main(["init", "--no-default-rules"]) == 0
+    assert main(["hooks", "install"]) == 0
     return repo.parent / "proj.memory"
 
 
@@ -78,7 +79,8 @@ def moved_away(repo: Path, tmp_path: Path, monkeypatch) -> None:
 
 
 def migration_open(repo: Path, tmp_path: Path, monkeypatch) -> None:
-    (init(repo) / TASK).write_text(f"{PENDING}: 2 item(s)\n\n- one\n- two\n")
+    (init(repo) / "proposals").mkdir(exist_ok=True)
+    (repo.parent / "proj.memory" / TASK).write_text(f"{PENDING}: 2 item(s)\n\n- one\n- two\n")
 
 
 def stale_atlas(repo: Path, tmp_path: Path, monkeypatch) -> None:

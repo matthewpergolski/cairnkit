@@ -485,12 +485,12 @@ def check_strict(capsys) -> str:
     return capsys.readouterr().out
 
 
-def test_strict_ok_says_that_the_migration_is_not_finished(repo, capsys):
+def test_strict_says_that_the_migration_is_not_finished(repo, capsys):
     old_layout(repo)
     migrate(capsys, "--yes")
     out = check_strict(capsys)
-    assert "memory check: ok" in out
-    assert "The migration is not finished: 7 item(s)" in out
+    assert "memory check: ok" not in out
+    assert "Migration follow-up pending (7 item(s))" in out
     assert "memory-bank/proposals/migrate-followups.md" in out
 
 

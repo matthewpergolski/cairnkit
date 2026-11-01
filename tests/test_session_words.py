@@ -36,6 +36,7 @@ def model_text(capsys, monkeypatch, agent) -> str:
 
 @pytest.fixture
 def thirty_facts(mem):
+    assert main(["hooks", "install"]) == 0
     for index in range(30):
         assert (
             main(

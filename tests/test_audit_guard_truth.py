@@ -195,7 +195,7 @@ def test_status_and_check_say_the_hook_python_is_gone(no_python, capsys, command
     out = capsys.readouterr().out
     assert GONE in out
     assert "memory init --refresh" in out
-    assert "Repo files: current." not in out
+    assert "memory check: ok" not in out
 
 
 def test_the_load_names_the_gone_python_and_refresh_repairs_it(no_python, capsys):
@@ -218,7 +218,7 @@ def test_an_agent_hook_with_a_gone_python_is_named(repo, mem, capsys):
     assert main(["status"]) == 0
     out = capsys.readouterr().out
     assert GONE in out
-    assert "Repo files: current." not in out
+    assert "memory check: ok" not in out
     assert main(["init", "--refresh"]) == 0
     assert GONE not in path.read_text()
 

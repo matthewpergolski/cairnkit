@@ -29,7 +29,7 @@ from cairnkit import (
     skills,
     usage,
 )
-from cairnkit.check import check_links, check_records, secrets_in_notes
+from cairnkit.check import read_health
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
@@ -288,17 +288,6 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
     return 0
 
 
-def _strict_problems(project: Project, flag: str | None) -> list[str]:
-    memdir, _ = resolve_memory_dir(project, flag)
-    if not memdir.is_dir():
-        return []
-    ensure_all_linked(project, flag)
-    problems = check_links(project, memdir)
-    memory = Memory.open(project, flag)
-    errors, warnings = check_records(memory)
-    return problems + errors + warnings + secrets_in_notes(memory)
-
-
 def _new_problems(project: Project, flag: str | None, problems: list[str]) -> list[str]:
     """The problems that have not blocked a stop yet. Each one blocks once, in all sessions.
 
@@ -325,7 +314,8 @@ def stop_message(project: Project, flag: str | None, payload: dict) -> str | Non
     """What the agent must hear at stop. A failure in one step keeps the other steps."""
     parts = []
     with contextlib.suppress(Exception):
-        problems = _new_problems(project, flag, _strict_problems(project, flag))
+        health = read_health(project, flag)
+        problems = _new_problems(project, flag, health.errors + health.warnings)
         if problems:
             shown = "\n".join(f"- {clean(p)}" for p in problems[:20])
             parts.append(

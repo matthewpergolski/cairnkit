@@ -513,7 +513,7 @@ def boom(*args, **kwargs):
 @pytest.mark.parametrize(
     ("broken", "kept"),
     [
-        ("hookrun._strict_problems", ("Elsewhere number 1.", "`make` failed 2 times")),
+        ("hookrun.read_health", ("Elsewhere number 1.", "`make` failed 2 times")),
         ("signals.news", ("`make` failed 2 times",)),
         ("signals.session_events", ("Elsewhere number 1.",)),
         ("hookrun.needs_reminder", ("Elsewhere number 1.", "`make` failed 2 times")),

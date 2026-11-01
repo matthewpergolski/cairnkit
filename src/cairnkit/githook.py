@@ -122,6 +122,7 @@ class GuardPatterns(NamedTuple):
 class HookState(NamedTuple):
     line: str
     fixable: bool = False
+    dead: bool = False
 
 
 def git_folder(project: Project) -> Path | None:
@@ -489,11 +490,29 @@ def guard_installed(project: Project) -> bool:
     return path is not None and GUARD_MARK in path.read_text(errors="replace")
 
 
+def _dead_wiring(project: Project) -> str | None:
+    """A file that the local git config runs and that is gone. A moved repo leaves one."""
+    pattern = f"^hook\\.{CONFIG_PREFIX}.*\\.command$"
+    listed = run_git(project.root, "config", "--local", "--get-regexp", pattern) or ""
+    for line in listed.splitlines():
+        command = shlex.split(line.partition(" ")[2])
+        if command and not Path(command[0]).exists():
+            return command[0]
+    return None
+
+
 def hook_state(project: Project) -> HookState:
     """What git really runs here, for `memory check` and `memory status`."""
     folder = git_folder(project) if project.is_git else None
     if folder is None:
         return HookState("")
+    dead = _dead_wiring(project)
+    if dead:
+        return HookState(
+            f"git hooks: the local git config runs {dead}, which is gone, so each commit and each "
+            "branch switch fails. Run `memory hooks install` now.",
+            dead=True,
+        )
     setting = run_git(project.root, "config", "--get", "core.hooksPath")
     missing = [hook for hook in PERSONAL_HOOKS if not is_running(project, hook)]
     idle = any(

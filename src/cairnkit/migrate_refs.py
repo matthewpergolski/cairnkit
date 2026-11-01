@@ -156,14 +156,9 @@ def pending_line(memdir: Path) -> str | None:
 
 
 def check_notes(memdir: Path) -> list[str]:
-    """What an `ok` of `memory check` does not cover. These are not problems in the memory."""
-    notes = []
-    count = pending_items(memdir)
-    if count is not None:
-        notes.append(
-            "This ok covers the facts and the links. The migration is not finished: "
-            f"{count} item(s) in {LINK_NAME}/{TASK}."
-        )
+    """Open work beside the facts. These are not problems in the memory."""
+    pending = pending_line(memdir)
+    notes = [pending] if pending else []
     notes += [
         f"note: {LINK_NAME}/{rel} is outside notes/, so `memory load` does not read it. "
         "`memory migrate --yes` settles it."

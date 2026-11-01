@@ -32,10 +32,10 @@ def run_check(capsys):
     return code, capsys.readouterr().out
 
 
-def test_no_memory_folder_is_skipped(repo, capsys):
+def test_no_memory_folder_says_not_loaded(repo, capsys):
     code, out = run_check(capsys)
     assert code == 0
-    assert "skipped" in out
+    assert "memory: not loaded: no memory folder" in out
 
 
 def test_example_file_passes(repo, mem, capsys):
