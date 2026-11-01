@@ -21,7 +21,14 @@ from cairnkit.paths import (
 )
 from cairnkit.rule_notices import note_change
 from cairnkit.schema import RELS, validate_record
-from cairnkit.secretscan import MASK, find_in_record, find_secrets, has_real_text, mask
+from cairnkit.secretscan import (
+    MASK,
+    find_in_record,
+    find_secrets,
+    has_real_text,
+    holds_mask,
+    mask,
+)
 from cairnkit.selection import DATA_LABEL, clean, load_text, name, owner_rule
 from cairnkit.similar import analyze, possible_conflicts, repeat_key, similarity
 from cairnkit.skills import running_tool
@@ -33,6 +40,11 @@ REASON_WIDTH = 200
 DATA_RULE = (
     "This rule loads as data, because an agent wrote it. "
     "If the owner stated it, the same command with --basis told lifts it."
+)
+# Stored as text, a mask would take the place of the true word for good.
+MASK_COPY = (
+    "this text came from a masked load; write the true text with no value, "
+    "or leave the fact as it is."
 )
 
 
@@ -217,6 +229,8 @@ def add_fact(memory: Memory, args) -> str | None:
     summary = getattr(args, "summary", None)
     if isinstance(summary, str):
         summary = summary.strip() or None
+    if any(holds_mask(text) for text in (args.text.strip(), summary, args.area) if text):
+        raise Refused(MASK_COPY)
     if summary and args.kind == "rule":
         print("note: a rule always loads in full, so its --summary is not stored")
         summary = None

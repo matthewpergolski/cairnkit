@@ -204,6 +204,8 @@ def record_branch_tips(memory: Memory) -> None:
                     "id": state["id"],
                     "at": at,
                     "branch_tip": tip,
+                    # The tool of 0.3.1 refuses a change with none of its own fields. This is one.
+                    "add_links": [],
                     "writer": WRITER,
                     "cid": hashlib.sha1(f"{state['id']}|{tip}".encode()).hexdigest()[:12],
                 }

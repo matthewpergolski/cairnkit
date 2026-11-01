@@ -101,6 +101,7 @@ before the home folder and the file system root.
   .auto-tidy.lock               the lock for a retire
   .stop-problems.json           hashes of the problems that a stop already named (safe to delete)
   config.toml.bad               the old file, when `memory repair` changed `config.toml`
+  repairs.jsonl                 the lines that `memory repair` settled, by file and hash
   .loop-breaker.json            the last command and its fail streak (safe to delete)
   .loop-breaker.lock            the lock for that file
   .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
@@ -132,7 +133,7 @@ same time with no conflict. Readers merge all files.
 
 Each line is one JSON object, written with no spaces between items
 (`separators=(",", ":")`) and non-ASCII characters as they are. There are
-four record types: `fact`, `change`, `tombstone` and `repair`.
+three record types: `fact`, `change` and `tombstone`. A reader also accepts a `repair` record that an earlier dev build wrote.
 
 A write appends all its lines in one write, under an exclusive `flock` on the
 file (no lock on Windows). When the file does not end with `\n`, the write
@@ -233,12 +234,14 @@ A tombstone holds no content.
 
 ### Repair
 
-`memory repair` writes one for each bad line. The line stays in the file. A reader and
-`memory check` stop counting a line whose bytes match. A new bad line has other bytes.
+`memory repair` writes one row to `repairs.jsonl` in the memory folder for each bad line.
+The row is not in a fact file, because the tool of 0.3.1 refuses a commit when a fact file
+holds a type it does not know. The line stays in its file. A reader and `memory check` stop
+counting a line whose bytes match. A new bad line has other bytes. A dev build before this
+wrote the same fields to a fact file with `"type": "repair"`, and a reader still accepts that.
 
 | Field | Required | Value |
 |---|---|---|
-| `type` | yes | `"repair"` |
 | `file` | yes | The name of the fact file that holds the line. |
 | `sha` | yes | The first 16 characters of the SHA-1 of the line, with no outer white space. |
 | `line` | no | The line number when it was written. |

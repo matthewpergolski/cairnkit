@@ -196,6 +196,12 @@ def _checked_update(
     bar.finish(f"memory updated: {old} {arrow} {new}{short}.")
     _say_changes(bar, source, commit, found.commit)
     bar.say(AFTER)
+    if source.kind == "git" and "--channel" not in _run([src.entrypoint(), "update", "--help"])[1]:
+        bar.say(
+            "This version has no `--channel`. To go back to dev, run "
+            f"`uv tool install --force --reinstall {src.install_spec(source, None)}@dev`, "
+            "then `memory update --channel dev`."
+        )
     if src.tool_env().name == src.OLD_PACKAGE:
         # Old agent and git hooks call the old environment's Python, so each repo must
         # refresh before the old tool goes. The uninstall also removes the `memory` link.

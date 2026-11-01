@@ -50,8 +50,9 @@ def take_lines(memory: Memory) -> list[str]:
     for row in raw.splitlines():
         with contextlib.suppress(ValueError, KeyError, TypeError, AttributeError):
             record = json.loads(row)
-            state = memory.states.get(record["id"]) or {}
-            lines.append(
-                "memory: " + _line(record["by"], record["id"], record["what"], state.get("text"))
-            )
+            fact_id = clean(record["id"])
+            has_text = (memory.states.get(record["id"]) or {}).get("text")
+            read = f" Read it with `memory show {fact_id}`." if has_text else ""
+            # Above the frame, so the agent acts on it. No stored text goes here.
+            lines.append(f"memory: {_line(record['by'], fact_id, record['what'], None)}{read}")
     return lines

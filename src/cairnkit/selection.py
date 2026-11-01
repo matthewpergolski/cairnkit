@@ -201,17 +201,18 @@ def words_in(line: str) -> int:
 
 
 def bound_rules(rules: list[dict]) -> tuple[list[dict], list[dict]]:
-    """(shown, held back). A rule that no check enforces goes first: only the load gives it force.
+    """(shown, held back). A rule with a person behind it goes before a rule that loads as data.
 
-    A rule that an agent wrote goes last, because it loads as data.
+    An instruction outranks data, so one held instruction holds back each data rule, also one that
+    would fit. Inside a class, a rule that no check enforces goes first, because only the load gives
+    it force. Then the newest goes first. The id settles a tie, so no file order can change this.
     """
+    newest = sorted(rules, key=lambda s: (s.get("learned_at") or "", s["id"]), reverse=True)
     shown, held, used = [], [], 0
-    for state in sorted(
-        rules,
-        key=lambda s: (not owner_rule(s), bool(s.get("enforced_by")), s.get("learned_at", "")),
-    ):
+    for state in sorted(newest, key=lambda s: (not owner_rule(s), bool(s.get("enforced_by")))):
         cost = words_in(render(state))
-        if used + cost > RULE_WORD_LIMIT:
+        outranked = held and owner_rule(held[0]) and not owner_rule(state)
+        if outranked or used + cost > RULE_WORD_LIMIT:
             held.append(state)
         else:
             shown.append(state)
