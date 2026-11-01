@@ -7,6 +7,7 @@ import pytest
 from cairnkit.cli import main
 from cairnkit.discover import RULES_SHORT
 from cairnkit.instructions import text as instruction_text
+from cairnkit.migrate import _worklist
 
 SOURCE = ["--source", "session:2026-11-01"]
 
@@ -210,3 +211,7 @@ def test_the_instructions_state_the_force_of_a_rule():
 
 def test_the_session_rules_do_not_grow():
     assert "loads as data" not in RULES_SHORT
+
+
+def test_the_migrate_worklist_states_the_force_of_a_rule():
+    assert "--basis told" in _worklist([], {}, 0)

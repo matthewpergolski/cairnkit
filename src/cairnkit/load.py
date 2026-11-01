@@ -16,6 +16,7 @@ from cairnkit import (
     install_source,
     migrate_refs,
     refresh,
+    rule_notices,
     usage,
 )
 from cairnkit.clock import now
@@ -252,6 +253,8 @@ def run_load(
         repo_line = refresh.repo_line(project, flag)
         warning = real_folder_warning(project, memory.dir)
         lines[1:1] = [line for line in (warning, notice, repo_line) if line]
+        if update_notice:
+            lines[1:1] = rule_notices.take_lines(memory)
     except MemoryMissing as exc:
         print(f"memory: not loaded: {exc}")
         return 0

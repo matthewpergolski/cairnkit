@@ -345,12 +345,12 @@ STATE_NAME = ".skills-advisory.json"
 def running_tool(agent: str | None = None) -> str | None:
     """The agent tool that runs this session, or None when it is not known.
 
-    The hook's `--agent` wins. Else one set of environment markers must match.
+    The hook's `--agent` wins. Any marker means an agent, so the markers of two tools name both.
     """
     if agent in TOOLS:
         return agent
     found = [t for t, names in MARKERS.items() if any(os.environ.get(n) for n in names)]
-    return found[0] if len(found) == 1 else None
+    return "+".join(found) or None
 
 
 def _behind_sentence(found: list[Row]) -> str | None:
