@@ -21,7 +21,7 @@ from cairnkit.paths import (
 )
 from cairnkit.rule_notices import note_change
 from cairnkit.schema import RELS, validate_record
-from cairnkit.secretscan import find_in_record, find_secrets, has_real_text, mask
+from cairnkit.secretscan import MASK, find_in_record, find_secrets, has_real_text, mask
 from cairnkit.selection import DATA_LABEL, clean, load_text, name, owner_rule
 from cairnkit.similar import analyze, exact_key, near_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
@@ -148,13 +148,26 @@ def _retired_match(memory: Memory, args, moment) -> tuple[dict, str, str | None]
     return None if best is None else best[1:]
 
 
+_WORD = re.compile(r"[\w'-]+")
+_LABEL_AT_END = re.compile(r"\S+\s*[=:]\s*$")
+
+
+def _keeps_the_words(old: str, new: str) -> bool:
+    """Each word of the old text outside a mask is still there, in order. A label can go."""
+    kept = [_LABEL_AT_END.sub("", part) for part in MASK.sub("\0", old).split("\0")]
+    words = iter(_WORD.findall(new))
+    return all(word in words for part in kept for word in _WORD.findall(part))
+
+
 def _inherit(args, old: dict) -> None:
-    """A clean copy of a masked fact keeps what the fact was: a true rule keeps its force."""
+    """A clean copy of a masked fact keeps what the fact was. Only a copy keeps a rule's force."""
     args.kind = old.get("kind", args.kind)
     args.pinned = args.pinned or bool(old.get("pinned"))
     args.area = args.area or old.get("area")
-    is_owner_rule = old.get("kind") == "rule" and owner_rule(old)
-    args.basis = "told" if is_owner_rule else old.get("basis", args.basis)
+    if old.get("kind") != "rule" or not owner_rule(old):
+        args.basis = old.get("basis", args.basis)
+    elif _keeps_the_words(str(old.get("text", "")), args.text):
+        args.basis = "told"
 
 
 def add_fact(memory: Memory, args) -> str | None:

@@ -145,8 +145,11 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
         if differs and not settled:
             warnings.append(f"{where}: {differs}{REPAIR}")
         errors += [f"{where}: {problem}" for problem in problems]
-    for fact_id in sorted(memory.masked):
-        (warnings if memory.only_plain(fact_id) else errors).append(memory.secret_problem(fact_id))
+    errors += [
+        memory.secret_problem(fact_id)
+        for fact_id in sorted(memory.masked)
+        if not memory.only_plain(fact_id)
+    ]
     errors += [memory.secret_line_problem(line) for line in memory.secret_lines]
     root = memory.project.root
     for state in sorted(memory.states.values(), key=lambda s: s["id"]):
@@ -362,6 +365,11 @@ def run_check(
         errors += keep_out_of_git(memdir)
         memory = Memory.open(project, flag)
         record_errors, warnings = check_records(memory)
+        plain_notes = [
+            memory.secret_problem(fact_id)
+            for fact_id in sorted(memory.masked)
+            if memory.only_plain(fact_id)
+        ]
         errors += record_errors
         warnings += duplicate_rules(memory)
         warnings += false_enforcement(memory)
@@ -380,10 +388,14 @@ def run_check(
         if note:
             print(note)
     else:
+        plain_notes = []
         errors.append(f"{memdir}: no facts/ folder; run `memory init`")
     if strict:
         errors += warnings
         warnings = []
+    # The load tells the agent that this can stay, so --strict must not fail on it.
+    for line in plain_notes:
+        print(f"note: {line}")
     for line in warnings:
         print(f"warning: {line}")
     for line in errors:
