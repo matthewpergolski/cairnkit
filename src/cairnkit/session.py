@@ -263,7 +263,6 @@ def mark_loaded(memory: Memory, session_id: str, text: str) -> None:
     state["writers"] = sorted({*state.get("writers", []), writer_name(root)})
     paths = changed_paths(root, current_branch(root))
     state["areas"] = sorted(areas_for_paths(paths, memory.config["areas"]))
-    state.pop("compacted", None)
     save_state(memory, session_id, state)
 
 
@@ -281,13 +280,6 @@ def take_load(memory: Memory, session_id: str) -> str | None:
     text = state.pop("held_load")
     save_state(memory, session_id, state)
     return text
-
-
-def mark_compacted(memory: Memory, session_id: str) -> None:
-    state = load_state(memory, session_id)
-    if state is not None:
-        state["compacted"] = True
-        save_state(memory, session_id, state)
 
 
 def reminder_text(memory: Memory) -> str:

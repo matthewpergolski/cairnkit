@@ -7,8 +7,7 @@ failure the hook returns a short nudge: stop, check memory, or ask.
 Each agent reports a failure in its own way (checked against its public docs):
 
 - Claude Code: `PostToolUse` fires only on success. `PostToolUseFailure` fires on a failure.
-- Cursor: `postToolUseFailure` fires on a failure. `afterShellExecution` has no exit code, so
-  it says nothing about the outcome.
+- Cursor: `postToolUse` fires on a success. `postToolUseFailure` fires on a failure.
 - Codex: `PostToolUse` fires for each result. The exit code is in the text of the result.
 - Pi and OpenCode: the generated adapter names the event from the exit status, with an empty
   response.
@@ -136,6 +135,10 @@ def command_from_payload(payload: dict) -> tuple[str, bool] | None:
             return command, int(found.group(1)) == 0
     # A success from another tool must not reset the streak of the failing command.
     # Pi and OpenCode send an empty response, because their event name holds the outcome.
-    if event == "PostToolUse" and shell and (isinstance(result, dict) or not result):
+    if (
+        event in ("PostToolUse", "postToolUse")
+        and shell
+        and (isinstance(result, dict) or not result)
+    ):
         return command, True
     return None

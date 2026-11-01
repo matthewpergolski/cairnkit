@@ -10,8 +10,9 @@ breaker events rechecked 2026-10-30):
 - Codex: `.codex/hooks.json`, the same shape with no `PostToolUseFailure`. Stop must print JSON
   on exit 0. Project hooks run only in a trusted project, after review in `/hooks`.
 - Cursor: `.cursor/hooks.json` (`version: 1`), events `sessionStart` (JSON `additional_context`),
-  `stop` (JSON `followup_message`, capped by `loop_limit`), `afterShellExecution`,
-  `postToolUseFailure` and `preCompact`.
+  `stop` (JSON `followup_message`, capped by `loop_limit`), `postToolUse` and `postToolUseFailure`
+  (JSON `additional_context`), `beforeSubmitPrompt` (JSON `continue`, no text) and `preCompact`
+  (no text). Checked 2026-11-01. `subagentStart` can only allow or deny, so a subagent gets no load.
 - Grok Build: `.grok/hooks/*.json`, the same shape as Claude Code. It reads only `systemMessage`
   from `SessionStart` and discards the stdout of `UserPromptSubmit`, so the memory reaches the
   model at the first tool result, or at the first stop when no tool runs.
@@ -176,8 +177,15 @@ class CursorAdapter(Adapter):
         hooks.setdefault("stop", []).append(
             {"command": hook_command("stop", "cursor"), "timeout": 30, "loop_limit": 1}
         )
-        hooks.setdefault("afterShellExecution", []).append(
-            {"command": hook_command("after-shell", "cursor"), "timeout": 5}
+        hooks.setdefault("postToolUse", []).append(
+            {
+                "command": hook_command("after-shell", "cursor"),
+                "timeout": 5,
+                "matcher": "Shell|Write|Delete",
+            }
+        )
+        hooks.setdefault("beforeSubmitPrompt", []).append(
+            {"command": hook_command("prompt", "cursor"), "timeout": 5}
         )
         hooks.setdefault("postToolUseFailure", []).append(
             {"command": hook_command("after-shell", "cursor"), "timeout": 5}
@@ -239,12 +247,12 @@ export default function (pi: any) {
   pi.on("session_compact", async (_event: any, ctx: any) => {
     pending = hook("session-start", { session_id: key(ctx), source: "compact" });
   });
-  pi.on("before_agent_start", async (_event: any, ctx: any) => {
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
     continued = false;
     clearTimeout(waiting);
     // Print mode cannot start a turn after a run, so the stop of the last run arrives here.
     const late = ctx.hasUI ? "" : hook("stop", { session_id: key(ctx) });
-    const news = hook("prompt", { session_id: key(ctx) });
+    const news = hook("prompt", { session_id: key(ctx), prompt: event.prompt });
     const text = [pending, late, news].filter(Boolean).join("\\n\\n");
     pending = "";
     if (!text) return undefined;

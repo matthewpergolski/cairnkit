@@ -2,7 +2,7 @@
 
 Harness coverage expected by this suite (and `cairnkit.loopbreak` docstring):
 
-- Cursor: wired on `afterShellExecution` when the adapter installs hooks.
+- Cursor: wired on `postToolUse` when the adapter installs hooks.
 - Claude: wired on `PostToolUse` when the NestedAdapter installs hooks.
 - Codex: same PostToolUse shape as Claude when the adapter installs hooks.
 - Gap: no reliable per-tool failure signal for the generic agent; stop-only.
@@ -80,15 +80,14 @@ def test_hook_after_shell_emits_nudge_on_third_fail(repo, mem, monkeypatch, caps
     assert "stop" in blob or "memory" in blob or "ask" in blob
 
 
-def test_cursor_install_wires_after_shell_execution(repo, mem, capsys):
+def test_cursor_install_wires_post_tool_use(repo, mem, capsys):
     capsys.readouterr()
     assert main(["hooks", "install", "--agent", "cursor"]) == 0
     path = repo / ".cursor" / "hooks.json"
     assert path.is_file()
     data = json.loads(path.read_text())
     events = data.get("hooks", {})
-    assert "afterShellExecution" in events
-    commands = " ".join(h.get("command", "") for h in events["afterShellExecution"])
+    commands = " ".join(h.get("command", "") for h in events["postToolUse"])
     assert "after-shell" in commands
 
 
@@ -108,7 +107,7 @@ def test_coverage_notes_document_generic_gap():
 
     doc = lb.__doc__ or ""
     compact = doc.lower().replace("_", "").replace(" ", "").replace("-", "")
-    assert "cursor" in doc.lower() and "aftershellexecution" in compact
+    assert "cursor" in doc.lower() and "posttooluse" in compact
     assert "claude" in doc.lower() and "posttooluse" in compact
     assert "codex" in doc.lower()
     assert "gap" in doc.lower() and "generic" in doc.lower()

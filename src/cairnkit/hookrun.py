@@ -46,7 +46,6 @@ from cairnkit.paths import (
 from cairnkit.selection import clean
 from cairnkit.session import (
     hold_load,
-    mark_compacted,
     mark_loaded,
     needs_reminder,
     reminder_hint,
@@ -258,6 +257,13 @@ def _optional_work(project: Project, flag: str | None) -> str:
     return note
 
 
+def _session_text(project: Project, flag: str | None, update_notice: bool = True) -> str:
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run_load(project, flag, None, 600, update_notice=update_notice)
+    return buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
+
+
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not has_memory(project, flag):
         with contextlib.suppress(Exception):
@@ -267,10 +273,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
                 _context(agent, event, f"memory: not loaded: {lost_note(lost)}")
         return 0
     note = _optional_work(project, flag)
-    buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, 600)
-    text = note + buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
+    text = note + _session_text(project, flag)
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
         key = session_key(payload)
@@ -440,7 +443,7 @@ def _context(agent: str, payload: dict, text: str) -> None:
     """Add text to the agent's context in the form that its hook reads."""
     event = str(payload.get("hook_event_name") or "")
     if agent == "cursor":
-        print(json.dumps({"additional_context": text, "followup_message": text}))
+        print(json.dumps({"additional_context": text}))
     elif agent in TEXT_AGENTS:
         print(text)
     elif agent in ("claude", "codex", "grok") and event:
@@ -513,10 +516,13 @@ def subagent_start(project: Project, flag: str | None) -> int:
 
 
 def pre_compact(project: Project, flag: str | None, payload: dict) -> int:
-    """A tool with no reload after a compaction hears about it at its next stop."""
+    """Cursor has no reload after a compaction, so its next tool result or stop carries the load."""
     with contextlib.suppress(Exception):
         if has_memory(project, flag):
-            mark_compacted(Memory.open(project, flag), session_key(payload))
+            text = _session_text(project, flag, update_notice=False)
+            memory, key = Memory.open(project, flag), session_key(payload)
+            mark_loaded(memory, key, text)
+            hold_load(memory, key, text)
     return 0
 
 

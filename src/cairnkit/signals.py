@@ -348,8 +348,6 @@ def news(memory: Memory, key: str) -> str | None:
     if state is None or not state.get("loaded_at"):
         return None
     parts = []
-    if state.pop("compacted", False):
-        parts.append("Context was compacted. Run `memory load` to read the memory again.")
     stored = []
     elsewhere = _changed_elsewhere(memory, state)
     if elsewhere:
