@@ -7,7 +7,7 @@ from pathlib import Path
 
 from cairnkit.config import load_config
 from cairnkit.envsecrets import EnvValues, read_env_values
-from cairnkit.paths import Project, resolve_memory_dir
+from cairnkit.paths import Project, lost_memory, lost_note, resolve_memory_dir
 from cairnkit.secretscan import find_in_record
 from cairnkit.state import fold
 from cairnkit.store import fact_files, read_records
@@ -34,6 +34,9 @@ class Memory:
     def open(cls, project: Project, flag: str | None = None) -> Memory:
         memdir, source = resolve_memory_dir(project, flag)
         if not (memdir / "facts").is_dir():
+            lost = lost_memory(project)
+            if lost:
+                raise MemoryMissing(lost_note(lost))
             raise MemoryMissing(f"no memory folder at {memdir} (from {source}); run `memory init`")
         memory = cls(project, memdir, source, load_config(memdir), env=read_env_values(project))
         memory.reload()

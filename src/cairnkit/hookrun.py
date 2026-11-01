@@ -32,7 +32,15 @@ from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
 from cairnkit.memory import Memory
-from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir, run_git
+from cairnkit.paths import (
+    LINK_NAME,
+    PATH_FILE,
+    Project,
+    lost_memory,
+    lost_note,
+    resolve_memory_dir,
+    run_git,
+)
 from cairnkit.session import (
     hold_load,
     mark_compacted,
@@ -207,6 +215,11 @@ def skills_note(project: Project, flag: str | None) -> str:
 
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not has_memory(project, flag):
+        with contextlib.suppress(Exception):
+            lost = lost_memory(project)
+            if lost:
+                event = {"hook_event_name": "SessionStart", **payload}
+                _context(agent, event, f"memory: not loaded: {lost_note(lost)}")
         return 0
     with contextlib.suppress(Exception):
         legacy.clean(Memory.open(project, flag))

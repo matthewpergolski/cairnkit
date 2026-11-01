@@ -18,13 +18,31 @@ The memory folder is the first of these:
 
 1. the `--path DIR` flag;
 2. the `MEMORY_DIR` environment variable;
-3. the first line of `.memory-path` in the main checkout. A relative path is
-   relative to the main checkout. `~` is expanded;
-4. the default: `<parent of main checkout>/<name of main checkout>.memory`.
+3. the first line of `.memory-path` in the project's home, when that folder holds `facts/`.
+   A relative path is relative to the home. `~` is expanded;
+4. the folder that a `memory-bank` link resolves to, when it holds `facts/`. The link of the
+   main checkout goes first;
+5. the folder with the id in `<common git folder>/cairnkit-memory`: at the recorded path, or
+   directly in the parent of the home or of the recorded path;
+6. the `.memory-path` target that does not exist yet;
+7. the default: `<parent of home>/<name of home>.memory`.
 
-The main checkout is the parent of the common git folder
-(`git rev-parse --git-common-dir`), when that folder is named `.git`. All
-worktrees of one repo use the same memory folder.
+The home is the first entry of `git worktree list`: the main checkout, or the bare repo. A
+submodule's first entry is its git folder, so its home is the `core.worktree` of that folder.
+All worktrees of one repo use the same memory folder. For a bare repo, the default drops a
+`.git` suffix. A bare folder whose name starts with `.` uses the name of its parent:
+`proj/.bare` gives `proj/proj.memory`.
+
+When the home is inside another work tree, the default is
+`<parent of the outermost work tree>/<outermost name>.<path inside it, joined by dots>.memory`.
+An existing `<name of home>.memory` that holds `facts/` is kept. The sibling is also used when
+that parent is not writable. Any memory inside a work tree gets a line `/<path>` in that repo's
+`info/exclude`, and `git check-ignore` must confirm it.
+
+`<common git folder>/cairnkit-memory` has two lines: the memory id and its absolute path.
+`.identity` in the memory folder has two lines: a random id, and the project's root commits
+separated by spaces. Neither file holds a time. A memory whose root commits share none with
+this repo belongs to another project.
 
 Each checkout (the main checkout and each worktree) holds a symbolic link
 named `memory-bank` to the memory folder. The link target is a relative path,
@@ -75,6 +93,7 @@ before the home folder and the file system root.
   .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
   .skills-advisory.json         whether init or migrate named pstack once (safe to delete)
   .agents-seen.json             the agent tools seen at setup and since; a tool not in it is new
+  .identity                     this memory's id and its project's root commits (section 1); do not copy it to another memory
 ```
 
 An implementation must create `facts/`, `notes/`, `branches/`, `README.md`

@@ -20,7 +20,7 @@ from cairnkit import (
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.envsecrets import EnvValues
-from cairnkit.init import link_here
+from cairnkit.init import link_here, real_folder_warning
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import (
     Project,
@@ -233,7 +233,9 @@ def run_load(
         lines = build_output(memory, area, budget, explain)
         # Right under the header, so the agent sees them first.
         notice = install_source.notice_once() if update_notice else None
-        lines[1:1] = [line for line in (notice, refresh.repo_line(project, flag)) if line]
+        repo_line = refresh.repo_line(project, flag)
+        warning = real_folder_warning(project, memory.dir)
+        lines[1:1] = [line for line in (warning, notice, repo_line) if line]
     except MemoryMissing as exc:
         print(f"memory: not loaded: {exc}")
         return 0
