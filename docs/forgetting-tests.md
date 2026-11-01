@@ -173,8 +173,9 @@ retire 0, so the real memory gives no evidence for the rule, and no sign of nois
 A later change took two shapes out of the agent task, on this count: one swapped word (10 pairs, 1 a
 repeat) and a change in numbers alone (1 pair, not a repeat). 62 pairs stay, which is down from 73.
 A word added stays in the task, because 13 of those 19 pairs are repeats. The task shows at most 20
-at a time, ranked by shared words and by the share of words. On this set the first 20 hold 11
-repeats. The rest appear as the first ones are settled.
+at a time, ranked by shared words and by the share of words. Counted pair by pair, the first 20
+hold 11 repeats. With all 160 sentences in one memory they hold 7, because sentences that recur
+across rows make other pairs. The rest appear as the first ones are settled.
 
 The forgetting replay does not run auto-tidy, and `harness.py` does not import the repeat test, so
 these numbers do not move it.

@@ -115,8 +115,8 @@ def open_pairs(memory: Memory) -> list[tuple[dict, dict, float, str]]:
                 (active[one], active[two]), key=lambda s: (s["learned_at"], s["id"])
             )
             rows.append((older, newer, score, how))
-    # Many shared words, and few that differ. On the labelled set this puts 11 repeats in the first
-    # 20, and the share of words alone puts 7, because two short texts tie it easily.
+    # Many shared words, and few that differ. Pair by pair on the labelled set, this puts 11 repeats
+    # in the first 20 and the share of words alone puts 7, because two short texts tie it easily.
     rows.sort(key=lambda row: (row[0]["id"], row[1]["id"]), reverse=True)
     rows.sort(key=lambda row: -row[2] * len(words[row[0]["id"]] & words[row[1]["id"]]))
     return rows[:MAX_PAIRS]

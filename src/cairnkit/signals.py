@@ -61,7 +61,7 @@ NEGATED = re.compile(
     r"\b(?:not|never|don't|dont|without|avoid|keep)\b(?:\s+\w+)?\s*$", re.IGNORECASE
 )
 CLAUSE_END = re.compile(r"(?<=[.!?:])\s+|[,;\n]|\s+(?:and|then)\s+", re.IGNORECASE)
-# After `analyze`. These say which files in no way that a path can match.
+# Words of a request that name no file, after `analyze`.
 NOT_A_NAME = frozenset(
     {"all", "any", "dir", "directory", "each", "every", "file", "folder", "of", "out", "some"}
     | {"that", "them", "these", "this", "those", "unused", "up", "my", "our", "in", "from", "it"}
