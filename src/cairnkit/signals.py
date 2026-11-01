@@ -6,13 +6,15 @@ session file (see session.py). Each event is reported once.
 
 from __future__ import annotations
 
+import os
 import re
 
 from cairnkit import loopbreak
-from cairnkit.clock import now, parse_time
+from cairnkit.clock import now, parse_time, stamp
 from cairnkit.load import active_states, changed_paths
 from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, run_git, writer_name
+from cairnkit.secretscan import find_secrets
 from cairnkit.selection import (
     DATA_LABEL,
     FRAME_FOOTER,
@@ -22,7 +24,13 @@ from cairnkit.selection import (
     load_text,
     score_parts,
 )
-from cairnkit.session import load_state, loop_nudge, save_state
+from cairnkit.session import (
+    load_state,
+    loop_nudge,
+    save_state,
+    tracked_files_gone,
+    wrote_since,
+)
 
 FIX_MIN_FAILS = 2
 MAX_LINES = 5
@@ -33,6 +41,44 @@ OWN_COMMIT = re.compile(r"^(commit|revert|cherry-pick)\b")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
 REFLOG_LIMIT = "500"
 COMMAND_WIDTH = 200
+ASK_TRAP = "Does a trap belong in memory?"
+GONE_NAMES = 3
+PROMPT_WIDTH = 120
+# A correction opens a prompt. Deep in a long paste, these words belong to the paste.
+PROMPT_HEAD = 300
+NAMED_LIMIT = 200
+QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"", re.DOTALL)
+# A harness turn opens with a tag. A stop follow-up comes back as a prompt on some tools.
+NOT_THE_OWNER = re.compile(r"^\s*<|`memory |\bmemory check\b|\bDoes a trap belong\b")
+NOT_CLAUSE = r"(?<!\bif )(?<!\bwhen )(?<!\bonce )(?<!\bafter )(?<!\bbefore )(?<!\bwhether )"
+CORRECTION = re.compile(
+    "|".join(
+        (
+            rf"{NOT_CLAUSE}\byou (?:just )?(?:deleted|removed|broke|overwrote|wiped|dropped|forgot"
+            r"|missed|ignored|lost|skipped)\b",
+            r"\byou (?:should not|shouldn't) have\b",
+            r"\bwhy did you\b",
+            r"\b(?:i|we) (?:told|asked) you\b",
+            r"\bi said to\b",
+            r"\bi (?:did not|didn't|never) (?:ask|say|tell|want)\b",
+            r"\b(?:that|this|it)(?:'s| is| was| isn't| is not)"
+            r" (?:wrong|incorrect|not right|not what i)\b",
+            r"\b(?:that|this|it) (?:is not|isn't) (?:right|correct|what i)\b",
+            r"\bnot what i (?:asked|meant|wanted|said)\b",
+            r"^\W*wrong (?:\w+)\b",
+            r"\bwrong (?:file|branch|repo|folder|directory),",
+            r"\bundo (?:that|this|it)\b",
+            r"\bput (?:it|that|them|this) back\b",
+            r"\bstop (?:doing|adding|deleting|removing|changing|ignoring)\b",
+            r"\b(?:do not|don't) do that again\b",
+            r"\bmy \S+(?: \S+)? (?:is|are) (?:gone|missing)\b",
+            r"^\W*no[,.!:]\s+(?!thanks|problem|worries|need|rush|hurry|go ahead"
+            r"|(?:that|it)(?:'s| is) (?:fine|ok|okay|good))",
+            r"^\W*nope\b",
+        )
+    ),
+    re.IGNORECASE,
+)
 
 
 def _quoted(command: str) -> str:
@@ -117,6 +163,74 @@ def _reverts(root, state: dict) -> list[str]:
     return found
 
 
+def is_correction(prompt: str) -> bool:
+    """True when the owner's words say that the agent got something wrong. English only."""
+    if NOT_THE_OWNER.search(prompt):
+        return False
+    return bool(CORRECTION.search(QUOTED.sub(" ", prompt[:PROMPT_HEAD])))
+
+
+def note_prompt(memory: Memory, key: str, prompt: str) -> None:
+    """Keep what a stop needs from a prompt: a correction, and the names of files the owner used."""
+    state = load_state(memory, key)
+    if state is None or not prompt.strip():
+        return
+    named = {word.strip("`'\",:;!?()").rstrip(".") for word in prompt.split()}
+    named = {word for word in named if "." in word or "/" in word}
+    state["named"] = sorted({*state.get("named", []), *named})[:NAMED_LIMIT]
+    if is_correction(prompt):
+        flat = clean(prompt)
+        text = "" if find_secrets(flat, memory.env) else flat[:PROMPT_WIDTH]
+        state["correction"] = {"at": stamp(now()), "text": text}
+    save_state(memory, key, state)
+
+
+def _correction_line(memory: Memory, state: dict) -> str | None:
+    """The newest correction, once. A fact written after it is the answer to the question."""
+    found = state.pop("correction", None)
+    if not found or wrote_since(memory, found["at"]):
+        return None
+    words = _quoted(found["text"]) if found["text"] else "(text held back: it looks like a secret)"
+    return f"The owner corrected you: {words}. {ASK_TRAP}"
+
+
+def _named_in_a_fact(memory: Memory, state: dict, path: str) -> bool:
+    name = os.path.basename(path)
+    started = state.get("started_at", "")
+    return any(
+        name in str(record.get("text", ""))
+        for record in memory.records
+        if record.get("type") == "fact" and str(record.get("learned_at", "")) >= started
+    )
+
+
+def _gone_line(memory: Memory, state: dict) -> str | None:
+    """Files that were here when the session started and are not now. Each is named once.
+
+    This reads the disk and no hook payload, so each agent gets it, whatever deleted the file.
+    """
+    root = memory.project.root
+    gone = [path for path in state.get("others", []) if not os.path.lexists(root / path)]
+    if state.get("start_head"):
+        gone += tracked_files_gone(root, memory.dir, state["start_head"])
+    told, named = state.setdefault("told", []), set(state.get("named", []))
+    fresh = []
+    for path in gone:
+        token = f"gone:{path}"
+        if token in told:
+            continue
+        told.append(token)
+        known = path in named or os.path.basename(path) in named
+        if not known and not _named_in_a_fact(memory, state, path):
+            fresh.append(path)
+    if not fresh:
+        return None
+    shown = ", ".join(_quoted(path) for path in fresh[:GONE_NAMES])
+    more = f" and {len(fresh) - GONE_NAMES} more" if len(fresh) > GONE_NAMES else ""
+    verb = "was" if len(fresh) == 1 else "were"
+    return f"{shown}{more} {verb} here when this session started and not now. {ASK_TRAP}"
+
+
 def session_events(memory: Memory, key: str) -> list[str]:
     """New events that a later session may need. Each one is returned once."""
     state = load_state(memory, key)
@@ -136,10 +250,11 @@ def session_events(memory: Memory, key: str) -> list[str]:
     for line in _reverts(memory.project.root, state):
         found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))
     fresh = [(token, line) for token, line in found if token not in told]
-    if fresh:
-        told.extend(token for token, _ in fresh)
-        save_state(memory, key, state)
-    return [line for _, line in fresh]
+    told.extend(token for token, _ in fresh)
+    lines = [line for _, line in fresh]
+    lines += [line for line in (_correction_line(memory, state), _gone_line(memory, state)) if line]
+    save_state(memory, key, state)
+    return lines
 
 
 def _since(record: dict) -> str | None:

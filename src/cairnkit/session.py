@@ -22,6 +22,7 @@ from cairnkit.paths import current_branch, run_git, writer_name
 from cairnkit.selection import areas_for_paths
 
 KEEP_DAYS = 7
+OTHERS_LIMIT = 2000
 KEY_LIMIT = 80
 GATE = "durable"
 JUNK_DIRS = frozenset(SKIP_DIRS) | {
@@ -214,6 +215,35 @@ def fingerprint(root: Path, memory_dir: Path | None = None) -> str:
     return ReminderGate().snapshot(root, memory_dir).digest()
 
 
+def files_outside_git(root: Path, memory_dir: Path | None) -> list[str]:
+    """Files that git does not hold and could not bring back, such as an ignored .env.local.
+
+    A folder that git does not know at all counts as one entry, and it is left out. Most of those
+    are build output, and a stop must not ask about each `rm -rf .next`.
+    """
+    listed = run_git(root, "ls-files", "-z", "--others", "--directory", timeout=2.0) or ""
+    found = [
+        path
+        for path in listed.split("\0")
+        if path
+        and not path.endswith("/")
+        and not is_junk_path(path)
+        and not _memory_path(path, root, memory_dir)
+    ]
+    return found[:OTHERS_LIMIT]
+
+
+def tracked_files_gone(root: Path, memory_dir: Path | None, head: str) -> list[str]:
+    """Files that the start commit held and that are gone now. A rename is not a deletion."""
+    # After a switch or a rebase, a file can be missing only because its branch is not here.
+    if run_git(root, "merge-base", "--is-ancestor", head, "HEAD", timeout=2.0) is None:
+        return []
+    specs = _pathspecs(root, memory_dir)
+    args = ("diff", "--name-only", "--diff-filter=D", "-M", head, "--", *specs)
+    listed = run_git(root, *args, timeout=2.0) or ""
+    return [path for path in listed.splitlines() if path and not is_junk_path(path)]
+
+
 def reminder_hint() -> str:
     return (
         'Write what a later session needs: `memory add "TEXT" --kind lesson|trap|decision '
@@ -324,6 +354,7 @@ def start_session(memory: Memory, session_id: str) -> None:
             "started_at": stamp(now()),
             "start": fingerprint(memory.project.root, memory.dir),
             "start_head": head,
+            "others": files_outside_git(memory.project.root, memory.dir),
             "gate": GATE,
         },
     )

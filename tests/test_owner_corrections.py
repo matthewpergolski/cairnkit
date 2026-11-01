@@ -52,7 +52,7 @@ def test_the_reported_moment_is_named_once(repo, mem, capsys, monkeypatch):
     hook(capsys, monkeypatch, "prompt", {"session_id": "s", "prompt": "you deleted my env file"})
     text = stop_text(capsys, monkeypatch)
     assert "you deleted my env file" in text
-    assert ".env.local" not in text, "the owner named it already"
+    assert ".env.local" in text, "the owner's words do not name the file"
     assert ASK in text
     assert stop_text(capsys, monkeypatch) == ""
 
