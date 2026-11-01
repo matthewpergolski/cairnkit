@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from conftest import make_fact, write_facts
 
 from cairnkit import legacy
@@ -13,10 +14,14 @@ from cairnkit.paths import find_project
 
 FRAGMENT = "// a comment fragment that a gate took from a commit diff"
 GATE = {"basis": "guess", "kind": "lesson", "source": "commit:abc123def456"}
+DRAFTED = "2026-10-01T12:00:00-06:00"
 
 
-def _candidates(mem, *ids, text=FRAGMENT, **overrides):
-    """The lines that 0.3.1 wrote: one candidate and one decision for each id."""
+def _candidates(mem, *ids, text=FRAGMENT, decided=DRAFTED, **overrides):
+    """The lines that 0.3.1 wrote: one candidate and one decision for each id.
+
+    The shape comes from a real run of tag v0.3.1. Its post-commit hook wrote both in one second.
+    """
     folder = mem / "proposals"
     folder.mkdir(exist_ok=True)
     lines = []
@@ -31,6 +36,8 @@ def _candidates(mem, *ids, text=FRAGMENT, **overrides):
             "basis": "guess",
             "kind": "lesson",
             "source": "commit:abc123def456",
+            "created_at": DRAFTED,
+            "at": DRAFTED,
         }
         decision = {
             "type": "decision",
@@ -38,6 +45,8 @@ def _candidates(mem, *ids, text=FRAGMENT, **overrides):
             "status": "accepted",
             "fact_id": fact_id,
         }
+        if decided:
+            decision["at"] = decided
         lines += [json.dumps({**candidate, **overrides}), json.dumps(decision)]
     (folder / "auto-candidates.jsonl").write_text("\n".join(lines) + "\n")
 
@@ -56,6 +65,39 @@ def test_a_mined_fact_ends_and_stays_in_the_archive(mem, capsys):
     assert "a comment fragment" not in capsys.readouterr().out
     assert main(["search", "comment", "--all"]) == 0
     assert "a comment fragment" in capsys.readouterr().out
+
+
+def test_a_person_who_accepted_a_passing_candidate_keeps_the_fact(mem):
+    """A real `memory candidates accept` on 0.3.1 wrote the same lines, but later than a hook can."""
+    write_facts(mem, [make_fact("f-20261001-0001", FRAGMENT, **GATE)])
+    _candidates(mem, "f-20261001-0001", decided="2026-10-01T12:00:04-06:00")
+    assert _clean(mem) == []
+    assert not (mem / "proposals" / "auto-candidates.jsonl").exists()
+
+
+def test_a_decision_inside_the_hook_time_limit_is_the_gate(mem):
+    write_facts(mem, [make_fact("f-20261001-0001", FRAGMENT, **GATE)])
+    _candidates(mem, "f-20261001-0001", decided="2026-10-01T12:00:03-06:00")
+    assert _clean(mem) == ["f-20261001-0001"]
+
+
+@pytest.mark.parametrize("decided", [None, "not a time"])
+def test_a_decision_with_no_usable_time_proves_nothing(mem, decided):
+    write_facts(mem, [make_fact("f-20261001-0001", FRAGMENT, **GATE)])
+    _candidates(mem, "f-20261001-0001", decided=decided)
+    assert _clean(mem) == []
+
+
+def test_a_candidate_with_no_time_proves_nothing(mem):
+    write_facts(mem, [make_fact("f-20261001-0001", FRAGMENT, **GATE)])
+    _candidates(mem, "f-20261001-0001", created_at="", at="")
+    assert _clean(mem) == []
+
+
+def test_a_decision_before_its_candidate_proves_nothing(mem):
+    write_facts(mem, [make_fact("f-20261001-0001", FRAGMENT, **GATE)])
+    _candidates(mem, "f-20261001-0001", decided="2026-10-01T11:59:59-06:00")
+    assert _clean(mem) == []
 
 
 def test_a_stated_or_pinned_fact_is_kept(mem):
