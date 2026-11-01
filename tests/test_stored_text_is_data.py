@@ -201,6 +201,14 @@ def test_show(hostile, capsys):
     assert_stored_text_is_framed(out)
 
 
+def test_show_prints_the_body_of_a_fact_with_a_summary_in_the_frame(hostile, capsys):
+    fact = _first_fact_id(capsys, "second harmless")
+    out = run(capsys, "show", fact)[0]
+    assert_nothing_forged(out)
+    assert any(line.startswith("  text: Second Harmless") for line in out.splitlines())
+    assert_stored_text_is_framed(out, "  text: Second")
+
+
 def test_show_of_a_purged_fact(mem, capsys):
     add("To purge.")
     fact = _first_fact_id(capsys, "purge")
