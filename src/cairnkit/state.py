@@ -28,8 +28,9 @@ def fold(records: list[dict]) -> dict[str, dict]:
         kind = rec.get("type")
         if kind == "fact" and rec.get("id") not in facts:
             state = dict(rec)
-            state["links"] = list(rec.get("links", []))
-            state["scope"] = rec.get("scope", "long")
+            state["links"] = list(rec.get("links") or [])
+            state["scope"] = rec.get("scope") or "long"
+            state["status"] = rec.get("status") or "active"
             state["history"] = []
             facts[rec["id"]] = state
         elif kind == "change":
@@ -60,7 +61,7 @@ def fold(records: list[dict]) -> dict[str, dict]:
             del state["enforced_by"]
         if "reason" in change and "status" in change:
             state["reason"] = change["reason"]
-        state["links"].extend(change.get("add_links", []))
+        state["links"].extend(change.get("add_links") or [])
         state["history"].append(change)
     return facts
 

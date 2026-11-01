@@ -94,7 +94,7 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
         target = rec.get("superseded_by")
         if target and target not in known:
             problems.append(f"superseded_by {target} is not a known fact")
-        for link in rec.get("links", []) + rec.get("add_links", []):
+        for link in (rec.get("links") or []) + (rec.get("add_links") or []):
             if isinstance(link, dict) and link.get("id") not in known:
                 problems.append(f"link to unknown fact {link.get('id')}")
         if kind == "change" and rec.get("enforced_by") and kinds.get(rec.get("id")) != "rule":

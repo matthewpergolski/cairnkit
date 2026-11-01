@@ -28,6 +28,45 @@ def fact_files(memdir: Path) -> list[Path]:
     return sorted((memdir / "facts").glob("*.jsonl"))
 
 
+# The field types that the code after the read relies on. Null counts as absent.
+_TEXT_FIELDS = (
+    "id", "text", "kind", "area", "status", "scope", "basis", "source", "summary", "writer",
+    "happened_at", "learned_at", "expires_at", "until_branch_merged", "branch_tip", "at",
+    "superseded_by", "held_by",
+)  # fmt: skip
+_NEEDS = {"fact": ("id", "text"), "change": ("id",), "tombstone": ("id",)}
+
+
+def _links_ok(value: object) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(link, dict) and isinstance(link.get("id"), str) for link in value
+    )
+
+
+def unusable(record: dict) -> str | None:
+    """Why the code cannot use this record, or None. Schema problems are for `memory check`.
+
+    A record that is odd but usable must still load: a true fact stays in the load.
+    """
+    kind = record.get("type")
+    if not isinstance(kind, str) or kind not in _NEEDS:
+        return f"type {kind!r} is not known"
+    for name in _NEEDS[kind]:
+        if name not in record:
+            return f"a {kind} needs {name}"
+    for name in _TEXT_FIELDS:
+        if record.get(name) is not None and not isinstance(record[name], str):
+            return f"{name} must be a string"
+    if record.get("id") is None or (kind == "fact" and record.get("text") is None):
+        return f"a {kind} needs {' and '.join(_NEEDS[kind])}"
+    for name in ("links", "add_links"):
+        if record.get(name) is not None and not _links_ok(record[name]):
+            return f"{name} must be a list of links"
+    if record.get("tags") is not None and not isinstance(record["tags"], list):
+        return "tags must be a list"
+    return None
+
+
 def read_located(files: list[Path]) -> tuple[list[Located], list[str]]:
     """Parse every line. Return the records and one message per bad line.
 
@@ -55,6 +94,10 @@ def read_located(files: list[Path]) -> tuple[list[Located], list[str]]:
                 continue
             if not isinstance(record, dict):
                 errors.append(f"{path.name}:{number}: a record must be a JSON object")
+                continue
+            why = unusable(record)
+            if why:
+                errors.append(f"{path.name}:{number}: {why}")
                 continue
             found.append(Located(record, path, number))
     return found, errors
