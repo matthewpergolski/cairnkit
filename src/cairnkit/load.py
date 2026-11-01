@@ -12,6 +12,7 @@ from pathlib import Path
 from cairnkit import followups, hygiene, install_source, migrate_refs, refresh, usage
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
+from cairnkit.envsecrets import EnvValues
 from cairnkit.init import link_here
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import (
@@ -23,6 +24,7 @@ from cairnkit.paths import (
     run_git,
     writer_name,
 )
+from cairnkit.secretscan import find_secrets
 from cairnkit.selection import (
     AGENT_RULES,
     FRAME_FOOTER,
@@ -55,7 +57,7 @@ def changed_paths(root: Path, branch: str | None) -> list[str]:
     return paths
 
 
-def note_head(path: Path) -> list[str]:
+def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
     try:
         text = path.read_bytes().decode("utf-8", errors="replace")
     except (FileNotFoundError, NotADirectoryError):
@@ -63,11 +65,13 @@ def note_head(path: Path) -> list[str]:
     except OSError:
         return [f"(This file could not be read: {path}.)"]
     body = [
-        line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("<!--")
+        (number, line)
+        for number, line in enumerate(text.splitlines(), start=1)
+        if line.strip() and not line.lstrip().startswith("<!--")
     ]
     # A first-line title names the file. `#96 is open` is no title, and a section heading gives a
     # list its meaning, so both stay.
-    if body and TITLE.match(body[0]):
+    if body and TITLE.match(body[0][1]):
         body = body[1:]
     clipped = len(body) - NOTE_LINES
     more = (
@@ -75,7 +79,13 @@ def note_head(path: Path) -> list[str]:
         if clipped > 0
         else []
     )
-    return body[:NOTE_LINES] + more
+    shown = [
+        f"line {number} withheld: looks like a secret ({', '.join(found)}); remove that line"
+        if (found := find_secrets(line, env))
+        else line
+        for number, line in body[:NOTE_LINES]
+    ]
+    return shown + more
 
 
 def active_states(memory: Memory) -> list[dict]:
@@ -132,6 +142,9 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     tidy_line = followups.pending_line(memory)
     if tidy_line:
         out.append(tidy_line)
+    if memory.withheld:
+        out.append("## Withheld facts (no person is needed for this)")
+        out += [clean(f"- {memory.withheld_note(i)}") for i in sorted(memory.withheld)]
     rules.sort(key=lambda s: s.get("learned_at", ""))
     instructions = [s for s in rules if owner_rule(s)]
     enforced = [s for s in instructions if s.get("enforced_by")]
@@ -164,13 +177,13 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             current = state.get("area")
             out.append(f"### {name(current)}")
         out.append(render(state))
-    status = note_head(memory.dir / "notes" / "status.md")
+    status = note_head(memory.dir / "notes" / "status.md", memory.env)
     if status:
         age = hygiene.commits_past_status(root, memory.dir / "notes" / "status.md")
         out.append(f"## Status (notes/status.md{age})")
         out += [f"- [status] {clean(x)}" for x in status]
     if branch:
-        branch_note = note_head(memory.dir / "branches" / f"{branch}.md")
+        branch_note = note_head(memory.dir / "branches" / f"{branch}.md", memory.env)
         if branch_note:
             out.append(f"## Branch notes (branches/{branch}.md)")
             out += [f"- [branch] {clean(x)}" for x in branch_note]

@@ -9,11 +9,15 @@ from cairnkit import ranking, usage
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, merged_checker
+from cairnkit.secretscan import find_secrets
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean, render
 from cairnkit.state import effective_status
 
 
 def run_show(memory: Memory, fact_id: str) -> int:
+    if fact_id in memory.withheld:
+        print(memory.withheld_note(fact_id))
+        return 0
     state = memory.states.get(fact_id)
     if state is None:
         print(f"error: no fact with id {fact_id}")
@@ -126,10 +130,16 @@ def note_hits(
             if s > 0
         ]
         picked.sort(key=lambda p: (-p[3], p[0], p[1]))
-    return [
-        clean(f"- {LINK_NAME}/notes/{rel}:{n}: {_snippet(line, terms, strict, prefix)}")
-        for rel, n, line, _ in picked
-    ]
+    shown = []
+    for rel, n, line, _ in picked:
+        found = find_secrets(line, memory.env)
+        text = (
+            f"line withheld: looks like a secret ({', '.join(found)}); remove that line"
+            if found
+            else _snippet(line, terms, strict, prefix)
+        )
+        shown.append(clean(f"- {LINK_NAME}/notes/{rel}:{n}: {text}"))
+    return shown
 
 
 def _snippet(line: str, terms: list[str], strict: bool, prefix: bool = False) -> str:
