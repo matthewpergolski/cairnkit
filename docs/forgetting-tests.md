@@ -183,7 +183,8 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
   ordinary lines are refused and 39 of 39 secrets are refused, the same as before. Of 8 lines that
   were stored by mistake, 7 are now refused (0 before). A bare word after `password is` still passes,
   because no shape tells it from English. `tests/test_secret_shapes.py` lists what still passes.
-  A fact stored before the scan caught it loads as an ID and a purge command.
+  A fact stored before the scan caught it loads as an ID and a purge command. A note line loads
+  as its line number. A failed command that holds a secret is stored and shown as a stand-in.
 
 ## Limits
 

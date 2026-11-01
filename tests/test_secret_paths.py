@@ -71,6 +71,8 @@ def test_the_audit_shapes_are_refused(text):
         "NPM_AUTH=$NPM_AUTH",
         "use_auth=true",
         "SESSION_COOKIE=$COOKIE",
+        "cookie: session",
+        "const sessionCookie = (await cookies()).get('session-id')",
     ],
 )
 def test_their_ordinary_neighbours_pass(text):

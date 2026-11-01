@@ -40,7 +40,6 @@ SECRET_ENDINGS = (
     "signingkey",
     "encryptionkey",
     "sshkey",
-    "cookie",
 )
 # The last part says what the name holds: `PASSWORD_FILE` holds a path, `token_ttl` a number.
 FIELD_PARTS = frozenset(
@@ -229,7 +228,7 @@ def label_of(name: str) -> Label:
         return Label.STRONG
     if len(parts) == 1:
         return Label.NONE
-    if parts[-1] in ("pass", "auth"):
+    if parts[-1] in ("pass", "auth", "cookie"):
         return Label.STRONG
     if parts[-1] == "key":
         return Label.NONE if parts[-2] in DATA_KEYS else Label.STRONG
@@ -282,7 +281,7 @@ def _is_reference(value: str) -> bool:
 def is_not_a_value(value: str) -> bool:
     """The text names where a value is, or stands in for one."""
     return (
-        value[:1] in ("$", "<", "{")
+        value[:1] in ("$", "<", "{", "(")
         or any(mark in value for mark in ("${", "{{", "]("))
         or bool(TEMPLATE.fullmatch(value) or PLACEHOLDER.fullmatch(value) or URL.fullmatch(value))
         or _is_reference(value)

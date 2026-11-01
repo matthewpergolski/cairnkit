@@ -185,6 +185,7 @@ def test_english_about_a_password_passes(text):
         "https://example.com/?code=dragonfly",
         "postgres://user:password@db.internal",
         "password=ab1",
+        "INVITE_CODE=welcome",
     ],
 )
 def test_the_remaining_misses_are_these(text):
