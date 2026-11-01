@@ -30,6 +30,8 @@ REFUSED_LINES = [
     "Written by Claude",
     "Signed-off-by: Claude <noreply@anthropic.com>",
     "Co-Authored-By: Claude <noreply@anthropic.com>",
+    "Co-authored-by: Claude <noreply@example.com>",
+    "Co-authored-by: Opus <no-reply@example.com>",
     "Co-Authored-By: Fable",
     "Co-Authored-By: Fable <noreply@anthropic.com>",
     "Co-Authored-By: Opus",
@@ -68,6 +70,7 @@ REFUSED_NAMES = [
     ("Fable 5", "jane@example.com"),
     ("Claude Fable", "jane@example.com"),
     ("Fable", "noreply@anthropic.com"),
+    ("Claude", "noreply@example.com"),
     ("DeepSeek", "jane@example.com"),
 ]
 ALLOWED_NAMES = [
@@ -75,6 +78,8 @@ ALLOWED_NAMES = [
     ("Opus", "opus@example.com"),
     ("Sonnet Patel", "sonnet@example.com"),
     ("Haiku", "haiku@example.com"),
+    ("Claude", "123+claude@users.noreply.github.com"),
+    ("Claude Monet", "noreply@example.com"),
 ]
 
 
