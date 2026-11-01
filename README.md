@@ -633,8 +633,10 @@ skipped `commit-msg`, such as a rebase. It reads only commits that no remote hol
 that came after the guard was installed on this clone. An older AI commit goes out, with
 one line that gives the count. A shallow clone does not read its edge. A contributor's
 commit does not stop your push, and a trailer that another person committed is named. An
-AI committer among new commits is refused at all times. A refused push prints an amend, a
-rebase and an override config, and tests run each one as printed. A refused trailer names the setting
+AI committer among new commits is refused at all times. A refused push prints a rebase that
+names the pushed ref and can move nothing else, and an override config, and tests run each one
+as printed. A deleted base file is not an install, so each commit that no remote holds is then
+checked. A new install starts a new base. A refused trailer names the setting
 that turns it off in Claude Code and Cursor. The tool does not write those settings,
 because they are global. To change what counts as a tool, set `identity_patterns` under
 `[commit_msg_guard]` in `config.toml`.

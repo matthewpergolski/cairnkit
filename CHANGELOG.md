@@ -103,6 +103,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A refused push prints a fix that can move only the pushed ref. It names the branch, runs in the
+  worktree that holds the branch, and returns the checkout to where it was. It has a form for a
+  tag, a detached HEAD and a commit pushed by hash. Before, the rebase acted on the current branch.
+- The short fix needs no editor. It prints only when it is enough.
+- The fix step moved out of `pre-push` to `.git/cairnkit-fix-commit`, so a remote named
+  `cairnkit-fix-commit` no longer skips the push check and amends HEAD.
+- A deleted `.git/cairnkit-guard-base` no longer reads new AI commits as older. Each commit that no
+  remote holds is checked. `memory hooks install` over a running check does not write a new base.
+  An install that starts the check still does, so a first push is no trap.
+
 - An agent's change to a rule that binds is never silent. `memory change`, `--supersedes` and
   `memory purge` under an agent print a line at once, and the next load names the rule once.
   The agent must tell the owner. It stays allowed.

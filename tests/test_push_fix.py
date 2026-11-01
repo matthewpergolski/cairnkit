@@ -134,6 +134,7 @@ def test_the_command_names_the_branch(forked):
     refused = run(forked, "push", "origin", "feat")
     command = printed(refused.stderr, "git rebase")
     assert command.endswith(" feat && git switch main")
+    assert "$(git rev-parse --git-common-dir)" in command
 
 
 def test_a_branch_in_another_worktree_runs_there(forked, tmp_path):
@@ -410,7 +411,7 @@ def test_a_deleted_base_refuses_with_a_fix_that_works(repo, mem, capsys, remote)
     assert run(repo, "push", str(remote), "main").returncode == 0
 
 
-def test_a_commit_from_before_the_guard_is_checked_when_the_base_is_deleted(repo, mem, capsys, remote):
+def test_a_deleted_base_also_checks_a_commit_from_before_the_guard(repo, mem, capsys, remote):
     tree_commit(repo, author=AI)
     guard_on(capsys)
     (repo / ".git" / githook.BASE_FILE).unlink()

@@ -389,12 +389,18 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   the commits that no remote holds, with the identity patterns on
   `Name <email>`, a tab and the short id, and with the message patterns on the
   message. A new commit is one that `.git/cairnkit-guard-base` and a shallow edge do
-  not reach. That file holds a `^HASH` line for each ref when the check was installed. If
-  it is gone, the hook writes it again. A new commit with an AI identity, or with a line and
-  the current user as committer, prints the lines and exits 1. A line with another committer
-  is named. An older commit counts in one line. With the argument `cairnkit-fix-commit`, the
-  check instead amends HEAD to drop such lines and an AI author, and exits. The rebase that
-  a refused push prints runs it.
+  not reach. That file holds a `^HASH` line for each ref when the check was installed. An
+  install that finds the check already on does not write it again, and neither does the hook.
+  With no such file, each commit that no remote holds is new. A new commit with an AI identity,
+  or with a line and the current user as committer, prints the lines and exits 1. For each pushed
+  ref that holds one, it prints a command that can move only that ref. A branch is named in the
+  rebase, and a branch checked out in another worktree gets `git -C`. A tag gets a rebase on a
+  detached HEAD and then `git tag -f`. Any other commit gets a rebase on a detached HEAD and a
+  push. A line with another committer is named. An older commit counts in one line. The hook does
+  not read its arguments to choose what it does.
+- `.git/cairnkit-fix-commit`: written with the check, gone with it, and never a hook. It amends
+  HEAD to drop such lines and an AI author, and leaves a commit that a remote holds. The printed
+  rebase runs it on each commit.
 - `post-merge`: that same quiet tidy block. It never fails the merge.
 - `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
