@@ -241,9 +241,10 @@ def test_the_command_in_the_behind_line_updates_only_what_is_installed(world, ca
     command = line[line.index("memory skills") :].split()
     assert run(capsys, *command[1:])[0] == 0
     assert any(c[:3] == ["claude", "plugin", "update"] for c in world.commands)
-    assert json.loads((skills.skills_dir("codex") / ".pstack/install.json").read_text())[
-        "version"
-    ] == "0.15.32"
+    assert (
+        json.loads((skills.skills_dir("codex") / ".pstack/install.json").read_text())["version"]
+        == "0.15.32"
+    )
     for tool in ("cursor", "opencode", "pi", "grok"):
         assert not skills.skills_dir(tool).exists()
 
@@ -257,7 +258,7 @@ def test_the_behind_line_names_a_partial_install(world, capsys):
     assert "Claude Code" not in line
 
 
-def test_pstack_is_not_in_the_load_or_the_check(world, mem, capsys, monkeypatch):
+def test_the_skills_line_is_not_in_the_load_or_the_check(world, mem, capsys, monkeypatch):
     world.claude("0.15.30")
     world.dirs(".codex")
     monkeypatch.setenv("CLAUDECODE", "1")
@@ -804,6 +805,41 @@ def test_migrate_task_has_no_install_line_when_current(world, repo, capsys):
     assert "pstack" not in out
     path = sibling(repo, ".memory") / "proposals" / "migrate-followups.md"
     assert not path.exists() or CMD not in path.read_text()
+
+
+@pytest.mark.parametrize(
+    "marker,tool,value",
+    [
+        ("CLAUDECODE", "claude", "1"),
+        ("CODEX_THREAD_ID", "codex", "1"),
+        ("CODEX_SANDBOX", "codex", "1"),
+        ("CODEX_CI", "codex", "1"),
+        ("CURSOR_AGENT", "cursor", "1"),
+        ("CURSOR_TRACE_ID", "cursor", "1"),
+        ("OPENCODE", "opencode", "1"),
+        ("OPENCODE_SESSION_ID", "opencode", "s1"),
+        ("PI_CODING_AGENT", "pi", "true"),
+        ("GROK_SESSION_ID", "grok", "s1"),
+        ("GROK_HOOK_EVENT", "grok", "SessionStart"),
+        ("GROK_WORKSPACE_ROOT", "grok", "/tmp/ws"),
+    ],
+)
+def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool, value):
+    monkeypatch.setenv(marker, value)
+    assert skills.running_tool() == tool
+
+
+def test_the_running_tool_is_unknown_with_no_marker_or_with_two(monkeypatch):
+    assert skills.running_tool() is None
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("CURSOR_AGENT", "1")
+    assert skills.running_tool() is None
+
+
+def test_the_hook_agent_beats_the_environment(monkeypatch):
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert skills.running_tool("codex") == "codex"
+    assert skills.running_tool("generic") == "claude"
 
 
 def test_status_by_hand_still_lists_every_tool(world, capsys):

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import followups, hygiene, install_source, refresh, skills, usage
+from cairnkit import followups, hygiene, install_source, refresh, usage
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.init import link_here
@@ -203,8 +203,6 @@ def run_load(
     area: str | None,
     budget: int,
     explain: bool = False,
-    agent: str | None = None,
-    record: bool = False,
 ) -> int:
     try:
         linked = link_here(project, flag)
@@ -225,7 +223,4 @@ def run_load(
     if linked:
         print(linked)
     print("\n".join(lines))
-    line = skills.session_line(memory.dir, agent, record)
-    if line:
-        print(line)
     return 0

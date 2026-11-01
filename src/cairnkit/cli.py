@@ -152,7 +152,8 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument(
         "--tool",
         choices=("claude", "codex", "cursor", "opencode", "pi", "grok", "all"),
-        help="one tool (default: every tool that is found)",
+        help="add or update one tool, or all that are found (default: update only the "
+        "tools that already have pstack)",
     )
     h.add_argument(
         "--adopt",

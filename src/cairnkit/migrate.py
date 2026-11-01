@@ -387,7 +387,7 @@ def _followups(
     ]
     hook_files = sorted({i.file for i in items if i.kind == "hook"})
     items = sorted(items, key=lambda i: (i.file, i.line))
-    skills_line = skills.advisory() if load_config(memdir)["skills_check"] else None
+    skills_line = skills.behind_line() if load_config(memdir)["skills_check"] else None
     text = render_followups(
         items, scripts, refs, grep_pattern(names), root, hook_files, skills_line
     )
@@ -564,7 +564,7 @@ def run_migrate(
         return 0
     if not changed:
         print("Already migrated. Nothing to do.")
-    code = run_check(project, path_flag, hint=False)
+    code = run_check(project, path_flag)
     line = skills.once_line(memdir)
     if line:
         print(line)

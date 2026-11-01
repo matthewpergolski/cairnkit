@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from cairnkit import instruction_files, presets, skills
+from cairnkit import instruction_files, presets
 from cairnkit.clock import now
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
@@ -190,7 +190,6 @@ def run_check(
     flag: str | None,
     strict: bool = False,
     advisory: bool = False,
-    hint: bool = True,
 ) -> int:
     memdir, source = resolve_memory_dir(project, flag)
     for linked in ensure_all_linked(project, flag):
@@ -218,9 +217,6 @@ def run_check(
         note = preset_note(project, memdir)
         if note:
             print(note)
-        line = skills.session_line(memory.dir) if hint else None
-        if line:
-            print(f"note: {line}")
     else:
         errors.append(f"{memdir}: no facts/ folder; run `memory init`")
     if strict:
