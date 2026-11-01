@@ -8,14 +8,44 @@ import io
 import json
 import os
 import tempfile
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+
+from cairnkit import deadline
 
 try:
     import fcntl
 except ImportError:  # Windows
     fcntl = None
+
+
+# Only a writer that hangs holds a lock this long: a write takes milliseconds.
+LOCK_WAIT = 5.0
+
+
+class LockBusy(Exception):
+    """Another process held a lock past the limit. The write did not happen."""
+
+
+def _lock(fh, path: Path) -> None:
+    """Take the lock, or raise LockBusy at the limit. A session must not wait forever."""
+    if fcntl is None:
+        return
+    wait = max(min(LOCK_WAIT, deadline.left()), 0)
+    end = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except OSError as exc:
+            if time.monotonic() >= end:
+                raise LockBusy(
+                    f"{path.name} is locked by another process, and the wait ended after "
+                    f"{wait:.0f} s. Nothing was written. Run the same command again."
+                ) from exc
+        time.sleep(0.02)
 
 
 @dataclass
@@ -154,8 +184,7 @@ def append_records(path: Path, records: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = "".join(encode(r) + "\n" for r in records).encode("utf-8")
     with path.open("ab") as fh:
-        if fcntl is not None:
-            fcntl.flock(fh, fcntl.LOCK_EX)
+        _lock(fh, path)
         try:
             size = fh.seek(0, os.SEEK_END)
             if size:
@@ -176,8 +205,7 @@ def locked(path: Path) -> Iterator[None]:
     """Hold an exclusive lock on a lock file while the block runs (no lock on Windows)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("ab") as fh:
-        if fcntl is not None:
-            fcntl.flock(fh, fcntl.LOCK_EX)
+        _lock(fh, path)
         try:
             yield
         finally:

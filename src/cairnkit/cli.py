@@ -559,7 +559,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
-    return run(args)
+    from cairnkit import deadline
+    from cairnkit.store import LockBusy
+
+    # The budget starts before the first git call, because a slow git is what it must outlast.
+    name = args.event if args.command == "hook" else args.command
+    try:
+        with deadline.within(deadline.COMMAND_BUDGET.get(name)):
+            return run(args)
+    except LockBusy as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -193,8 +193,9 @@ def test_a_failed_git_keeps_the_end_of_no_note(mem, repo, tmp_path, monkeypatch,
 def test_a_tracked_file_is_not_written_when_git_cannot_say(repo):
     from cairnkit.ignore import is_tracked
 
+    project = find_project(repo)
     with deadline.within(0):
-        assert is_tracked(find_project(repo), "README.md") is True
+        assert is_tracked(project, "README.md") is True
 
 
 def test_a_gone_held_by_is_not_reported_when_git_cannot_say(mem, repo, capsys):

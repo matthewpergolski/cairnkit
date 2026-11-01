@@ -32,7 +32,8 @@ def is_tracked(project: Project, rel: str, checkout: Path | None = None) -> bool
     """True when git tracks rel in checkout (default: the discovery root)."""
     if not project.is_git:
         return False
-    return bool(run_git(checkout or project.root, "ls-files", "--", rel))
+    listed = run_git(checkout or project.root, "ls-files", "--", rel)
+    return listed is None or bool(listed)  # git cannot say: never risk a write to a tracked file
 
 
 def keep_out_of_git(memdir: Path) -> list[str]:

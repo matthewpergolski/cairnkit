@@ -19,6 +19,7 @@ import sys
 from cairnkit import (
     adapters,
     autotidy,
+    deadline,
     followups,
     hooks_cmd,
     legacy,
@@ -56,6 +57,9 @@ from cairnkit.session import (
 
 NOTE_IDS = 10
 STOP_SEEN = ".stop-problems.json"
+STDIN_WAIT = 1
+# Of the total session budget. The optional steps stop first, so the load keeps this much.
+LOAD_RESERVE = 3.0
 SUBAGENT_BUDGET = 300
 # Agents that need a JSON empty object when memory exists but there is nothing to say.
 JSON_NEUTRAL = frozenset({"codex", "cursor"})
@@ -80,8 +84,10 @@ def has_memory(project: Project, flag: str | None) -> bool:
 
 
 def read_payload() -> dict:
+    raw = ""
     try:
-        raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+        with _time_budget(STDIN_WAIT):  # a tool writes this at once, then closes it
+            raw = sys.stdin.read() if not sys.stdin.isatty() else ""
         data = json.loads(raw) if raw.strip() else {}
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
@@ -216,6 +222,42 @@ def skills_note(project: Project, flag: str | None) -> str:
     return ""
 
 
+def _native_note(project: Project, flag: str | None) -> str:
+    with contextlib.suppress(Exception):
+        line = native.session_line(Memory.open(project, flag))
+        return line + "\n\n" if line else ""
+    return ""
+
+
+def _legacy_clean(project: Project, flag: str | None) -> None:
+    with contextlib.suppress(Exception):
+        legacy.clean(Memory.open(project, flag))
+
+
+def _optional_work(project: Project, flag: str | None) -> str:
+    """Do what can wait for a later session, in order, while time is left. Return its notes.
+
+    A step that it skips runs at the next session start. After a git timeout it skips the rest:
+    tidy reads which checkouts exist, and a timed-out git may have left some out.
+    """
+    steps = (
+        _legacy_clean,
+        sync_tools,
+        auto_retire_note,
+        skills_note,
+        _native_note,
+        refresh_followups,
+        compact_usage,
+    )
+    note = ""
+    with deadline.within(deadline.left() - LOAD_RESERVE):
+        for step in steps:
+            if not deadline.has_time():
+                break
+            note += step(project, flag) or ""
+    return note
+
+
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not has_memory(project, flag):
         with contextlib.suppress(Exception):
@@ -224,15 +266,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
                 event = {"hook_event_name": "SessionStart", **payload}
                 _context(agent, event, f"memory: not loaded: {lost_note(lost)}")
         return 0
-    with contextlib.suppress(Exception):
-        legacy.clean(Memory.open(project, flag))
-    sync_tools(project, flag)
-    note = auto_retire_note(project, flag) + skills_note(project, flag)
-    with contextlib.suppress(Exception):
-        line = native.session_line(Memory.open(project, flag))
-        note += line + "\n\n" if line else ""
-    refresh_followups(project, flag)
-    compact_usage(project, flag)
+    note = _optional_work(project, flag)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         run_load(project, flag, None, 600)

@@ -152,7 +152,8 @@ def _path_known(root, path: str) -> bool:
     """True when the path exists here, or in the history of any branch."""
     if (root / path).exists():
         return True
-    return bool(run_git(root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0))
+    found = run_git(root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0)
+    return found is None or bool(found)  # git cannot say: a slow git is not a problem to report
 
 
 def secrets_in_notes(memory: Memory) -> list[str]:

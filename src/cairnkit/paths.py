@@ -7,6 +7,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cairnkit import deadline
+
 LINK_NAME = "memory-bank"
 PATH_FILE = ".memory-path"
 ENV_DIR = "MEMORY_DIR"
@@ -43,11 +45,23 @@ class Project:
 def run_git(
     cwd: Path, *args: str, timeout: float = 3.0, env: dict[str, str] | None = None
 ) -> str | None:
-    """Run git. Return its output, or None when git fails or is missing."""
+    """Run git. Return its output, or None when git fails, is missing or has no time left."""
+    room = deadline.left()
+    if room <= 0 or deadline.git_stuck():
+        return None
     try:
         result = subprocess.run(
-            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env
+            ["git", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=min(timeout, room),
+            env=env,
         )
+    except subprocess.TimeoutExpired:
+        if timeout <= room:
+            deadline.note_git_timeout()
+        return None
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
