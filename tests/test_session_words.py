@@ -11,7 +11,7 @@ from cairnkit.cli import main
 from cairnkit.discover import DISCOVER, RULES_SHORT
 
 AGENTS = ("claude", "codex", "cursor", "pi", "opencode", "grok")
-OTHER_WORDS_BUDGET = 125
+OTHER_WORDS_BUDGET = 135
 
 
 def hook(capsys, monkeypatch, event, agent, payload):

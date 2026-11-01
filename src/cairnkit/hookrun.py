@@ -429,7 +429,7 @@ def subagent_start(project: Project, flag: str | None) -> int:
         return 0
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, SUBAGENT_BUDGET)
+        run_load(project, flag, None, SUBAGENT_BUDGET, update_notice=False)
     event = {"hookEventName": "SubagentStart", "additionalContext": buffer.getvalue().rstrip()}
     print(json.dumps({"hookSpecificOutput": event}))
     return 0
