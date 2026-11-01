@@ -87,6 +87,15 @@ def read_jsonl_all(mem):
     return [r for path in (mem / "facts").glob("*.jsonl") for r in read_jsonl(path)]
 
 
+def test_add_with_a_slow_git_lands_soon(mem, repo, tmp_path):
+    _seed(mem)
+    text = "A fact added while git is slow."
+    done, took = _command(repo, _slow_git(tmp_path, 2), "add", text, *FLAGS)
+    assert done.returncode == 0
+    assert text in (mem / "facts" / "main.jsonl").read_text()
+    assert took < 30
+
+
 def test_a_held_tidy_lock_does_not_stop_a_session(mem, repo):
     _seed(mem)
     with (mem / ".auto-tidy.lock").open("ab") as held:
