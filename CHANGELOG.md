@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - An agent tool that you install after setup connects by itself at the next session start, push
   or merge. It prints nothing, writes no tracked file and keeps your choice of tools.
+- `memory add` needs only the text. `--basis` defaults to `guess` and `--source` to
+  `session:<today>`. The output names the default basis. A near repeat with basis `guess`
+  no longer retires a `seen` fact in auto-tidy.
 - `evals/agents`: a kit that runs real agents on `dev` against production.
 - `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
 - Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
@@ -75,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   private memory paths.
 - `--until-merged` keeps a note open while a remote copy of its branch exists, and it
   ends a note when its branch was squash-merged.
+- A branch in no ref no longer reads as merged by itself. A fact records the branch tip
+  (`branch_tip`), and auto-tidy records a branch that comes later. With no record, the note
+  stays and `memory tidy` says that merged is unknown. `memory add` names a branch that does
+  not exist at once. A merged and deleted branch still ends its note.
+- `memory change ID --held-by PATH` without `--status promoted` says what it needs.
 - The secret scan finds named secrets such as `CRON_SECRET=`, payment keys, bearer tokens
   and secrets in URLs. `memory check` also scans `notes/` and `branches/`.
 - `memory search` takes several words with no quotes. `memory add --kind rule --summary`

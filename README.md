@@ -116,7 +116,7 @@ complete. Remove a row in the change that fixes it.
 | Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news after a `bash` tool and at idle. |
 | Capture | A fact that the agent never writes is lost. The tool names events and reminds the agent once at stop. It cannot make the agent write. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
-| Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A stale note on such a branch stays. A false end would be worse. |
+| Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A branch that came after its note and left before tidy saw it reads as unknown, and tidy names the note. So does an old fact whose branch is already gone. A stale note on such a branch stays. A false end would be worse. One false end remains: a memory moved to a new clone reads a branch as ended when that branch was never pushed and had no commit of its own when the note was written. |
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
 | Look for secrets | `memory check` reads only `*.md` files in `notes/` and `branches/`, and a hit there is a warning. `memory add` does not see these files. |
 | Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. |
@@ -418,7 +418,9 @@ active. The agent checks the fact when it touches that work.
 **Add does not refuse a repeat.** It does refuse some input, such as text that
 looks like a secret. When `memory add` exits with an error, the fact is not saved.
 A rule with `--summary` is written, and the output says that the summary is not
-stored. `--area` is optional, and its default is `general`. `memory add` looks for
+stored. `--area` is optional, and its default is `general`. `--basis` is optional, and
+its default is `guess`, the weakest claim. `--source` is optional, and its default is
+`session:` and today's date. `memory add` looks for
 an active fact of the same kind and scope that says the same thing. An exact repeat
 supersedes the old fact. An exact repeat of a rule or a pinned fact writes nothing
 and says so. A near repeat (80 percent of the words) is written with a `similar_to`
@@ -500,7 +502,9 @@ when it reads, and auto-tidy writes it down later. `memory keep ID` makes a
 short-term fact long-term. (`promote` is the old name of `keep`.)
 
 A branch reads as merged when its tip is in the default branch, by a merge or by a
-squash (git 2.38 or later), or when the branch is in no ref. A remote copy with no
+squash (git 2.38 or later). A branch in no ref ends the note only when a record says
+that this clone held it: `memory add` and auto-tidy record its tip. With no record,
+merged is unknown, the note stays, and `memory tidy` names it. A remote copy with no
 local branch counts as open work. A note on the default branch itself never reads
 as merged. Outside git, or on a detached HEAD, `--short` has no branch, so the note
 ends only when an agent ends it. `--expires` takes effect only with `--short`.

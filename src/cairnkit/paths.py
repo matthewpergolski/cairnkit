@@ -150,24 +150,42 @@ def default_branch(root: Path) -> str | None:
     return None
 
 
-def merged_checker(root: Path):
-    """Return a cached function: is the work of this branch done?
+OPEN, DONE, UNKNOWN = "open", "done", "unknown"
 
-    A false end is worse than a stale note, so each read needs evidence that work
-    landed. With no evidence, the branch stays open.
+
+def branch_reader(root: Path):
+    """Return a cached function: (branch, recorded tip) to OPEN, DONE or UNKNOWN.
+
+    A false end is worse than a stale note, so each read needs evidence.
 
     Open: a branch checked out in a worktree, a remote copy with no local branch,
     and a branch whose reflog shows no commit of its own in the default branch.
-    Done: a branch in no ref, and a branch that is not checked out and whose own
-    commits landed by a merge or a squash. A renamed branch reads as its new name.
+    Done: a branch that is not checked out and whose own commits landed by a merge or
+    a squash, and a branch in no ref that this clone is known to have held: its recorded
+    tip is here, or a reflog shows that it was renamed.
+    Unknown: a branch in no ref with no such record. It can be a typo, a branch that
+    comes later, a branch that is not fetched, or a branch in another clone.
+    A renamed branch reads as its new name.
     """
     base = default_branch(root)
-    cache: dict[str, bool] = {}
+    cache: dict[tuple[str, str | None], str] = {}
 
-    def is_merged(branch: str) -> bool:
-        if branch not in cache:
-            cache[branch] = bool(base) and branch != base and _branch_done(root, branch, base)
-        return cache[branch]
+    def read(branch: str, tip: str | None = None) -> str:
+        key = (branch, tip)
+        if key not in cache:
+            can_end = base and branch != base
+            cache[key] = _read_branch(root, branch, base, tip) if can_end else OPEN
+        return cache[key]
+
+    return read
+
+
+def merged_checker(root: Path):
+    """Return a cached function: is the work of this branch done?"""
+    read = branch_reader(root)
+
+    def is_merged(branch: str, tip: str | None = None) -> bool:
+        return read(branch, tip) == DONE
 
     return is_merged
 
@@ -176,6 +194,16 @@ def branch_exists(root: Path, name: str) -> bool:
     """True for a local branch, or a remote copy named `far` or `origin/far`."""
     refs = _branch_refs(root)
     return refs is None or f"refs/heads/{name}" in refs or _has_remote_copy(refs, name)
+
+
+def branch_tip(root: Path, name: str) -> str | None:
+    """The commit of a local branch, else of a remote copy. None when no ref has the name."""
+    out = run_git(
+        root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/remotes"
+    )
+    tips = dict(line.split(" ", 1) for line in (out or "").splitlines())
+    local = tips.get(f"refs/heads/{name}")
+    return local or next((tip for ref, tip in tips.items() if _has_remote_copy([ref], name)), None)
 
 
 def _branch_refs(root: Path) -> list[str] | None:
@@ -217,27 +245,35 @@ def _checked_out(root: Path, branch: str) -> bool:
     )
 
 
-def _branch_done(root: Path, branch: str, base: str) -> bool:
+def _read_branch(root: Path, branch: str, base: str, recorded: str | None) -> str:
     refs = _branch_refs(root)
     if refs is None:
-        return False
+        return OPEN
     seen = {branch}
     while f"refs/heads/{branch}" not in refs:
         if _has_remote_copy(refs, branch):
-            return False
+            return OPEN
         renamed = _renamed_to(root, branch)
         if renamed == "":
-            return True
+            return DONE if len(seen) > 1 or _commit_here(root, recorded) else UNKNOWN
         if renamed is None or renamed in seen:
-            return False
+            return OPEN
         seen.add(renamed)
         branch = renamed
     if branch == base or _checked_out(root, branch):
-        return False
+        return OPEN
     tip = run_git(root, "rev-parse", f"refs/heads/{branch}") or ""
-    if _in_base(root, tip, base):
-        return _made_commit_landed(root, branch, base)
-    return _squashed(root, tip, base)
+    landed = (
+        _made_commit_landed(root, branch, base)
+        if _in_base(root, tip, base)
+        else _squashed(root, tip, base)
+    )
+    return DONE if landed else OPEN
+
+
+def _commit_here(root: Path, commit: str | None) -> bool:
+    """True when this clone has the commit. Another clone's unpushed tip is not here."""
+    return bool(commit) and run_git(root, "cat-file", "-e", f"{commit}^{{commit}}") is not None
 
 
 def _in_base(root: Path, commit: str, base: str) -> bool:

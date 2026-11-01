@@ -53,8 +53,8 @@ def test_short_fact_expires_by_date():
 def test_short_fact_expires_when_branch_merged():
     fact = fold([short(until_branch_merged="feat")])["f-1"]
     now = "2026-10-02T00:00:00+00:00"
-    assert effective_status(fact, now=now, is_merged=lambda b: False)[0] == "active"
-    status, reason = effective_status(fact, now=now, is_merged=lambda b: b == "feat")
+    assert effective_status(fact, now=now, is_merged=lambda b, tip: False)[0] == "active"
+    status, reason = effective_status(fact, now=now, is_merged=lambda b, tip: b == "feat")
     assert status == "expired" and "feat" in reason
 
 
