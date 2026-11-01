@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
   writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session
   start. They stay in the archive.
+- The `docs/state` line that `post-merge` printed on each merge. `memory status` shows the state,
+  and says what `memory docs --force` writes. Nobody has to act at a merge.
 - Every rule that ended a fact because of its age: `STALE_DAYS`, the 14-day default of `--short`,
   `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
 - Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
@@ -36,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `session:<today>`. The output names the default basis. A near repeat with basis `guess`
   no longer retires a `seen` fact in auto-tidy.
 - `evals/agents`: a kit that runs real agents on `dev` against production.
+- The attribution guard refuses a commit whose author or committer is an AI tool, and a
+  `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
+  `commit-msg`. A person whose name holds a tool word passes.
+- `memory add` of a rule against AI attribution turns the guard on at once.
+- The guard knows model names such as Fable and Opus, and `Assisted-by`, `Signed-off-by` and
+  `Written by` lines. A co-author named Claude Monet now passes.
+- With a Python that is gone, the pre-commit hook still refuses the private paths and lets other
+  commits through. `memory status`, `memory check` and the load name the gone Python, for git
+  hooks and agent hooks.
+- A rule whose `enforced_by` check is not there loads as advisory, and `memory check` warns.
+- Under a `core.hooksPath` in the repo, git 2.54 or newer runs the personal hooks beside the
+  tracked ones, from the local git config. No tracked file changes.
+- `memory check` and `memory status` print the real hook state, and warn when `core.hooksPath`
+  hides the hooks. The session start names the fix to the agent.
 - `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
 - Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
 - A subagent gets a load of 300 words at its start on Claude Code and Codex.

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +29,9 @@ BLOCK_FILES = (
     ".pi/APPEND_SYSTEM.md",
 )
 COMMAND = "memory init --refresh"
+_HOOK_PYTHON = re.compile(r"""(?:'([^']+)'|([^\s"'`\\]+)) -m cairnkit hook""")
+# 0.3.1 builds on the dev channel wrote this line into post-merge. It printed on each merge.
+OLD_DOCS_CHECK_MARK = "# cairnkit:docs-check"
 
 
 def tool_version() -> str:
@@ -93,20 +98,28 @@ def _agents(project: Project) -> dict[str, list[Path]]:
     return found
 
 
-def _post_merge_lacks_docs_check(project: Project) -> bool:
-    """A local post-merge cairnkit block with no docs-check stanza."""
+def _hook_text_is_old(project: Project) -> bool:
+    """A hook block from this version number that older dev builds wrote differently."""
     folder = githook.hooks_dir(project) if project.is_git else None
-    if folder is None or githook._inside_worktree(project, folder):
+    if folder is None:
         return False
-    path = folder / "post-merge"
-    if not _has_block(path):
+    if _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK):
+        return True
+    if _has_block(folder / "pre-commit") and not _holds(
+        folder / "pre-commit", githook.PYTHON_GONE_MARK
+    ):
+        return True
+    if not githook.guard_installed(project):
         return False
-    return not _holds(path, githook.DOCS_CHECK_MARK) or not _holds(path, "docs --check")
+    return not (
+        _holds(folder / "commit-msg", githook.IDENTITY_MARK)
+        and _holds(folder / "pre-push", githook.PUSH_MARK)
+    )
 
 
 def _local_hooks(project: Project) -> list[str]:
     folder = githook.hooks_dir(project) if project.is_git else None
-    if folder is None or githook._inside_worktree(project, folder):
+    if folder is None:
         return []
     names = (
         "pre-commit",
@@ -142,12 +155,43 @@ def wrote_files(project: Project, memdir: Path) -> bool:
     )
 
 
+def gone_pythons(project: Project) -> list[str]:
+    """The absolute Python paths in this repo's hooks that no longer run."""
+    folder = githook.hooks_dir(project) if project.is_git else None
+    hooks = [folder / hook for hook in _local_hooks(project)] if folder else []
+    files = hooks + [c / adapters.ADAPTERS[n].rel for n, hs in _agents(project).items() for c in hs]
+    found = set()
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        found.update(a or b for a, b in _HOOK_PYTHON.findall(text))
+    return sorted(p for p in found if p.startswith("/") and not os.access(p, os.X_OK))
+
+
+def gone_python_line(project: Project) -> str | None:
+    gone = gone_pythons(project)
+    if not gone:
+        return None
+    return (
+        f"memory: this repo's hooks run {', '.join(gone)}, which is gone, so they do nothing. "
+        f"Run `{COMMAND}` now. It rewrites them in place."
+    )
+
+
 def repo_line(project: Project, flag: str | None) -> str | None:
-    """One line when repo files are older, or post-merge lacks the docs check. Never raises."""
+    """One line when repo files are older than this tool. Never raises."""
     try:
         memdir = _memdir(project, flag)
         if memdir is None:
             return None
+        state = githook.hook_state(project)
+        if state.fixable:
+            return "memory: " + state.line.removeprefix("warning: ")
+        line = gone_python_line(project)
+        if line:
+            return line
         version = read_stamp(memdir).get("version")
         leftovers = _leftovers(project, memdir)
         if leftovers and (not version or not is_behind(version, tool_version())):
@@ -155,7 +199,7 @@ def repo_line(project: Project, flag: str | None) -> str | None:
                 f"memory: this repo still holds {' and '.join(leftovers)} from an older memory. "
                 f"Run `{COMMAND}` now. It removes them."
             )
-        stale_hook = _post_merge_lacks_docs_check(project)
+        stale_hook = _hook_text_is_old(project)
         if version:
             if not is_behind(version, tool_version()) and not stale_hook:
                 return None
@@ -224,11 +268,13 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     except adapters.BadConfig as exc:
         print(f"error: {exc}")
         return 1
+    patterns = guard_patterns(project, flag)
     bodies = {
         "pre-commit": githook.pre_commit_body(),
         "post-checkout": githook.post_checkout_body(),
-        "pre-push": githook.pre_push_body(),
+        "pre-push": githook.pre_push_body(patterns if githook.guard_installed(project) else None),
         "post-merge": githook.post_merge_body(),
+        "commit-msg": githook.guard_body(patterns),
     }
     hooks = _local_hooks(project)
     broken += githook.broken_paths(project, hooks)
@@ -238,8 +284,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         if hook == "post-commit":  # 0.3.1 mined commits here. Nothing runs there now.
             steps += githook.uninstall(project, hook, dry_run)
             continue
-        body = bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
-        steps += githook.install(project, hook, body, dry_run)
+        steps += githook.install(project, hook, bodies[hook], dry_run)
     if not dry_run:
         steps += _end_mined_facts(project, flag)
     if dry_run:

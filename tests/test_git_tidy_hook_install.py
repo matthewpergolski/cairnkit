@@ -77,7 +77,10 @@ def test_no_git_hook_skips_the_tidy_hooks(repo, mem, capsys):
         assert not hook(repo, name).exists()
 
 
-def test_hooks_path_inside_the_repo_prints_the_block_and_writes_nothing(repo, mem, capsys):
+def test_hooks_path_inside_the_repo_prints_the_block_and_writes_nothing(
+    repo, mem, capsys, monkeypatch
+):
+    monkeypatch.setattr(githook, "git_runs_config_hooks", lambda: False)
     (repo / ".githooks").mkdir()
     git(repo, "config", "core.hooksPath", ".githooks")
     code, out = install(capsys, "--agent", "generic")

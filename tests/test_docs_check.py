@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import re
 import subprocess
 import sys
 import time
@@ -9,10 +7,8 @@ import time
 import pytest
 from conftest import assert_marker_gone, git, hung_marker, write_hung_interpreter
 
-from cairnkit import githook
 from cairnkit.cli import main
 
-STALE_LINE = "cairnkit: docs/state looks out of date; run memory docs --force"
 CLASH = "error: --check cannot be combined with --dry-run or --force\n"
 
 
@@ -32,20 +28,6 @@ def plant_cairnkit_atlas_sources(repo) -> None:
     (folder / "__init__.py").write_text("", encoding="utf-8")
     for name in ("cli", "hookrun", "load", "schema", "state", "store", "memory", "docs_cmd"):
         (folder / f"{name}.py").write_text(f"# {name}\n", encoding="utf-8")
-
-
-def _hook_lines(text: str, event: str) -> list[str]:
-    return [line for line in text.splitlines() if f"hook {event}" in line]
-
-
-def _redirects_stdout_to_devnull(line: str) -> bool:
-    return re.search(r"(?<![0-9])>/dev/null", line) is not None
-
-
-def _split_post_merge(text: str) -> tuple[str, str]:
-    lines = text.splitlines(keepends=True)
-    cut = next(i for i, line in enumerate(lines) if "hook post-merge" in line)
-    return "".join(lines[:cut]), "".join(lines[cut:])
 
 
 def test_stale_paths_are_a_sorted_unique_tuple():
@@ -278,43 +260,6 @@ def _run_hook(hook, repo, env=None):
     )
 
 
-def test_post_merge_body_shells_out_to_docs_check():
-    text = githook.post_merge_body()
-    fresh, quiet = _split_post_merge(text)
-    assert githook.DOCS_CHECK_MARK in fresh
-    assert "docs --check" in fresh
-    assert "atlas_freshness" in fresh
-    assert STALE_LINE in fresh
-    assert "|| true" in fresh
-    assert "has_memory" in fresh
-    assert "find_project()" in fresh
-    assert "[ -d docs/state ]" in fresh
-    assert "timeout -k 1 3 " in fresh
-    assert "docs-freshness" not in text
-    # Bound must parent PY directly; nested `sh -c` orphans hung starts on macOS.
-    timed = [line for line in fresh.splitlines() if "timeout -k 1 3 " in line]
-    assert timed
-    assert all(" sh -c " not in line for line in timed)
-    assert all("2>/dev/null" in line and not _redirects_stdout_to_devnull(line) for line in timed)
-    warn_lines = [line for line in fresh.splitlines() if STALE_LINE in line]
-    assert warn_lines
-    # Warn text lives inside the timed PY -c; stderr may go to /dev/null, stdout must not.
-    assert all(not _redirects_stdout_to_devnull(line) for line in warn_lines)
-    quiet_cmds = _hook_lines(quiet, "post-merge")
-    assert quiet_cmds
-    assert all(_redirects_stdout_to_devnull(line) for line in quiet_cmds)
-    assert "timeout -k 1 3 " in quiet
-    assert "docs --check" not in quiet
-    assert "atlas_freshness" not in quiet
-    for body in (
-        githook.pre_push_body(),
-        githook.post_checkout_body(),
-    ):
-        assert "docs --check" not in body
-        assert STALE_LINE not in body
-        assert "docs-freshness" not in body
-
-
 def test_hook_post_merge_does_not_print_the_docs_line(mem, repo, capsys):
     assert main(["docs"]) == 0
     readme = state_dir(repo) / "README.md"
@@ -326,23 +271,6 @@ def test_hook_post_merge_does_not_print_the_docs_line(mem, repo, capsys):
     assert out.out == ""
     assert out.err == ""
     assert readme.read_text(encoding="utf-8") == "stale\n"
-
-
-def test_installed_post_merge_warns_once_when_stale(mem, repo, capsys):
-    plant_cairnkit_atlas_sources(repo)
-    assert main(["docs", "--force"]) == 0
-    readme = state_dir(repo) / "README.md"
-    life = state_dir(repo) / "fact-lifecycle.md"
-    readme.write_text("stale\n", encoding="utf-8")
-    life.write_text("also stale\n", encoding="utf-8")
-    hook = _install_post_merge(repo, capsys)
-    result = _run_hook(hook, repo)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == STALE_LINE + "\n"
-    assert result.stderr == ""
-    assert "docs/state/" not in result.stdout
-    assert readme.read_text(encoding="utf-8") == "stale\n"
-    assert life.read_text(encoding="utf-8") == "also stale\n"
 
 
 def test_installed_post_merge_is_silent_when_current(mem, repo, capsys):
@@ -361,37 +289,6 @@ def test_installed_post_merge_is_silent_without_state(mem, repo, capsys):
     assert result.stdout == ""
     assert result.stderr == ""
     assert not state_dir(repo).exists()
-
-
-def test_post_merge_follows_memory_dir(mem, repo, capsys, tmp_path):
-    assert main(["docs"]) == 0
-    readme = state_dir(repo) / "README.md"
-    readme.write_text("stale\n", encoding="utf-8")
-    empty = tmp_path / "empty-memory"
-    empty.mkdir()
-    hook = _install_post_merge(repo, capsys)
-    env = {**os.environ, "MEMORY_DIR": str(empty)}
-    result = _run_hook(hook, repo, env=env)
-    assert result.returncode == 0
-    assert result.stdout == ""
-    assert result.stderr == ""
-    assert readme.read_text(encoding="utf-8") == "stale\n"
-
-
-def test_post_merge_warns_when_only_memory_dir_has_facts(repo, capsys, tmp_path):
-    facts = tmp_path / "mem" / "facts"
-    facts.mkdir(parents=True)
-    state = state_dir(repo)
-    state.mkdir(parents=True)
-    page = state / "README.md"
-    page.write_text("old\n", encoding="utf-8")
-    hook = _install_post_merge(repo, capsys)
-    env = {**os.environ, "MEMORY_DIR": str(tmp_path / "mem")}
-    result = _run_hook(hook, repo, env=env)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == STALE_LINE + "\n"
-    assert result.stderr == ""
-    assert page.read_text(encoding="utf-8") == "old\n"
 
 
 def test_post_merge_stays_silent_when_cairnkit_is_missing(repo, capsys):
@@ -424,16 +321,21 @@ def test_hung_post_merge_stays_quiet_and_finishes(repo, capsys, tmp_path):
     result = _run_hook(hook, repo)
     elapsed = time.monotonic() - began
     assert result.returncode == 0
-    assert STALE_LINE not in result.stdout
-    assert STALE_LINE not in result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
     assert elapsed < 8, f"hung interpreter stalled post-merge for {elapsed:.1f}s"
     assert_marker_gone(marker)
 
 
-def test_merge_prints_one_stale_line_and_succeeds(mem, repo, capsys):
+def _stale_atlas(repo):
     assert main(["docs"]) == 0
     readme = state_dir(repo) / "README.md"
     readme.write_text("stale\n", encoding="utf-8")
+    return readme
+
+
+def test_a_real_merge_says_nothing_about_a_stale_atlas(mem, repo, capsys):
+    readme = _stale_atlas(repo)
     _install_post_merge(repo, capsys)
     git(repo, "checkout", "-q", "-b", "topic")
     (repo / "topic.txt").write_text("t\n", encoding="utf-8")
@@ -441,25 +343,50 @@ def test_merge_prints_one_stale_line_and_succeeds(mem, repo, capsys):
     git(repo, "commit", "-q", "-m", "topic")
     git(repo, "checkout", "-q", "main")
     result = subprocess.run(
-        [
-            "git",
-            "-c",
-            "core.hooksPath=.git/hooks",
-            "merge",
-            "--no-ff",
-            "-m",
-            "merge topic",
-            "topic",
-        ],
+        ["git", "merge", "--no-ff", "-m", "merge topic", "topic"],
         cwd=repo,
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    # Git delivers hook stdout on the git command's stderr.
-    said = [line for line in result.stderr.splitlines() if line.startswith("cairnkit:")]
-    assert said == [STALE_LINE]
-    assert STALE_LINE not in result.stdout
-    assert "docs/state/" not in result.stderr
+    assert "docs/state" not in result.stdout + result.stderr
+    assert "cairnkit" not in result.stdout + result.stderr
     assert readme.read_text(encoding="utf-8") == "stale\n"
+
+
+def test_status_says_what_force_writes_when_the_atlas_is_stale(mem, repo, capsys):
+    readme = _stale_atlas(repo)
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    out = capsys.readouterr().out
+    line = next(item for item in out.splitlines() if "docs/state" in item)
+    assert "1 page" in line
+    assert "memory docs --force" in line
+    assert "no model and no network" in line
+    assert "tracked" in line
+    assert readme.read_text(encoding="utf-8") == "stale\n"
+
+
+def test_status_is_silent_about_a_current_or_absent_atlas(mem, repo, capsys):
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    assert "docs/state" not in capsys.readouterr().out
+    assert main(["docs"]) == 0
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    assert "docs/state" not in capsys.readouterr().out
+
+
+def test_status_still_works_when_the_atlas_cannot_be_read(mem, repo, capsys, monkeypatch):
+    from cairnkit import docs_cmd
+
+    _stale_atlas(repo)
+
+    def broken(project):
+        raise OSError("no")
+
+    monkeypatch.setattr(docs_cmd, "build_atlas", broken)
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    assert "docs/state" not in capsys.readouterr().out

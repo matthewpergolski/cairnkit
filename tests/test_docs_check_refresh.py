@@ -1,4 +1,4 @@
-"""Post-merge docs-check marker nudges refresh without a package version bump."""
+"""A post-merge block with the old docs line asks for a refresh, with no version bump."""
 
 from __future__ import annotations
 
@@ -13,35 +13,6 @@ def _stamp_path(repo):
     return repo.parent / f"{repo.name}.memory" / refresh.STAMP
 
 
-def test_repo_line_when_post_merge_lacks_docs_check_marker(repo):
-    """Same package version, old quiet-only post-merge: still ask for refresh."""
-    assert main(["init"]) == 0
-    assert main(["hooks", "install", "--agent", "generic"]) == 0
-    project = find_project()
-    assert refresh.repo_line(project, None) is None
-
-    hook = repo / ".git" / "hooks" / "post-merge"
-    old = f"#!/bin/sh\n{githook.START}\n{githook.quiet_body('post-merge')}{githook.END}\n"
-    hook.write_text(old)
-    assert githook.DOCS_CHECK_MARK not in hook.read_text()
-
-    stamp = _stamp_path(repo)
-    stamp.write_text(
-        json.dumps({"version": __version__, "at": "2026-10-30T00:00:00+00:00", "blocks": []})
-        + "\n",
-        encoding="utf-8",
-    )
-    assert __version__ == "0.3.1"
-    line = refresh.repo_line(project, None)
-    assert line and "memory init --refresh" in line
-
-    assert main(["init", "--refresh"]) == 0
-    text = hook.read_text()
-    assert githook.DOCS_CHECK_MARK in text
-    assert "docs --check" in text
-    assert refresh.repo_line(project, None) is None
-
-
 def _stamp_current(repo) -> None:
     _stamp_path(repo).write_text(
         json.dumps({"version": __version__, "at": "2026-10-30T00:00:00+00:00", "blocks": []})
@@ -50,25 +21,31 @@ def _stamp_current(repo) -> None:
     )
 
 
-def _write_post_merge(repo, body: str):
+# The first line of the docs check that older versions wrote into post-merge.
+OLD_MARK = "# cairnkit:docs-check"
+
+
+def test_repo_line_when_post_merge_still_holds_the_docs_check(repo):
+    assert main(["init"]) == 0
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    project = find_project()
+    assert refresh.repo_line(project, None) is None
+
     hook = repo / ".git" / "hooks" / "post-merge"
-    hook.parent.mkdir(parents=True, exist_ok=True)
+    body = f"{OLD_MARK}\necho old\n{githook.quiet_body('post-merge')}"
     hook.write_text(f"#!/bin/sh\n{githook.START}\n{body}{githook.END}\n")
-    return hook
-
-
-def test_repo_line_when_the_marker_is_present_but_the_command_is_not(repo):
-    assert main(["init"]) == 0
-    _write_post_merge(repo, f"{githook.DOCS_CHECK_MARK}\necho quiet\n")
     _stamp_current(repo)
-    line = refresh.repo_line(find_project(), None)
+    line = refresh.repo_line(project, None)
     assert line and "memory init --refresh" in line
 
+    assert main(["init", "--refresh"]) == 0
+    assert OLD_MARK not in hook.read_text()
+    assert "hook post-merge" in hook.read_text()
+    assert refresh.repo_line(project, None) is None
 
-def test_repo_line_when_the_command_is_present_but_the_marker_is_not(repo):
+
+def test_the_post_merge_hook_has_no_docs_check(repo):
     assert main(["init"]) == 0
-    _write_post_merge(repo, 'echo "docs --check"\n')
-    _stamp_current(repo)
-    line = refresh.repo_line(find_project(), None)
-    assert line and "memory init --refresh" in line
-    assert githook.DOCS_CHECK_MARK not in (repo / ".git" / "hooks" / "post-merge").read_text()
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    text = (repo / ".git" / "hooks" / "post-merge").read_text()
+    assert "docs" not in text

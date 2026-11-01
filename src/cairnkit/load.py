@@ -9,7 +9,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from cairnkit import followups, hygiene, install_source, migrate_refs, refresh, usage
+from cairnkit import (
+    enforcement,
+    followups,
+    hygiene,
+    install_source,
+    migrate_refs,
+    refresh,
+    usage,
+)
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.envsecrets import EnvValues
@@ -147,14 +155,19 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out += [clean(f"- {memory.withheld_note(i)}") for i in sorted(memory.withheld)]
     rules.sort(key=lambda s: s.get("learned_at", ""))
     instructions = [s for s in rules if owner_rule(s)]
-    enforced = [s for s in instructions if s.get("enforced_by")]
+    false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
+    enforced = [s for s in instructions if s.get("enforced_by") and s not in false_claims]
     advisory = [s for s in instructions if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
         out += [render(s) for s in enforced]
-    if advisory:
+    if advisory or false_claims:
         out.append("## Advisory rules")
         out += [render(s) for s in advisory]
+        out += [
+            f"{render({**s, 'enforced_by': None})} (no check found for {name(s['enforced_by'])})"
+            for s in false_claims
+        ]
     out.append(FRAME_HEADER)
     agent_rules = [s for s in rules if not owner_rule(s)]
     if agent_rules:
