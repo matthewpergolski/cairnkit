@@ -111,6 +111,7 @@ src/cairnkit/
   config.py      config.toml
   memory.py      one opened memory
   writing.py     add, change, keep, purge
+  rule_notices.py  the line and the next-load note when an agent changes a rule that binds
   similar.py     exact repeats, repeats in form, and similar pairs
   repair.py      memory repair: settle bad lines and a bad config
   deadline.py    the total time budget of a load or a hook

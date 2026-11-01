@@ -162,7 +162,7 @@ def owner_rule(state: dict) -> bool:
 
     An agent can be tricked into `memory add --kind rule`, and that rule would then speak in each
     session. So a rule that an agent wrote stays an instruction only when it says a person stated
-    it. The tool sets `author` when it sees an agent tool, so this is evidence, not proof.
+    it. Any agent marker sets `author`, so this is evidence, not proof.
     """
     return not state.get("author") or state.get("basis") == "told"
 

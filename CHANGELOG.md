@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An agent's change to a rule that binds is never silent. `memory change`, `--supersedes` and
+  `memory purge` under an agent print a line at once, and the next load names the rule once.
+  The agent must tell the owner. It stays allowed.
+- A rule that an agent writes with no `told` says at once that it loads as data, with the fix.
+  Restating a data rule with `--basis told`, or by a person, now lifts it.
+- Any agent marker means an agent. Two markers name both tools and no longer read as a person.
+- `pre-push` refuses only commits made since the guard was installed on this clone. Old history,
+  tags and shallow clones push, with one line that gives the count of older AI commits. A
+  contributor's commit is not refused, and a trailer that another person committed is named.
+- A refused push prints an amend, a rebase and an override config, and real runs prove each one.
+  The old printed rebase failed on an empty commit, a trailer and a root.
+- The attribution guard refuses current tools and models by shape: `Opus 4.7`, Kiro, Qoder, Cline
+  and others in each form, a dotted version in a name, and a no-reply address at an `.ai` domain.
+  A person with one of these names and a personal address passes.
+- A session start removes the `post-commit` block of 0.3.1 from `.git/hooks` by itself. Foreign
+  text in that file stays byte for byte.
+- `memory instructions` and the migrate worklist say when a rule loads as data.
 - Auto-tidy retires a near repeat only when the words match in order after case, plural,
   punctuation and stop words. Staging against production and three times against five now go to
   the agent task. An exact repeat now needs the same order, and it keeps symbols and non-ASCII

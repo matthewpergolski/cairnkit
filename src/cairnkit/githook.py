@@ -4,8 +4,9 @@ installs by itself when the memory holds a rule against AI attribution.
 
 The guard is two checks. commit-msg refuses an AI attribution line and an AI author
 or committer. pre-push refuses the same in a commit that skipped commit-msg, such as
-a rebase or a commit from plumbing. Only commits that no remote holds count, so
-another person's commit never stops a push.
+a rebase or a commit from plumbing. It reads only commits that no remote holds and that
+no ref held when the guard was installed, so old history never stops a push. An AI line in
+a commit that another person committed is named, not refused.
 
 When core.hooksPath points into the repo, git does not read .git/hooks. Our files then
 live in .git/cairnkit-hooks, and the local git config runs them beside that folder (git 2.54
@@ -36,7 +37,11 @@ SHELLS = ("sh", "bash", "zsh", "dash", "ksh")
 GUARD_MARK = "# Refuse AI self-attribution lines."
 GUARD_REF = "githook:commit-msg"
 IDENTITY_MARK = "# Refuse an AI author or committer."
-PUSH_MARK = "# Refuse a pushed commit with an AI identity or attribution line."
+PUSH_MARK = "# Refuse a new commit with an AI identity or attribution line."
+# In the git folder: one `^HASH` line for each ref at install. Older commits are not new ones.
+BASE_FILE = "cairnkit-guard-base"
+# The rebase that a refused push prints runs the hook with this argument, on each commit.
+FIX_STEP = "cairnkit-fix-commit"
 PYTHON_GONE_MARK = "# The Python of this hook cannot run the tool."
 PERSONAL_HOOKS = ("pre-commit", "post-checkout", "pre-push", "post-merge")
 # Under a core.hooksPath in the repo, our hook files live here and the local git config runs them.
@@ -50,26 +55,34 @@ CONFIG_HOOKS_SINCE = "2.54"
 # a version or a tool address: "Opus 4.7" is refused, and "Opus <opus@example.com>" passes as
 # an author. A trailer that credits a bare model name is refused at any address, because that
 # is the line the guard exists to stop. `identity_patterns` and `patterns` can override this.
-_PERSON_LIKE = "(claude|devin|fable|opus|sonnet|haiku|mythos|jules|kimi)"
+_PERSON_LIKE = (
+    "(claude|devin|fable|opus|sonnet|haiku|mythos|jules|kimi"
+    "|kiro|cline|cody|junie|amp|trae|warp|roo|kilo|augment)"
+)
 _MODEL = "(claude|fable|opus|sonnet|haiku|mythos)"
 _NO_REPLY = "<no-?reply[^@>]*@"
 _FAMILY = "(opus|sonnet|haiku|fable|mythos)"
-_TOOL_WORD = f"(agent|ai|bot|code|cli|assistant|build|model|{_FAMILY})"
-_VERSION_END = "( [0-9][0-9.]*)?( \\([^)]*\\))?"
+_TOOL_WORD = f"(agent|ai|bot|code|cli|assistant|build|model|k[0-9][a-z0-9.]*|{_FAMILY})"
+# These words end a model's name, and they are also surnames, so a person-like name cannot use them.
+_TIER_WORD = "(pro|mini|max|flash|turbo|lite|ultra)"
+_VERSION_END = f"( [0-9][0-9.]*( ({_TOOL_WORD}|{_TIER_WORD}))*)?( \\([^)]*\\))?"
 _TOOL = (
     "(anthropic|openai|cursor|copilot|codex|chatgpt|gpt-?[0-9][a-z0-9.]*|gemini|grok|aider"
-    "|windsurf|codeium|tabnine|amazon q|opencode|deepseek|llama|qwen|mistral)"
+    "|windsurf|codeium|tabnine|amazon q|opencode|deepseek|llama|qwen[0-9.]*|mistral"
+    "|qoder|qodo|zencoder|roocode|kilocode|glm-?[0-9][a-z0-9.]*|o[0-9](-[a-z]+)?)"
 )
 _MAKER = "((github|openai|anthropic|google|amazon|microsoft) )?"
 _NAME = (
-    f"{_MAKER}({_TOOL}(-[a-z0-9.-]+)?( {_TOOL_WORD})*{_VERSION_END}"
+    f"{_MAKER}({_TOOL}(-[a-z0-9.-]+)?( ({_TOOL_WORD}|{_TIER_WORD}))*{_VERSION_END}"
     f"|{_PERSON_LIKE}(-({_FAMILY}|code|ai|[0-9])[a-z0-9.-]*|( {_TOOL_WORD})+|( [0-9][0-9.]*))"
     f"{_VERSION_END})"
 )
 _BOT_NAME = (
-    "[^<@]*(claude|codex|copilot|cursor|devin|gemini|grok|jules|aider|windsurf|opencode)"
-    "[^<@]*\\[bot\\]"
+    "[^<@]*(claude|codex|copilot|cursor|devin|gemini|grok|jules|aider|windsurf|opencode"
+    "|kiro|cline|qoder|zencoder|agent|-ai)[^<@]*\\[bot\\]"
 )
+# A dotted version in a name is a tool's shape, for a name that no list here holds yet.
+_DOTTED = " v?[0-9]+\\.[0-9][0-9.]*"
 _ADDRESSES = (
     f"<([0-9]+\\+)?{_BOT_NAME}@users\\.noreply\\.github\\.com>",
     "<([0-9]+\\+)?copilot@users\\.noreply\\.github\\.com>",
@@ -79,16 +92,24 @@ _ADDRESSES = (
     "<(noreply|claude|claude-code)@anthropic\\.com>",
     "<(noreply|codex|chatgpt)@openai\\.com>",
     "<(noreply|aider)@aider\\.(chat|ai)>",
-    "<(noreply|devin)@(cognition\\.ai|devin\\.ai)>",
-    "<noreply@(opencode\\.ai|x\\.ai|windsurf\\.com|codeium\\.com)>",
+    "<devin@(cognition\\.ai|devin\\.ai)>",
+    "<noreply@(x\\.ai|windsurf\\.com|codeium\\.com)>",
+    "<no-?reply[^@>]*@[^>]*\\.ai>",
+    # A person can work at these companies, so only a tool's own mailbox name counts.
+    "<(no-?reply|agent|kiro|qoder|cline|roo|amp|junie|kilo|trae|auggie|cody|warp|zencoder)@"
+    "(kiro\\.(dev|ai)|qoder\\.com|cline\\.bot|roocode\\.com|ampcode\\.com|jetbrains\\.com"
+    "|kilocode\\.ai|trae\\.ai|augmentcode\\.com|sourcegraph\\.com|warp\\.dev|zencoder\\.ai)>",
 )
+_CREDIT = "^(co-?authored-by|co-?developed-by|co-?written-by): *"
 _TRAILER = (
-    "^(co-authored-by|co-developed-by|signed-off-by|assisted-by|authored-by|written-by"
-    "|generated-by|made-with|ai-assisted): *"
+    "^(co-?authored-by|co-?developed-by|co-?written-by|signed-off-by|assisted-by|authored-by"
+    "|written-by|created-by|drafted-by|generated-(by|with)|made-with|created-with|written-with"
+    "|ai-[a-z-]+): *"
 )
 _ANY_NAME = (
     "(\\bai\\b|claude|anthropic|openai|chatgpt|gpt-?[0-9]|codex|copilot|cursor|gemini|grok|devin"
-    "|aider|windsurf|codeium|tabnine|amazon q|deepseek|opus|sonnet|haiku|fable|mythos)"
+    "|aider|windsurf|codeium|tabnine|amazon q|deepseek|opus|sonnet|haiku|fable|mythos"
+    "|\\bkiro\\b|qoder|\\bcline\\b|zencoder|\\bjunie\\b|\\bglm\\b)"
 )
 # Matched on each line of a commit message that is not a comment.
 DEFAULT_GUARD_PATTERNS = [
@@ -97,10 +118,16 @@ DEFAULT_GUARD_PATTERNS = [
     f"{_TRAILER}{_MODEL} *<",
     f"{_TRAILER}{_BOT_NAME}",
     f"{_TRAILER}[^<]*({'|'.join(_ADDRESSES)})",
+    f"{_CREDIT}[^<]*{_DOTTED} *<",
+    f"{_CREDIT}[^<]* v?[0-9][0-9.]*[ .]*$",
+    f"^assisted-by: *[^:]*:.*{_ANY_NAME}",
+    f"{_TRAILER}[^<]* agent( v?[0-9][0-9.]*)?( *<|[ .]*$)",
     "^[^a-z0-9]*generated with ",
     f"^[^a-z0-9]*generated by .*{_ANY_NAME}",
     f"^[^a-z0-9]*(made|written|authored|created|assisted|drafted|co-written)[- ](with|by):? *"
-    f"(the )?({_NAME}|{_PERSON_LIKE})[ .!]*$",
+    f"(the )?\\[?({_NAME}|{_PERSON_LIKE})(\\]\\([^)]*\\))?[ .!]*$",
+    f"^[^a-z0-9]*{_MAKER}({_PERSON_LIKE}|{_TOOL})( {_TOOL_WORD})* [0-9][0-9.]*[ .]*$",
+    "^[^a-z0-9]*(gpt-?[0-9][a-z0-9.]*|o[0-9]-[a-z]+)[ .]*$",
 ]
 
 # Matched on "Name <email>". A pushed commit follows that with a tab and its id, so a
@@ -109,6 +136,7 @@ DEFAULT_IDENTITY_PATTERNS = [
     f"^{_NAME} <",
     f"^{_PERSON_LIKE} {_NO_REPLY}",
     f"^{_BOT_NAME} <",
+    f"^[^<]*{_DOTTED} <",
     "^[^<]*\\(aider\\) <",
     *_ADDRESSES,
 ]
@@ -233,12 +261,68 @@ def _grep_args(patterns: list[str]) -> str:
     return " ".join(f"-e {_quote(p)}" for p in patterns)
 
 
+# The config that a refused push prints. An empty list means the defaults, so these match nothing.
+_OVERRIDE = (
+    "[commit_msg_guard]",
+    'patterns = ["^no-such-line$"]',
+    'identity_patterns = ["^no-such-identity <"]',
+)
+
+
+def _echo(*lines: str) -> str:
+    return "".join(f"  echo {_quote(line)} >&2\n" for line in lines)
+
+
+def _push_refusal() -> str:
+    return (
+        '  echo "push refused: these new commits have an AI identity or attribution line:" >&2\n'
+        "  printf '%s\\n' \"$cairnkit_refused\" >&2\n"
+        + _echo(
+            "A fix rewrites each commit from that point, so their hashes change.",
+            "To fix the last commit, remove the line in the editor:",
+            "  git commit --amend --allow-empty --reset-author",
+            "To fix them all on the branch you push, with each other author kept:",
+        )
+        # The oldest refused commit, so the rebase leaves older history as it is.
+        + "  cairnkit_oldest=$(printf '%s\\n' \"$cairnkit_refused\" "
+        "| awk '{print $1}' | git rev-list --stdin --abbrev-commit --topo-order --reverse "
+        "2>/dev/null | awk -v want=\"$(printf '%s\\n' \"$cairnkit_refused\" | awk '{print $1}' "
+        "| tr '\\n' ' ')\" "
+        '\'BEGIN { n = split(want, w, " "); for (i = 1; i <= n; i++) k[w[i]] = 1 } '
+        "$1 in k { print; exit }')\n"
+        '  if git rev-parse -q --verify "$cairnkit_oldest^" >/dev/null; then '
+        'cairnkit_onto="$cairnkit_oldest^"; else cairnkit_onto=--root; fi\n'
+        '  echo "  git rebase --rebase-merges --exec '
+        f'\'sh \\"$0\\" {FIX_STEP}\' $cairnkit_onto" >&2\n'
+        + _echo(
+            "To allow such lines here, add this to memory-bank/config.toml, "
+            "then run `memory hooks install`:",
+            *(f"  {line}" for line in _OVERRIDE),
+        )
+        + "  exit 1\n"
+    )
+
+
 def _push_check(patterns: GuardPatterns) -> str:
     identity, message = _grep_args(patterns.identity), _grep_args(patterns.message)
-    # A hook that runs after this block in the same file also reads the ref list on stdin.
-    # The here-document gives it back.
     return (
-        f"{PUSH_MARK} Edit the patterns to change the rule.\n"
+        f"{PUSH_MARK} `[commit_msg_guard]` in config.toml sets the patterns.\n"
+        f'cairnkit_identity() {{ grep "$@" -iE {identity}; }}\n'
+        f'cairnkit_message() {{ grep "$@" -iE {message}; }}\n'
+        f'if [ "$1" = {FIX_STEP} ]; then\n'
+        "  cairnkit_reset=\n"
+        "  if git log -1 --format='%an <%ae>' | cairnkit_identity -q; then "
+        "cairnkit_reset=--reset-author; fi\n"
+        '  if [ -n "$cairnkit_reset" ] '
+        "|| git log -1 --format='%cn <%ce>' | cairnkit_identity -q "
+        "|| git log -1 --format=%B | cairnkit_message -q; then\n"
+        "    git log -1 --format=%B | cairnkit_message -v | "
+        "git commit -q --amend --allow-empty --allow-empty-message $cairnkit_reset -F - || exit 1\n"
+        "  fi\n"
+        "  exit 0\n"
+        "fi\n"
+        # A hook that runs after this block in the same file also reads the ref list on stdin.
+        # The here-document gives it back.
         "cairnkit_refs=\n"
         "if [ ! -t 0 ]; then cairnkit_refs=$(cat); fi\n"
         'if [ -n "$cairnkit_refs" ]; then\n'
@@ -246,6 +330,26 @@ def _push_check(patterns: GuardPatterns) -> str:
         "$cairnkit_refs\n"
         "CAIRNKIT_REFS\n"
         "fi\n"
+        f'cairnkit_base="$(git rev-parse --git-common-dir)/{BASE_FILE}"\n'
+        'if [ ! -f "$cairnkit_base" ]; then\n'
+        "  { git for-each-ref --format='^%(objectname)'; git rev-parse -q --verify HEAD "
+        "| sed 's/^/^/'; } > \"$cairnkit_base\" 2>/dev/null\n"
+        "fi\n"
+        # Tab-separated: age, hash, who answers for it, then the identity or the line.
+        "cairnkit_scan() {\n"
+        "  cairnkit_list=$(grep .)\n"
+        '  [ -n "$cairnkit_list" ] || return 0\n'
+        "  { printf '%s\\n' \"$cairnkit_list\" | git log --stdin --no-walk "
+        "--format='%an <%ae>%x09%h%x09identity' 2>/dev/null | cairnkit_identity\n"
+        "    printf '%s\\n' \"$cairnkit_list\" | git log --stdin --no-walk "
+        "--format='%cn <%ce>%x09%h%x09identity' 2>/dev/null | cairnkit_identity\n"
+        "    printf '%s\\n' \"$cairnkit_list\" | git log --stdin --no-walk "
+        "--format='cairnkit-commit %h %ce%n%B' 2>/dev/null | grep -v '^#' "
+        "| cairnkit_message -e '^cairnkit-commit ' "
+        '| awk \'/^cairnkit-commit /{ h = $2; e = $3; next } { print $0 "\\t" h "\\t" e }\'\n'
+        "  } | awk -F'\\t' -v age=\"$1\" "
+        '\'{ print age "\\t" $(NF-1) "\\t" $NF "\\t" $1 }\'\n'
+        "}\n"
         "cairnkit_found=$(printf '%s\\n' \"$cairnkit_refs\" | "
         "while read -r cairnkit_a cairnkit_new cairnkit_b cairnkit_old; do\n"
         # The leading parens are for bash 3.2, /bin/sh on macOS: it misreads a bare `)` in $().
@@ -253,18 +357,34 @@ def _push_check(patterns: GuardPatterns) -> str:
         "  cairnkit_known=\n"
         '  if git cat-file -e "$cairnkit_old^{commit}" 2>/dev/null; then '
         'cairnkit_known="^$cairnkit_old"; fi\n'
-        "  git log --format='%an <%ae>%x09%h%n%cn <%ce>%x09%h' \"$cairnkit_new\" $cairnkit_known "
-        f"--not --remotes 2>/dev/null | grep -iE {identity}\n"
-        '  git log --format=%B "$cairnkit_new" $cairnkit_known --not --remotes '
-        f"2>/dev/null | grep -v '^#' | grep -iE {message}\n"
-        "done | sort -u) || true\n"
-        'if [ -n "$cairnkit_found" ]; then\n'
-        '  echo "push refused: these commits have an AI identity or attribution line:" >&2\n'
-        "  printf '%s\\n' \"$cairnkit_found\" >&2\n"
-        '  echo "Rewrite them under the owner\'s name, with no such line. Then push again." >&2\n'
-        "  echo \"One way: git rebase --exec 'git commit --amend --no-edit --reset-author' "
-        'BASE" >&2\n'
-        "  exit 1\n"
+        '  cairnkit_all=$(git rev-list "$cairnkit_new" $cairnkit_known --not --remotes '
+        "2>/dev/null)\n"
+        # A shallow clone's edge is a commit that this clone did not make.
+        '  cairnkit_since=$({ cat "$cairnkit_base"; '
+        "sed 's/^/^/' \"$(git rev-parse --git-path shallow)\"; } 2>/dev/null | "
+        'git rev-list --ignore-missing --stdin "$cairnkit_new" $cairnkit_known --not --remotes '
+        "2>/dev/null)\n"
+        "  printf '%s\\n' \"$cairnkit_since\" | cairnkit_scan new\n"
+        '  printf \'%s\\n%s\\n%s\\n\' "$cairnkit_all" "$cairnkit_since" "$cairnkit_since" '
+        "| sort | uniq -u | cairnkit_scan old\n"
+        "done | sort -u)\n"
+        "cairnkit_me=$(git var GIT_COMMITTER_IDENT 2>/dev/null | sed 's/.*<//; s/>.*//')\n"
+        "cairnkit_refused=$(printf '%s\\n' \"$cairnkit_found\" | awk -F'\\t' "
+        '-v me="$cairnkit_me" '
+        '\'$1 == "new" && ($3 == "identity" || $3 == me) { print $2 " " $4 }\')\n'
+        'if [ -n "$cairnkit_refused" ]; then\n' + _push_refusal() + "fi\n"
+        "cairnkit_named=$(printf '%s\\n' \"$cairnkit_found\" | awk -F'\\t' "
+        '-v me="$cairnkit_me" '
+        '\'$1 == "new" && $3 != "identity" && $3 != me { print $2 " " $4 }\')\n'
+        'if [ -n "$cairnkit_named" ]; then\n'
+        '  echo "note: another person committed these lines, so the push goes on:" >&2\n'
+        "  printf '%s\\n' \"$cairnkit_named\" >&2\n"
+        "fi\n"
+        "cairnkit_older=$(printf '%s\\n' \"$cairnkit_found\" | awk -F'\\t' "
+        "'$1 == \"old\" { print $2 }' | sort -u | wc -l | tr -d ' ')\n"
+        'if [ "$cairnkit_older" != 0 ]; then\n'
+        '  echo "note: this push holds $cairnkit_older older commit(s) with an AI identity or '
+        'attribution line. The guard came later, so they pass." >&2\n'
         "fi\n"
     )
 
@@ -413,7 +533,8 @@ def _wire(project: Project, hook: str, path: Path, dry_run: bool) -> list[str]:
 def _remove_block(path: Path, dry_run: bool) -> list[str]:
     if not path.is_file():
         return []
-    old = path.read_text()
+    # Bytes, because a foreign line can hold a CR or any encoding, and it must not change.
+    old = path.read_bytes().decode("utf-8", "surrogateescape")
     if not holds_block(old):
         return []
     new = _strip(old)
@@ -421,8 +542,21 @@ def _remove_block(path: Path, dry_run: bool) -> list[str]:
         if new.strip() in ("#!/bin/sh", ""):
             path.unlink()
         else:
-            path.write_text(new)
+            path.write_bytes(new.encode("utf-8", "surrogateescape"))
     return [f"update {path}"]
+
+
+def remove_old_post_commit(project: Project) -> None:
+    """0.3.1 mined commits from this hook, and its block is our own text in an untracked place.
+
+    Only the folder in the git folder counts. A folder that core.hooksPath names, or a link out
+    of the git folder, can be tracked.
+    """
+    if project.common_dir is None:
+        return
+    path = project.common_dir / "hooks" / "post-commit"
+    if path.resolve().is_relative_to(project.common_dir.resolve()) and not is_broken(path):
+        _remove_block(path, False)
 
 
 def _unwire(project: Project, hook: str, dry_run: bool) -> list[str]:
@@ -448,7 +582,22 @@ def _runs_memory(path: Path, hook: str) -> bool:
     return holds_block(text) or f"-m cairnkit hook {hook}" in text
 
 
+def _keep_base(project: Project, on: bool) -> None:
+    """Record the refs when the push check starts. A base that exists stays."""
+    path = project.common_dir / BASE_FILE if project.common_dir else None
+    if path is None or not path.parent.is_dir():
+        return
+    if not on:
+        path.unlink(missing_ok=True)
+    elif not path.exists():
+        tips = run_git(project.root, "for-each-ref", "--format=%(objectname)") or ""
+        head = run_git(project.root, "rev-parse", "-q", "--verify", "HEAD") or ""
+        path.write_text("".join(f"^{sha}\n" for sha in [*tips.split(), *head.split()]))
+
+
 def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
+    if hook == "pre-push" and not dry_run:
+        _keep_base(project, PUSH_MARK in body)
     folder = git_folder(project)
     if folder is None:
         return []
@@ -527,6 +676,8 @@ def hook_state(project: Project) -> HookState:
 
 
 def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
+    if hook == "pre-push" and not dry_run:
+        _keep_base(project, False)
     folder = git_folder(project)
     if folder is None:
         return []

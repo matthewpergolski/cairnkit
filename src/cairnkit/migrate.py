@@ -328,7 +328,10 @@ def _worklist(found: list[Candidate], counts: dict[str, Counts], homed: int) -> 
         total.add(count)
     summary = {
         "type": "summary",
-        "note": "Candidates only. No fact was written. Add facts with `memory add`.",
+        "note": (
+            "Candidates only. No fact was written. Add facts with `memory add`. "
+            "A rule that the owner stated needs `--kind rule --basis told`, or it loads as data."
+        ),
         "candidates": len(found),
         "tiers": {tier: sum(c.tier == tier for c in found) for tier in TIERS},
         "worktree_only": dict(Counter(c.worktree for c in found if c.worktree)),
@@ -783,6 +786,7 @@ def run_migrate(
         _say_install(project, "")
         code = code or run_install(project, "auto", False, True, None, path_flag, quiet=True)
     print(f"Optional: add facts from {LINK_NAME}/{CANDIDATES}: `memory add ... --source file:...`.")
+    print("A rule that the owner stated needs `--kind rule --basis told`, or it loads as data.")
     print(f"The old folder is kept at {holder}. Delete it yourself when you are sure.")
     if items:
         print(f"Follow-up task for an agent ({len(items)} item(s)): {memdir / TASK}")
