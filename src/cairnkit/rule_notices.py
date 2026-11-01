@@ -20,7 +20,7 @@ TELL = "Tell the owner now. This change is correct only if the owner stated it i
 
 
 def _line(by: str, fact_id: str, what: str, text: object) -> str:
-    named = f" ({DATA_LABEL}): {clean(text)}" if text else ""
+    named = f" ({DATA_LABEL}): {clean(text).rstrip('.')}" if text else ""
     return f"{clean(by)} changed rule {fact_id} ({clean(what)}){named}. {TELL}"
 
 
