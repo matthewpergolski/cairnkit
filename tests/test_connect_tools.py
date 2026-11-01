@@ -51,18 +51,18 @@ def test_the_trust_line_is_silent_when_codex_was_never_used(tools, capsys):
     assert "codex" in out and TRUST not in out
 
 
-def test_the_trust_line_shows_with_a_recent_codex_session(tools, capsys):
+def test_the_trust_line_shows_after_any_codex_session(tools, capsys):
     tools.append("codex")
     codex_session("2026-10-20")
     assert main(["init"]) == 0
     assert TRUST in capsys.readouterr().out
 
 
-def test_an_old_codex_session_is_not_use(tools, capsys):
+def test_a_long_break_does_not_hide_the_trust_line(tools, capsys):
     tools.append("codex")
-    codex_session("2026-08-01")
+    codex_session("2020-01-01")
     assert main(["init"]) == 0
-    assert TRUST not in capsys.readouterr().out
+    assert TRUST in capsys.readouterr().out
 
 
 def test_an_empty_codex_home_is_not_use(tools, capsys):
