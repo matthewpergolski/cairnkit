@@ -78,14 +78,14 @@ def test_a_new_problem_blocks_again(mem, capsys, monkeypatch):
 
 def test_repair_clears_a_bad_line_and_keeps_every_byte(mem, capsys):
     write_facts(mem, [make_fact(GOOD, "A true fact.", pinned=True)])
-    _append(mem, '{"typ\n')
+    _append(mem, '{"type":"fact","text":"the plain words of a line\n')
     path = mem / "facts" / "main.jsonl"
     before = path.read_bytes()
     assert _run(capsys, "check", "--strict")[0] == 1
     code, out = _run(capsys, "repair")
     assert code == 0
     assert "main.jsonl:2" in out
-    assert '{"typ' in out, "the agent can read what was lost"
+    assert "the plain words of a line" in out, "the agent can read what was lost"
     assert path.read_bytes().startswith(before)
     assert _run(capsys, "check", "--strict")[0] == 0
     code, load = _run(capsys, "load")

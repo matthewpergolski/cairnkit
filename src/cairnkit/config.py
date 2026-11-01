@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 
 from cairnkit.githook import DEFAULT_GUARD_PATTERNS, DEFAULT_IDENTITY_PATTERNS
+from cairnkit.secretscan import KnownValues, mask, real_secrets
 
 AUTO_TIDY_MODES = ("auto", "report", "on", "off")
 DEFAULTS = {
@@ -133,22 +134,72 @@ def _parses(text: str) -> bool:
     return True
 
 
-def repair_config(memdir: Path) -> list[str]:
+def _might_be_auto_tidy(line: str) -> bool:
+    found = _KEY_LINE.match(line)
+    key = found.group(1).lower() if found else ""
+    return "auto" in line.lower() or bool(difflib.get_close_matches(key, ["auto_tidy"], cutoff=0.7))
+
+
+def _bad_copies(memdir: Path) -> list[Path]:
+    return sorted(memdir.glob("config.toml.bad*"))
+
+
+def _next_bad_copy(memdir: Path) -> Path:
+    path, number = memdir / "config.toml.bad", 2
+    while path.exists():
+        path, number = memdir / f"config.toml.bad.{number}", number + 1
+    return path
+
+
+def secrets_in_config(memdir: Path, known: KnownValues | None) -> list[str]:
+    """One error for each line that holds a value. No line goes to the output."""
+    problems = []
+    for path in (memdir / "config.toml", *_bad_copies(memdir)):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for number, line in enumerate(lines, start=1):
+            found = real_secrets(line, known)
+            if found:
+                problems.append(
+                    f"{path.name}:{number}: holds a value that looks secret ({', '.join(found)})"
+                )
+    return problems
+
+
+def _mask_bad_copies(memdir: Path, known: KnownValues | None) -> list[str]:
+    done = []
+    for path in _bad_copies(memdir):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if any(real_secrets(line, known) for line in text.splitlines()):
+            lines = text.splitlines(keepends=True)
+            path.write_text("".join(mask(line, known) for line in lines), encoding="utf-8")
+            done.append(f"{path.name}: masked the values that look secret.")
+    return done
+
+
+def repair_config(memdir: Path, known: KnownValues | None = None) -> list[str]:
     """Drop what is bad in config.toml, keep a copy, and return what it did.
 
     It keeps each line that still parses. When a dropped line could be the auto_tidy setting,
-    the file says `off`, so that a repair never turns unattended retires back on.
+    the file says `off`, so that a repair never turns unattended retires back on. No value that
+    looks secret stays in the file or in the copy.
     """
     path = memdir / "config.toml"
+    done = _mask_bad_copies(memdir, known)
     errors, warnings = config_problems(memdir)
-    if not errors and not warnings:
-        return []
-    raw = path.read_bytes()
-    (memdir / "config.toml.bad").write_bytes(raw)
+    raw = path.read_bytes() if path.exists() else b""
+    text = raw.decode("utf-8", errors="ignore")
+    if not errors and not warnings and not any(real_secrets(x, known) for x in text.splitlines()):
+        return done
+    copy = _next_bad_copy(memdir)
+    has_secret = any(real_secrets(line, known) for line in text.splitlines())
+    copy.write_bytes(mask(text, known).encode() if has_secret else raw)
     kept: list[str] = []
     dropped: list[str] = []
-    for line in raw.decode("utf-8", errors="ignore").splitlines():
-        if _parses("\n".join([*kept, line])):
+    for line in text.splitlines():
+        if not real_secrets(line, known) and _parses("\n".join([*kept, line])):
             kept.append(line)
         else:
             dropped.append(line)
@@ -160,8 +211,10 @@ def repair_config(memdir: Path) -> list[str]:
         kept = [line for line in kept if line not in out]
         dropped += out
     data = tomllib.loads("\n".join(kept))
-    if any("auto" in line.lower() for line in dropped) and not _mode_ok(data.get("auto_tidy")):
+    if any(_might_be_auto_tidy(line) for line in dropped) and not _mode_ok(data.get("auto_tidy")):
         kept.insert(0, 'auto_tidy = "off"')
     path.write_text("\n".join(kept) + "\n", encoding="utf-8")
-    shown = "; ".join(line.strip() for line in dropped if line.strip())
-    return [f"config.toml: dropped {shown or 'bad bytes'}. The old file is config.toml.bad."]
+    # A key can hold the value too, so each name passes the mask.
+    keys = [mask(m.group(1), known) for x in dropped if (m := _KEY_LINE.match(x))]
+    shown = ", ".join(keys) or "bad bytes"
+    return [*done, f"config.toml: dropped {shown}. The old file is {copy.name}."]

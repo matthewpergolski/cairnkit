@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator
 from enum import Enum
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import NamedTuple, Protocol
 
 
@@ -301,7 +301,7 @@ def _value(match: re.Match[str]) -> tuple[str, bool]:
     return bare, False
 
 
-def _looks_made_up(value: str) -> bool:
+def looks_made_up(value: str) -> bool:
     """English does not hold this word: it has a digit, a capital inside it, or a symbol."""
     if ALGORITHM.fullmatch(value) or AMOUNT.fullmatch(value) or VERSION.fullmatch(value):
         return False
@@ -331,10 +331,12 @@ def _spoken(match: re.Match[str]) -> bool:
     value, quoted = _value(match)
     if len(value) < MIN_VALUE or is_not_a_value(value):
         return True
-    return not (quoted or _looks_made_up(value))
+    return not (quoted or looks_made_up(value))
 
 
 def _url_parameter(match: re.Match[str]) -> bool:
+    if TEMPLATE.fullmatch(match["value"]):
+        return True
     return not SECRET_NAME.search(match["name"]) and _is_word(match["value"])
 
 
@@ -350,7 +352,13 @@ class Shape(NamedTuple):
 
 
 SHAPES: list[Shape] = [
-    Shape("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    # The body is the secret, and a text can end before the END line.
+    Shape(
+        "private key",
+        re.compile(
+            r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
+        ),
+    ),
     Shape("AWS access key", re.compile(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b")),
     Shape(
         "GitHub token",
@@ -432,8 +440,26 @@ class KnownValues(Protocol):
 
     def find(self, text: str) -> list[str]: ...
 
+    def mask(self, text: str) -> str: ...
 
-# Fields that a tool writes from a closed set. Scanning them costs time and finds nothing.
+    def only_plain(self, names: list[str]) -> bool: ...
+
+
+HIDDEN = "hidden text"
+ENV_VALUE = "env value"
+_MASK_NAMES = "|".join(re.escape(name) for name in [*(s.name for s in SHAPES), HIDDEN, ENV_VALUE])
+# A snippet can cut a mask, so the end of a text can end one too. The names are closed sets, so a
+# token inside the brackets is no mask.
+MASK = re.compile(rf"(\[secret: (?:(?:{_MASK_NAMES}|[A-Z][A-Z0-9_]{{0,39}})\]|[A-Za-z_ ]*$))")
+PLAIN_WORD = re.compile(r"[(\[]?[A-Za-z][a-z]{0,20}(?:['-][a-z]{1,20})*[.,;:!?)\]]?|\d{1,4}[.,;:]?")
+
+
+def mask_token(name: str) -> str:
+    return f"[secret: {name}]"
+
+
+# Fields that a tool writes from a closed set, or reads as a name. A known value is no catch here:
+# a mask on a branch named `release` would end its notes. `find_in_closed_fields` looks for shapes.
 UNSCANNED_FIELDS = frozenset(
     [
         "type",
@@ -450,6 +476,10 @@ UNSCANNED_FIELDS = frozenset(
         "purged_at",
         "cid",
         "rel",
+        "until_branch_merged",
+        "branch_tip",
+        "held_by",
+        "enforced_by",
     ]
 )
 
@@ -479,8 +509,105 @@ def _shapes_in(text: str) -> tuple[str, ...]:
 
 def find_secrets(text: str, known: KnownValues | None = None) -> list[str]:
     """Return the names of the secret shapes and known values found in text."""
+    if "[secret: " in text:
+        # `<...>` stands in for a value in each shape, and a mask holds no value.
+        text = MASK.sub("<secret>", text)
     found = list(_shapes_in(text))
     return found + known.find(text) if known else found
+
+
+def _value_span(match: re.Match[str]) -> tuple[int, int]:
+    for group in ("value", "dq", "sq", "bq", "bare"):
+        if group in match.re.groupindex and match[group] is not None:
+            return match.span(group)
+    return match.span()
+
+
+def _mask_shape(shape: Shape, text: str) -> str:
+    spans = [_value_span(m) for m in shape.pattern.finditer(text) if not shape.harmless(m)]
+    for start, end in sorted(set(spans), reverse=True):
+        text = text[:start] + mask_token(shape.name) + text[end:]
+    return text
+
+
+def _outside_masks(text: str, change: Callable[[str], str]) -> str:
+    parts = MASK.split(text)
+    return "".join(part if index % 2 else change(part) for index, part in enumerate(parts))
+
+
+def mask(text: str, known: KnownValues | None = None) -> str:
+    """The text with each value that looks secret replaced. A second mask changes nothing."""
+    if not find_secrets(text, known):
+        return text
+    if known:
+        text = _outside_masks(text, known.mask)
+    for shape in SHAPES:
+        text = _outside_masks(text, partial(_mask_shape, shape))
+    return mask_token(HIDDEN) if find_secrets(text, known) else text
+
+
+def mask_record(value: object, known: KnownValues | None = None) -> object:
+    """A copy with each free text field masked. It keeps the same fields that `_strings` scans."""
+    if isinstance(value, str):
+        return mask(value, known)
+    if isinstance(value, list):
+        return [mask_record(item, known) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: item if key in UNSCANNED_FIELDS else mask_record(item, known)
+            for key, item in value.items()
+        }
+    return value
+
+
+def find_in_closed_fields(record: dict) -> list[str]:
+    """A secret where only a tool writes. Known values stay out: a writer can be named `release`."""
+    return sorted(
+        {
+            name
+            for key in UNSCANNED_FIELDS
+            if isinstance(record.get(key), str)
+            for name in find_secrets(record[key])
+        }
+    )
+
+
+def mask_closed_fields(record: dict) -> dict:
+    return {
+        key: mask(value) if key in UNSCANNED_FIELDS and isinstance(value, str) else value
+        for key, value in record.items()
+    }
+
+
+def real_secrets(text: str, known: KnownValues | None = None) -> list[str]:
+    """What must leave a file that no fact state masks: a plain word from `.env` can be chance."""
+    return [name for name in find_secrets(text, known) if not (known and known.only_plain([name]))]
+
+
+TEXT_IN_LINE = re.compile(r'"(?:text|summary)"\s*:\s*"(.*)', re.DOTALL)
+
+
+def readable(text: str, known: KnownValues | None = None) -> str:
+    """Only masks and plain words, for a damaged line: a cut token matches no shape."""
+    inner = TEXT_IN_LINE.search(text)
+    words: list[str] = []
+    for index, part in enumerate(MASK.split(mask(inner[1] if inner else text, known))):
+        if index % 2:
+            words.append(part)
+            continue
+        for word in part.split():
+            word = word if PLAIN_WORD.fullmatch(word) else "[hidden]"
+            if word != "[hidden]" or words[-1:] != ["[hidden]"]:
+                words.append(word)
+    return " ".join(words)
+
+
+REAL_WORDS = 3
+
+
+def has_real_text(masked: str) -> bool:
+    """The text says something beyond the value that the mask replaced."""
+    return len(re.findall(r"[A-Za-z]{2,}", MASK.sub(" ", masked))) >= REAL_WORDS
 
 
 def _strings(value: object) -> Iterator[str]:

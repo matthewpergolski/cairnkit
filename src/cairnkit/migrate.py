@@ -38,6 +38,7 @@ from cairnkit.migrate_refs import (
     CANDIDATES,
     CHECKER_RE,
     OLD_COPIES,
+    OLD_SUFFIX,
     TASK,
     TEXT_SUFFIXES,
     Item,
@@ -63,7 +64,6 @@ from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
 from cairnkit.schema import MAX_TEXT
 from cairnkit.secretscan import find_secrets
 
-OLD_SUFFIX = ".memory-old"
 JUNK = {".DS_Store"}
 TIERS = ("likely", "maybe", "worktree-only", "repeat")
 

@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
+import glob
+import os
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 
 from cairnkit import (
     enforcement,
     githook,
     instruction_files,
     migrate_refs,
+    native,
     presets,
     refresh,
 )
 from cairnkit.clock import now
-from cairnkit.config import config_problems
+from cairnkit.config import config_problems, secrets_in_config
 from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
+from cairnkit.migrate_refs import OLD_SUFFIX
 from cairnkit.paths import (
     ENV_DIR,
     LINK_NAME,
@@ -30,7 +35,7 @@ from cairnkit.paths import (
 )
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
-from cairnkit.secretscan import find_in_record, find_secrets
+from cairnkit.secretscan import find_in_record, find_secrets, mask, real_secrets
 from cairnkit.selection import clean
 from cairnkit.state import effective_status
 from cairnkit.store import Located, fact_files, read_located, repaired_lines
@@ -68,6 +73,8 @@ def check_links(project: Project, memdir) -> list[str]:
 
 
 REPAIR = "; run `memory repair`"
+MAX_OLD_FILES = 500
+MAX_OLD_BYTES = 256 * 1024
 
 
 @dataclass
@@ -118,6 +125,7 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
     errors = [line if ": cannot read: " in line else line + REPAIR for line in bad]
     config_errors, warnings = config_problems(memory.dir)
     errors += [line + REPAIR for line in config_errors]
+    errors += [line + REPAIR for line in secrets_in_config(memory.dir, memory.env)]
     warnings = [line + REPAIR for line in warnings]
     done = repaired_lines(located)
     index = RecordIndex.of(located)
@@ -125,16 +133,21 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
         rec, where = item.record, f"{item.path.name}:{item.line}"
         settled = (item.path.name, item.sha) in done
         problems = [] if settled else [p + REPAIR for p in record_problems(item, index)]
+        rec_id = rec.get("id")
         found = find_in_record(rec, memory.env)
-        if found:
+        # A fact has its own line below, once. These records reach no reader or state.
+        if found and rec_id and rec_id not in memory.masked and not find_secrets(rec_id):
             problems.append(
-                f"{rec.get('id')} looks like a secret ({', '.join(found)}); remove it now: "
-                f"memory purge {rec.get('id')} --reason secret --yes"
+                f"{rec_id} looks like a secret ({', '.join(found)}). It stays on disk until "
+                f"purged. Run `memory purge {rec_id} --reason secret --yes`."
             )
         differs = writer_differs(item)
         if differs and not settled:
             warnings.append(f"{where}: {differs}{REPAIR}")
         errors += [f"{where}: {problem}" for problem in problems]
+    for fact_id in sorted(memory.masked):
+        (warnings if memory.only_plain(fact_id) else errors).append(memory.secret_problem(fact_id))
+    errors += [memory.secret_line_problem(line) for line in memory.secret_lines]
     root = memory.project.root
     for state in sorted(memory.states.values(), key=lambda s: s["id"]):
         held = state.get("held_by")
@@ -145,7 +158,10 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
                 f"fact again, or `memory change {state['id']} --status promoted --held-by "
                 f'PATH --reason "..."` to name the file that holds it now'
             )
-    return errors, warnings
+    # A problem can quote a stored value: `kind 'ghp_...' is not one of ...`.
+    return [mask(line, memory.env) for line in errors], [
+        mask(line, memory.env) for line in warnings
+    ]
 
 
 def _path_known(root, path: str) -> bool:
@@ -156,9 +172,59 @@ def _path_known(root, path: str) -> bool:
     return found is None or bool(found)  # git cannot say: a slow git is not a problem to report
 
 
+def _old_copy_files(project: Project) -> list[Path]:
+    """The files that a migration moved aside. Each one is text that no read can mask."""
+    root = project.main_root
+    found: list[Path] = []
+    for folder in sorted(root.parent.glob(f"{glob.escape(root.name)}{OLD_SUFFIX}*")):
+        for dirpath, _, names in os.walk(folder):
+            found += [Path(dirpath) / name for name in sorted(names)]
+    return found[:MAX_OLD_FILES]
+
+
+def secrets_in_old_copy(memory: Memory) -> list[str]:
+    root = memory.project.main_root
+    warnings = []
+    for path in _old_copy_files(memory.project):
+        try:
+            if path.stat().st_size > MAX_OLD_BYTES:
+                continue
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        for number, line in enumerate(lines, start=1):
+            found = real_secrets(line, memory.env)
+            if found:
+                warnings.append(
+                    f"{path.relative_to(root.parent)}:{number}: looks like a secret "
+                    f"({', '.join(found)}). A migration moved this copy aside, and it stays on "
+                    "disk. Remove that line, or the file if nothing in it is needed."
+                )
+    return warnings
+
+
+def history_note(memory: Memory) -> str | None:
+    """Git history can hold what was committed. The tool cannot mask it and does not rewrite it."""
+    root = memory.project.root
+    log = run_git(root, "log", "--all", "-p", "--format=commit %h", "--", LINK_NAME, timeout=2.0)
+    commit = None
+    for line in (log or "").splitlines():
+        if line.startswith("commit "):
+            commit = line.split()[1]
+        elif line.startswith("+") and not line.startswith("+++"):
+            found = real_secrets(line[1:], memory.env)
+            if found:
+                return (
+                    f"note: git history still holds a value that looks secret in {LINK_NAME}/ "
+                    f"(commit {commit}: {', '.join(found)}). This tool does not rewrite history. "
+                    "If the value is real, change it where it is used."
+                )
+    return None
+
+
 def secrets_in_notes(memory: Memory) -> list[str]:
     """Warnings for note lines that hold a secret. Notes are not checked at write time."""
-    warnings = []
+    warnings = secrets_in_old_copy(memory)
     proposals = sorted((memory.dir / "proposals").glob("*.*"))
     files = [*note_files(memory.dir / "notes"), *note_files(memory.dir / "branches"), *proposals]
     for path in files:
@@ -300,6 +366,8 @@ def run_check(
         warnings += duplicate_rules(memory)
         warnings += false_enforcement(memory)
         warnings += secrets_in_notes(memory)
+        for line in filter(None, (history_note(memory), native.secret_note(memory))):
+            print(line)
         count, words = rule_words(memory)
         if words > RULE_WORD_CAP:
             print(

@@ -22,6 +22,7 @@ from pathlib import Path, PurePosixPath
 from cairnkit.paths import LINK_NAME
 
 # Names in the new layout. A path that starts with one of these is not an old path.
+OLD_SUFFIX = ".memory-old"
 NEW_DIRS = ("notes", "facts", "branches", "proposals")
 NEW_FILES = ("config.toml", "README.md")
 

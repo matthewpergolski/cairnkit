@@ -522,7 +522,7 @@ def run_load(states, specs, point, pol, ctx, budget, rng):
         project=SimpleNamespace(root=Path("/nonexistent")),
         dir=Path("/nonexistent"),
         states={},
-        withheld={},
+        secret_notes=list,
         env=None,
         errors=[],
         config={"areas": {}},

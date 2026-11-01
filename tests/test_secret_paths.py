@@ -83,7 +83,7 @@ def test_a_note_secret_stays_out_of_the_session_and_stop_names_it(mem, capsys, m
     (mem / "notes" / "status.md").write_text(f"Working on it.\n{NOTE_SECRET}\n")
     out = hook(capsys, monkeypatch, "session-start", {"session_id": "s", "source": "startup"})
     assert "q1w2e3r4t5y6" not in out
-    assert "Working on it." in out and "remove that line" in out
+    assert "Working on it." in out and "[secret: " in out
     out = hook(capsys, monkeypatch, "stop", {"session_id": "s"})
     assert "q1w2e3r4t5y6" not in out
     assert "notes/status.md:2" in out

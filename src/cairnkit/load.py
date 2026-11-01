@@ -33,7 +33,7 @@ from cairnkit.paths import (
     run_git,
     writer_name,
 )
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import mask
 from cairnkit.selection import (
     AGENT_RULES,
     FRAME_FOOTER,
@@ -74,13 +74,11 @@ def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
     except OSError:
         return [f"(This file could not be read: {path}.)"]
     body = [
-        (number, line)
-        for number, line in enumerate(text.splitlines(), start=1)
-        if line.strip() and not line.lstrip().startswith("<!--")
+        line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("<!--")
     ]
     # A first-line title names the file. `#96 is open` is no title, and a section heading gives a
     # list its meaning, so both stay.
-    if body and TITLE.match(body[0][1]):
+    if body and TITLE.match(body[0]):
         body = body[1:]
     clipped = len(body) - NOTE_LINES
     more = (
@@ -88,13 +86,7 @@ def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
         if clipped > 0
         else []
     )
-    shown = [
-        f"line {number} withheld: looks like a secret ({', '.join(found)}); remove that line"
-        if (found := find_secrets(line, env))
-        else line
-        for number, line in body[:NOTE_LINES]
-    ]
-    return shown + more
+    return [mask(line, env) for line in body[:NOTE_LINES]] + more
 
 
 def active_states(memory: Memory) -> list[dict]:
@@ -151,9 +143,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     tidy_line = followups.pending_line(memory)
     if tidy_line:
         out.append(tidy_line)
-    if memory.withheld:
-        out.append("## Withheld facts (no person is needed for this)")
-        out += [clean(f"- {memory.withheld_note(i)}") for i in sorted(memory.withheld)]
+    out += [clean(note) for note in memory.secret_notes()]
     rules.sort(key=lambda s: s.get("learned_at", ""))
     instructions = [s for s in rules if owner_rule(s)]
     false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]

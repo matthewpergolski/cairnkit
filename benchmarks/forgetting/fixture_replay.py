@@ -75,7 +75,7 @@ def run(budget, nofold, honour_supersede, threshold, diff_area=None, recency=Tru
         project=h.SimpleNamespace(root=h.Path("/nonexistent")),
         dir=h.Path("/nonexistent"),
         states={},
-        withheld={},
+        secret_notes=list,
         env=None,
         errors=[],
         config={"areas": {}},

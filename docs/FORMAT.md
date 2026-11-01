@@ -205,7 +205,10 @@ A change must set at least one of `status`, `scope`, `add_links`, `enforced_by` 
 ### Tombstone
 
 `memory purge ID --reason secret --yes` writes one tombstone and removes all
-other lines for that id, in every fact file.
+other lines for that id, in every fact file. `ID` must be the id of a record, or the
+`line-HASH` that `memory check` prints for a damaged line. A purge refuses text that looks
+secret as an id or a reason. It refuses a fact with a mask that holds true text, unless a
+live fact supersedes it, or the call gives both `--reason secret` and `--yes`.
 
 | Field | Meaning |
 |---|---|
@@ -581,7 +584,9 @@ User-level skill markers (not in the memory folder; under
 - a duplicate fact id;
 - text longer than 2000 characters (400 for `kind` `rule`);
 - text that looks like a secret (keys, tokens, passwords, private keys, payment keys,
-  bearer tokens, named secrets such as `CRON_SECRET=`, secrets in URLs) in any field;
+  bearer tokens, named secrets such as `CRON_SECRET=`, secrets in URLs) in any field, a damaged
+  line or `config.toml`. Each read masks it as `[secret: NAME]`. It stays on disk until a purge,
+  and `memory repair` does not settle it;
 - a change to an unknown fact;
 - `superseded_by` or a link to an unknown fact;
 - the current `held_by` of a promoted fact, when it does not exist here or in the history of any
@@ -591,4 +596,7 @@ User-level skill markers (not in the memory folder; under
 A writer name that differs from the file name is a warning, not an error.
 So is an active rule fact that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md`
 already says in the same words. So is a `*.md` file in `notes/` or `branches/` that
-holds a secret shape. `--strict` makes each warning an error.
+holds a secret shape, a line of the `.memory-old` copy with one, and a fact that holds a plain
+word from a `.env` file. `--strict` makes each warning an error. A value in git history or in
+Claude Code's own memory is a note and sets no exit code, because this tool does not change
+either one.
