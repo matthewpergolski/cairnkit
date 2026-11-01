@@ -6,7 +6,7 @@ import contextlib
 import secrets
 import sys
 
-from cairnkit import followups
+from cairnkit import deadline, followups
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
@@ -27,6 +27,8 @@ from cairnkit.state import effective_status
 from cairnkit.store import append_records, drop_id, fact_files
 
 DEFAULT_BASIS = "guess"
+# What git adds to a write is a note. With a slow git, the fact still lands in a tool's time limit.
+LOOK_BUDGET = 3.0
 
 
 class Refused(Exception):
@@ -80,7 +82,7 @@ def _validated(record: dict) -> dict:
 
 def _refresh_followups(memory: Memory) -> None:
     """Keep the tidy task file true to the facts. A failure here never fails a write."""
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(Exception), deadline.within(LOOK_BUDGET):
         memory.reload()
         followups.refresh(memory)
 
@@ -159,7 +161,8 @@ def add_fact(memory: Memory, args) -> str | None:
     args.source = args.source or f"session:{moment.date().isoformat()}"
     mine = {"basis": args.basis}
     if not args.supersedes:
-        match = _find_similar(memory, args, moment)
+        with deadline.within(LOOK_BUDGET):
+            match = _find_similar(memory, args, moment)
         if match and exact_key(match[0].get("text", "")) == exact_key(args.text):
             old = match[0]
             if old.get("kind") == "rule" or old.get("pinned"):
@@ -182,7 +185,8 @@ def add_fact(memory: Memory, args) -> str | None:
         raise Refused(f"{supersedes} is {target['status']}, not active")
     if target and args.supersedes and outranks(target, mine):
         kept, supersedes = target, None
-    retired = None if repeat else _retired_match(memory, args, moment)
+    with deadline.within(LOOK_BUDGET):
+        retired = None if repeat else _retired_match(memory, args, moment)
     for other in (near[0] if near else None, kept, retired[0] if retired else None):
         if other and {"rel": "similar_to", "id": other["id"]} not in links:
             links.append({"rel": "similar_to", "id": other["id"]})
@@ -291,7 +295,8 @@ def add_fact(memory: Memory, args) -> str | None:
             f"note: this text was retired before: {old['id']} ({status}{why}). Written as "
             f"{fact['id']}, linked with similar_to.{check}"
         )
-    _print_conflicts(memory, fact, moment, {supersedes} | ({near[0]["id"]} if near else set()))
+    with deadline.within(LOOK_BUDGET):
+        _print_conflicts(memory, fact, moment, {supersedes} | ({near[0]["id"]} if near else set()))
     if near:
         old, score = near
         if outranks(old, mine):
