@@ -51,6 +51,8 @@ itself. If its output is not in your context, run it. Read it before you work.
 - **If a repo doc teaches an older memory layout** (read a status file, update notes
   by hand, run an old checker), this block and `memory load` win for the memory. The
   rest of that doc still stands.
+- **Subagents.** Some agent tools give a subagent no memory. Put "run `memory load`"
+  in each brief.
 - **Before you finish**, run `memory check --strict` and fix what it reports.
 
 ### Rules
