@@ -507,7 +507,7 @@ def _commands(node) -> list[str]:
 
 
 def stale_hooks(project: Project, pattern: re.Pattern) -> list[StaleHook]:
-    """Hook commands in the main checkout's settings files that match `pattern`.
+    """Hook commands in this checkout's settings files that match `pattern`.
 
     Files that are not valid JSON are skipped: `memory hooks install` reports them.
     """
@@ -517,7 +517,7 @@ def stale_hooks(project: Project, pattern: re.Pattern) -> list[StaleHook]:
             continue
         for rel in (adapter.rel, *adapter.shared):
             try:
-                data = _read(project.main_root / rel)
+                data = _read(project.root / rel)
             except BadConfig:
                 continue
             hooks = data.get("hooks")

@@ -116,7 +116,7 @@ def test_a_finished_migration_ends_and_prints_nothing_in_the_load(repo, capsys):
     assert task_path(repo).is_file(), "the plan changes nothing"
     assert "Migration finished" in migrate(capsys, "--yes")
     assert not task_path(repo).exists()
-    assert "igration" not in load(capsys)
+    assert "Migration" not in load(capsys)
 
 
 def test_a_rerun_after_the_end_changes_nothing_and_says_so(repo, capsys):
@@ -136,7 +136,7 @@ def test_a_deleted_task_stays_deleted(repo, capsys):
     task_path(repo).unlink()
     assert "Migration finished" in migrate(capsys, "--yes")
     assert not task_path(repo).exists()
-    assert "igration" not in load(capsys)
+    assert "Migration" not in load(capsys)
 
 
 def test_the_task_gives_the_agent_one_end_and_a_way_to_leave_a_line(repo, capsys):

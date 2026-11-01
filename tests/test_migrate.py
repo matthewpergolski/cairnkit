@@ -209,14 +209,13 @@ def test_rerun_after_a_partial_run_finishes_the_job(repo):
     assert (repo / "memory-bank").resolve() == mem.resolve()
 
 
-def test_rerun_never_overwrites_a_note_that_was_edited(repo, capsys):
+def test_rerun_never_overwrites_a_note_that_was_edited(repo):
     old_repo(repo)
     assert run_migrate() == 0
     note = sibling(repo, ".memory") / "notes" / "decisions.md"
     note.write_text("edited\n")
     assert run_migrate() == 0
     assert note.read_text() == "edited\n"
-    assert "differs" in capsys.readouterr().out
 
 
 def test_tracked_old_folder_is_refused_without_untrack(repo, capsys):
