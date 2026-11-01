@@ -121,6 +121,7 @@ complete. Remove a row in the change that fixes it.
 | A repo with notes before the tool | A tracked file that teaches the old layout keeps teaching it until an agent edits it, and a hook keeps running the old checker. The tool names each line and never edits it. The worklist marks a repeat only when the words match. It does not mark the same rule in other words. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
 | Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. |
+| No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git, and that name can block `memory init` once for a new project beside an old memory. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
 ## Install
@@ -307,6 +308,7 @@ These stay, and you can remove them by hand:
   version wrote. `memory hooks uninstall` looks only in the hooks folder that git
   uses, and it never changes tracked hooks;
 - the `memory-bank` link in each other worktree. Remove it there too;
+- the file `.git/cairnkit-memory`, which records where the memory is;
 - the user cache `~/.cache/cairnkit/`;
 - the pstack skills, if you installed them: they are at user level, in
   Claude Code and in `~/.codex/skills`, `~/.cursor/skills`,
@@ -351,7 +353,8 @@ After that, **agents do the rest**:
 - A git post-checkout hook links each new worktree (`git worktree add`) to
   the memory. In a worktree that still has no link, `memory load` and
   `memory check` make it and say so in one line. This needs symlink support
-  (on Windows: developer mode or admin). A bare repository is not covered yet.
+  (on Windows: developer mode or admin). All worktrees of a bare repository share one
+  memory, named after the bare repository.
 
 **Events are named, not stored.** The tool writes no fact for an event, so no text
 from the tool can load as memory. The agent decides what the event means. A stop
@@ -720,10 +723,24 @@ The tool uses the first of these:
 
 1. the `--path DIR` flag (`init` writes it to `.memory-path`);
 2. the `MEMORY_DIR` environment variable;
-3. the first line of `.memory-path` in the main checkout;
-4. the default: `../<project folder>.memory/`.
+3. the first line of `.memory-path` in the main checkout, when that folder holds a memory;
+4. a `memory-bank` link that resolves to a memory;
+5. the place that this repo last recorded in its git folder;
+6. the default: `../<project folder>.memory/`. A nested repo or submodule uses
+   `<outer repo>.<path inside it>.memory/` beside the outermost repo, so the memory
+   stays out of the outer work tree.
 
-To move the memory: move the folder, then run `memory init --path NEW_PLACE`.
+Rename or move the project, and the memory comes along. No step is needed. Move the
+memory folder beside the project or beside its old place, and the next load finds it by
+its id and relinks. For a move farther away, the load names the old place and asks for
+`memory init --path NEW_PLACE`. `memory init` never makes an empty memory where
+this project shows signs of an old one. It names what it found and exits 1.
+
+A memory that lands inside a work tree (an older memory, a `--path`, or no
+writable folder outside) gets a line in that repo's `.git/info/exclude`. Git must then
+confirm that it ignores the folder. If not, `memory init` refuses and `memory check` fails.
+On a branch that tracks `memory-bank/` from before a migration, git replaces the link
+with that folder. The load says so, and it still reads the real memory.
 
 ### The gitignore trap
 

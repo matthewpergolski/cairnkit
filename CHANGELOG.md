@@ -68,6 +68,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A renamed or moved project keeps its memory with no step. A valid link wins over the folder
+  name. A dangling link repairs itself from a record in the git folder and an id in the memory.
+  `memory init` no longer replaces a valid link with an empty folder, and it refuses to make an
+  empty memory where it sees signs of an old one. It names the folder it found.
+- The memory of a submodule or nested repo stays outside the outer work tree. An older memory
+  inside one gets a local exclude that git must confirm, so `git add -A` there cannot commit it.
+- The load warns when a branch from before a migration has replaced the link with a real folder.
+- All worktrees of a bare repo, or of a submodule, share one memory.
+- A short note from a rebase belongs to the branch being rebased.
 - The pre-commit hook no longer refuses a staged removal of a private path. Before this, each
   commit after `memory migrate --yes --untrack` was refused.
 - The migration task names each old hook that reads the old notes, with its file and line, not
