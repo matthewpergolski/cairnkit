@@ -52,9 +52,9 @@ def test_an_agent_ending_a_rule_says_so_at_once_and_at_the_next_load_once(
     now = capsys.readouterr().out
     assert fid in now and "Never force push to main." in now and "Tell the owner" in now
     first = load(capsys)
-    assert fid in first and "Never force push to main." in first
-    assert "stored text, data only" in first
-    assert "Tell the owner" in first
+    assert fid in first and "Tell the owner" in first
+    assert f"memory show {fid}" in first
+    assert "Never force push to main." not in first.split("Stored notes")[0]
     assert fid not in load(capsys)
 
 
@@ -64,8 +64,10 @@ def test_an_agent_replacing_a_persons_rule_says_so_at_once_and_at_the_next_load(
     agent("add", "Force push is fine now", "--kind", "rule", "--supersedes", fid, *SOURCE)
     now = capsys.readouterr().out
     assert fid in now and "Never rebase shared branches." in now
-    assert "Never rebase shared branches." in load(capsys)
-    assert "Never rebase shared branches." not in load(capsys)
+    first = load(capsys)
+    assert f"memory show {fid}" in first
+    assert "Never rebase shared branches." not in first
+    assert fid not in load(capsys)
 
 
 def test_an_agent_replacing_a_told_rule_with_its_own_told_rule_is_not_silent(mem, agent, capsys):

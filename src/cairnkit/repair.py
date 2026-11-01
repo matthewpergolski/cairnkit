@@ -3,8 +3,8 @@
 A fact file is append-only, so a damaged line stays on disk. A row in `repairs.jsonl` says that its
 bytes are known, so the load and the check stop counting them. Each line of the output keeps the
 plain words of the damaged line, so that an agent can write the fact again, and it prints no value.
-A new bad line has other bytes, so a repair never hides it. A repair does not settle a value that looks
-secret: `memory check` names it until `memory purge` removes it.
+A new bad line has other bytes, so a repair never hides it. A repair does not settle a value that
+looks secret: `memory check` names it until `memory purge` removes it.
 """
 
 from __future__ import annotations
