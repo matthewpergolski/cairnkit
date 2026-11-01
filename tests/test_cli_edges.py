@@ -42,7 +42,7 @@ def test_a_text_that_is_not_utf8_gets_a_clean_error(mem, repo):
     assert done.returncode == 1
     assert "Traceback" not in done.stderr
     assert "UTF-8" in done.stderr
-    assert not (mem / "facts" / "main.jsonl").read_text()
+    assert not (mem / "facts" / "main.jsonl").exists()
 
 
 def test_a_read_only_fact_folder_gets_a_clean_error_and_the_load_still_works(mem, repo):
@@ -136,16 +136,32 @@ def test_a_closed_pipe_keeps_a_refusal_exit_code(mem, repo):
 
 
 def test_a_load_into_a_closed_pipe_exits_0(mem, repo):
-    write_facts(mem, [make_fact(f"f-20261001-{i:04x}", f"Fact {i} " + "w" * 900) for i in range(40)])
+    write_facts(
+        mem, [make_fact(f"f-20261001-{i:04x}", f"Fact {i} " + "w" * 900) for i in range(40)]
+    )
     done = _closed_pipe(repo, "load", "--budget", "0")
     assert done.returncode == 0, done.stderr
     assert done.stderr == ""
 
 
-def test_a_search_into_a_closed_pipe_says_so_in_the_exit_code(mem, repo):
-    write_facts(mem, [make_fact(f"f-20261001-{i:04x}", f"Fact {i} " + "w" * 900) for i in range(40)])
-    done = _closed_pipe(repo, "search", "Fact")
-    assert done.returncode == 141
+@pytest.mark.parametrize("command,code", [("search x", 141), ("load", 0)])
+def test_a_pipe_that_breaks_during_a_command_gets_a_true_exit_code(mem, repo, command, code):
+    script = (
+        "import sys\n"
+        "from cairnkit import cli\n"
+        "def broken(args):\n"
+        "    raise BrokenPipeError\n"
+        "cli.run = broken\n"
+        "sys.exit(cli.main(sys.argv[1:]))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script, *command.split()],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode == code
     assert "Traceback" not in done.stderr
 
 
@@ -189,7 +205,9 @@ def test_a_small_budget_says_that_rules_are_outside_it(mem, repo):
     lines = [line for line in loaded.stdout.splitlines() if "outside the word budget" in line]
     assert len(lines) == 1
     assert "3 rule(s)" in lines[0]
-    assert sum("Rule" in line and line.startswith("- [") for line in loaded.stdout.splitlines()) == 3
+    assert (
+        sum("Rule" in line and line.startswith("- [") for line in loaded.stdout.splitlines()) == 3
+    )
 
 
 def test_a_default_load_with_few_rules_has_no_rule_note(mem, repo):

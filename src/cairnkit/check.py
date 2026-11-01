@@ -21,6 +21,7 @@ from cairnkit.memory import Memory
 from cairnkit.paths import (
     ENV_DIR,
     LINK_NAME,
+    PATH_FILE,
     Project,
     lost_memory,
     lost_note,
@@ -272,6 +273,17 @@ def print_advisory(memory: Memory) -> None:
         print("To enforce one: add a check, then `memory change ID --enforced-by TYPE:VALUE`.")
 
 
+def _bad_path_file(project: Project) -> list[str]:
+    """A path file that is not text is ignored, so the memory can be a different one."""
+    try:
+        (project.home / PATH_FILE).read_text()
+    except OSError:
+        return []
+    except UnicodeDecodeError:
+        return [f"{PATH_FILE} is not text, so it is ignored. Fix it: memory init --path FOLDER"]
+    return []
+
+
 def run_check(
     project: Project,
     flag: str | None,
@@ -314,6 +326,7 @@ def run_check(
     else:
         errors.append(f"{memdir}: no facts/ folder; run `memory init`")
     if strict:
+    warnings += _bad_path_file(project)
         errors += warnings
         warnings = []
     for line in warnings:

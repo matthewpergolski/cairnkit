@@ -158,7 +158,10 @@ def _path_file_target(project: Project) -> Path | None:
     path_file = project.home / PATH_FILE
     if not path_file.is_file():
         return None
-    lines = path_file.read_text().splitlines()
+    try:
+        lines = path_file.read_text().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
     first = lines[0].strip() if lines else ""
     if not first:
         return None
