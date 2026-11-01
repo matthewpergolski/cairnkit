@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import re
+from pathlib import Path
 
 from cairnkit import adapters, githook, markers, refresh, rules
 from cairnkit.init import can_link, ensure_all_linked, is_linked
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
+
+SEEN_FILE = ".agents-seen.json"
+# Grok also runs these tools' project hooks, and each hook must run once.
+GROK_RUNS_HOOKS_OF = frozenset({"claude", "cursor"})
 
 
 def guard_patterns(project: Project, flag: str | None) -> list[str]:
@@ -127,10 +134,67 @@ def _print_summary(
     for step in steps:
         if step.startswith(("skip", "note")):
             print(step)
-    if "codex" in names:
-        print("Codex: approve the hooks once with /hooks, because Codex asks for trust itself.")
+    if "codex" in names and adapters.codex_in_use():
+        print(adapters.CODEX_TRUST)
     if "generic" in names:
         print("For any other agent, run: memory hooks install --agent generic")
+
+
+def _connect(project: Project, name: str, targets: list[Path], dry_run: bool) -> list[str]:
+    steps = adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=targets)
+    if name in GROK_RUNS_HOOKS_OF:
+        steps += adapters.apply(project, "grok", install=False, dry_run=dry_run)
+    return steps
+
+
+def _seen(memdir: Path) -> list[str] | None:
+    """The tools that were on the machine at setup or at the last sync. None: no record."""
+    try:
+        data = json.loads((memdir / SEEN_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, list) else None
+
+
+def _remember_seen(memdir: Path, names: list[str]) -> None:
+    merged = sorted({*(_seen(memdir) or []), *names} - {"generic"})
+    with contextlib.suppress(OSError):
+        (memdir / SEEN_FILE).write_text(json.dumps(merged) + "\n", encoding="utf-8")
+
+
+def connect_new_tools(project: Project, flag: str | None) -> None:
+    """Connect a tool that appeared since the last look. Silent, and it never raises.
+
+    A tool in the record stays as the developer left it, so a removed adapter or a tool
+    left out of `memory hooks install --agent NAME` does not come back. On the quiet path
+    this reads one small file and looks on PATH, and it runs no program.
+    """
+    try:
+        memdir, _ = resolve_memory_dir(project, flag)
+        if not (memdir / "facts").is_dir():
+            return
+        seen = _seen(memdir)
+        if seen is None:
+            # A memory from before the record: what is connected counts as chosen.
+            seen = [
+                name
+                for name, adapter in adapters.ADAPTERS.items()
+                if adapters.holds_ours(project.main_root / adapter.rel)
+            ]
+            if not seen:
+                return
+            _remember_seen(memdir, seen)
+        new = [n for n in adapters.detect(project) if n != "generic" and n not in seen]
+        if not new:
+            return
+        targets = [c for c in project.checkouts if is_linked(c, memdir)]
+        for name in new:
+            # A file to fix stays out of the record, so the next look tries it again.
+            with contextlib.suppress(adapters.BadConfig):
+                _connect(project, name, targets, False)
+                _remember_seen(memdir, [name])
+    except Exception:
+        return
 
 
 def run_install(
@@ -182,12 +246,12 @@ def run_install(
     try:
         for name in names:
             if name != "generic":
-                steps += adapters.apply(
-                    project, name, install=True, dry_run=dry_run, checkouts=targets
-                )
+                steps += _connect(project, name, targets, dry_run)
     except adapters.BadConfig as exc:
         print(f"error: {exc}")
         return 1
+    if has_memory and not dry_run:
+        _remember_seen(memdir, [*names, *adapters.detect(project)])
     if project.is_git and git_hook:
         steps += githook.install(project, "pre-commit", githook.pre_commit_body(), dry_run)
         steps += githook.install(project, "post-checkout", githook.post_checkout_body(), dry_run)
@@ -212,7 +276,7 @@ def run_install(
             print(adapters.generic_help())
         if name in adapters.EXPERIMENTAL:
             print(f"Note: the {name} adapter is experimental. Check it once in the tool.")
-        if name == "codex":
+        if name == "codex" and (agent != "auto" or adapters.codex_in_use()):
             print("Codex runs project hooks only in a trusted project. Review them in /hooks.")
     if not steps:
         print("Already installed. Nothing to do.")

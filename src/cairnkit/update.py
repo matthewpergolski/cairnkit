@@ -18,8 +18,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from cairnkit import adapters, skills
 from cairnkit import install_source as src
-from cairnkit import skills
 from cairnkit.install_source import Latest, SourceError
 from cairnkit.paths import resolve_memory_dir
 from cairnkit.progress import Progress
@@ -443,4 +443,9 @@ def run_status(project, flag: str | None) -> int:
         line = skills.status_line(resolve_memory_dir(project, flag)[0])
         if line:
             print(line)
+    if (
+        adapters.holds_ours(project.main_root / adapters.ADAPTERS["codex"].rel)
+        and adapters.codex_in_use()
+    ):
+        print(adapters.CODEX_TRUST)
     return 0

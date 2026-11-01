@@ -19,6 +19,7 @@ from cairnkit import (
     adapters,
     autotidy,
     followups,
+    hooks_cmd,
     legacy,
     loopbreak,
     native,
@@ -162,12 +163,19 @@ def _time_budget(seconds: float):
         signal.signal(signal.SIGALRM, previous)
 
 
+def sync_tools(project: Project, flag: str | None) -> None:
+    """A tool installed after setup gets its adapter, with no step and no text."""
+    if hooks_cmd.INSTALL_ON_INIT:
+        hooks_cmd.connect_new_tools(project, flag)
+
+
 def git_event(project: Project, flag: str | None) -> int:
     """Auto-tidy after a push or a merge. Always exits 0, and prints nothing."""
     try:
         with _time_budget(GIT_HOOK_BUDGET):
             sink = io.StringIO()
             with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+                sync_tools(project, flag)
                 gated_auto_tidy(project, flag, count_session=False)
     except (Exception, SystemExit):
         pass
@@ -201,6 +209,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
         return 0
     with contextlib.suppress(Exception):
         legacy.clean(Memory.open(project, flag))
+    sync_tools(project, flag)
     note = auto_retire_note(project, flag) + skills_note(project, flag)
     with contextlib.suppress(Exception):
         line = native.session_line(Memory.open(project, flag))
@@ -421,7 +430,7 @@ def subagent_start(project: Project, flag: str | None) -> int:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         run_load(project, flag, None, SUBAGENT_BUDGET)
-    event ={"hookEventName": "SubagentStart", "additionalContext": buffer.getvalue().rstrip()}
+    event = {"hookEventName": "SubagentStart", "additionalContext": buffer.getvalue().rstrip()}
     print(json.dumps({"hookSpecificOutput": event}))
     return 0
 

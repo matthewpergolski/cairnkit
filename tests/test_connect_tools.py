@@ -13,7 +13,7 @@ from cairnkit import adapters, hooks_cmd
 from cairnkit.cli import main
 from cairnkit.paths import find_project
 
-TRUST = "/hooks"
+TRUST = " /hooks"
 TODAY = "2026-11-01T12:00:00+00:00"
 
 
@@ -118,12 +118,12 @@ def test_a_tool_on_the_real_path_is_found(repo, tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("PATH", f"{programs}{os.pathsep}/usr/bin{os.pathsep}/bin")
     (repo / ".claude").mkdir()
     assert main(["init"]) == 0
-    assert not (repo / ".cursor" / "hooks.json").exists()
-    program = programs / "cursor"
+    assert not (repo / ".opencode" / "plugins" / "cairnkit.js").exists()
+    program = programs / "opencode"
     program.write_text("#!/bin/sh\n")
     program.chmod(0o755)
     session_start(capsys)
-    assert (repo / ".cursor" / "hooks.json").is_file()
+    assert (repo / ".opencode" / "plugins" / "cairnkit.js").is_file()
 
 
 def test_a_git_event_connects_a_new_tool_and_prints_nothing(tools, repo, capsys):
