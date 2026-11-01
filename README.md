@@ -114,7 +114,7 @@ complete. Remove a row in the change that fixes it.
 | Each agent gets the same result | Cursor cannot add text to the context during a session, except at stop. News and the compaction notice wait for its next stop. |
 | Each agent gets the same result | A subagent gets a load at its start on Claude Code and Codex. The hook is also written for Grok Build, but nobody tested it. On Cursor, Pi and OpenCode, a subagent misses the memory unless its brief says to run `memory load`. |
 | Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news after a `bash` tool and at idle. |
-| Stored text is data | The tool knows that an agent wrote a rule only from the agent tool's environment markers. An agent tool with no marker, or an agent that claims basis `told`, still writes a rule that prints as an instruction. A `told` rule from an agent names that agent. A hand-edited fact file can claim anything. |
+| Stored text is data | The tool knows that an agent wrote a rule only from the agent tool's environment markers. An agent tool with no marker, or an agent that claims basis `told`, still writes a rule that prints as an instruction. A `told` rule from an agent names that agent. An agent can end or replace a rule that binds, because the tool cannot prove what the owner said in the session. The tool prints a line at once and names the rule once in the next load, and the agent must tell the owner. A hand-edited fact file can claim anything. |
 | Capture | A fact that the agent never writes is lost. The tool names events and reminds the agent once at stop. It cannot make the agent write. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A branch that came after its note and left before tidy saw it reads as unknown, and tidy names the note. So does an old fact whose branch is already gone. A stale note on such a branch stays. A false end would be worse. One false end remains: a memory moved to a new clone reads a branch as ended when that branch was never pushed and had no commit of its own when the note was written. |
@@ -124,7 +124,7 @@ complete. Remove a row in the change that fixes it.
 | Forget correctly | A fact that the 0.3.1 miner wrote and that a later gate run accepted stays, because nothing proves who accepted it. |
 | The load never blocks | With `skills_auto_update = true`, an update of pstack runs inside the session start and can pass the budget. A disk that hangs on a read is not covered: the budget limits git and locks. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
-| Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
+| Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. An AI commit from before the guard goes out with a count, and a trailer that another person committed is named, because the guard must not trap a person. The tool lists known names, so a new tool passes until it has a known shape, such as a dotted version. |
 | No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git, and that name can block `memory init` once for a new project beside an old memory. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
@@ -457,7 +457,15 @@ to give orders. It cannot stop a model that chooses to obey one.
 it, and when an agent wrote it with basis `told`, and then the line names that
 agent. A rule that an agent wrote with another basis, or a preset file that an
 agent added, prints inside the frame under "Rules an agent wrote". A tricked agent
-then cannot give each later session an order. Preset rules stay in force.
+then cannot give each later session an order. Preset rules stay in force. Any agent
+marker means an agent, and two markers name both tools. The add output says when a
+rule loads as data. Restating it with `--basis told`, only if the owner stated it, lifts
+it. A person who restates it also lifts it.
+
+**A change to a rule that binds is never silent.** An agent can end, replace or purge
+such a rule only if the owner stated the change in the session. The tool cannot prove
+this. So it prints a line at once, names the rule once in the next load, and asks the
+agent to tell the owner. It refuses nothing, and it queues nothing.
 
 **A fact that a person stated is kept.** A fact with basis `told` is never
 superseded or retired by a fact with another basis: not by an exact repeat, not
@@ -613,8 +621,12 @@ memory holds a rule against AI attribution. The guard is local to this clone, an
 it needs only `sh`, `git` and `grep`. `commit-msg` refuses an AI attribution line, and
 an author or committer that is an AI tool, such as `Cursor Agent`. A person named
 Cursor Smith or Claude Monet passes. `pre-push` refuses the same in a commit that
-skipped `commit-msg`, such as a rebase. It reads only commits that no remote holds, so
-another person's commit does not stop your push. A refused trailer names the setting
+skipped `commit-msg`, such as a rebase. It reads only commits that no remote holds and
+that came after the guard was installed on this clone. An older AI commit goes out, with
+one line that gives the count. A shallow clone does not read its edge. A contributor's
+commit does not stop your push, and a trailer that another person committed is named. An
+AI committer among new commits is refused at all times. A refused push prints an amend, a
+rebase and an override config, and tests run each one as printed. A refused trailer names the setting
 that turns it off in Claude Code and Cursor. The tool does not write those settings,
 because they are global. To change what counts as a tool, set `identity_patterns` under
 `[commit_msg_guard]` in `config.toml`.
@@ -728,7 +740,7 @@ level only. It writes nothing into a repo.
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--adopt\|--all] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Status includes installed/available skill counts. Plan by default; `--yes` acts. `--adopt` (or `--all`) replaces same-named folders so every pstack skill is installed. |
 | `memory update [--check\|--dry-run] [--source PATH\|URL] [--channel stable\|dev]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `--channel` saves the channel for a git source. `status` prints the version, the installed short commit, the source, the channel and the update lines. A release has the same version number as the dev builds after it, so `memory --version` adds the channel and commit for a dev build, a checkout or a folder build: `memory 0.3.1 (dev @85b0cd0)`. |
-| `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Removes a `post-commit` block from 0.3.1. Never adds a second block. |
+| `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Removes a `post-commit` block from 0.3.1, as a session start also does by itself. Never adds a second block. |
 | `memory hooks install [--agent auto\|claude\|codex\|cursor\|grok\|pi\|opencode\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local]]`, `memory hooks uninstall [--dry-run]` | you, for repair or for one agent | `memory init` already runs the install. It connects the agent tool and git, and it prints each step. `--no-git-hook` skips every git hook. `--commit-msg-guard` adds the guard when no rule asks for it. `memory hooks uninstall` removes only what it added. |
 | `memory tidy`, `memory tidy --apply ID ...` | an agent | Lists exact repeats, pinned short-term notes that ended, and chains of superseded facts. Writes a report to `proposals/<date>.md`, and refreshes the agent task. `--apply` writes only the chosen changes. |
 | `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start and stop hooks; the personal pre-push and post-merge hooks; an agent, to look or to release a hold | Retires the clear cases now: an exact or near repeat (the older fact is superseded by the newer), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that someone set back to `active`. A fact with basis `told` is not superseded by a fact with another basis. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. A push or a merge does not count as a session start. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |

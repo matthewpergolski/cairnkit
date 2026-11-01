@@ -95,6 +95,7 @@ before the home folder and the file system root.
   .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
   .skills-advisory.json         whether init or migrate named pstack once (safe to delete)
   .agents-seen.json             the agent tools seen at setup and since; a tool not in it is new
+  .rule-notices                 ids of rules that an agent changed; the next load names each once
   .identity                     this memory's id and its project's root commits (section 1); do not copy it to another memory
 ```
 
@@ -155,7 +156,7 @@ hex characters. A new id must not exist in any fact file.
 | `learned_at` | yes | When it was written. A date-time with an offset. |
 | `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. `memory add` writes `session:<today>` when no source is given. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. |
 | `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. `memory add` writes `guess` when no basis is given. An exact repeat with no basis keeps the basis of the older fact. A `told` fact is never superseded or retired by a fact with another basis. Auto-tidy does not let a near repeat with basis `guess` retire a `seen` fact. |
-| `author` | no | `agent:<tool>` (`claude`, `codex`, `cursor`, `opencode`, `pi` or `grok`) when the tool could tell that an agent wrote the fact. Absent otherwise, and in older facts. |
+| `author` | no | `agent:<tool>` (`claude`, `codex`, `cursor`, `opencode`, `pi` or `grok`) when the tool could tell that an agent wrote the fact. Two tools' markers give `agent:claude+cursor`. Absent otherwise, and in older facts. |
 | `status` | yes | Always `active` in a fact record. Changes set other values. |
 | `scope` | no | `long` (default) or `short`. |
 | `expires_at` | no | The date-time when the fact ends. Present only when an agent passed `--expires`. It counts only with `scope: short`. There is no default. |
@@ -364,11 +365,17 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   not printed. With none of those tools the command runs unbounded. It ends
   with `|| true`. It does not read the hook arguments. It never fails the push.
   When the commit-msg guard is installed, a check comes first. It begins with
-  `# Refuse a pushed commit with an AI identity or attribution line.`, reads the
+  `# Refuse a new commit with an AI identity or attribution line.`, reads the
   ref list on stdin and puts it back for the rest of the file. For each ref it greps
   the commits that no remote holds, with the identity patterns on
   `Name <email>`, a tab and the short id, and with the message patterns on the
-  message. A match prints the lines and exits 1.
+  message. A new commit is one that `.git/cairnkit-guard-base` and a shallow edge do
+  not reach. That file holds a `^HASH` line for each ref when the check was installed. If
+  it is gone, the hook writes it again. A new commit with an AI identity, or with a line and
+  the current user as committer, prints the lines and exits 1. A line with another committer
+  is named. An older commit counts in one line. With the argument `cairnkit-fix-commit`, the
+  check instead amends HEAD to drop such lines and an AI author, and exits. The rebase that
+  a refused push prints runs it.
 - `post-merge`: that same quiet tidy block. It never fails the merge.
 - `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of

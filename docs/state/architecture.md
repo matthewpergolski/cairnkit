@@ -49,6 +49,7 @@ sources:
   - src/cairnkit/reading.py
   - src/cairnkit/refresh.py
   - src/cairnkit/repair.py
+  - src/cairnkit/rule_notices.py
   - src/cairnkit/rules.py
   - src/cairnkit/rules_target.py
   - src/cairnkit/schema.py
@@ -121,6 +122,7 @@ flowchart TB
     Library --> progress[progress]
     Library --> ranking[ranking]
     Library --> repair[repair]
+    Library --> rule_notices[rule_notices]
     Library --> rules[rules]
     Library --> rules_target[rules_target]
     Library --> schema[schema]
