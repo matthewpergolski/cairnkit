@@ -1,5 +1,6 @@
 """A migration of a real prose folder has one end, and it leaves one active copy of each file."""
 
+import json
 from pathlib import Path
 
 from conftest import add_worktree, git
@@ -457,3 +458,109 @@ def test_a_rerun_installs_nothing(repo, capsys, monkeypatch):
     again = migrate(capsys, "--yes")
     assert not (repo / ".git" / "hooks" / "post-merge").exists()
     assert "connect" not in again
+
+
+# --- what the check and the load say while it is open -----------------------------------
+
+
+def check_strict(capsys) -> str:
+    capsys.readouterr()
+    assert main(["check", "--strict"]) == 0
+    return capsys.readouterr().out
+
+
+def test_strict_ok_says_that_the_migration_is_not_finished(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    out = check_strict(capsys)
+    assert "memory check: ok" in out
+    assert "The migration is not finished: 7 item(s)" in out
+    assert "memory-bank/proposals/migrate-followups.md" in out
+
+
+def test_strict_ok_says_nothing_about_a_finished_migration(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    fix_every_item(repo)
+    migrate(capsys, "--yes")
+    assert "migration" not in check_strict(capsys).replace(str(repo.parent), "").lower()
+
+
+def test_the_check_names_a_file_outside_the_notes_and_does_not_fail(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    fix_every_item(repo)
+    migrate(capsys, "--yes")
+    assert "outside notes/" not in check_strict(capsys)
+    write(repo / "memory-bank" / "status.md", "# Status\nA later status.\n")
+    assert "memory-bank/status.md is outside notes/" in check_strict(capsys)
+
+
+def test_a_pointer_is_not_named_as_outside_the_notes(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    assert (memdir(repo) / "status.md").is_file()
+    assert "outside notes/" not in check_strict(capsys)
+
+
+def test_the_load_line_counts_the_items_and_says_which_layer_wins(repo, capsys):
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    line = next(x for x in load(capsys).splitlines() if x.startswith("Migration follow-up"))
+    assert "7 item(s)" in line
+    assert "memory-bank/proposals/migrate-followups.md" in line
+    assert "the agent" in line
+    assert "`memory instructions` wins" in line
+
+
+def test_the_instructions_say_which_layer_wins(capsys):
+    assert main(["instructions"]) == 0
+    assert "older memory layout" in capsys.readouterr().out
+
+
+# --- one rule stored many times ---------------------------------------------------------
+
+
+def worklist(repo: Path) -> list[dict]:
+    text = (memdir(repo) / "proposals" / "migrate-candidates.jsonl").read_text()
+    return [json.loads(line) for line in text.splitlines()]
+
+
+def test_a_repeat_in_the_old_notes_is_marked_and_the_first_stays(repo, capsys):
+    old_layout(repo)
+    write(
+        repo / "memory-bank" / "decisions.md",
+        "# Decisions\n- 2026-10-09 Never add AI attribution to commits.\n",
+    )
+    write(repo / "memory-bank" / "traps.md", "# Traps\n- Never add AI attribution to commits!\n")
+    out = migrate(capsys, "--yes")
+    rows = worklist(repo)
+    first = next(r for r in rows[1:] if r.get("file") == "decisions.md")
+    second = next(r for r in rows[1:] if r.get("file") == "traps.md")
+    assert first["tier"] == "likely" and first["repeat_of"] is None
+    assert second["tier"] == "repeat" and second["repeat_of"] == first["id"]
+    assert rows[0]["tiers"]["repeat"] == 1
+    assert "1 repeat(s)" in out
+
+
+def test_a_line_that_repeats_a_preset_rule_names_the_rule(repo, capsys):
+    old_layout(repo)
+    from cairnkit.rules import DEFAULT_RULES
+
+    write(repo / "memory-bank" / "traps.md", f"# Traps\n- {DEFAULT_RULES[0]}\n")
+    capsys.readouterr()
+    assert main(["migrate", "--yes", "--preset", "commits"]) == 0
+    row = next(r for r in worklist(repo)[1:] if r.get("file") == "traps.md")
+    assert row["tier"] == "repeat"
+    assert row["repeat_of"].startswith("f-")
+
+
+def test_lines_that_differ_by_a_negation_are_not_repeats(repo, capsys):
+    old_layout(repo)
+    write(
+        repo / "memory-bank" / "traps.md",
+        "# Traps\n- Run the deploy script on the main branch.\n"
+        "- Never run the deploy script on the main branch.\n",
+    )
+    migrate(capsys, "--yes")
+    assert {r["tier"] for r in worklist(repo)[1:] if r.get("file") == "traps.md"} == {"likely"}
