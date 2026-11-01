@@ -131,6 +131,44 @@ def stub_text(rel: str) -> str:
     )
 
 
+def pending_items(memdir: Path) -> int | None:
+    """The item count while the task is open, else None."""
+    try:
+        with (memdir / TASK).open(encoding="utf-8") as fh:
+            found = re.match(rf"{re.escape(PENDING)}: (\d+) item", fh.readline())
+    except OSError:
+        return None
+    return int(found.group(1)) if found else None
+
+
+def pending_line(memdir: Path) -> str | None:
+    """The one line for `memory load` while the task is open."""
+    count = pending_items(memdir)
+    if count is None:
+        return None
+    return (
+        f"Migration follow-up pending ({count} item(s)): a task for you, the agent, in "
+        f"{LINK_NAME}/{TASK}. Where a repo doc names the old layout, `memory instructions` wins."
+    )
+
+
+def check_notes(memdir: Path) -> list[str]:
+    """What an `ok` of `memory check` does not cover. These are not problems in the memory."""
+    notes = []
+    count = pending_items(memdir)
+    if count is not None:
+        notes.append(
+            "This ok covers the facts and the links. The migration is not finished: "
+            f"{count} item(s) in {LINK_NAME}/{TASK}."
+        )
+    notes += [
+        f"note: {LINK_NAME}/{rel} is outside notes/, so `memory load` does not read it. "
+        "`memory migrate --yes` settles it."
+        for rel in stray_files(memdir)
+    ]
+    return notes
+
+
 def outside_layout(memdir: Path) -> list[Path]:
     """Regular files in the memory folder outside the new layout. Tool state starts with a dot."""
     found: list[Path] = []

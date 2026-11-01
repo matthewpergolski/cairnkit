@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from cairnkit import instruction_files, presets, skills
+from cairnkit import instruction_files, migrate_refs, presets, skills
 from cairnkit.clock import now
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
@@ -234,4 +234,6 @@ def run_check(
         print(f"memory check: {len(errors)} error(s) in {memdir} (from {source})")
         return 1
     print(f"memory check: ok ({len(fact_files(memdir))} fact file(s) in {memdir})")
+    for line in migrate_refs.check_notes(memdir):
+        print(line)
     return 0

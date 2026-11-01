@@ -53,8 +53,18 @@ def test_the_check_stays_silent_about_it_and_no_fact_ends(repo, capsys):
     setup(repo, capsys)
     assert (
         main(
-            ["add", "A fact.", "--kind", "lesson", "--area", "x"]
-            + ["--basis", "seen", "--source", "session:2026-11-01"]
+            [
+                "add",
+                "A fact.",
+                "--kind",
+                "lesson",
+                "--area",
+                "x",
+                "--basis",
+                "seen",
+                "--source",
+                "session:2026-11-01",
+            ]
         )
         == 0
     )
