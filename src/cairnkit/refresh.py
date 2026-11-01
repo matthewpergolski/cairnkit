@@ -119,6 +119,21 @@ def _local_hooks(project: Project) -> list[str]:
     return [h for h in names if _has_block(folder / h)]
 
 
+def _leftovers(project: Project, memdir: Path) -> list[str]:
+    """What an older memory left, at any version number. The version cannot show these."""
+    from cairnkit.legacy import CANDIDATE_FILE
+
+    found = []
+    for hook in _local_hooks(project):
+        path = githook.hooks_dir(project) / hook
+        old = _holds(path, *(mark for pair in githook.PAIRS[1:] for mark in pair))
+        if hook == "post-commit" or old:
+            found.append(f"an old {hook} block")
+    if (memdir / CANDIDATE_FILE).exists():
+        found.append("facts that 0.3.1 mined")
+    return found
+
+
 def wrote_files(project: Project, memdir: Path) -> bool:
     return bool(
         any(_holds(p, *(s for s, _ in instructions.PAIRS)) for p in _block_paths(project, memdir))
@@ -134,6 +149,12 @@ def repo_line(project: Project, flag: str | None) -> str | None:
         if memdir is None:
             return None
         version = read_stamp(memdir).get("version")
+        leftovers = _leftovers(project, memdir)
+        if leftovers and (not version or not is_behind(version, tool_version())):
+            return (
+                f"memory: this repo still holds {' and '.join(leftovers)} from an older memory. "
+                f"Run `{COMMAND}` now. It removes them."
+            )
         stale_hook = _post_merge_lacks_docs_check(project)
         if version:
             if not is_behind(version, tool_version()) and not stale_hook:
@@ -158,6 +179,18 @@ def _ensure_local_block(project: Project, dry_run: bool) -> list[str]:
         instructions.write_block(path)
         exclude(project, [rules_target.LOCAL])
     return [f"write the rules block to {path}"]
+
+
+def _end_mined_facts(project: Project, flag: str | None) -> list[str]:
+    """A tool with no session-start hook has only this step to end them."""
+    from cairnkit import legacy
+    from cairnkit.memory import Memory
+
+    with contextlib.suppress(Exception):
+        ended = legacy.clean(Memory.open(project, flag))
+        if ended:
+            return [f"end {len(ended)} fact(s) that 0.3.1 mined from commits"]
+    return []
 
 
 def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
@@ -207,6 +240,8 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
             continue
         body = bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
         steps += githook.install(project, hook, body, dry_run)
+    if not dry_run:
+        steps += _end_mined_facts(project, flag)
     if dry_run:
         print("Dry run: nothing will change.")
     for step in steps:
