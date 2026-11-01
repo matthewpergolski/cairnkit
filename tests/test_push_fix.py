@@ -455,3 +455,22 @@ def test_a_reinstall_sets_a_new_base_and_a_later_commit_is_new(repo, mem, capsys
     assert "1 older commit(s)" in result.stderr
     tree_commit(repo, author=AI)
     assert run(repo, "push", str(remote), "main").returncode != 0
+
+
+def test_a_hook_from_a_dev_build_with_the_old_mode_is_named_and_refresh_ends_it(
+    repo, mem, capsys, remote
+):
+    guard_on(capsys)
+    hook = repo / ".git" / "hooks" / "pre-push"
+    old = hook.read_text().replace(
+        githook.PUSH_MARK, f"if [ {githook.OLD_FIX_MODE} ]; then exit 0; fi\n{githook.PUSH_MARK}", 1
+    )
+    hook.write_text(old)
+    assert main(["check"]) == 0
+    assert "memory init --refresh" in capsys.readouterr().out
+    assert main(["init", "--refresh"]) == 0
+    assert githook.OLD_FIX_MODE not in hook.read_text()
+    bad = tree_commit(repo, author=AI)
+    git(repo, "remote", "add", "cairnkit-fix-commit", str(remote))
+    assert run(repo, "push", "cairnkit-fix-commit", "main").returncode != 0
+    assert git(repo, "rev-parse", "HEAD").strip() == bad
