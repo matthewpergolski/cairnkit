@@ -104,6 +104,7 @@ src/cairnkit/
   clock.py       times
   schema.py      record fields and checks of one record
   secretscan.py  secret patterns
+  envsecrets.py  real values from untracked .env files
   store.py       read and append JSONL; purge rewrite
   state.py       fold changes into current state; computed expiry
   config.py      config.toml

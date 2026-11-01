@@ -19,7 +19,7 @@ from cairnkit.paths import (
     writer_name,
 )
 from cairnkit.schema import RELS, validate_record
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import find_in_record, find_secrets
 from cairnkit.selection import clean, load_text
 from cairnkit.similar import analyze, exact_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
@@ -48,13 +48,18 @@ def _new_id(memory: Memory, day: str) -> str:
     raise Refused(f"no free id left for {day}")
 
 
-def _check_secrets(*texts: str | None) -> None:
-    found = sorted({name for text in texts if text for name in find_secrets(text)})
+def _check_secrets(memory: Memory, *texts: str | None) -> None:
+    found = sorted({name for text in texts if text for name in find_secrets(text, memory.env)})
     if found:
-        raise Refused(f"this looks like a secret ({', '.join(found)}); facts must not hold secrets")
+        raise Refused(
+            f"this looks like a secret ({', '.join(found)}); facts must not hold secrets. "
+            "Write the fact again and name where the value is, not the value."
+        )
 
 
 def _need_fact(memory: Memory, fact_id: str) -> dict:
+    if fact_id in memory.withheld:
+        raise Refused(memory.withheld_note(fact_id))
     state = memory.fact(fact_id)
     if state is None:
         raise Refused(f"no fact with id {fact_id}")
@@ -183,7 +188,9 @@ def add_fact(memory: Memory, args) -> str | None:
     if summary and args.kind == "rule":
         print("note: a rule always loads in full, so its --summary is not stored")
         summary = None
-    _check_secrets(args.text, summary, args.source, args.reason, *(args.tag or []))
+    _check_secrets(
+        memory, args.text, summary, args.source, args.reason, args.area, *(args.tag or [])
+    )
     fact = {
         "type": "fact",
         "id": _new_id(memory, moment.strftime("%Y%m%d")),
@@ -345,7 +352,7 @@ def change_fact(memory: Memory, args) -> None:
         change["enforced_by"] = args.enforced_by
     elif args.no_enforced_by:
         change["enforced_by"] = None
-    _check_secrets(args.reason)
+    _check_secrets(memory, args.reason)
     change["writer"] = writer_name(memory.project.root)
     append_records(memory.writer_file(change["writer"]), [_validated(change)])
     _refresh_followups(memory)
@@ -355,7 +362,7 @@ def keep_fact(memory: Memory, fact_id: str, reason: str | None) -> None:
     state = _need_fact(memory, fact_id)
     if state.get("scope", "long") == "long":
         raise Refused(f"{fact_id} is already long-term")
-    _check_secrets(reason)
+    _check_secrets(memory, reason)
     change = {
         "type": "change",
         "id": fact_id,
@@ -373,7 +380,8 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
         fact_id in path.read_text(encoding="utf-8") for path in fact_files(memory.dir)
     ):
         raise Refused(f"no record with id {fact_id}")
-    if memory.states.get(fact_id, {}).get("status") == "purged":
+    tomb = memory.states.get(fact_id, {})
+    if tomb.get("status") == "purged" and not find_in_record(tomb, memory.env):
         raise Refused(f"{fact_id} is already purged")
     if not yes:
         raise Refused(
@@ -381,7 +389,7 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
             "To forget a fact, use `memory change ID --status expired|wrong`. "
             "Run again with --yes to purge."
         )
-    _check_secrets(reason)
+    _check_secrets(memory, reason)
     dropped = sum(drop_id(path, fact_id) for path in fact_files(memory.dir))
     tomb = {
         "type": "tombstone",
@@ -391,6 +399,7 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
         "writer": writer_name(memory.project.root),
     }
     append_records(memory.writer_file(tomb["writer"]), [_validated(tomb)])
+    _refresh_followups(memory)
     return dropped
 
 

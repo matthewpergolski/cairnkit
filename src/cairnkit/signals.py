@@ -109,11 +109,13 @@ def session_events(memory: Memory, key: str) -> list[str]:
     told = state.setdefault("told", [])
     found = []
     for number, (command, count) in enumerate(state.get("fixed", [])):
-        line = f"`{command}` failed {count} times, then passed. What fixed it?"
+        shown = loopbreak.without_secret(command, memory.env)
+        line = f"`{shown}` failed {count} times, then passed. What fixed it?"
         found.append((f"fixed:{number}:{command}", line))
     for command, count in state.get("fails", {}).items():
         if count >= FIX_MIN_FAILS:
-            line = f"`{command}` failed {count} times and has not passed."
+            shown = loopbreak.without_secret(command, memory.env)
+            line = f"`{shown}` failed {count} times and has not passed."
             found.append((_fail_token(command), line))
     for line in _reverts(memory.project.root, state):
         found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))

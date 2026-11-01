@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import find_secrets, match_shapes
+
+CORPUS = Path(__file__).parent / "test_goal_fixes.py"
 
 
 @pytest.mark.parametrize(
@@ -87,13 +91,112 @@ def test_a_harmless_value_does_not_hide_a_real_one_later_in_the_text():
     "text",
     [
         "password=correct.horse.battery",
-        "Bearer correct-horse-battery-staple-word",
-        "sk-correct-horse-battery-staple-word",
+        "passphrase=correct.horse.battery",
+        "token=abcdef123456",
         "DEPLOY_KEY=dragonflies",
-        "https://example.com/?code=dragonfly",
-        "postgres://user:password@db.internal",
+        "SSH_KEY=dragonflies",
+        "deploy_key=dragonflies",
+        "db_password=dragonflies",
+        "HTTP_PASSWORD=dragonflies",
+        "spring.datasource.password=dragonflies",
+        '{"password": "dragonflies"}',
+        'password="correct horse battery"',
+        "mysql --password hunter2",
+        "curl --token=abcdef123456",
     ],
 )
-def test_the_accepted_misses_are_these_word_shaped_values(text):
-    """The price of the shape test. A change here moves the line between the two risks."""
+def test_a_value_behind_a_secret_label_is_refused(text):
+    assert find_secrets(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "password=settings.DB_PASSWORD",
+        "password=config.db.password",
+        "password = os.getenv(",
+        'token = ENV["TOKEN"]',
+        "token=self.token",
+        "password=/run/secrets/db_password",
+        "SSH_KEY=~/.ssh/id_ed25519",
+        "SSL_KEY=server.pem",
+        "API_KEY=https://vault.internal/keys",
+        "api_key: str",
+        "max_tokens=128000",
+        "input_tokens: 500000",
+        "token_type: bearer",
+        "PASSWORD_FILE=hunter2hunter2",
+        "CACHE_KEY=user_session",
+        "password: required",
+    ],
+)
+def test_a_value_that_is_clearly_not_one_passes(text):
     assert find_secrets(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the db password is hunter2",
+        "password is hunter2.",
+        'the password was "swordfish"',
+        "the password is 'swordfish'",
+        "the password is `swordfish`",
+        "the API key is abc123def",
+        "the token was abc123def456",
+        "the password for staging is hunter2",
+        "password changed to hunter2",
+        "password is now hunter2",
+        "the secret is 12345678",
+        "the password is P@ssword!",
+    ],
+)
+def test_a_value_in_prose_is_refused(text):
+    assert find_secrets(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "password is required for login",
+        "the password is stored in the vault",
+        "password is 8 chars long",
+        "the password is 12 characters",
+        "the token is valid for 30 days",
+        "the token was 30days old",
+        "the token is base64",
+        "the secret is sha256-hashed",
+        "the password is $DB_PASSWORD",
+        "the token is process.env.API_TOKEN",
+        "the secret is v1.2.3",
+    ],
+)
+def test_english_about_a_password_passes(text):
+    assert find_secrets(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the password is swordfish",
+        "the password swordfish opens staging",
+        "Bearer correct-horse-battery-staple-word",
+        "sk-correct-horse-battery-staple-word",
+        "https://example.com/?code=dragonfly",
+        "postgres://user:password@db.internal",
+        "password=ab1",
+        "INVITE_CODE=welcome",
+    ],
+)
+def test_the_remaining_misses_are_these(text):
+    """No shape tells these from English or a placeholder. A real value in .env is still found."""
+    assert find_secrets(text) == []
+
+
+def test_the_fast_clue_never_hides_a_shape():
+    this_file = Path(__file__).read_text()
+    lines = [*this_file.splitlines(), *CORPUS.read_text().splitlines()]
+    texts = [line.strip(' ",') for line in lines]
+    hits = [text for text in texts if match_shapes(text)]
+    assert len(hits) > 40
+    assert [text for text in hits if not find_secrets(text)] == []

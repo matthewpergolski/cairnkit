@@ -27,7 +27,7 @@ from cairnkit import (
     skills,
     usage,
 )
-from cairnkit.check import check_links, check_records
+from cairnkit.check import check_links, check_records, secrets_in_notes
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked
 from cairnkit.load import run_load
@@ -246,7 +246,7 @@ def _strict_problems(project: Project, flag: str | None) -> list[str]:
     problems = check_links(project, memdir)
     memory = Memory.open(project, flag)
     errors, warnings = check_records(memory)
-    return problems + errors + warnings
+    return problems + errors + warnings + secrets_in_notes(memory)
 
 
 def stop_message(project: Project, flag: str | None, payload: dict) -> str | None:
@@ -399,6 +399,7 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
         parsed = loopbreak.command_from_payload(payload)
         if parsed is not None:
             command, ok = parsed
+            command = loopbreak.without_secret(command, memory.env)
             nudge = loopbreak.observe(memory, command, ok=ok)
             if nudge:
                 parts.append(nudge)

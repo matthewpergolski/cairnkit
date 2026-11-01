@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 
 from cairnkit import instruction_files, migrate_refs, presets
@@ -10,8 +9,9 @@ from cairnkit.clock import now
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, Project, merged_checker, resolve_memory_dir, run_git
+from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import find_in_record, find_secrets
 from cairnkit.state import effective_status
 from cairnkit.store import fact_files, read_located
 
@@ -62,8 +62,12 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
     for item in located:
         rec, where = item.record, f"{item.path.name}:{item.line}"
         problems = list(validate_record(rec))
-        raw = json.dumps(rec, ensure_ascii=False)
-        problems += [f"looks like a secret ({name})" for name in find_secrets(raw)]
+        found = find_in_record(rec, memory.env)
+        if found:
+            problems.append(
+                f"{rec.get('id')} looks like a secret ({', '.join(found)}); remove it now: "
+                f"memory purge {rec.get('id')} --reason secret --yes"
+            )
         kind = rec.get("type")
         if kind == "fact" and ids[rec.get("id")] > 1:
             problems.append(f"duplicate id {rec.get('id')}")
@@ -94,18 +98,24 @@ def _path_known(root, path: str) -> bool:
     return bool(run_git(root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0))
 
 
-def secrets_in_notes(memdir) -> list[str]:
-    """Warnings for prose notes that hold a secret shape. Notes are not checked at write time."""
-    found = []
-    for folder in ("notes", "branches"):
-        for path in sorted((memdir / folder).rglob("*.md")):
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            for name in find_secrets(text):
-                found.append(f"{folder}/{path.name}: looks like a secret ({name})")
-    return found
+def secrets_in_notes(memory: Memory) -> list[str]:
+    """Warnings for note lines that hold a secret. Notes are not checked at write time."""
+    warnings = []
+    proposals = sorted((memory.dir / "proposals").glob("*.*"))
+    files = [*note_files(memory.dir / "notes"), *note_files(memory.dir / "branches"), *proposals]
+    for path in files:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = path.relative_to(memory.dir).as_posix()
+        for number, line in enumerate(lines, start=1):
+            found = find_secrets(line, memory.env)
+            if found:
+                warnings.append(
+                    f"{rel}:{number}: looks like a secret ({', '.join(found)}); remove that line"
+                )
+    return warnings
 
 
 DUPLICATES_DOC = (
@@ -205,7 +215,7 @@ def run_check(
         record_errors, warnings = check_records(memory)
         errors += record_errors
         warnings += duplicate_rules(memory)
-        warnings += secrets_in_notes(memdir)
+        warnings += secrets_in_notes(memory)
         count, words = rule_words(memory)
         if words > RULE_WORD_CAP:
             print(

@@ -178,9 +178,13 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
   old facts, for a wrong trap and for capture have no real model run yet.
 - **Session start.** With 2000 facts, the median wall time fell from 48.2 seconds to 1.42 seconds
   on a loaded computer. Run `benchmarks/session_start_time.py` to measure it again.
-- **Secret scan.** On a hand-written set, 0 of 23 ordinary lines are refused (22 before), and 29 of
-  29 secrets are refused. Six word-shaped values are accepted misses, such as
-  `password=correct.horse.battery`.
+- **Secret scan.** A value behind a secret label is refused unless its shape says that it is no
+  value. A value from an untracked `.env*` file is refused too. On the hand-written sets, 0 of 30
+  ordinary lines are refused and 39 of 39 secrets are refused, the same as before. Of 8 lines that
+  were stored by mistake, 7 are now refused (0 before). A bare word after `password is` still passes,
+  because no shape tells it from English. `tests/test_secret_shapes.py` lists what still passes.
+  A fact stored before the scan caught it loads as an ID and a purge command. A note line loads
+  as its line number. A failed command that holds a secret is stored and shown as a stand-in.
 
 ## Limits
 
