@@ -166,7 +166,7 @@ def test_writes_candidates_and_no_facts(repo, capsys):
     assert first["type"] == "candidate"
     assert first["line"] == 3 and first["suggested_kind"] == "decision"
     assert first["tier"] == "likely"
-    assert summary["tiers"] == {"likely": 7, "maybe": 0, "worktree-only": 0}
+    assert summary["tiers"] == {"likely": 7, "maybe": 0, "worktree-only": 0, "repeat": 0}
     assert summary["hints"] == {"superseded": 1}
     assert first["source"] == "file:memory-bank/notes/decisions.md:3"
     assert "7 candidate" in out

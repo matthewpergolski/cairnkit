@@ -28,10 +28,11 @@ from collections import Counter
 from pathlib import Path
 
 from cairnkit import adapters, githook, hooks_cmd, instruction_files, skills
-from cairnkit.candidates import Candidate, Counts, scan_text
+from cairnkit.candidates import Candidate, Counts, mark_repeats, scan_text
 from cairnkit.check import run_check
 from cairnkit.hooks_cmd import run_install
 from cairnkit.init import STATUS, plan_link, run_init
+from cairnkit.memory import Memory
 from cairnkit.migrate_refs import (
     CANDIDATES,
     CHECKER_RE,
@@ -61,7 +62,7 @@ from cairnkit.schema import MAX_TEXT
 
 OLD_SUFFIX = ".memory-old"
 JUNK = {".DS_Store"}
-TIERS = ("likely", "maybe", "worktree-only")
+TIERS = ("likely", "maybe", "worktree-only", "repeat")
 
 
 def _entries(folder: Path) -> list[Path]:
@@ -334,6 +335,7 @@ def _worklist(found: list[Candidate], counts: dict[str, Counts], homed: int) -> 
             "happened_at": cand.happened_at,
             "hint": cand.hint,
             "held_by": cand.held_by,
+            "repeat_of": cand.repeat_of,
             "too_long": cand.too_long,
             "source": (
                 f"file:{cand.origin}:{cand.line}"
@@ -373,6 +375,11 @@ def _report_counts(
         print(
             f"{homed} candidate(s) skipped: an instruction file already holds them "
             f"({', '.join(instruction_files.FILES)})."
+        )
+    if tiers["repeat"]:
+        print(
+            f"{tiers['repeat']} repeat(s) say what another line or a stored fact says "
+            "(tier repeat, with `repeat_of`). Add only the first."
         )
     for name in names:
         n = sum(c.worktree == name for c in found)
@@ -666,6 +673,11 @@ def run_migrate(
     for name, (here, final) in asides.items():
         found += worktree_only(source_dir, name, here, final)
     homed = skip_homed(root, found, counts)
+    stored = {}
+    if not dry_run and (memdir / "facts").is_dir():
+        states = Memory.open(project, path_flag).states.values()
+        stored = {x["id"]: str(x["text"]) for x in states if x.get("status") == "active"}
+    mark_repeats(found, stored)
     _report_counts(found, counts, skipped, list(asides), homed)
     # The task goes first: a worklist on disk means that this run reached the task.
     _settle_strays(memdir, dry_run)
