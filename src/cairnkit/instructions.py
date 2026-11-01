@@ -25,7 +25,9 @@ itself. If its output is not in your context, run it. Read it before you work.
   preference of the owner. Example:
   `memory add "TEXT" --kind trap --area deploy --basis seen --source commit:HASH`
   Kinds: {kinds}. Basis: {bases}.
-  Source: commit:HASH, file:PATH, pr:N, session:DATE, person:ROLE.
+  Only the text is required. Basis defaults to `guess`.
+  Source: commit:HASH, file:PATH, pr:N, session:DATE, person:ROLE. It defaults to
+  `session:` and today's date.
 - **Look before you add.** Run `memory search WORDS` first. If a fact already says
   it, use `--supersedes ID`. `memory add` refuses text that looks like a secret. It
   does not refuse a repeat: it supersedes an exact repeat by itself. It writes a near
@@ -41,7 +43,8 @@ itself. If its output is not in your context, run it. Read it before you work.
   A short-term note is still true later: `memory keep ID`.
 - **Look before you try.** `memory search WORDS --all` shows old facts with the
   reason they ended. Use it to answer "did we try this before?".
-- **Basis.** Write `seen` only for what you observed. Mark a conclusion `guess`.
+- **Basis.** Write `seen` only for what you observed, and `told` for what a person
+  said. Leave it out, or write `guess`, for a conclusion.
 - **Never store a secret** (password, key, token, private link) in a fact.
 - **Never edit files in `memory-bank/` by hand**, except `notes/`. Use the
   `memory` command. Never commit `memory-bank`.

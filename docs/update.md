@@ -124,8 +124,8 @@ uv tool install --force --reinstall git+https://github.com/matthewpergolski/cair
 
 Use the next release tag once it exists. After that, `memory update` works.
 
-`memory status` and the session start show one line when the source is
-newer. The answer is cached for a day. A local folder is read with local git
+`memory status` shows one line when the source is newer. A load shows it once per
+version pair. The answer is cached for a day. A local folder is read with local git
 only. A git URL is checked in the background, so the session start never
 waits. Offline, the line does not show.
 

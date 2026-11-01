@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import followups, hygiene, install_source, migrate_refs, refresh, skills, usage
+from cairnkit import followups, hygiene, install_source, migrate_refs, refresh, usage
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.init import link_here
@@ -166,7 +166,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     parts = [f"{shown} fact(s) shown"]
     if hidden > 0:
         parts.append(f"{hidden} active fact(s) not shown")
-    out.append("; ".join(parts) + f". Open one with `memory show ID`. {DISCOVER}")
+    out.append("; ".join(parts) + f". {DISCOVER}")
     if explain:
         shown_ids = {s["id"] for s in short_shown + long_shown}
         out += _explain(short + long, shown_ids, moment, areas, words, used_at)
@@ -201,19 +201,15 @@ def run_load(
     area: str | None,
     budget: int,
     explain: bool = False,
-    agent: str | None = None,
-    record: bool = False,
+    update_notice: bool = True,
 ) -> int:
     try:
         linked = link_here(project, flag)
         memory = Memory.open(project, flag)
         lines = build_output(memory, area, budget, explain)
         # Right under the header, so the agent sees them first.
-        lines[1:1] = [
-            line
-            for line in (install_source.update_line(), refresh.repo_line(project, flag))
-            if line
-        ]
+        notice = install_source.notice_once() if update_notice else None
+        lines[1:1] = [line for line in (notice, refresh.repo_line(project, flag)) if line]
     except MemoryMissing as exc:
         print(f"memory: not loaded: {exc}")
         return 0
@@ -223,7 +219,4 @@ def run_load(
     if linked:
         print(linked)
     print("\n".join(lines))
-    line = skills.session_line(memory.dir, agent, record)
-    if line:
-        print(line)
     return 0

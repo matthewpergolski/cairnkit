@@ -44,7 +44,7 @@ These parts are the most important to report:
     Grok Build is found on the computer. `skills_check = false` in
     `config.toml` turns it off, except in `memory skills status`, which you
     run on purpose.
-  - `memory skills install pstack --yes`: reads `pstack/plugin.json`, runs
+  - `memory skills install pstack --yes`, or with `--tool NAME`: reads `pstack/plugin.json`, runs
     `git clone` of `github.com/cursor/plugins`, and for Claude Code runs
     `claude plugin marketplace add` and `claude plugin install`.
 - It stores facts as plain text in a folder outside the repo. It does not

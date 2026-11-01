@@ -541,7 +541,7 @@ def _close(project: Project, path_flag: str | None, memdir: Path, source: Path, 
     if (memdir / TASK).is_file():
         items += references + _hooks(project)
     _write_task(memdir, project, source, items, dry)
-    code = 0 if dry else run_check(project, path_flag, hint=False)
+    code = 0 if dry else run_check(project, path_flag)
     if items:
         print(f"Migration not finished: {len(items)} item(s) left in {memdir / TASK}.")
         print("Do them, then run `memory migrate --yes` again. That task says how it ends.")
@@ -736,7 +736,7 @@ def run_migrate(
         if line:
             print(line)
         return 0
-    code = run_check(project, path_flag, hint=False)
+    code = run_check(project, path_flag)
     line = skills.once_line(memdir)
     if line:
         print(line)

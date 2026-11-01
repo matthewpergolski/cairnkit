@@ -53,7 +53,7 @@ def fold(records: list[dict]) -> dict[str, dict]:
         state = facts.get(change.get("id"))
         if state is None or state["status"] == "purged":
             continue
-        for name in ("status", "scope", "superseded_by", "held_by", "enforced_by"):
+        for name in ("status", "scope", "superseded_by", "held_by", "enforced_by", "branch_tip"):
             if name in change:
                 state[name] = change[name]
         if "enforced_by" in change and change["enforced_by"] is None:
@@ -68,7 +68,7 @@ def fold(records: list[dict]) -> dict[str, dict]:
 def effective_status(
     state: dict,
     now: str | datetime | None = None,
-    is_merged: Callable[[str], bool] | None = None,
+    is_merged: Callable[[str, str | None], bool] | None = None,
 ) -> tuple[str, str | None]:
     """Return (status, reason). A short-term fact past its end reads as expired.
 
@@ -86,6 +86,6 @@ def effective_status(
         except ValueError:
             pass
     branch = state.get("until_branch_merged")
-    if branch and is_merged is not None and is_merged(branch):
-        return "expired", f"short-term fact ended when branch {branch} was merged"
+    if branch and is_merged is not None and is_merged(branch, state.get("branch_tip")):
+        return "expired", f"short-term fact ended when branch {branch} was merged or deleted"
     return "active", None

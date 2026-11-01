@@ -153,7 +153,8 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument(
         "--tool",
         choices=("claude", "codex", "cursor", "opencode", "pi", "grok", "all"),
-        help="one tool (default: every tool that is found)",
+        help="add or update one tool, or all that are found (default: update only the "
+        "tools that already have pstack)",
     )
     h.add_argument(
         "--adopt",
@@ -203,8 +204,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--area", default="general", help="one area of the work, for example deploy or a module"
     )
-    p.add_argument("--basis", choices=BASES, required=True, help="seen, told or guess")
-    p.add_argument("--source", required=True, help="commit:<hash>, file:<path>, session:<date>")
+    p.add_argument(
+        "--basis",
+        choices=BASES,
+        help="seen (you observed it), told (a person said it) or guess (default: guess)",
+    )
+    p.add_argument(
+        "--source",
+        help="commit:<hash>, file:<path>, pr:<n>, person:<role> (default: session:<today>)",
+    )
     p.add_argument("--tag", action="append", help="a search word (repeat for more)")
     p.add_argument("--happened-at", type=_time, help="when it became true (default: today)")
     p.add_argument("--link", action="append", help="<rel>:<id>, rel related|depends_on|...")

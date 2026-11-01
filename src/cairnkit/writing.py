@@ -12,6 +12,7 @@ from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import (
     branch_exists,
+    branch_tip,
     current_branch,
     default_branch,
     merged_checker,
@@ -24,6 +25,8 @@ from cairnkit.similar import analyze, exact_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, drop_id, fact_files
+
+DEFAULT_BASIS = "guess"
 
 
 class Refused(Exception):
@@ -142,6 +145,9 @@ def add_fact(memory: Memory, args) -> str | None:
     """
     moment = now()
     repeat = near = kept = None
+    claimed = args.basis
+    args.basis = claimed or DEFAULT_BASIS
+    args.source = args.source or f"session:{moment.date().isoformat()}"
     mine = {"basis": args.basis}
     if not args.supersedes:
         match = _find_similar(memory, args, moment)
@@ -154,6 +160,8 @@ def add_fact(memory: Memory, args) -> str | None:
                 kept = old
             else:
                 repeat = old["id"]
+                # No claim was made, and the words are the same, so the older claim still holds.
+                args.basis = claimed or old.get("basis", DEFAULT_BASIS)
         elif match:
             near = match
     writer = writer_name(memory.project.root)
@@ -221,11 +229,9 @@ def add_fact(memory: Memory, args) -> str | None:
             raise Refused("--until-merged needs a branch name (HEAD is detached)")
         if branch:
             fact["until_branch_merged"] = branch
-        if branch and not branch_exists(memory.project.root, branch):
-            print(
-                f"note: no branch {branch} exists, local or remote, so this note reads as "
-                "ended until one does"
-            )
+            tip = branch_tip(memory.project.root, branch)
+            if tip:
+                fact["branch_tip"] = tip
     records = [_validated(fact)]
     if supersedes:
         change = {
@@ -240,6 +246,18 @@ def add_fact(memory: Memory, args) -> str | None:
         records.append(_validated(change))
     append_records(memory.writer_file(writer), records)
     _refresh_followups(memory)
+    if not claimed and fact["basis"] == DEFAULT_BASIS:
+        print(
+            f"note: saved with basis {DEFAULT_BASIS}, the default. Add --basis seen if you "
+            "observed it, or --basis told if a person said it."
+        )
+    branch = fact.get("until_branch_merged")
+    if branch and not branch_exists(memory.project.root, branch):
+        print(
+            f"note: no branch {branch} exists here, local or remote. Check the name. This note "
+            "stays open until that branch appears and merges. To end it yourself, run: "
+            f'memory change {fact["id"]} --status expired --reason "..."'
+        )
     why = _no_end_event(memory, fact)
     if why:
         print(
@@ -309,6 +327,11 @@ def change_fact(memory: Memory, args) -> None:
         _need_fact(memory, args.superseded_by)
         change["superseded_by"] = args.superseded_by
     if args.held_by:
+        if args.status != "promoted":
+            raise Refused(
+                "--held-by needs --status promoted. Run: memory change "
+                f'{args.id} --status promoted --held-by {args.held_by} --reason "..."'
+            )
         if not (memory.project.root / args.held_by).exists():
             raise Refused(f"held_by {args.held_by!r} does not exist in {memory.project.root}")
         change["held_by"] = args.held_by

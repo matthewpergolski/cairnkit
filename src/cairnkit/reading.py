@@ -36,6 +36,7 @@ def run_show(memory: Memory, fact_id: str) -> int:
         "writer",
         "expires_at",
         "until_branch_merged",
+        "branch_tip",
         "pinned",
         "enforced_by",
     )
@@ -59,6 +60,8 @@ def run_show(memory: Memory, fact_id: str) -> int:
         if "enforced_by" in change:
             value = change["enforced_by"]
             parts.append(f"enforced by {value}" if value else "advisory")
+        if "branch_tip" in change:
+            parts.append(f"branch tip {clean(change['branch_tip'])}")
         for link in change.get("add_links", []):
             parts.append(f"link {link['rel']} {link['id']}")
         why = f": {clean(change['reason'])}" if change.get("reason") else ""

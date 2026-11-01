@@ -1,4 +1,4 @@
-"""One discoverability blurb for session-start, load footers, and --help."""
+"""The look-up line of the load footer, and the short rules of a session start."""
 
 from __future__ import annotations
 
@@ -8,10 +8,9 @@ DISCOVER = (
     "Clean up: `memory tidy`."
 )
 
-RULES_SHORT = f"""\
+RULES_SHORT = """\
 Memory rules: record what a later session needs with `memory add` (decisions,
 traps, lessons: long-term; working notes: `--short`). Optional `--summary` for a
 long body. To change a fact, add a newer one (`--supersedes ID`)
 or mark it `expired` or `wrong` with `memory change`. Never store secrets. Never
-edit memory files by hand. Run `memory instructions` for the full rules.
-{DISCOVER}"""
+edit memory files by hand. Run `memory instructions` for the full rules."""

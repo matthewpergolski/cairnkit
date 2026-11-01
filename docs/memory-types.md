@@ -32,8 +32,9 @@ A branch reads as merged in these cases. The default branch is `origin/HEAD`, el
 - Its tip is in the default branch, and its tip is not the tip of the default branch.
 - A merge of its tip into the default branch changes nothing, which shows a squash
   merge. This needs git 2.38 or later.
-- The branch is in no ref. A remote copy counts as a ref, so a branch with only a
-  remote copy is open work.
+- The branch is in no ref, and a record says that this clone held it: its recorded
+  tip is here. A remote copy counts as a ref, so a branch with only a remote copy is
+  open work. With no record, merged is unknown and the note stays.
 
 The default branch itself never reads as merged. A repo with no default branch reads
 no branch as merged.
@@ -179,6 +180,9 @@ Every fact has a `basis`:
 - `seen`: the agent observed it (a test run, a log, the code).
 - `told`: a person said it.
 - `guess`: the agent inferred it.
+
+With no `--basis`, a fact is a `guess`. An exact repeat with no `--basis` keeps the
+basis of the fact that it replaces. Basis does not change the rank.
 
 Write `seen` only for what you observed. `memory load` shows the basis on
 each line, so the next session knows how far to trust the fact. A change

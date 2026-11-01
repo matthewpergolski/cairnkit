@@ -19,6 +19,7 @@ from cairnkit import (
     adapters,
     autotidy,
     followups,
+    hooks_cmd,
     legacy,
     loopbreak,
     native,
@@ -162,12 +163,20 @@ def _time_budget(seconds: float):
         signal.signal(signal.SIGALRM, previous)
 
 
+def sync_tools(project: Project, flag: str | None) -> None:
+    """A tool installed after setup gets its adapter, with no step and no text."""
+    if hooks_cmd.INSTALL_ON_INIT:
+        hooks_cmd.connect_new_tools(project, flag)
+
+
 def git_event(project: Project, flag: str | None) -> int:
     """Auto-tidy after a push or a merge. Always exits 0, and prints nothing."""
     try:
-        with _time_budget(GIT_HOOK_BUDGET):
-            sink = io.StringIO()
-            with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            # Outside the budget: the sync catches every Exception, so it would swallow the alarm.
+            sync_tools(project, flag)
+            with _time_budget(GIT_HOOK_BUDGET):
                 gated_auto_tidy(project, flag, count_session=False)
     except (Exception, SystemExit):
         pass
@@ -201,6 +210,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
         return 0
     with contextlib.suppress(Exception):
         legacy.clean(Memory.open(project, flag))
+    sync_tools(project, flag)
     note = auto_retire_note(project, flag) + skills_note(project, flag)
     with contextlib.suppress(Exception):
         line = native.session_line(Memory.open(project, flag))
@@ -209,7 +219,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
     compact_usage(project, flag)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, 600, agent=agent, record=True)
+        run_load(project, flag, None, 600)
     text = note + buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
@@ -414,13 +424,13 @@ def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int
     return 0
 
 
-def subagent_start(project: Project, flag: str | None, agent: str) -> int:
+def subagent_start(project: Project, flag: str | None) -> int:
     """A subagent starts with no memory. Give it the load. Read only."""
     if not has_memory(project, flag):
         return 0
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, SUBAGENT_BUDGET, agent=agent)
+        run_load(project, flag, None, SUBAGENT_BUDGET, update_notice=False)
     event = {"hookEventName": "SubagentStart", "additionalContext": buffer.getvalue().rstrip()}
     print(json.dumps({"hookSpecificOutput": event}))
     return 0
@@ -451,7 +461,7 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     if event == "prompt":
         return prompt(project, flag, agent, payload)
     if event == "subagent-start":
-        return subagent_start(project, flag, agent)
+        return subagent_start(project, flag)
     if event == "pre-compact":
         return pre_compact(project, flag, payload)
     return stop(project, flag, agent, payload)

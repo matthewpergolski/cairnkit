@@ -3,7 +3,7 @@
 import io
 import json
 
-from conftest import make_fact, read_jsonl, write_facts
+from conftest import git, make_fact, read_jsonl, write_facts
 
 from cairnkit.cli import main
 
@@ -134,9 +134,13 @@ def test_ended_short_fact_is_retired_with_the_log_and_an_undo_hint(mem, capsys, 
     assert A in log and "ended" in log and f"memory keep {A}" in log
 
 
-def test_short_fact_of_a_merged_branch_is_retired(mem, capsys, monkeypatch):
+def test_short_fact_of_a_merged_branch_is_retired(repo, mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
-    write_facts(mem, [make_fact(A, "Note.", scope="short", until_branch_merged="gone-branch")])
+    tip = git(repo, "rev-parse", "HEAD").strip()
+    write_facts(
+        mem,
+        [make_fact(A, "Note.", scope="short", until_branch_merged="gone-branch", branch_tip=tip)],
+    )
     auto(capsys)
     assert status_of(mem, A)["status"] == "expired"
 
@@ -233,7 +237,7 @@ def test_same_short_note_for_two_branches_is_not_a_duplicate(mem, capsys, monkey
             make_fact(B, "Retry the job.", scope="short", expires_at=far, until_branch_merged="b"),
         ],
     )
-    monkeypatch.setattr("cairnkit.autotidy.merged_checker", lambda root: lambda branch: False)
+    monkeypatch.setattr("cairnkit.autotidy.merged_checker", lambda root: lambda branch, tip: False)
     auto(capsys)
     assert status_of(mem, A)["status"] == "active"
 

@@ -29,7 +29,9 @@ no agent hooks and no agent rules.
      For a folder of documents, use `--preset basic`. Look first with
      `memory preset show dev --detect`. See [presets.md](presets.md).
 5. If you use Codex, approve the hooks once with `/hooks`. Codex asks for this trust
-   step itself, and `memory init` says so. Other agents need no step.
+   step itself. `memory init` and `memory status` say so after a recent Codex session.
+   Other agents need no step. A tool that you install later connects by itself at the
+   next session start, push or merge.
 6. If the tool does not find your agent, run `memory hooks install --agent NAME`.
    `NAME` is `claude`, `codex`, `cursor`, `grok`, `pi` or `opencode`. For any other
    agent, `memory hooks install --agent generic` prints the commands to connect by

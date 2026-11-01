@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 
 from cairnkit import followups
-from cairnkit.autotidy import outranks
+from cairnkit.autotidy import outranks, print_unknown
 from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
@@ -130,6 +130,7 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
         for p in proposals:
             print(f"- {p.id} [{p.kind}] {p.summary}")
         print(f"{len(proposals)} proposal(s). Report: {report}")
+        print_unknown(memory)
         if proposals:
             print("To apply: `memory tidy --apply ID [ID ...]`.")
         followups.refresh(memory)

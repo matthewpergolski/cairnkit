@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The worklist marks a repeat of an earlier line or a stored fact (`tier: repeat`, `repeat_of`).
 - The status heading of `memory load` counts the commits that HEAD is past the newest commit the
   note names. A clipped note says how many lines it shows. Neither ends a fact.
+- An agent tool that you install after setup connects by itself at the next session start, push
+  or merge. It prints nothing, writes no tracked file and keeps your choice of tools.
+- `memory add` needs only the text. `--basis` defaults to `guess` and `--source` to
+  `session:<today>`. The output names the default basis. A near repeat with basis `guess`
+  no longer retires a `seen` fact in auto-tidy.
 - `evals/agents`: a kit that runs real agents on `dev` against production.
 - `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
 - Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
@@ -46,6 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `memory skills install pstack` with no `--tool` updates only the tools that have pstack. To add
+  a tool, use `--tool NAME` or `--tool all`. `skills_auto_update` adds no tool.
+- The pstack line moved from the load and `memory check` to `memory status`.
+- The Codex trust line shows only after a Codex session in the last 30 days.
+- The update notice shows once per version pair in a load, and never in a subagent load.
+  `memory status` always shows it.
+- A session start has 31 fewer words that are not facts. The look-up line printed twice.
 - Setup is one step. `memory init` connects the agent tools and the git hooks, with a short
   output (`--verbose` prints each step, `--no-hooks` skips the hooks). A rule against AI
   attribution installs its commit-msg check by itself.
@@ -64,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory check` says that its `ok` covers only the facts and the links while a migration is open.
 - The migration task reads the docs and hooks of the checkout where it runs, and a doc may keep its
   old name once it describes the new tool.
+- A tool with no pstack can no longer keep a migration task open.
+- When Claude Code or Cursor connects, the Grok adapter goes, so that each hook runs once.
 - A live note no longer ends by mistake. A branch that is checked out stays open, and a merge read
   needs real evidence. A note follows `git branch -m`.
 - Session start takes about 1 second at 2000 facts, not 48 seconds. Before this, a large memory
@@ -79,6 +93,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   private memory paths.
 - `--until-merged` keeps a note open while a remote copy of its branch exists, and it
   ends a note when its branch was squash-merged.
+- A branch in no ref no longer reads as merged by itself. A fact records the branch tip
+  (`branch_tip`), and auto-tidy records a branch that comes later. With no record, the note
+  stays and `memory tidy` says that merged is unknown. `memory add` names a branch that does
+  not exist at once. A merged and deleted branch still ends its note.
+- `memory change ID --held-by PATH` without `--status promoted` says what it needs.
 - The secret scan finds named secrets such as `CRON_SECRET=`, payment keys, bearer tokens
   and secrets in URLs. `memory check` also scans `notes/` and `branches/`.
 - `memory search` takes several words with no quotes. `memory add --kind rule --summary`
