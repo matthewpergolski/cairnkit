@@ -75,7 +75,7 @@ def test_purge_works_on_a_file_with_a_bad_line(mem, capsys):
     path = _torn_inside_an_emoji(mem)
     assert main(["purge", RULE, "--reason", "Testing.", "--yes"]) == 0
     assert "Always rebase" not in path.read_bytes().decode(errors="replace")
-    assert b'\xf0\x9f' in path.read_bytes(), "the rewrite keeps the other bytes as they were"
+    assert b"\xf0\x9f" in path.read_bytes(), "the rewrite keeps the other bytes as they were"
     assert main(["purge", "f-20991231-ffff", "--reason", "x", "--yes"]) == 1
 
 
@@ -102,7 +102,7 @@ def test_earlier_bytes_do_not_change_on_an_add(mem):
 
 
 def test_a_line_separator_inside_a_text_does_not_split_a_record(mem):
-    text = "One fact with a line separator."
+    text = "One fact with a" + chr(0x2028) + "line separator."
     path = mem / "facts" / "main.jsonl"
     path.write_text(json.dumps(make_fact(RULE, text), ensure_ascii=False) + "\n", encoding="utf-8")
     records, errors = read_records([path])

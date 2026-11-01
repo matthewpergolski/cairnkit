@@ -140,7 +140,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
 
     out = [f"# Project memory ({memory.dir})"]
     if memory.errors:
-        out.append(f"warning: {len(memory.errors)} bad line(s) skipped; run `memory check`")
+        out.append(f"warning: {len(memory.errors)} bad line(s) skipped; run `memory repair`")
     stale = hygiene.hygiene_line(memory)
     if stale:
         out.append(stale)

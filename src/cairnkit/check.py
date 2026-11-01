@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 
 from cairnkit import (
     enforcement,
@@ -32,7 +33,7 @@ from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_in_record, find_secrets
 from cairnkit.selection import clean
 from cairnkit.state import effective_status
-from cairnkit.store import fact_files, read_located
+from cairnkit.store import Located, fact_files, read_located, repaired_lines
 
 
 def _repair_cmd(memdir) -> str:
@@ -66,48 +67,84 @@ def check_links(project: Project, memdir) -> list[str]:
     return errors
 
 
+REPAIR = "; run `memory repair`"
+
+
+@dataclass
+class RecordIndex:
+    """What a check of one record needs to know about the others."""
+
+    fact_ids: Counter
+    known: set
+    kinds: dict
+
+    @classmethod
+    def of(cls, located: list[Located]) -> RecordIndex:
+        facts = [i.record for i in located if i.record.get("type") == "fact"]
+        tombstones = {i.record.get("id") for i in located if i.record.get("type") == "tombstone"}
+        ids = Counter(f.get("id") for f in facts)
+        return cls(ids, set(ids) | tombstones, {f.get("id"): f.get("kind") for f in facts})
+
+
+def record_problems(item: Located, index: RecordIndex) -> list[str]:
+    """What is wrong with one record, apart from a secret. `memory repair` can settle these."""
+    rec = item.record
+    problems = list(validate_record(rec))
+    kind = rec.get("type")
+    if kind == "fact" and index.fact_ids[rec.get("id")] > 1:
+        problems.append(f"duplicate id {rec.get('id')}")
+    if kind == "change" and rec.get("id") not in index.known:
+        problems.append(f"change names an unknown fact {rec.get('id')}")
+    target = rec.get("superseded_by")
+    if target and target not in index.known:
+        problems.append(f"superseded_by {target} is not a known fact")
+    for link in (rec.get("links") or []) + (rec.get("add_links") or []):
+        if isinstance(link, dict) and link.get("id") not in index.known:
+            problems.append(f"link to unknown fact {link.get('id')}")
+    if kind == "change" and rec.get("enforced_by") and index.kinds.get(rec.get("id")) != "rule":
+        problems.append("enforced_by is only for kind 'rule'")
+    return problems
+
+
+def writer_differs(item: Located) -> str | None:
+    writer = item.record.get("writer")
+    if writer and writer != item.path.stem and item.record.get("type") != "tombstone":
+        return f"writer {writer!r} differs from the file name"
+    return None
+
+
 def check_records(memory: Memory) -> tuple[list[str], list[str]]:
-    located, errors = read_located(fact_files(memory.dir))
+    located, bad = read_located(fact_files(memory.dir))
+    errors = [line if ": cannot read: " in line else line + REPAIR for line in bad]
     config_errors, warnings = config_problems(memory.dir)
-    errors += config_errors
-    ids = Counter(item.record.get("id") for item in located if item.record.get("type") == "fact")
-    known = {i for i in ids if i} | {
-        item.record.get("id") for item in located if item.record.get("type") == "tombstone"
-    }
-    kinds = {
-        item.record.get("id"): item.record.get("kind")
-        for item in located
-        if item.record.get("type") == "fact"
-    }
+    errors += [line + REPAIR for line in config_errors]
+    warnings = [line + REPAIR for line in warnings]
+    done = repaired_lines(located)
+    index = RecordIndex.of(located)
     for item in located:
         rec, where = item.record, f"{item.path.name}:{item.line}"
-        problems = list(validate_record(rec))
+        settled = (item.path.name, item.sha) in done
+        problems = [] if settled else [p + REPAIR for p in record_problems(item, index)]
         found = find_in_record(rec, memory.env)
         if found:
             problems.append(
                 f"{rec.get('id')} looks like a secret ({', '.join(found)}); remove it now: "
                 f"memory purge {rec.get('id')} --reason secret --yes"
             )
-        kind = rec.get("type")
-        if kind == "fact" and ids[rec.get("id")] > 1:
-            problems.append(f"duplicate id {rec.get('id')}")
-        if kind == "change" and rec.get("id") not in known:
-            problems.append(f"change names an unknown fact {rec.get('id')}")
-        target = rec.get("superseded_by")
-        if target and target not in known:
-            problems.append(f"superseded_by {target} is not a known fact")
-        for link in (rec.get("links") or []) + (rec.get("add_links") or []):
-            if isinstance(link, dict) and link.get("id") not in known:
-                problems.append(f"link to unknown fact {link.get('id')}")
-        if kind == "change" and rec.get("enforced_by") and kinds.get(rec.get("id")) != "rule":
-            problems.append("enforced_by is only for kind 'rule'")
-        held = rec.get("held_by")
-        if held and not _path_known(memory.project.root, held):
-            problems.append(f"held_by {held} does not exist")
-        writer = rec.get("writer")
-        if writer and writer != item.path.stem and kind != "tombstone":
-            warnings.append(f"{where}: writer {writer!r} differs from the file name")
+        differs = writer_differs(item)
+        if differs and not settled:
+            warnings.append(f"{where}: {differs}{REPAIR}")
         errors += [f"{where}: {problem}" for problem in problems]
+    root = memory.project.root
+    for state in sorted(memory.states.values(), key=lambda s: s["id"]):
+        held = state.get("held_by")
+        if state.get("status") == "promoted" and held and not _path_known(root, held):
+            errors.append(
+                f"{state['id']}: held_by {held} does not exist; run "
+                f'`memory change {state["id"]} --status active --reason "..."` to load the '
+                f"fact again, or `memory change {state['id']} --status promoted --held-by "
+                f'PATH --reason "..."` to name the file that holds it now'
+            )
     return errors, warnings
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -22,6 +23,22 @@ class Located:
     record: dict
     path: Path
     line: int
+    sha: str = ""
+
+
+@dataclass
+class BadLine:
+    """A line that the code cannot use. A file that cannot be read has no sha, and no repair."""
+
+    path: Path
+    line: int
+    why: str
+    text: str = ""
+    sha: str = ""
+
+    @property
+    def message(self) -> str:
+        return f"{self.path.name}:{self.line}: {self.why}" if self.sha else self.why
 
 
 def fact_files(memdir: Path) -> list[Path]:
@@ -32,9 +49,14 @@ def fact_files(memdir: Path) -> list[Path]:
 _TEXT_FIELDS = (
     "id", "text", "kind", "area", "status", "scope", "basis", "source", "summary", "writer",
     "happened_at", "learned_at", "expires_at", "until_branch_merged", "branch_tip", "at",
-    "superseded_by", "held_by",
+    "superseded_by", "held_by", "file", "sha",
 )  # fmt: skip
-_NEEDS = {"fact": ("id", "text"), "change": ("id",), "tombstone": ("id",)}
+_NEEDS = {
+    "fact": ("id", "text"),
+    "change": ("id",),
+    "tombstone": ("id",),
+    "repair": ("file", "sha"),
+}
 
 
 def _links_ok(value: object) -> bool:
@@ -57,7 +79,7 @@ def unusable(record: dict) -> str | None:
     for name in _TEXT_FIELDS:
         if record.get(name) is not None and not isinstance(record[name], str):
             return f"{name} must be a string"
-    if record.get("id") is None or (kind == "fact" and record.get("text") is None):
+    if any(record[name] is None for name in _NEEDS[kind]):
         return f"a {kind} needs {' and '.join(_NEEDS[kind])}"
     for name in ("links", "add_links"):
         if record.get(name) is not None and not _links_ok(record[name]):
@@ -67,40 +89,55 @@ def unusable(record: dict) -> str | None:
     return None
 
 
-def read_located(files: list[Path]) -> tuple[list[Located], list[str]]:
-    """Parse every line. Return the records and one message per bad line.
+def scan(files: list[Path]) -> tuple[list[Located], list[BadLine]]:
+    """Parse every line. Return the records and the bad lines, repaired ones too.
 
     This reads bytes, because a crash can cut a file inside a character. A bad byte loses its own
     line. Only a newline ends a line, because a text can hold U+2028 and JSON keeps it as it is.
     """
     found: list[Located] = []
-    errors: list[str] = []
+    bad: list[BadLine] = []
     for path in files:
         try:
             lines = path.read_bytes().split(b"\n")
         except OSError as exc:
-            errors.append(f"{path}: cannot read: {exc}")
+            bad.append(BadLine(path, 0, f"{path}: cannot read: {exc}"))
             continue
         for number, raw in enumerate(lines, start=1):
             if not raw.strip():
                 continue
+            sha = hashlib.sha1(raw.strip()).hexdigest()[:16]
+            text = raw.decode("utf-8", errors="replace")
             try:
                 record = json.loads(raw.decode("utf-8"))
+                why = unusable(record) if isinstance(record, dict) else None
+                if not isinstance(record, dict):
+                    why = "a record must be a JSON object"
             except UnicodeDecodeError:
-                errors.append(f"{path.name}:{number}: not valid UTF-8")
-                continue
+                why = "not valid UTF-8"
             except json.JSONDecodeError as exc:
-                errors.append(f"{path.name}:{number}: not valid JSON: {exc.msg}")
-                continue
-            if not isinstance(record, dict):
-                errors.append(f"{path.name}:{number}: a record must be a JSON object")
-                continue
-            why = unusable(record)
+                why = f"not valid JSON: {exc.msg}"
             if why:
-                errors.append(f"{path.name}:{number}: {why}")
-                continue
-            found.append(Located(record, path, number))
-    return found, errors
+                bad.append(BadLine(path, number, why, text, sha))
+            else:
+                found.append(Located(record, path, number, sha))
+    return found, bad
+
+
+def repaired_lines(located: list[Located]) -> set[tuple[str, str]]:
+    """(file name, line hash) of each line that a `repair` record settled."""
+    return {
+        (item.record["file"], item.record["sha"])
+        for item in located
+        if item.record.get("type") == "repair"
+    }
+
+
+def read_located(files: list[Path]) -> tuple[list[Located], list[str]]:
+    """Return the records, and one message per bad line that no repair settled."""
+    found, bad = scan(files)
+    done = repaired_lines(found)
+    return found, [b.message for b in bad if (b.path.name, b.sha) not in done]
 
 
 def read_records(files: list[Path]) -> tuple[list[dict], list[str]]:

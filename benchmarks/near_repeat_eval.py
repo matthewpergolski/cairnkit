@@ -35,9 +35,7 @@ def before(a: str, b: str) -> bool:
 
     def meaning(words: list[str]) -> Counter:
         return Counter(
-            w
-            for w in words
-            if any(ch.isdigit() for ch in w) or w in NEGATIONS or w in OPPOSITES
+            w for w in words if any(ch.isdigit() for ch in w) or w in NEGATIONS or w in OPPOSITES
         )
 
     return meaning(words_a) == meaning(words_b)

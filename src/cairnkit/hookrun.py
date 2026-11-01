@@ -9,6 +9,7 @@ prints the neutral output and exits 0.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -54,6 +55,7 @@ from cairnkit.session import (
 )
 
 NOTE_IDS = 10
+STOP_SEEN = ".stop-problems.json"
 SUBAGENT_BUDGET = 300
 # Agents that need a JSON empty object when memory exists but there is nothing to say.
 JSON_NEUTRAL = frozenset({"codex", "cursor"})
@@ -263,14 +265,39 @@ def _strict_problems(project: Project, flag: str | None) -> list[str]:
     return problems + errors + warnings + secrets_in_notes(memory)
 
 
+def _new_problems(project: Project, flag: str | None, problems: list[str]) -> list[str]:
+    """The problems that have not blocked a stop yet. Each one blocks once, in all sessions.
+
+    A problem that ends and comes back counts as new. With no place to record what was said,
+    it says nothing, because a block at each stop is the worse failure.
+    """
+    memdir, _ = resolve_memory_dir(project, flag)
+    path = memdir / STOP_SEEN
+    try:
+        seen = set(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        seen = set()
+    keys = {problem: hashlib.sha1(problem.encode()).hexdigest()[:16] for problem in problems}
+    if set(keys.values()) == seen:
+        return []
+    try:
+        path.write_text(json.dumps(sorted(keys.values())), encoding="utf-8")
+    except OSError:
+        return []
+    return [problem for problem, key in keys.items() if key not in seen]
+
+
 def stop_message(project: Project, flag: str | None, payload: dict) -> str | None:
     """What the agent must hear at stop. A failure in one step keeps the other steps."""
     parts = []
     with contextlib.suppress(Exception):
-        problems = _strict_problems(project, flag)
+        problems = _new_problems(project, flag, _strict_problems(project, flag))
         if problems:
             shown = "\n".join(f"- {clean(p)}" for p in problems[:20])
-            parts.append(f"`memory check --strict` found problems. Fix them:\n{shown}")
+            parts.append(
+                f"`memory check --strict` found problems. Run the command on each line:\n{shown}\n"
+                "This stop names each problem once. `memory check --strict` lists what is open."
+            )
     try:
         memory = Memory.open(project, flag)
     except Exception:

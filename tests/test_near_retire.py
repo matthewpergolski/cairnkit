@@ -110,7 +110,10 @@ def test_a_flagged_pair_goes_to_the_agent_task(mem, capsys):
 @pytest.mark.parametrize(
     "a,b",
     [
-        ("Service alpha calls service beta at startup", "Service beta calls service alpha at startup"),
+        (
+            "Service alpha calls service beta at startup",
+            "Service beta calls service alpha at startup",
+        ),
         ("The parser module is written in C++", "The parser module is written in C#"),
     ],
 )

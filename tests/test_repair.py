@@ -111,7 +111,9 @@ def test_repair_does_not_cover_a_new_bad_line(mem, capsys):
 
 
 def test_repair_clears_a_record_with_a_schema_problem_and_keeps_its_fact(mem, capsys):
-    _append(mem, json.dumps({"type": "fact", "id": GOOD, "text": "An old fact, still true."}) + "\n")
+    _append(
+        mem, json.dumps({"type": "fact", "id": GOOD, "text": "An old fact, still true."}) + "\n"
+    )
     assert _run(capsys, "check", "--strict")[0] == 1
     assert _run(capsys, "repair")[0] == 0
     assert _run(capsys, "check", "--strict")[0] == 0
@@ -151,7 +153,10 @@ def test_a_gone_held_by_names_a_fix_with_no_purge(mem, repo, capsys, monkeypatch
 
 def test_a_later_good_held_by_clears_the_problem(mem, repo, capsys):
     _gone_held_by(mem)
-    assert main(["change", HELD, "--status", "promoted", "--held-by", "README.md", "--reason", "x"]) == 0
+    assert (
+        main(["change", HELD, "--status", "promoted", "--held-by", "README.md", "--reason", "x"])
+        == 0
+    )
     assert _run(capsys, "check", "--strict")[0] == 0
 
 
@@ -162,7 +167,12 @@ def test_a_held_by_in_the_history_of_a_branch_is_still_fine(mem, repo, capsys):
     git(repo, "commit", "-qm", "feat")
     assert main(["add", "A rule held on feat.", "--basis", "seen", "--source", "session:1"]) == 0
     fid = capsys.readouterr().out.split()[-1]
-    assert main(["change", fid, "--status", "promoted", "--held-by", "only-on-feat.md", "--reason", "r"]) == 0
+    assert (
+        main(
+            ["change", fid, "--status", "promoted", "--held-by", "only-on-feat.md", "--reason", "r"]
+        )
+        == 0
+    )
     git(repo, "switch", "-q", "main")
     assert _run(capsys, "check", "--strict")[0] == 0
 
@@ -176,6 +186,8 @@ def test_a_held_by_in_the_history_of_a_branch_is_still_fine(mem, repo, capsys):
         (b'auto_tidy = "report"\n# caf\xe9\n', "report"),
         ("[areas\n", "auto"),
         ("skills_check = 5\n", "auto"),
+        ("[commit_msg_guard]\npatterns = 5\n", "auto"),
+        ("auto_tidy = 1\n", "off"),
     ],
 )
 def test_repair_fixes_a_config_and_keeps_the_good_lines(mem, capsys, text, mode):
