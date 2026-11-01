@@ -23,7 +23,7 @@ from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.envsecrets import EnvValues
 from cairnkit.init import real_folder_warning
-from cairnkit.memory import Memory, MemoryMissing
+from cairnkit.memory import Memory, MemoryMissing, listed
 from cairnkit.paths import (
     UNREAD_WRITER,
     Project,
@@ -152,15 +152,15 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     if held_rules:
         out.append(
             f"warning: {len(held_rules)} rule(s) held back, past the limit of {RULE_WORD_LIMIT} "
-            "words of rules. Read them all: `memory load --budget 0`. Merge rules or end the ones "
-            "that do not apply."
+            f"words of rules: {listed([name(s['id']) for s in held_rules])}. Read them all: "
+            "`memory load --budget 0`. Merge rules or end the ones that do not apply."
         )
     if budget and rule_words > budget:
         out.append(
             f"note: {len(rules) + len(held_rules)} rule(s) hold {rule_words} words, outside the "
             f"word budget of {budget}, because a rule binds in each session."
         )
-    rules.sort(key=lambda s: s.get("learned_at", ""))
+    rules.sort(key=lambda s: (s.get("learned_at") or "", s["id"]))
     instructions = [s for s in rules if owner_rule(s)]
     false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
     enforced = [s for s in instructions if s.get("enforced_by") and s not in false_claims]

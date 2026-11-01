@@ -156,7 +156,7 @@ def test_an_attribution_rule_past_the_bound_installs_the_guard_at_once(
     monkeypatch.setenv("CLAUDECODE", "1")
     _add(capsys, ["add", rule, "--kind", "rule", *basis])
     _, whole = _load(capsys)
-    assert rule not in whole, "this rule must be one that the bound held back"
+    assert (rule in whole) == bool(basis), "a data rule is held, and the newest told rule prints"
     assert "rule(s) held back" in whole
     refused = subprocess.run(
         [

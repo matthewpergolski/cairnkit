@@ -52,7 +52,7 @@ def _replace(fact_id: str) -> str:
     )
 
 
-def _listed(ids: list[str]) -> str:
+def listed(ids: list[str]) -> str:
     more = f" and {len(ids) - SHOWN_IDS} more" if len(ids) > SHOWN_IDS else ""
     return ", ".join(ids[:SHOWN_IDS]) + more
 
@@ -162,23 +162,23 @@ class Memory:
         notes = []
         if shaped:
             notes.append(
-                f"{_listed(shaped)}: holds a value that looks secret, shown as `[secret: ...]`. "
+                f"{listed(shaped)}: holds a value that looks secret, shown as `[secret: ...]`. "
                 f"For each ID, {_replace('ID')}. The new text needs no value."
             )
         if plain:
             notes.append(
-                f"{_listed(plain)}: holds a word that a `.env` secret also uses, shown as "
+                f"{listed(plain)}: holds a word that a `.env` secret also uses, shown as "
                 f"`[secret: NAME]`. {LEAVE_IT}"
             )
         if ended:
             notes.append(
-                f"{_listed(ended)}: not active, and holds a value that looks secret. Read the rest "
+                f"{listed(ended)}: not active, and holds a value that looks secret. Read the rest "
                 "with `memory show ID`, then run `memory purge ID --reason secret --yes`."
             )
         if self.secret_lines:
             refs = [line.ref for line in self.secret_lines]
             notes.append(
-                f"{_listed(refs)}: a damaged line holds a value that looks secret. Read the rest "
+                f"{listed(refs)}: a damaged line holds a value that looks secret. Read the rest "
                 "with `memory show ID`, write again what is true, then run "
                 "`memory purge ID --reason secret --yes`."
             )

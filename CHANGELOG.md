@@ -103,6 +103,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The rule word limit fills with rules that a person stands behind, and then with agent data rules.
+  An owner rule is never held while a data rule prints. Inside a class the newest wins a tie, and
+  the warning names up to 5 held rules by id.
+- `memory add` refuses text, a summary or an area that holds a mask from a load, also a mask that a
+  snippet cut, because it would replace the true word for good. The note on a plain `.env` word now
+  says to leave the fact, and it offers no rewrite.
 - An agent's change to a rule that binds is never silent. `memory change`, `--supersedes` and
   `memory purge` under an agent print a line at once, and the next load names the rule once.
   The agent must tell the owner. It stays allowed.
