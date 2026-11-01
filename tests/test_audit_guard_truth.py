@@ -45,12 +45,17 @@ REFUSED_LINES = [
     "Co-Authored-By: GPT-5.1 <jane@example.com>",
     "Co-Authored-By: Gemini 2.5 <jane@example.com>",
     "Co-Authored-By: Grok <jane@example.com>",
+    "Co-authored-by: Claude <claude.dupont@example.com>",
+    "Co-authored-by: Opus <jane@example.com>",
+    "Co-authored-by: Fable <jane@example.com>",
+    "Co-authored-by: claude <jane@example.com>",
     "Co-Authored-By: Cursor <cursoragent@cursor.com>",
     "Co-authored-by: copilot-swe-agent[bot] <1+Copilot@users.noreply.github.com>",
 ]
 ALLOWED_LINES = [
     "Co-authored-by: Claude Monet <claude@monet.example>",
-    "Co-authored-by: Claude <claude.dupont@example.com>",
+    "Co-authored-by: Devin <devin@example.com>",
+    "Co-authored-by: Jules <jules@example.com>",
     "Co-authored-by: Fable Jones <fable@example.com>",
     "Co-authored-by: Opus Lee <opus@example.com>",
     "Co-authored-by: Sonnet Patel <sonnet@example.com>",
