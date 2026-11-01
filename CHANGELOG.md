@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A purge that raced an add lost facts that were reported added, with `memory check: ok`. Each write of a
+  fact file now takes one lock, and purge reads the files inside it. The audit's race scripts: 9 facts lost
+  in 12 runs before, 0 after.
+- 8 parallel adds of one text gave 8 active copies. They now give one, because add reads the memory again
+  inside the lock.
+- A load cut by git now says in one line what it could not read and how many facts it held back. A timeout
+  no longer reads as "not in git" or as branch `main`. The branch comes from the git folder. When that names
+  none, a note goes to `branch-unread`, which each branch loads.
+- `memory add`, `change`, `keep` and `purge` have a total budget. Under a hung git, `add` took 24 seconds and
+  now takes about 3. The fact is written, and the checks that need git are skipped.
+- A stored name prints at most 80 characters. `--area` with 5000 characters gave a 5004-character load line.
+- A small `--budget` now says that rules are outside it. Rules past 1000 words are held back with a count and
+  the command that prints them.
+- Text that is not UTF-8, a read-only fact folder and a bad `.memory-path` give a clean error, not a Traceback.
+  `memory check` names the bad file. A load exits 0 from a deleted folder too.
+- A closed stdout pipe after a successful command exits 0. It exited 120, and a retry made a repeat.
 - Auto-tidy and `memory add` end a fact with no agent only for the same text, byte for byte, apart
   from whitespace and a final `.`, `,`, `;` or `:`. `-1` and `1`, `Foo` and `foo`, `users` and
   `user`, `plan A` and `plan` now keep both facts, and the agent task lists the pair. On the labelled

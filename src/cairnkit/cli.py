@@ -580,12 +580,12 @@ def main(argv: list[str] | None = None) -> int:
     from cairnkit import deadline
     from cairnkit.store import LockBusy
 
-    bad = _not_text(args)
+    # A load and a hook never block a session, whatever went wrong.
+    never_blocks = args.command in ("load", "hook")
+    bad = None if never_blocks else _not_text(args)
     if bad:
         print(f"error: {bad} is not valid UTF-8. Nothing was written.", file=sys.stderr)
         return 1
-    # A load and a hook never block a session, whatever went wrong.
-    never_blocks = args.command in ("load", "hook")
     # The budget starts before the first git call, because a slow git is what it must outlast.
     name = args.event if args.command == "hook" else args.command
     try:

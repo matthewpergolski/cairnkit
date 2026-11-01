@@ -45,6 +45,12 @@ def test_a_text_that_is_not_utf8_gets_a_clean_error(mem, repo):
     assert not (mem / "facts" / "main.jsonl").exists()
 
 
+def test_a_load_with_an_area_that_is_not_utf8_exits_0(mem, repo):
+    done = _run(repo, "load", "--area", "caf\udce9")
+    assert done.returncode == 0
+    assert "Traceback" not in done.stderr
+
+
 def test_a_read_only_fact_folder_gets_a_clean_error_and_the_load_still_works(mem, repo):
     write_facts(mem, [make_fact("f-20261001-0001", "A readable fact.")])
     facts = mem / "facts"

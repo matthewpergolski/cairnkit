@@ -166,7 +166,9 @@ the trade. One author wrote the labels.
 
 The similarity flag lost its lists of negations and opposites, and of words that look plural. A
 flag only asks an agent to look, so a pair that differs by `not` or by a number now reaches the
-agent task. It did not before, so the agent task can grow.
+agent task. It did not before, so the agent task can grow. On a copy of this repo's own memory (99
+active facts) and on the coding and synthetic fixtures (114 facts), both versions flag 0 pairs and
+retire 0, so the real memory gives no evidence for the rule, and no sign of noise.
 
 The forgetting replay does not run auto-tidy, and `harness.py` does not import the repeat test, so
 these numbers do not move it.

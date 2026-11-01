@@ -122,6 +122,8 @@ complete. Remove a row in the change that fixes it.
 | A repo with notes before the tool | A tracked file that teaches the old layout keeps teaching it until an agent edits it, and a hook keeps running the old checker. The tool names each line and never edits it. The worklist marks a repeat only when the words match. It does not mark the same rule in other words. |
 | Forget correctly | A repeat in other words, in another case or with a plural loads twice until an agent settles the pair, because auto-tidy retires only the same text byte for byte. On the labelled set it catches 3 of 29 repeats with 0 false retires of 51, and 73 pairs go to the agent task. See [the test record](docs/forgetting-tests.md#results-near-repeats). |
 | Forget correctly | A fact that the 0.3.1 miner wrote and that a later gate run accepted stays, because nothing proves who accepted it. |
+| Load | Rules past 1000 words do not load, against "rules always load". The load names how many it held back and the command that prints them all (`memory load --budget 0`). `memory check` warns at 500 words, and all the presets together hold 368. The limit stops a pile of rules from filling each session. |
+| The load never blocks | Under a git that does not answer, a load reads the branch from the git folder. With a HEAD that names no branch, it holds back the notes of other writers and says how many. Merged state and changed files are not read, so an ended note can still show and the rank has no signal about the work. A write stays under 5 seconds. Its similar and conflict checks are skipped, and it says so. |
 | The load never blocks | With `skills_auto_update = true`, an update of pstack runs inside the session start and can pass the budget. A disk that hangs on a read is not covered: the budget limits git and locks. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
 | Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
@@ -474,7 +476,9 @@ reopened and its history stays. The write never fails because of it.
 
 **The load stays small.** `memory load` prints in this order:
 
-1. Rules. They do not use the word budget.
+1. Rules. They do not use the word budget, and a note says so when they pass it. Past 1000
+   words the load holds back the rest and says how many. A rule that no check enforces goes
+   first. `memory load --budget 0` prints them all.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.
