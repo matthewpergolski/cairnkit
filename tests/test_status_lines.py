@@ -57,6 +57,7 @@ def test_one_latin_1_byte_keeps_the_branch_note(mem, capsys):
 
 
 def test_a_status_that_cannot_be_read_says_so(mem, capsys):
+    (mem / "notes" / "status.md").unlink(missing_ok=True)
     (mem / "notes" / "status.md").mkdir()
     assert any(
         line.startswith("- [status]") and "could not be read" in line for line in load(capsys)

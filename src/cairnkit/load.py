@@ -6,6 +6,7 @@ when it read nothing.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from cairnkit import followups, hygiene, install_source, migrate_refs, refresh, usage
@@ -40,6 +41,7 @@ from cairnkit.state import effective_status
 
 GIT_TIMEOUT = 1.0
 NOTE_LINES = 8
+TITLE = re.compile(r"# +\S")
 
 
 def changed_paths(root: Path, branch: str | None) -> list[str]:
@@ -55,14 +57,18 @@ def changed_paths(root: Path, branch: str | None) -> list[str]:
 
 def note_head(path: Path) -> list[str]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+        text = path.read_bytes().decode("utf-8", errors="replace")
+    except (FileNotFoundError, NotADirectoryError):
         return []
+    except OSError:
+        return [f"(This file could not be read: {path}.)"]
     body = [
-        line
-        for line in lines
-        if line.strip() and not line.startswith("#") and not line.lstrip().startswith("<!--")
+        line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("<!--")
     ]
+    # A first-line title names the file. `#96 is open` is no title, and a section heading gives a
+    # list its meaning, so both stay.
+    if body and TITLE.match(body[0]):
+        body = body[1:]
     clipped = len(body) - NOTE_LINES
     more = (
         [f"({NOTE_LINES} of {len(body)} lines shown. The rest is in {path}.)"]
