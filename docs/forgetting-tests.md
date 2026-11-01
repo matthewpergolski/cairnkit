@@ -227,6 +227,12 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
   A damaged line is scanned too, also after `memory repair`, and `memory purge line-HASH` removes
   it. The value stays on disk until a purge, and `memory check` says so. A failed command that
   holds a secret is stored and shown as a stand-in.
+  The mask needs the `.env*` file. In a clone with no such file, or after the file is removed, the
+  value prints in clear, because the tool keeps no record of it. A stored hash of a secret is a new
+  risk. The load that first sees a hard catch tells the agent to replace and purge, and
+  `tests/test_masked_copy.py` proves that this route removes the value for good. A plain word has
+  no such route, so it can print in clear where the file is absent. `memory add` refuses a mask in
+  its text, summary or area: stored as text, a mask takes the place of the true word for good.
 
 ## Limits
 

@@ -117,3 +117,32 @@ def test_a_plain_word_catch_says_leave_it_and_offers_no_rewrite(repo, mem, capsy
     shown = capsys.readouterr().out
     assert "Leave the fact" in shown
     assert "--supersedes" not in shown and "memory purge" not in shown
+
+
+HARD = "tulipfield77"
+
+
+def test_with_no_env_file_a_value_prints_until_the_printed_route_removes_it(repo, mem, capsys):
+    assert main(["add", f"the staging pass is {HARD} for now", *ADD]) == 0
+    fact_id = capsys.readouterr().out.strip().split()[-1]
+    (repo / ".env").write_text(f"ADMIN_PASSWORD={HARD}\n")
+    assert main(["load"]) == 0
+    masked = capsys.readouterr().out
+    assert HARD not in masked and "[secret: ADMIN_PASSWORD]" in masked
+    assert "--supersedes" in masked and "memory purge" in masked
+
+    (repo / ".env").unlink()
+    assert main(["load"]) == 0
+    assert HARD in capsys.readouterr().out, "the tool cannot mask what it cannot know"
+
+    (repo / ".env").write_text(f"ADMIN_PASSWORD={HARD}\n")
+    new = ["add", "the staging pass is in the team vault", "--supersedes", fact_id, *ADD]
+    assert main(new) == 0
+    assert main(["purge", fact_id, "--reason", "secret", "--yes"]) == 0
+    (repo / ".env").unlink()
+    capsys.readouterr()
+    assert main(["load"]) == 0
+    out = capsys.readouterr().out
+    assert HARD not in out and "team vault" in out
+    assert HARD not in stored(mem)
+    assert main(["check", "--strict"]) == 0
