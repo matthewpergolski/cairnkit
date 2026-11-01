@@ -88,6 +88,8 @@ before the home folder and the file system root.
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
   .auto-tidy-state.json         the state of `auto_tidy = "auto"` (safe to delete)
   .auto-tidy.lock               the lock for a retire
+  .stop-problems.json           hashes of the problems that a stop already named (safe to delete)
+  config.toml.bad               the old file, when `memory repair` changed `config.toml`
   .loop-breaker.json            the last command and its fail streak (safe to delete)
   .loop-breaker.lock            the lock for that file
   .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
@@ -118,11 +120,14 @@ same time with no conflict. Readers merge all files.
 
 Each line is one JSON object, written with no spaces between items
 (`separators=(",", ":")`) and non-ASCII characters as they are. There are
-three record types: `fact`, `change` and `tombstone`.
+four record types: `fact`, `change`, `tombstone` and `repair`.
 
 A write appends all its lines in one write, under an exclusive `flock` on the
 file (no lock on Windows). When the file does not end with `\n`, the write
-starts with `\n`.
+starts with `\n`. A wait for the lock ends after 5 seconds, and then nothing is written.
+
+A reader works by line, in bytes. Only `\n` ends a line. A line that is not UTF-8 or not JSON, or a
+record with no usable `id` or `text`, is skipped and counted. The other lines still count.
 
 An id is `f-YYYYMMDD-xxxx`: the date of `learned_at` and 4 random lower-case
 hex characters. A new id must not exist in any fact file.
@@ -211,6 +216,21 @@ other lines for that id, in every fact file.
 
 A tombstone holds no content.
 
+### Repair
+
+`memory repair` writes one for each bad line. The line stays in the file. A reader and
+`memory check` stop counting a line whose bytes match. A new bad line has other bytes.
+
+| Field | Required | Value |
+|---|---|---|
+| `type` | yes | `"repair"` |
+| `file` | yes | The name of the fact file that holds the line. |
+| `sha` | yes | The first 16 characters of the SHA-1 of the line, with no outer white space. |
+| `line` | no | The line number when it was written. |
+| `why` | no | What was wrong. |
+| `at` | yes | The time. |
+| `writer` | yes | The writer. |
+
 ### Example
 
 ```json
@@ -262,6 +282,9 @@ skills_auto_update = false    # true: session start updates pstack where it is i
 [commit_msg_guard]            # extended regular expressions, matched without case
 patterns = ["^co-authored-by:.*(some-tool)", "^generated with "]
 ```
+
+A file that cannot be parsed, a bad `auto_tidy` value and a key close to `auto_tidy` turn auto-tidy
+off, the safest behavior. `memory check` names each bad setting, and `memory repair` drops it.
 
 A file from an older version may hold `short_term_days` or `rules_file`. The tool
 uses neither.
@@ -555,7 +578,8 @@ User-level skill markers (not in the memory folder; under
   bearer tokens, named secrets such as `CRON_SECRET=`, secrets in URLs) in any field;
 - a change to an unknown fact;
 - `superseded_by` or a link to an unknown fact;
-- `held_by` that does not exist here or in the history of any branch;
+- the current `held_by` of a promoted fact, when it does not exist here or in the history of any
+  branch. `memory change ID --status active` clears it;
 - a missing, broken or wrong `memory-bank` link, or a real folder in its place, in any checkout.
 
 A writer name that differs from the file name is a warning, not an error.

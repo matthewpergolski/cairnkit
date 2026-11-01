@@ -68,7 +68,7 @@ def test_a_mined_fact_ends_and_stays_in_the_archive(mem, capsys):
 
 
 def test_a_person_who_accepted_a_passing_candidate_keeps_the_fact(mem):
-    """A real `memory candidates accept` on 0.3.1 wrote the same lines, but later than a hook can."""
+    """A real `memory candidates accept` on 0.3.1 wrote these lines, but later than a hook can."""
     write_facts(mem, [make_fact("f-20261001-0001", FRAGMENT, **GATE)])
     _candidates(mem, "f-20261001-0001", decided="2026-10-01T12:00:04-06:00")
     assert _clean(mem) == []

@@ -78,7 +78,7 @@ show that the step is intended.
    `uv run python scripts/check_review_gate.py path/to/body.md`. Pull requests run
    the same check as the `review-gate` CI job.
 11. **Tidy is mechanical, and age ends nothing.** `memory tidy --auto` retires only
-   the clear cases: an exact or near repeat, an ended short-term note, and a short-term
+   the clear cases: an exact repeat, a repeat that differs only in form, an ended short-term note, and a short-term
    note whose source file is gone. `memory tidy` lists changes that an agent applies,
    and it never asks a person to review a queue. Do not add a rule that ends a fact
    because of its age, its active days or a count of loads. Do not add a step that
@@ -111,7 +111,9 @@ src/cairnkit/
   config.py      config.toml
   memory.py      one opened memory
   writing.py     add, change, keep, purge
-  similar.py     exact and near repeats of a fact
+  similar.py     exact repeats, repeats in form, and similar pairs
+  repair.py      memory repair: settle bad lines and a bad config
+  deadline.py    the total time budget of a load or a hook
   rules.py       commits rule facts and the commit-msg guard sync
   presets.py     rule presets: load, resolve, plan, seed; memory preset
   preset_data/   the presets as TOML (commits, basic, dev)

@@ -145,6 +145,26 @@ The coding fixture has 13 pairs where a newer fact makes an older one stale.
 The fixture is hand-written, so the real rate of false pairs is not known. For this reason the
 overlap only prompts the agent. It never ends a fact.
 
+## Results: near repeats
+
+`benchmarks/near_repeat_eval.py` runs a labelled set of 64 pairs. It holds 40 real sentence pairs
+from the docs of this repo, 4 from an audit, 7 from the tests and 13 that one author wrote. A pair
+is `repeat` when the newer text says all that the older one says, else `different`.
+
+| Rule | False retires, of 35 | Repeats caught, of 29 | Pairs left for the agent task |
+|---|---:|---:|---:|
+| 80 percent of the words, the same numbers, negations and opposites | 21 | 23 | 0 |
+| The same words in order, after case, plural, punctuation and stop words | 0 | 9 | 36 |
+
+**The cost is explicit.** 20 of the 29 repeats now load twice until an agent settles them. A false
+retire loses a true fact, and a repeat costs some words in the load, so this is the right side of
+the trade. Both rules retire 0 pairs on a copy of this repo's own memory (66 facts), on the coding
+and synthetic fixtures (122 facts) and on the test fixture (9 facts), because none of them holds
+such a pair. So the real memory gives no evidence for either rule. One author wrote the labels.
+
+The forgetting replay does not run auto-tidy, so these numbers do not move it. A run before and
+after this change gave the same summary in all rows.
+
 ## Reproduced defects in 0.3.1
 
 Each item was reproduced by hand against 0.3.1 after real agents reported it:
@@ -177,7 +197,11 @@ Each item was reproduced by hand against 0.3.1 after real agents reported it:
   as `not-connected`, inferred from their trust steps. Cursor has no fake path. The scenarios for
   old facts, for a wrong trap and for capture have no real model run yet.
 - **Session start.** With 2000 facts, the median wall time fell from 48.2 seconds to 1.42 seconds
-  on a loaded computer. Run `benchmarks/session_start_time.py` to measure it again.
+  on a loaded computer. Run `benchmarks/session_start_time.py` to measure it again. With the
+  near-repeat rule that needs only one group per fact, one later run gave .59 seconds before and
+  .53 seconds after, in the same conditions, and 1.16 seconds at 5000 facts.
+- **Slow git.** With git at 2 seconds per call, a load fell from 43 seconds to 7.1 seconds, and a
+  session start from past 60 seconds to 7.1 seconds. Both still print the facts.
 - **Secret scan.** A value behind a secret label is refused unless its shape says that it is no
   value. A value from an untracked `.env*` file is refused too. On the hand-written sets, 0 of 30
   ordinary lines are refused and 39 of 39 secrets are refused, the same as before. Of 8 lines that

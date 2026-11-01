@@ -89,12 +89,12 @@ def test_the_old_true_and_false_still_work(mem, capsys, monkeypatch, value, acts
     assert bool(retired(mem)) is acts
 
 
-def test_an_unknown_value_means_the_default(mem, capsys, monkeypatch):
+def test_an_unknown_value_keeps_auto_tidy_off(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     config(mem, 'auto_tidy = "sometimes"')
     write_facts(mem, copies())
     out = start(capsys, monkeypatch)
-    assert retired(mem) == [] and "would retire 1" in out
+    assert retired(mem) == [] and "would retire" not in out
 
 
 def test_tidy_auto_by_hand_acts_in_report_mode(mem, capsys, monkeypatch):

@@ -120,6 +120,9 @@ complete. Remove a row in the change that fixes it.
 | Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A branch that came after its note and left before tidy saw it reads as unknown, and tidy names the note. So does an old fact whose branch is already gone. A stale note on such a branch stays. A false end would be worse. One false end remains: a memory moved to a new clone reads a branch as ended when that branch was never pushed and had no commit of its own when the note was written. |
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
 | A repo with notes before the tool | A tracked file that teaches the old layout keeps teaching it until an agent edits it, and a hook keeps running the old checker. The tool names each line and never edits it. The worklist marks a repeat only when the words match. It does not mark the same rule in other words. |
+| Forget correctly | A repeat in other words loads twice until an agent settles the pair, because auto-tidy retires only a change in form. On the labelled set it catches 9 of 29 repeats, and 36 pairs go to the agent task. See [the test record](docs/forgetting-tests.md#results-near-repeats). |
+| Forget correctly | A fact that the 0.3.1 miner wrote and that a later gate run accepted stays, because nothing proves who accepted it. |
+| The load never blocks | With `skills_auto_update = true`, an update of pstack runs inside the session start and can pass the budget. A disk that hangs on a read is not covered: the budget limits git and locks. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
 | Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
 | No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git, and that name can block `memory init` once for a new project beside an old memory. |
@@ -372,7 +375,8 @@ it. It ends nothing. The `general` area gets no such check, so a fact with no
 **Clean-up needs no person.** At each session start, the hook retires what
 needs no judgment:
 
-- an exact repeat and a near repeat of a fact (the older fact is superseded);
+- an exact repeat of a fact, and a near repeat that differs only in case, plural, punctuation
+  or a stop word (the older fact is superseded);
 - a short-term note that has ended;
 - a short-term note whose `source: file:PATH` is in no checkout.
 
@@ -429,7 +433,9 @@ an active fact of the same kind and scope that says the same thing. An exact rep
 supersedes the old fact. An exact repeat of a rule or a pinned fact writes nothing
 and says so. A near repeat (80 percent of the words) is written with a `similar_to`
 link, and the output names the similar fact and the command that replaces it.
-Auto-tidy supersedes the older fact of a near repeat when its gate is open. A pair
+Auto-tidy supersedes the older fact when its gate is open and the two differ only in case,
+plural, punctuation or a stop word. Any other differing word can make a different fact, such as
+staging and production, so that pair goes to the agent task and both stay active. A pair
 is not similar when the words that differ include a number, a negation (`not`,
 `no`, `never`, `don't`, `without`) or one side of an opposite pair (`enable` and
 `disable`), counted by how often each occurs. One such word can reverse the
@@ -731,6 +737,7 @@ level only. It writes nothing into a repo.
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]] [--instructions-file PATH]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. `shared` is refused. |
 | `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--force` rewrites the pages and removes other Markdown files in that folder. No hook runs it, because the folder may be tracked. `memory status` shows one line when the pages differ from the code. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
+| `memory repair` | an agent, when a stop or `memory check` names it | Settles a bad line with an appended record, and the bytes stay. Drops a bad setting from `config.toml` and keeps a copy in `config.toml.bad`. It deletes no fact. |
 | `memory purge ID --reason secret --yes` | you, rarely | Removes a secret for good. |
 
 ### Where the memory lives
@@ -809,8 +816,12 @@ Rules for every adapter:
 - It is safe to run again. It writes each hook once.
 - The hooks call `python -m cairnkit` with the full path of the Python
   that runs the tool, so they do not depend on `PATH`.
-- The session-start hook never blocks a session. The stop hook never loops: it
-  stays quiet when the tool says it already continued the agent once.
+- The session-start hook never blocks a session. It has a total budget of 7 seconds, under the
+  shortest hook timeout of any adapter. Optional steps stop first and run at a later session
+  start, and the load still prints the facts. A lock wait ends after 5 seconds. Then a hook goes
+  on, and `memory add` says that it wrote nothing.
+- The stop hook never loops: it stays quiet when the tool says it already continued the agent
+  once. It blocks once for a given problem, and each line names its command.
 
 ## CI
 
