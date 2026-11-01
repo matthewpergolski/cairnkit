@@ -103,6 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A rule-change notice in a load holds no stored text above the frame. It names the id and the
+  `memory show` command.
 - A roll back to 0.3.1 keeps working after a dev repair or a branch tip note. `memory repair` writes
   to `repairs.jsonl` beside the fact files, and it still reads an older `repair` record. A branch
   tip record now holds a field that 0.3.1 accepts.
