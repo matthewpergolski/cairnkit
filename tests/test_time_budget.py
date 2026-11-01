@@ -110,7 +110,7 @@ def test_a_held_fact_lock_makes_add_fail_clearly_and_a_retry_lands(mem, repo):
     write_facts(mem, [make_fact(PINNED, "Something.")])
     text = "A fact written while the file is locked."
     path = mem / "facts" / "main.jsonl"
-    with path.open("ab") as held:
+    with (mem / "facts" / store.WRITE_LOCK).open("ab") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
         done, took = _command(repo, os.environ, "add", text, *FLAGS)
     assert done.returncode == 1

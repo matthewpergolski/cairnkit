@@ -23,17 +23,22 @@ except ImportError:  # Windows
 
 # Only a writer that hangs holds a lock this long: a write takes milliseconds.
 LOCK_WAIT = 5.0
+# One lock for each write of a fact file. A purge replaces a file, so a lock on the file itself
+# would leave a writer that holds the old file writing to nothing.
+WRITE_LOCK = ".write.lock"
+# A write still waits this long after git used the whole budget: the fact comes first.
+WRITE_LOCK_FLOOR = 1.0
 
 
 class LockBusy(Exception):
     """Another process held a lock past the limit. The write did not happen."""
 
 
-def _lock(fh, path: Path) -> None:
+def _lock(fh, path: Path, floor: float = 0) -> None:
     """Take the lock, or raise LockBusy at the limit. A session must not wait forever."""
     if fcntl is None:
         return
-    wait = max(min(LOCK_WAIT, deadline.left()), 0)
+    wait = max(min(LOCK_WAIT, deadline.left()), floor)
     end = time.monotonic() + wait
     while True:
         try:
@@ -181,43 +186,59 @@ def encode(record: dict) -> str:
 
 def append_records(path: Path, records: list[dict]) -> None:
     """Append records as JSON lines in one write. Earlier bytes never change."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = "".join(encode(r) + "\n" for r in records).encode("utf-8")
-    with path.open("ab") as fh:
-        _lock(fh, path)
-        try:
-            size = fh.seek(0, os.SEEK_END)
-            if size:
-                with path.open("rb") as check:
-                    check.seek(size - 1)
-                    if check.read(1) != b"\n":
-                        payload = b"\n" + payload
-            fh.write(payload)
-            fh.flush()
-            os.fsync(fh.fileno())
-        finally:
-            if fcntl is not None:
-                fcntl.flock(fh, fcntl.LOCK_UN)
+    with locked(path.parent / WRITE_LOCK, WRITE_LOCK_FLOOR), path.open("ab") as fh:
+        size = fh.seek(0, os.SEEK_END)
+        if size:
+            with path.open("rb") as check:
+                check.seek(size - 1)
+                if check.read(1) != b"\n":
+                    payload = b"\n" + payload
+        fh.write(payload)
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+_held: set[Path] = set()
 
 
 @contextlib.contextmanager
-def locked(path: Path) -> Iterator[None]:
-    """Hold an exclusive lock on a lock file while the block runs (no lock on Windows)."""
+def locked(path: Path, floor: float = 0) -> Iterator[None]:
+    """Hold an exclusive lock on a lock file while the block runs (no lock on Windows).
+
+    A block inside a block of the same lock does not lock again, because flock would wait on itself.
+    """
+    if path in _held:
+        yield
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("ab") as fh:
-        _lock(fh, path)
+        _lock(fh, path, floor)
+        _held.add(path)
         try:
             yield
         finally:
+            _held.discard(path)
             if fcntl is not None:
                 fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def drop_id(path: Path, fact_id: str) -> int:
-    """Rewrite one file without the lines for fact_id. Return how many lines went.
+def write_lock(memdir: Path):
+    """The lock of every write to the fact files of one memory."""
+    return locked(memdir / "facts" / WRITE_LOCK, WRITE_LOCK_FLOOR)
 
-    A line goes when it parses to that id, or when it does not parse and holds the id.
+
+def drop_id(memdir: Path, fact_id: str) -> int:
+    """Rewrite each fact file without the lines for fact_id. Return how many lines went.
+
+    The files are read inside the lock, so a fact that an add wrote a moment ago stays.
     """
+    with write_lock(memdir):
+        return sum(_drop_from(path, fact_id) for path in fact_files(memdir))
+
+
+def _drop_from(path: Path, fact_id: str) -> int:
+    """A line goes when it parses to that id, or when it does not parse and holds the id."""
     kept: list[bytes] = []
     dropped = 0
     for raw in io.BytesIO(path.read_bytes()):

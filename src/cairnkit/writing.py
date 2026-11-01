@@ -24,7 +24,7 @@ from cairnkit.selection import DATA_LABEL, clean, load_text, name
 from cairnkit.similar import analyze, possible_conflicts, repeat_key, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
-from cairnkit.store import append_records, drop_id, fact_files
+from cairnkit.store import append_records, drop_id, fact_files, write_lock
 
 DEFAULT_BASIS = "guess"
 # What git adds to a write is a note. With a slow git, the fact still lands in a tool's time limit.
@@ -107,17 +107,14 @@ def _no_end_event(memory: Memory, fact: dict) -> str | None:
     return f"{branch} is the default branch" if branch == base else None
 
 
-def _peers(memory: Memory, args, moment, is_merged) -> list[dict]:
-    """Active facts of the same kind and scope as the new one."""
-    scope = _scope(args)
-    return [
-        state
-        for state in memory.states.values()
-        if state.get("status") != "purged"
+def _is_peer(state: dict, args, moment, is_merged) -> bool:
+    """An active fact of the same kind and scope as the new one."""
+    return (
+        state.get("status") != "purged"
         and state.get("kind", "fact") == args.kind
-        and state["scope"] == scope
+        and state["scope"] == _scope(args)
         and effective_status(state, moment, is_merged)[0] == "active"
-    ]
+    )
 
 
 def _find_repeat(memory: Memory, args, moment, is_merged) -> dict | None:
@@ -125,8 +122,8 @@ def _find_repeat(memory: Memory, args, moment, is_merged) -> dict | None:
     key = repeat_key(args.text)
     same = [
         state
-        for state in _peers(memory, args, moment, is_merged)
-        if repeat_key(state.get("text", "")) == key
+        for state in memory.states.values()
+        if repeat_key(state.get("text", "")) == key and _is_peer(state, args, moment, is_merged)
     ]
     return max(same, key=lambda state: state.get("learned_at", ""), default=None)
 
@@ -136,10 +133,10 @@ def _find_similar(memory: Memory, args, moment, is_merged) -> tuple[dict, float]
     key = repeat_key(args.text)
     words = analyze(args.text)
     best: tuple[tuple, dict] | None = None  # (score, learned_at), state
-    for state in _peers(memory, args, moment, is_merged):
+    for state in memory.states.values():
         text = state.get("text", "")
         score = None if repeat_key(text) == key else similarity(words, analyze(text))
-        if score is None:
+        if score is None or not _is_peer(state, args, moment, is_merged):
             continue
         rank = (score, state.get("learned_at", ""))
         if best is None or rank > best[0]:
@@ -166,48 +163,24 @@ def _retired_match(memory: Memory, args, moment) -> tuple[dict, str, str | None]
 def add_fact(memory: Memory, args) -> str | None:
     """Write a fact and return its id. Never refuses a fact for being similar.
 
-    An exact repeat supersedes the old fact. For a rule or a pinned fact it
-    writes nothing and returns None. A near repeat is written with a
-    `similar_to` link, and the output says how to supersede the old fact.
-    A fact that a person stated (basis `told`) is never superseded by a fact
-    with another basis. The new fact is written beside it, linked. The same
-    words as a retired fact are written with a link and a note.
+    A repeat supersedes the old fact. For a rule or a pinned fact it writes nothing and returns
+    None. Inside the write lock the memory is read again, so parallel adds of one text leave one
+    active fact. A near repeat is written with a `similar_to` link, and the output says how to
+    supersede the old fact. A fact that a person stated (basis `told`) is never superseded by a
+    fact with another basis. The new fact is written beside it, linked. The same text as a retired
+    fact is written with a link and a note.
+
+    What git adds is read before the lock, because a slow git must not hold the lock.
     """
     moment = now()
-    repeat = near = kept = None
     claimed = args.basis
     args.basis = claimed or DEFAULT_BASIS
     args.source = args.source or f"session:{moment.date().isoformat()}"
     mine = {"basis": args.basis}
-    if not args.supersedes:
-        is_merged = merged_checker(memory.project.root)
-        with deadline.within(LOOK_BUDGET):
-            old = _find_repeat(memory, args, moment, is_merged)
-            near = None if old else _find_similar(memory, args, moment, is_merged)
-        if old:
-            if old.get("kind") == "rule" or old.get("pinned"):
-                print(f"already exists: {old['id']} says this. Nothing written.")
-                return None
-            if outranks(old, mine):
-                kept = old
-            else:
-                repeat = old["id"]
-                # No claim was made, and the words are the same, so the older claim still holds.
-                args.basis = claimed or old.get("basis", DEFAULT_BASIS)
-    writer = writer_name(memory.project.root)
+    root = memory.project.root
+    writer = writer_name(root)
     links = [parse_link(v) for v in args.link or []]
     _check_links(memory, links)
-    supersedes = args.supersedes or repeat
-    target = _need_fact(memory, supersedes) if supersedes else None
-    if target and target["status"] != "active":
-        raise Refused(f"{supersedes} is {target['status']}, not active")
-    if target and args.supersedes and outranks(target, mine):
-        kept, supersedes = target, None
-    with deadline.within(LOOK_BUDGET):
-        retired = None if repeat else _retired_match(memory, args, moment)
-    for other in (near[0] if near else None, kept, retired[0] if retired else None):
-        if other and {"rel": "similar_to", "id": other["id"]} not in links:
-            links.append({"rel": "similar_to", "id": other["id"]})
     summary = getattr(args, "summary", None)
     if isinstance(summary, str):
         summary = summary.strip() or None
@@ -217,36 +190,11 @@ def add_fact(memory: Memory, args) -> str | None:
     _check_secrets(
         memory, args.text, summary, args.source, args.reason, args.area, *(args.tag or [])
     )
-    fact = {
-        "type": "fact",
-        "id": _new_id(memory, moment.strftime("%Y%m%d")),
-        "kind": args.kind,
-        "text": args.text.strip(),
-        "area": args.area,
-        "happened_at": args.happened_at or moment.date().isoformat(),
-        "learned_at": stamp(moment),
-        "source": args.source,
-        "basis": args.basis,
-        "status": "active",
-        "scope": _scope(args),
-        "writer": writer,
-    }
-    if summary:
-        fact["summary"] = summary
-    if running_tool():
-        fact["author"] = f"agent:{running_tool()}"
-    if args.tag:
-        fact["tags"] = args.tag
-    if links:
-        fact["links"] = links
-    if args.pinned:
-        fact["pinned"] = True
-    if args.enforced_by:
-        if args.kind != "rule":
-            raise Refused("--enforced-by is only for --kind rule")
-        fact["enforced_by"] = args.enforced_by
+    if args.enforced_by and args.kind != "rule":
+        raise Refused("--enforced-by is only for --kind rule")
+    ends: dict = {}
     if args.expires:
-        fact["expires_at"] = args.expires
+        ends["expires_at"] = args.expires
     branch_note = args.short and not args.expires and memory.project.is_git
     if args.until_merged is None and branch_note:
         args.until_merged = ""  # A short note ends with its branch. The clock alone ends nothing.
@@ -257,27 +205,82 @@ def add_fact(memory: Memory, args) -> str | None:
                 "Use --short (and --expires DATE) instead."
             )
         named = "" if args.until_merged == "HEAD" else args.until_merged
-        branch = named or current_branch(memory.project.root)
+        branch = named or current_branch(root)
         if not branch and not branch_note:
             raise Refused("--until-merged needs a branch name (HEAD is detached)")
         if branch:
-            fact["until_branch_merged"] = branch
-            tip = branch_tip(memory.project.root, branch)
+            ends["until_branch_merged"] = branch
+            tip = branch_tip(root, branch)
             if tip:
-                fact["branch_tip"] = tip
-    records = [_validated(fact)]
-    if supersedes:
-        change = {
-            "type": "change",
-            "id": supersedes,
-            "at": stamp(moment),
-            "status": "superseded",
-            "superseded_by": fact["id"],
-            "reason": args.reason or f"Replaced by {fact['id']}.",
+                ends["branch_tip"] = tip
+    is_merged = merged_checker(root)
+    near = None if args.supersedes else _find_similar(memory, args, moment, is_merged)
+    retired = _retired_match(memory, args, moment)
+    with write_lock(memory.dir):
+        memory.reload()
+        repeat = kept = None
+        old = None if args.supersedes else _find_repeat(memory, args, moment, is_merged)
+        if old:
+            if old.get("kind") == "rule" or old.get("pinned"):
+                print(f"already exists: {old['id']} says this. Nothing written.")
+                return None
+            near = None
+            if outranks(old, mine):
+                kept = old
+            else:
+                repeat = old["id"]
+                retired = None
+                # No claim was made, and the text is the same, so the older claim still holds.
+                args.basis = claimed or old.get("basis", DEFAULT_BASIS)
+        supersedes = args.supersedes or repeat
+        target = _need_fact(memory, supersedes) if supersedes else None
+        if target and target["status"] != "active":
+            raise Refused(f"{supersedes} is {target['status']}, not active")
+        if target and args.supersedes and outranks(target, mine):
+            kept, supersedes = target, None
+        for other in (near[0] if near else None, kept, retired[0] if retired else None):
+            if other and {"rel": "similar_to", "id": other["id"]} not in links:
+                links.append({"rel": "similar_to", "id": other["id"]})
+        fact = {
+            "type": "fact",
+            "id": _new_id(memory, moment.strftime("%Y%m%d")),
+            "kind": args.kind,
+            "text": args.text.strip(),
+            "area": args.area,
+            "happened_at": args.happened_at or moment.date().isoformat(),
+            "learned_at": stamp(moment),
+            "source": args.source,
+            "basis": args.basis,
+            "status": "active",
+            "scope": _scope(args),
             "writer": writer,
         }
-        records.append(_validated(change))
-    append_records(memory.writer_file(writer), records)
+        if summary:
+            fact["summary"] = summary
+        if running_tool():
+            fact["author"] = f"agent:{running_tool()}"
+        if args.tag:
+            fact["tags"] = args.tag
+        if links:
+            fact["links"] = links
+        if args.pinned:
+            fact["pinned"] = True
+        if args.enforced_by:
+            fact["enforced_by"] = args.enforced_by
+        fact.update(ends)
+        records = [_validated(fact)]
+        if supersedes:
+            change = {
+                "type": "change",
+                "id": supersedes,
+                "at": stamp(moment),
+                "status": "superseded",
+                "superseded_by": fact["id"],
+                "reason": args.reason or f"Replaced by {fact['id']}.",
+                "writer": writer,
+            }
+            records.append(_validated(change))
+        append_records(memory.writer_file(writer), records)
     _refresh_followups(memory)
     if not claimed and fact["basis"] == DEFAULT_BASIS:
         print(
@@ -422,7 +425,7 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
             "Run again with --yes to purge."
         )
     _check_secrets(memory, reason)
-    dropped = sum(drop_id(path, fact_id) for path in fact_files(memory.dir))
+    dropped = drop_id(memory.dir, fact_id)
     tomb = {
         "type": "tombstone",
         "id": fact_id,
