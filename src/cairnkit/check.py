@@ -32,7 +32,7 @@ from cairnkit.paths import (
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_in_record, find_secrets
-from cairnkit.selection import clean
+from cairnkit.selection import RULE_WORD_LIMIT, clean
 from cairnkit.state import effective_status
 from cairnkit.store import Located, fact_files, read_located, repaired_lines
 
@@ -315,8 +315,9 @@ def run_check(
         count, words = rule_words(memory)
         if words > RULE_WORD_CAP:
             print(
-                f"note: {count} active rule(s) hold {words} words; every session loads them "
-                f"all. Above {RULE_WORD_CAP} words, merge rules or end the ones that do not apply."
+                f"note: {count} active rule(s) hold {words} words; every session loads up to "
+                f"{RULE_WORD_LIMIT} words of them. Above {RULE_WORD_CAP} words, merge rules or end "
+                "the ones that do not apply."
             )
         if advisory:
             print_advisory(memory)

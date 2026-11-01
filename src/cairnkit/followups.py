@@ -17,6 +17,7 @@ from cairnkit.autotidy import _protected, outranks
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, merged_checker
+from cairnkit.selection import name
 from cairnkit.similar import Pair, analyze, repeat_key, similar_pairs
 from cairnkit.state import effective_status
 
@@ -103,7 +104,8 @@ def open_pairs(memory: Memory) -> list[tuple[dict, dict, float, str]]:
 def _line(state: dict) -> str:
     text = " ".join(str(state.get("text", "")).split())
     return (
-        f"[{state['id']}] ({state.get('kind', 'fact')}, {state.get('area', '?')}) {text[:SNIPPET]}"
+        f"[{state['id']}] ({state.get('kind', 'fact')}, {name(state.get('area', '?'))}) "
+        f"{text[:SNIPPET]}"
     )
 
 

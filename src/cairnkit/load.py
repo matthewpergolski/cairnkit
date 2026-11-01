@@ -39,7 +39,9 @@ from cairnkit.selection import (
     FRAME_HEADER,
     areas_for_paths,
     branch_words,
+    RULE_WORD_LIMIT,
     clean,
+    bound_rules,
     name,
     owner_rule,
     pick,
@@ -157,6 +159,19 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     instructions = [s for s in rules if owner_rule(s)]
     false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
     enforced = [s for s in instructions if s.get("enforced_by") and s not in false_claims]
+    rule_words = sum(words_in(render(s)) for s in rules)
+    rules, held_rules = bound_rules(rules) if budget else (rules, [])
+    if held_rules:
+        out.append(
+            f"warning: {len(held_rules)} rule(s) held back, past the limit of {RULE_WORD_LIMIT} "
+            "words of rules. Read them all: `memory load --budget 0`. Merge rules or end the ones "
+            "that do not apply."
+        )
+    if budget and rule_words > budget:
+        out.append(
+            f"note: {len(rules) + len(held_rules)} rule(s) hold {rule_words} words, outside the "
+            f"word budget of {budget}, because a rule binds in each session."
+        )
     advisory = [s for s in instructions if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
@@ -218,7 +233,7 @@ def _explain(
 ) -> list[str]:
     out = [
         "## Ranking (--explain)",
-        "Rules and pinned facts are always shown. Other facts are ranked by "
+        f"Pinned facts always show, and rules up to {RULE_WORD_LIMIT} words. Other facts rank by "
         "total = recency + kind + area + mention + trap + branch + use, until the word budget "
         "is used. A fact that does not fit stays active and searchable.",
     ]
