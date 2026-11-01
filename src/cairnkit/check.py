@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from cairnkit import instruction_files, migrate_refs, presets
+from cairnkit import githook, instruction_files, migrate_refs, presets
 from cairnkit.clock import now
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
@@ -208,6 +208,11 @@ def run_check(
     if not memdir.is_dir() and not link_exists:
         print(f"memory check: skipped: no memory folder at {memdir}")
         return 0
+    # Printed here, not added to warnings: --strict must not fail on what git runs, and an
+    # older git cannot fix a hidden hook.
+    hooks = githook.hook_state(project).line
+    if hooks:
+        print(hooks)
     errors = check_links(project, memdir)
     warnings: list[str] = []
     if (memdir / "facts").is_dir():

@@ -98,7 +98,7 @@ def _agents(project: Project) -> dict[str, list[Path]]:
 def _hook_text_is_old(project: Project) -> bool:
     """A hook block from this version number that older dev builds wrote differently."""
     folder = githook.hooks_dir(project) if project.is_git else None
-    if folder is None or githook._inside_worktree(project, folder):
+    if folder is None:
         return False
     if _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK):
         return True
@@ -112,7 +112,7 @@ def _hook_text_is_old(project: Project) -> bool:
 
 def _local_hooks(project: Project) -> list[str]:
     folder = githook.hooks_dir(project) if project.is_git else None
-    if folder is None or githook._inside_worktree(project, folder):
+    if folder is None:
         return []
     names = (
         "pre-commit",
@@ -139,6 +139,9 @@ def repo_line(project: Project, flag: str | None) -> str | None:
         memdir = _memdir(project, flag)
         if memdir is None:
             return None
+        state = githook.hook_state(project)
+        if state.fixable:
+            return "memory: " + state.line.removeprefix("warning: ")
         version = read_stamp(memdir).get("version")
         stale_hook = _hook_text_is_old(project)
         if version:

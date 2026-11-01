@@ -116,9 +116,7 @@ def _install_push_check(project: Project, flag: str | None, on: bool, dry: bool)
 
 def githook_connected(project: Project) -> bool:
     """True when the memory git hooks run here."""
-    folder = githook.hooks_dir(project) if project.is_git else None
-    path = folder / "pre-commit" if folder else None
-    return bool(path and path.is_file() and githook.holds_block(path.read_text(errors="replace")))
+    return project.is_git and githook.is_running(project, "pre-commit")
 
 
 def sync_guard_only(project: Project, flag: str | None) -> None:
@@ -139,9 +137,10 @@ def _print_summary(
     """Two or three lines. `--verbose` or `memory hooks install` prints each step."""
     agents = [name for name in names if name != "generic"]
     print(f"Agents connected: {', '.join(agents)}." if agents else "No agent tool found here.")
-    if project.is_git and git_hook:
+    if project.is_git and git_hook and not any(s.startswith("skip") for s in steps):
         extra = ", and a commit-message check" if guard else ""
-        print(f"Git hooks installed in .git/hooks{extra}. They are not shared.")
+        folder = os.path.relpath(githook.hooks_dir(project), project.root)
+        print(f"Git hooks installed in {folder}{extra}. They are not shared.")
     for step in steps:
         if step.startswith(("skip", "note")):
             print(step)

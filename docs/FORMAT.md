@@ -291,7 +291,10 @@ marker with no end marker runs to the end of the file.
 Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `commit-msg`
 in the hooks folder that git uses (`git rev-parse --git-path hooks`).
 When that folder is inside a checkout (`core.hooksPath` points into the repo), the
-tool writes nothing and says so. Install and refresh remove a `post-commit` block
+files go to `.git/cairnkit-hooks` instead, and each one gets `hook.cairnkit-NAME.event`
+and `hook.cairnkit-NAME.command` in the local git config, so git 2.54 or newer runs it
+beside that folder. A hook there that already runs memory gets no second run. An older
+git gets nothing, and the tool says so. Install and refresh remove a `post-commit` block
 that 0.3.1 wrote.
 
 | | Start | End |

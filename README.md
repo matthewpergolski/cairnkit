@@ -107,7 +107,7 @@ complete. Remove a row in the change that fixes it.
 | Goal | What happens today |
 |---|---|
 | Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`. `memory init` and `memory status` say so only after Codex has run a session. Codex does not record the approval in a place the tool reads, so `memory status` keeps the line while Codex is in use. |
-| Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo, the git hooks are not written. |
+| Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo and git is older than 2.54, the git hooks do not run, and `memory check` says so. |
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
 | Each agent gets the same result | Grok Build reads only `systemMessage` from `SessionStart`, so a hook cannot add the memory to the context there. The memory reaches the model at the first tool result. A reply before the first tool has no memory. |
@@ -173,7 +173,10 @@ session end. To see the plan first, run `memory init --dry-run`. To skip the
 agent tools and the git hooks, run `memory init --no-hooks`.
 
 `memory init` adds four personal git hooks: `pre-commit`, `post-checkout`,
-`pre-push` and `post-merge`. They are not shared. The last two run auto-tidy after
+`pre-push` and `post-merge`. They are not shared. When `core.hooksPath` points into the
+repo, they live in `.git/cairnkit-hooks`, and the local git config runs them beside the
+tracked hooks (git 2.54 or newer). The tool changes no tracked hook and leaves
+`core.hooksPath` as it is. `memory check` and `memory status` print the real hook state. The last two run auto-tidy after
 a push or a merge. They print nothing. Git hooks work for every agent, including an
 agent with no adapter.
 

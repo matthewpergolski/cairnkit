@@ -87,7 +87,8 @@ show that the step is intended.
 12. **No tool text loads as a fact.** A hook names an event to the agent. Only the
    agent writes a fact.
 13. **No tracked writes.** A setup or hook path must not write a tracked file. When a
-   file is tracked, the code skips it and says so.
+   file is tracked, the code skips it and says so. Under a tracked `core.hooksPath`, the hooks
+   run from `.git/cairnkit-hooks` through the local git config.
 
 ## Layout
 

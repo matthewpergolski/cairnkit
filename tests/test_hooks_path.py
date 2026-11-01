@@ -202,7 +202,7 @@ def test_setting_the_path_later_is_warned_about_and_then_healed(repo, mem, capsy
     line = refresh.repo_line(find_project(), None)
     assert line and "memory hooks install" in line
     assert main(HOOK) == 0
-    assert not githook.holds_block((repo / ".git" / "hooks" / "pre-commit").read_text() + " ")
+    assert not (repo / ".git" / "hooks" / "pre-commit").exists()
     capsys.readouterr()
     assert main(["check", "--strict"]) == 0
     out = capsys.readouterr().out
@@ -285,7 +285,8 @@ LAYOUTS = ["plain .git/hooks", "core.hooksPath .githooks"]
 
 
 @pytest.mark.parametrize("layout", LAYOUTS)
-def test_the_real_commit_table(repo, mem, capsys, layout):
+def test_the_real_commit_table(repo, mem, layout):
+    """Run with -s to print the table."""
     if layout != LAYOUTS[0]:
         if not githook.git_runs_config_hooks():
             pytest.skip("this git has no config hooks")
@@ -315,15 +316,13 @@ def test_the_real_commit_table(repo, mem, capsys, layout):
         ("amend to bot address", False, lambda: amend("--author=Jane <cursoragent@cursor.com>")),
     ]
     wrong = []
-    with capsys.disabled():
-        print(f"\n| {layout} | case | expected | result | exit |")
+    print(f"\n| {layout} | case | expected | result | exit |")
     for name, passes, act in rows:
         result = act()
         git(repo, "reset", "-q")
-        with capsys.disabled():
-            want = "accepted" if passes else "refused"
-            got = "accepted" if result.returncode == 0 else "refused"
-            print(f"| {layout} | {name} | {want} | {got} | {result.returncode} |")
+        want = "accepted" if passes else "refused"
+        got = "accepted" if result.returncode == 0 else "refused"
+        print(f"| {layout} | {name} | {want} | {got} | {result.returncode} |")
         if (result.returncode == 0) != passes:
             wrong.append(name)
     assert wrong == []

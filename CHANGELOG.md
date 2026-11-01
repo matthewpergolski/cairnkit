@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
   `commit-msg`. A person whose name holds a tool word passes.
 - `memory add` of a rule against AI attribution turns the guard on at once.
+- Under a `core.hooksPath` in the repo, git 2.54 or newer runs the personal hooks beside the
+  tracked ones, from the local git config. No tracked file changes.
+- `memory check` and `memory status` print the real hook state, and warn when `core.hooksPath`
+  hides the hooks. The session start names the fix to the agent.
 - `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
 - Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
 - A subagent gets a load of 300 words at its start on Claude Code and Codex.

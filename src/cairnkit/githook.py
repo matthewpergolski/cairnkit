@@ -7,6 +7,10 @@ or committer. pre-push refuses the same in a commit that skipped commit-msg, suc
 a rebase or a commit from plumbing. Only commits that no remote holds count, so
 another person's commit never stops a push.
 
+When core.hooksPath points into the repo, git does not read .git/hooks. Our files then
+live in .git/cairnkit-hooks, and the local git config runs them beside that folder (git 2.54
+or newer). This writes no tracked file and leaves core.hooksPath as it is.
+
 Personal quiet hooks never fail git, apart from that guard. pre-push and post-merge
 run auto-tidy (~3s). Each hook is a marked block in a shell script. A foreign hook is kept:
 the block goes right after its first line. Uninstall removes only the block.
@@ -14,8 +18,10 @@ the block goes right after its first line. Uninstall removes only the block.
 
 from __future__ import annotations
 
+import re
 import shlex
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
@@ -31,6 +37,11 @@ GUARD_MARK = "# Refuse AI self-attribution lines."
 GUARD_REF = "githook:commit-msg"
 IDENTITY_MARK = "# Refuse an AI author or committer."
 PUSH_MARK = "# Refuse a pushed commit with an AI identity or attribution line."
+PERSONAL_HOOKS = ("pre-commit", "post-checkout", "pre-push", "post-merge")
+# Under a core.hooksPath in the repo, our hook files live here and the local git config runs them.
+PRIVATE_DIR = "cairnkit-hooks"
+CONFIG_PREFIX = "cairnkit-"
+CONFIG_HOOKS_SINCE = "2.54"
 
 # Extended regular expressions, matched without case on each line that is not a
 # comment. They name AI tools on purpose: the guard exists to catch them.
@@ -77,9 +88,34 @@ class GuardPatterns(NamedTuple):
     identity: list[str]
 
 
-def hooks_dir(project: Project) -> Path | None:
+class HookState(NamedTuple):
+    line: str
+    fixable: bool = False
+
+
+def _git_folder(project: Project) -> Path | None:
+    """The folder that git reads hooks from. core.hooksPath can put it in the repo."""
     out = run_git(project.root, "rev-parse", "--path-format=absolute", "--git-path", "hooks")
     return Path(out) if out else None
+
+
+def _private_dir(project: Project) -> Path | None:
+    return project.common_dir / PRIVATE_DIR if project.common_dir else None
+
+
+def hooks_dir(project: Project) -> Path | None:
+    """The folder that holds our hook files. It is never a folder in the repo."""
+    folder = _git_folder(project)
+    if folder is None or not _inside_worktree(project, folder):
+        return folder
+    return _private_dir(project)
+
+
+@lru_cache(maxsize=1)
+def git_runs_config_hooks() -> bool:
+    """Git 2.54 runs hook.<name>.command beside the hooks folder, for each hook event."""
+    found = re.search(r"(\d+)\.(\d+)", run_git(Path("."), "version") or "")
+    return bool(found) and (int(found[1]), int(found[2])) >= (2, 54)
 
 
 def _inside_worktree(project: Project, folder: Path) -> bool:
@@ -272,11 +308,8 @@ def is_broken(path: Path) -> bool:
 
 def broken_paths(project: Project, hooks: list[str]) -> list[Path]:
     """The hook files that this install would write and that have broken markers."""
-    paths = []
     folder = hooks_dir(project) if project.is_git else None
-    if folder is not None and not _inside_worktree(project, folder):
-        paths += [folder / hook for hook in hooks]
-    return [p for p in paths if is_broken(p)]
+    return [folder / hook for hook in hooks if is_broken(folder / hook)] if folder else []
 
 
 def write_block(path: Path, body: str, dry_run: bool) -> list[str]:
@@ -301,42 +334,37 @@ def write_block(path: Path, body: str, dry_run: bool) -> list[str]:
     return [f"write {path}"]
 
 
-def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
-    folder = hooks_dir(project)
-    if folder is None:
+def _config_name(hook: str) -> str:
+    return f"hook.{CONFIG_PREFIX}{hook}"
+
+
+def _command(path: Path) -> str:
+    return shlex.quote(str(path))
+
+
+def _is_wired(project: Project, hook: str) -> bool:
+    private = _private_dir(project)
+    return bool(private) and run_git(
+        project.root, "config", "--local", "--get", f"{_config_name(hook)}.command"
+    ) == _command(private / hook)
+
+
+def _wire(project: Project, hook: str, path: Path, dry_run: bool) -> list[str]:
+    """Ask git to run path for this hook event, beside the folder that core.hooksPath names."""
+    if _is_wired(project, hook):
         return []
-    if _inside_worktree(project, folder):
-        return [
-            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
-            f"The memory hooks are not shared, so {hook} does not run here."
-        ]
-    return write_block(folder / hook, body, dry_run)
+    if not dry_run:
+        run_git(project.root, "config", "--local", f"{_config_name(hook)}.event", hook)
+        run_git(project.root, "config", "--local", f"{_config_name(hook)}.command", _command(path))
+    return [f"connect {hook} in the local git config, beside core.hooksPath"]
 
 
-def guard_installed(project: Project) -> bool:
-    """True when git runs our commit-msg guard (local hooks or core.hooksPath)."""
-    folder = hooks_dir(project) if project.is_git else None
-    hook = folder / "commit-msg" if folder else None
-    if hook is None or not hook.is_file():
-        return False
-    text = hook.read_text(errors="replace")
-    return holds_block(text) and GUARD_MARK in text
-
-
-def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
-    folder = hooks_dir(project)
-    if folder is None or not (folder / hook).exists():
+def _remove_block(path: Path, dry_run: bool) -> list[str]:
+    if not path.is_file():
         return []
-    path = folder / hook
     old = path.read_text()
     if not holds_block(old):
         return []
-    if _inside_worktree(project, folder):
-        # Shared hooks are tracked: removing them changes the team's files.
-        return [
-            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
-            f"Remove the marked block from {path} by hand if you mean to."
-        ]
     new = _strip(old)
     if not dry_run:
         if new.strip() in ("#!/bin/sh", ""):
@@ -344,3 +372,121 @@ def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
         else:
             path.write_text(new)
     return [f"update {path}"]
+
+
+def _unwire(project: Project, hook: str, dry_run: bool) -> list[str]:
+    private = _private_dir(project)
+    if private is None:
+        return []
+    steps = _remove_block(private / hook, dry_run)
+    if _is_wired(project, hook):
+        steps.append(f"disconnect {hook} from the local git config")
+        if not dry_run:
+            run_git(project.root, "config", "--local", "--remove-section", _config_name(hook))
+    if not dry_run and private.is_dir() and not any(private.iterdir()):
+        private.rmdir()
+    return steps
+
+
+def _runs_memory(path: Path, hook: str) -> bool:
+    """True for a block of ours, or for a line that someone pasted into their own hook."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return False
+    return holds_block(text) or f"-m cairnkit hook {hook}" in text
+
+
+def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
+    folder = _git_folder(project)
+    if folder is None:
+        return []
+    if not _inside_worktree(project, folder):
+        return _unwire(project, hook, dry_run) + write_block(folder / hook, body, dry_run)
+    if _runs_memory(folder / hook, hook):
+        return _unwire(project, hook, dry_run)
+    if not git_runs_config_hooks():
+        return [
+            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
+            f"The memory hooks are not shared, so {hook} does not run here. "
+            f"Git {CONFIG_HOOKS_SINCE} or newer can run them beside that folder."
+        ]
+    path = _private_dir(project) / hook
+    idle = project.common_dir / "hooks" / hook
+    steps = write_block(path, body, dry_run)
+    return steps + _wire(project, hook, path, dry_run) + _remove_block(idle, dry_run)
+
+
+def _running_file(project: Project, hook: str) -> Path | None:
+    """The file of ours that git runs for this hook, or None."""
+    folder = _git_folder(project) if project.is_git else None
+    if folder is None:
+        return None
+    private = _private_dir(project) / hook
+    if private.is_file() and _is_wired(project, hook) and git_runs_config_hooks():
+        return private
+    return folder / hook if _runs_memory(folder / hook, hook) else None
+
+
+def is_running(project: Project, hook: str) -> bool:
+    return _running_file(project, hook) is not None
+
+
+def guard_installed(project: Project) -> bool:
+    """True when git runs our commit-msg guard, wherever that file is."""
+    path = _running_file(project, "commit-msg")
+    return path is not None and GUARD_MARK in path.read_text(errors="replace")
+
+
+def hook_state(project: Project) -> HookState:
+    """What git really runs here, for `memory check` and `memory status`."""
+    folder = _git_folder(project) if project.is_git else None
+    if folder is None:
+        return HookState("")
+    setting = run_git(project.root, "config", "--get", "core.hooksPath")
+    missing = [hook for hook in PERSONAL_HOOKS if not is_running(project, hook)]
+    idle = any(
+        folder != project.common_dir / "hooks"
+        and _runs_memory(project.common_dir / "hooks" / hook, hook)
+        for hook in PERSONAL_HOOKS
+    )
+    if missing and (idle or _inside_worktree(project, folder)):
+        can_fix = git_runs_config_hooks() or not _inside_worktree(project, folder)
+        fix = (
+            "Run `memory hooks install` to run them beside it. Tracked hooks stay as they are."
+            if can_fix
+            else f"Git {CONFIG_HOOKS_SINCE} or newer can run them beside it."
+        )
+        return HookState(
+            f"warning: core.hooksPath is {setting}, so git does not run the memory hooks. {fix}",
+            fixable=can_fix,
+        )
+    if len(missing) == len(PERSONAL_HOOKS):
+        return HookState("git hooks: not installed. `memory hooks install` adds them.")
+    if missing:
+        names = ", ".join(missing)
+        return HookState(f"git hooks: {names} missing. `memory hooks install` adds them.")
+    where = _running_file(project, PERSONAL_HOOKS[0]).parent
+    shown = (
+        where.relative_to(project.root).as_posix() if where.is_relative_to(project.root) else where
+    )
+    if where == _private_dir(project):
+        return HookState(f"git hooks: on, beside core.hooksPath {setting} ({shown})")
+    return HookState(f"git hooks: on ({shown})")
+
+
+def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
+    folder = _git_folder(project)
+    if folder is None:
+        return []
+    steps = _unwire(project, hook, dry_run)
+    if not _inside_worktree(project, folder):
+        return steps + _remove_block(folder / hook, dry_run)
+    steps += _remove_block(project.common_dir / "hooks" / hook, dry_run)
+    if (folder / hook).is_file() and holds_block((folder / hook).read_text()):
+        # Shared hooks are tracked: removing them changes the team's files.
+        steps.append(
+            f"skip {hook}: core.hooksPath points into the repo ({folder}). "
+            f"Remove the marked block from {folder / hook} by hand if you mean to."
+        )
+    return steps

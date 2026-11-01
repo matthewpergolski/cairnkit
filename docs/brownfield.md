@@ -139,8 +139,8 @@ refuses, merges, or adds a marked block.
    line of a shell hook and keeps the rest. It also adds personal `pre-push`
    and `post-merge` hooks. They run auto-tidy after a push or a merge.
    They stay in this clone. They are not committed. A teammate never runs them.
-   When `core.hooksPath` points into the repo, the tool changes nothing and
-   says that the hook does not run here. The tool writes no tracked hook.
+   When `core.hooksPath` points into the repo, the local git config runs the
+   hooks beside that folder (git 2.54 or newer). The tool writes no tracked hook.
 7. Check: `git status`, `memory check`, then start an agent session.
 
 To undo: `memory hooks uninstall` removes only what the tool added. The
