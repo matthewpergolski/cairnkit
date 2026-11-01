@@ -7,6 +7,9 @@ memory() { uv run --project "$here" -q memory "$@"; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+# This run acts as a person. A rule that an agent adds prints as data, so an agent's markers change the output.
+unset CLAUDECODE CODEX_CI CODEX_SANDBOX CODEX_THREAD_ID CURSOR_AGENT CURSOR_TRACE_ID \
+  OPENCODE OPENCODE_SESSION_ID PI_CODING_AGENT GROK_SESSION_ID GROK_HOOK_EVENT GROK_WORKSPACE_ROOT
 step() { printf '\n== %s\n' "$*"; }
 fail() { echo "FAIL: $*"; exit 1; }  # a check ends the run: an `a && b` list does not under set -e
 
