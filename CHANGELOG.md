@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory skills install pstack` with no `--tool` updates only the tools that have pstack. To add
   a tool, use `--tool NAME` or `--tool all`. `skills_auto_update` adds no tool.
 - The pstack line moved from the load and `memory check` to `memory status`.
-- The Codex trust line shows only after a Codex session in the last 30 days.
+- The Codex trust line shows only after Codex has run a session.
 - The update notice shows once per version pair in a load, and never in a subagent load.
   `memory status` always shows it.
 - A session start has 31 fewer words that are not facts. The look-up line printed twice.
