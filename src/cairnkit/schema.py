@@ -19,6 +19,7 @@ ID_RE = re.compile(r"^f-\d{8}-[0-9a-f]{4}$")
 SOURCE_RE = re.compile(r"^(default$|[a-z][a-z0-9_-]*:\S)")
 # The check that fails when a rule is broken: githook:commit-msg, lint:ruff:T201, ci:<job>.
 ENFORCED_RE = re.compile(r"^[a-z][a-z0-9_-]*:\S{1,120}$")
+TIP_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 
 FACT_REQUIRED = (
     "id",
@@ -49,6 +50,12 @@ def _check_links(value: object, field: str) -> list[str]:
 def _check_enforced(value: object) -> list[str]:
     if not isinstance(value, str) or not ENFORCED_RE.match(value):
         return [f"enforced_by {value!r} is not <type>:<value>, for example githook:commit-msg"]
+    return []
+
+
+def _check_tip(value: object) -> list[str]:
+    if not isinstance(value, str) or not TIP_RE.match(value):
+        return [f"branch_tip {value!r} is not a full commit hash"]
     return []
 
 
@@ -99,6 +106,8 @@ def _check_fact(rec: dict) -> list[str]:
         errors += _check_enforced(rec["enforced_by"])
         if rec.get("kind") != "rule":
             errors.append("enforced_by is only for kind 'rule'")
+    if "branch_tip" in rec:
+        errors += _check_tip(rec["branch_tip"])
     if "author" in rec and not (isinstance(rec["author"], str) and rec["author"].strip()):
         errors.append("author must be a non-empty string, for example agent:claude")
     if "pinned" in rec and not isinstance(rec["pinned"], bool):
@@ -126,7 +135,9 @@ def _check_change(rec: dict) -> list[str]:
         errors += _check_links(rec["add_links"], "add_links")
     if rec.get("enforced_by") is not None:  # null clears it
         errors += _check_enforced(rec["enforced_by"])
-    if not any(k in rec for k in ("status", "add_links", "scope", "enforced_by")):
+    if "branch_tip" in rec:
+        errors += _check_tip(rec["branch_tip"])
+    if not any(k in rec for k in ("status", "add_links", "scope", "enforced_by", "branch_tip")):
         errors.append("a change must set status, scope, add_links or enforced_by")
     if "text" in rec:
         errors.append("a change cannot set text; add a new fact with --supersedes")

@@ -12,6 +12,7 @@ from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import (
     branch_exists,
+    branch_tip,
     current_branch,
     default_branch,
     merged_checker,
@@ -221,11 +222,9 @@ def add_fact(memory: Memory, args) -> str | None:
             raise Refused("--until-merged needs a branch name (HEAD is detached)")
         if branch:
             fact["until_branch_merged"] = branch
-        if branch and not branch_exists(memory.project.root, branch):
-            print(
-                f"note: no branch {branch} exists, local or remote, so this note reads as "
-                "ended until one does"
-            )
+            tip = branch_tip(memory.project.root, branch)
+            if tip:
+                fact["branch_tip"] = tip
     records = [_validated(fact)]
     if supersedes:
         change = {
@@ -240,6 +239,13 @@ def add_fact(memory: Memory, args) -> str | None:
         records.append(_validated(change))
     append_records(memory.writer_file(writer), records)
     _refresh_followups(memory)
+    branch = fact.get("until_branch_merged")
+    if branch and not branch_exists(memory.project.root, branch):
+        print(
+            f"note: no branch {branch} exists here, local or remote. Check the name. This note "
+            "stays open until that branch appears and merges. To end it yourself, run: "
+            f'memory change {fact["id"]} --status expired --reason "..."'
+        )
     why = _no_end_event(memory, fact)
     if why:
         print(

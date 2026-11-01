@@ -31,9 +31,9 @@ def test_a_branch_with_only_a_remote_copy_is_not_merged(repo):
     assert merged_checker(repo)("work") is False
 
 
-def test_a_branch_in_no_ref_reads_as_ended(repo):
+def test_a_branch_in_no_ref_with_no_record_stays_open(repo):
     _commit(repo, "a")
-    assert merged_checker(repo)("gone") is True
+    assert merged_checker(repo)("gone") is False
 
 
 def test_a_squash_merged_branch_with_a_local_copy_reads_as_merged(repo):

@@ -10,8 +10,9 @@ What it retires:
 
 - `duplicate`: two active facts with the same words, kind and scope. The
   older one is superseded by the newest.
-- `ended`: a short-term fact that is past its end date, or whose branch is
-  merged (or gone).
+- `ended`: a short-term fact that is past its end date, or whose branch is merged, or
+  gone after a record said that it existed. With no such record, merged is unknown and
+  the fact stays.
 - `file-gone`: a short-term fact whose `source` is `file:PATH`, when PATH
   is in no checkout of the project.
 - `near-duplicate`: an active fact with the same kind and scope as a newer one,
@@ -34,7 +35,7 @@ from pathlib import PurePosixPath
 
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
-from cairnkit.paths import merged_checker
+from cairnkit.paths import UNKNOWN, branch_reader, branch_tip, merged_checker
 from cairnkit.schema import validate_record
 from cairnkit.similar import analyze, exact_key, similar_pairs
 from cairnkit.state import effective_status
@@ -213,6 +214,64 @@ def write_log(memory: Memory, found: list[Retirement], at: str) -> None:
                 )
 
 
+def _end_branch(state: dict) -> str | None:
+    """The end branch of a short-term fact that is still active."""
+    if state.get("status") != "active" or state.get("scope") != "short":
+        return None
+    return state.get("until_branch_merged")
+
+
+def record_branch_tips(memory: Memory) -> None:
+    """Record the tip of each end branch with no record, so that its later absence means it ended.
+
+    This covers a branch that came after the note, and a fact from before the record existed.
+    It changes no status. The first tip is enough. A cid keeps two sessions to one record.
+    """
+    at = stamp(now())
+    records = []
+    for state in sorted(memory.states.values(), key=lambda s: s["id"]):
+        branch = _end_branch(state)
+        tip = branch and "branch_tip" not in state and branch_tip(memory.project.root, branch)
+        if tip:
+            records.append(
+                {
+                    "type": "change",
+                    "id": state["id"],
+                    "at": at,
+                    "branch_tip": tip,
+                    "writer": WRITER,
+                    "cid": hashlib.sha1(f"{state['id']}|{tip}".encode()).hexdigest()[:12],
+                }
+            )
+    if records:
+        append_records(memory.writer_file(WRITER), records)
+        memory.reload()
+
+
+def unknown_branches(memory: Memory) -> list[tuple[str, str]]:
+    """(fact id, branch) for each active note whose branch git cannot read here."""
+    read = branch_reader(memory.project.root)
+    found = []
+    for state in sorted(memory.states.values(), key=lambda s: s["id"]):
+        branch = _end_branch(state)
+        if branch and read(branch, state.get("branch_tip")) == UNKNOWN:
+            found.append((state["id"], branch))
+    return found
+
+
+def print_unknown(memory: Memory) -> None:
+    found = unknown_branches(memory)
+    if not found:
+        return
+    print(
+        f"Kept {len(found)} short-term fact(s). Merged is unknown: the branch is in no ref here, "
+        "and no record says that this clone held it."
+    )
+    for fact_id, branch in found:
+        print(f"- {fact_id} until {branch}")
+    print('To end one that is over: memory change ID --status expired --reason "..."')
+
+
 def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
     """Retire the clear cases. Write the change records and the log. Return what was retired.
 
@@ -221,6 +280,7 @@ def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
     """
     if dry_run:
         return find(memory)
+    record_branch_tips(memory)
     with locked(memory.dir / LOCK_NAME):
         memory.reload()
         found = find(memory)
@@ -241,7 +301,8 @@ def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
 
 
 def report(memory: Memory) -> list[Retirement]:
-    """Say what `retire` would do. Log it once per distinct report. Change no fact."""
+    """Say what `retire` would do. Log it once per distinct report. Change no status."""
+    record_branch_tips(memory)
     found = find(memory)
     if not found:
         return found
@@ -403,6 +464,7 @@ def mark_tidied(memory: Memory) -> None:
 
 def run_auto(memory: Memory, dry_run: bool) -> int:
     found = retire(memory, dry_run)
+    print_unknown(memory)
     if not found:
         print("Nothing to retire.")
         return 0

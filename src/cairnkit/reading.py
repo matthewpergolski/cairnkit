@@ -36,6 +36,7 @@ def run_show(memory: Memory, fact_id: str) -> int:
         "writer",
         "expires_at",
         "until_branch_merged",
+        "branch_tip",
         "pinned",
         "enforced_by",
     )
