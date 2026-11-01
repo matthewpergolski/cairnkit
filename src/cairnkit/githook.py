@@ -660,7 +660,9 @@ def _dead_wiring(project: Project) -> str | None:
     pattern = f"^hook\\.{CONFIG_PREFIX}.*\\.command$"
     listed = run_git(project.root, "config", "--local", "--get-regexp", pattern) or ""
     for line in listed.splitlines():
-        command = shlex.split(line.partition(" ")[2])
+        stored = line.partition(" ")[2]
+        # A command that finds the git folder when it runs has no path that a move can break.
+        command = [] if "$(" in stored else shlex.split(stored)
         if command and not Path(command[0]).exists():
             return command[0]
     return None
