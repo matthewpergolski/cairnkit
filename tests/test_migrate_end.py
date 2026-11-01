@@ -411,6 +411,22 @@ def test_the_plan_from_a_worktree_says_which_checkout_it_acts_on(repo, capsys, m
     assert f"You ran it from the worktree {worktree}" in out
 
 
+def test_a_settling_run_with_no_old_folder_says_where_too(repo, capsys, monkeypatch):
+    old_layout(repo)
+    worktree = add_worktree(repo, "feature-x")
+    migrate(capsys, "--yes")
+    old = sibling(repo, ".memory-old")
+    for path in sorted(old.rglob("*"), reverse=True):
+        path.rmdir() if path.is_dir() else path.unlink()
+    old.rmdir()
+    (memdir(repo) / "proposals" / "migrate-candidates.jsonl").unlink()
+    write(repo / "memory-bank" / "status.md", "# Status\nStale.\n")
+    monkeypatch.chdir(worktree)
+    out = migrate(capsys)
+    assert "Plan only" in out
+    assert f"You ran it from the worktree {worktree}" in out
+
+
 def test_the_plan_from_the_main_checkout_names_it_too(repo, capsys):
     old_layout(repo)
     out = migrate(capsys)
