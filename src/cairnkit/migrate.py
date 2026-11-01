@@ -45,6 +45,7 @@ from cairnkit.migrate_refs import (
     doc_files,
     dropped_checks,
     hook_line,
+    hook_reads_old_notes,
     is_stub,
     judgment_items,
     named_old_files,
@@ -432,7 +433,12 @@ def _references(project: Project, memdir: Path, source_dir: Path) -> tuple[list[
             continue
         named |= named_old_files(text, is_note)
         new, _count = rewrite_text(text, exists)
-        items += judgment_items(rel, new, exists, rewritten)
+        found = judgment_items(rel, new, exists, rewritten)
+        lines = text.splitlines()
+        for item in found:
+            if item.kind != "old-doc-file":
+                item.text = lines[item.line - 1].strip()[:200]
+        items += found
         for number, (before, after) in enumerate(
             zip(text.splitlines(), new.splitlines(), strict=False), start=1
         ):
@@ -451,10 +457,20 @@ def _references(project: Project, memdir: Path, source_dir: Path) -> tuple[list[
 
 
 def _hooks(project: Project) -> list[Item]:
-    stale = adapters.stale_hooks(project, CHECKER_RE)
+    """Old hooks in settings files: the checker, and any other that reads the old notes."""
     root = project.root
+
+    def is_old(command: str) -> bool:
+        return bool(CHECKER_RE.search(command) or hook_reads_old_notes(root, command))
+
     items = []
-    for hook in stale:
+    for hook in adapters.stale_hooks(project, is_old):
+        why = (
+            "This hook runs the old checker, which reads the old layout."
+            if CHECKER_RE.search(hook.command)
+            else f"{hook_reads_old_notes(root, hook.command)} It runs at each {hook.event}, and "
+            "`memory load` now brings the memory."
+        )
         note = " The tool changes no tracked file, so this edit is yours." if hook.tracked else ""
         items.append(
             Item(
@@ -462,7 +478,7 @@ def _hooks(project: Project) -> list[Item]:
                 hook_line(root, hook.rel, hook.command),
                 "hook",
                 f"{hook.event}: {hook.command}"[:200],
-                "This hook runs the old checker, which reads the old layout." + note,
+                why + note,
                 "Remove this hook handler. The memory hooks are already installed next to it.",
             )
         )

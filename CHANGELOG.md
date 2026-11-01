@@ -68,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The pre-commit hook no longer refuses a staged removal of a private path. Before this, each
+  commit after `memory migrate --yes --untrack` was refused.
+- The migration task names each old hook that reads the old notes, with its file and line, not
+  only the old checker. Its `Now` line quotes the file.
 - A rerun of `memory migrate` no longer scans, reports or installs again. It reads the task again,
   and it removes the task when nothing is left. A deleted task stays deleted.
 - An old `notes/` folder is no longer nested as `notes/notes/`. Two copies of one file no longer
@@ -76,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory check` says that its `ok` covers only the facts and the links while a migration is open.
 - The migration task reads the docs and hooks of the checkout where it runs, and a doc may keep its
   old name once it describes the new tool.
-- A tool with no pstack can no longer keep a migration task open.
+- pstack can no longer keep a migration task open. The run and `memory status` still name it.
 - When Claude Code or Cursor connects, the Grok adapter goes, so that each hook runs once.
 - A live note no longer ends by mistake. A branch that is checked out stays open, and a merge read
   needs real evidence. A note follows `git branch -m`.

@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shlex
 import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -528,8 +528,8 @@ def _commands(node) -> list[str]:
     return []
 
 
-def stale_hooks(project: Project, pattern: re.Pattern) -> list[StaleHook]:
-    """Hook commands in this checkout's settings files that match `pattern`.
+def stale_hooks(project: Project, matches: Callable[[str], object]) -> list[StaleHook]:
+    """Hook commands in this checkout's settings files that `matches` accepts.
 
     Files that are not valid JSON are skipped: `memory hooks install` reports them.
     """
@@ -545,7 +545,7 @@ def stale_hooks(project: Project, pattern: re.Pattern) -> list[StaleHook]:
             hooks = data.get("hooks")
             for event, groups in hooks.items() if isinstance(hooks, dict) else []:
                 for command in _commands(groups):
-                    if pattern.search(command):
+                    if matches(command):
                         found.append(
                             StaleHook(adapter.name, rel, event, command, is_tracked(project, rel))
                         )

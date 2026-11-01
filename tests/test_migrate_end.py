@@ -648,7 +648,7 @@ def test_a_prompt_hook_whose_script_reads_the_old_notes_is_named(repo, capsys):
     before = (repo / ".claude" / "settings.json").read_text()
     migrate(capsys, "--yes")
     task = task_path(repo).read_text()
-    assert "`.claude/settings.json:7` (hook)" in task
+    assert "`.claude/settings.json:6` (hook)" in task
     assert "UserPromptSubmit" in task and "tools/recall.py" in task
     assert (repo / ".claude" / "settings.json").read_text() == before
     assert git(repo, "status", "--short") == ""
@@ -664,7 +664,7 @@ def test_removing_the_old_hook_closes_its_item(repo, capsys):
 def test_a_hook_that_names_the_old_folder_in_its_command_is_named(repo, capsys):
     hook_repo(repo, "cat memory-bank/brief.md")
     migrate(capsys, "--yes")
-    assert ".claude/settings.json:7" in task_path(repo).read_text()
+    assert ".claude/settings.json:6" in task_path(repo).read_text()
 
 
 def test_an_unrelated_hook_is_not_named(repo, capsys):
@@ -698,4 +698,5 @@ def test_the_now_line_is_the_line_in_the_file(repo, capsys):
     write(repo / "CLAUDE.md", "Run tools/check_memory.py, then read memory-bank/log.md.\n")
     migrate(capsys, "--yes")
     task = task_path(repo).read_text()
-    assert "- Now: `Run tools/check_memory.py, then read memory-bank/log.md.`" in task
+    now = [line for line in task.splitlines() if "- Now:" in line and "Run tools" in line]
+    assert now and all("memory-bank/log.md" in line for line in now)

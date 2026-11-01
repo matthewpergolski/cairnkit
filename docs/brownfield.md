@@ -64,7 +64,8 @@ refuses, merges, or adds a marked block.
       add it, then `memory change ID --status superseded` or `--held-by`.
    4. If git tracked the old folder, `memory migrate` refuses and tells you.
       Add `--untrack` (with `--yes`). It removes the old files from the git index
-      and commits nothing. Review `git status`, then commit.
+      and commits nothing. Review `git status`, then commit. The pre-commit hook lets a
+      staged removal through. It still refuses a private path that is added or changed.
    5. A rerun is safe. After a failure, run `memory migrate --yes` again: the old
       notes are always in the `.memory-old` folder, and each step skips what
       is done. After the worklist exists, a rerun does not copy, scan or install.
@@ -84,8 +85,10 @@ refuses, merges, or adds a marked block.
         held that file or folder.
       - A line that needs judgment, such as "run the old checker at session start", or
         a doc about the old folder.
-      - A hook in an agent settings file that runs the old checker. The memory hooks
-        are already next to it. The task says to remove the old handler.
+      - A hook in an agent settings file that runs the old checker, or any other hook
+        whose command or repo script names the old notes folder, such as a word search
+        that runs at each prompt. The memory hooks are already next to it. The task says
+        to remove the old handler, with the file and the line.
       - An older copy in `proposals/old-copies/`. The agent compares it with the note,
         carries over what is still true, and deletes the copy.
 

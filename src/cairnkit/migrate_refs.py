@@ -29,6 +29,9 @@ PATH_RE = re.compile(rf"(?<![\w-]){LINK_NAME}/([A-Za-z0-9_.\-/]*[A-Za-z0-9_/])")
 OLD_DOC_RE = re.compile(rf"(?<![\w-]){LINK_NAME}(?:[-_.][\w-]+)")
 OLD_DOC_NAME_RE = re.compile(r"memory[-_]?bank", re.IGNORECASE)
 CHECKER_RE = re.compile(r"check[_-]?memory", re.IGNORECASE)
+OLD_NOTES_RE = re.compile(r"memory[-_ ]?bank", re.IGNORECASE)
+OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
+HOOK_SCRIPT_RE = re.compile(r"[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
 CHECKER_CMD_RE = re.compile(
     r"(?:uv run(?: --no-project)? |python3? )?[^\s`'\"()]*check[_-]?memory[^\s`'\"()]*?"
     r"\.(?:py|sh|mjs|js|ts)",
@@ -329,6 +332,21 @@ def checker_references(root: Path, files: Iterable[str], scripts: list[str]) -> 
             if CHECKER_RE.search(line):
                 refs.append(f"{rel}:{number}")
     return refs[:MAX_REFS]
+
+
+def hook_reads_old_notes(root: Path, command: str) -> str | None:
+    """What ties a hook to the old notes: its command, or a repo script that it runs."""
+    if OWN_HOOK_RE.search(command):
+        return None
+    if OLD_NOTES_RE.search(command.replace(str(root), "")):
+        return "Its command names the old notes folder."
+    for found in HOOK_SCRIPT_RE.findall(command):
+        rel = found.lstrip("/").removeprefix("./")
+        if ".." not in PurePosixPath(rel).parts and OLD_NOTES_RE.search(
+            read_text(root / rel) or ""
+        ):
+            return f"The script it runs ({rel}) reads the old notes folder."
+    return None
 
 
 def hook_line(root: Path, rel: str, command: str) -> int:

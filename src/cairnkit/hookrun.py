@@ -321,7 +321,10 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
 
 
 def pre_commit(project: Project, flag: str | None) -> int:
-    staged = (run_git(project.root, "diff", "--cached", "--name-only") or "").splitlines()
+    # A staged deletion takes private content out of git, which is what this check wants.
+    staged = (
+        run_git(project.root, "diff", "--cached", "--name-only", "--diff-filter=d") or ""
+    ).splitlines()
     inside = None
     # With a link file that cannot be read, the fixed private names below still hold.
     with contextlib.suppress(Exception):
