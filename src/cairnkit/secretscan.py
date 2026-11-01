@@ -40,6 +40,7 @@ SECRET_ENDINGS = (
     "signingkey",
     "encryptionkey",
     "sshkey",
+    "cookie",
 )
 # The last part says what the name holds: `PASSWORD_FILE` holds a path, `token_ttl` a number.
 FIELD_PARTS = frozenset(
@@ -228,7 +229,7 @@ def label_of(name: str) -> Label:
         return Label.STRONG
     if len(parts) == 1:
         return Label.NONE
-    if parts[-1] == "pass":
+    if parts[-1] in ("pass", "auth"):
         return Label.STRONG
     if parts[-1] == "key":
         return Label.NONE if parts[-2] in DATA_KEYS else Label.STRONG
@@ -356,6 +357,21 @@ SHAPES: list[Shape] = [
         "GitHub token",
         re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})"),
     ),
+    Shape(
+        "service token",
+        re.compile(
+            r"\b(?:whsec_[A-Za-z0-9+/=_-]{10,}|npm_[A-Za-z0-9]{20,}|gl(?:pat|rt)-[A-Za-z0-9_-]{10,}"
+            r"|sb_secret_[A-Za-z0-9_-]{10,}|pypi-[A-Za-z0-9_-]{30,}|hf_[A-Za-z0-9]{30,}"
+            r"|dop_v1_[a-f0-9]{30,}|shp(?:at|ss)_[a-f0-9]{20,})"
+        ),
+    ),
+    Shape(
+        "basic auth header",
+        re.compile(
+            r"(?i)\bauthorization['\"]?\s*[:=]\s*['\"]?basic\s+(?P<value>[A-Za-z0-9+/]{8,}={0,2})"
+        ),
+        lambda match: match["value"].isalpha() and match["value"].islower(),
+    ),
     Shape("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
     Shape("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     Shape(
@@ -443,7 +459,8 @@ UNSCANNED_FIELDS = frozenset(
 # tests/test_secret_shapes.py proves that this finds all that the shapes find.
 CLUE = re.compile(
     r"-----BEGIN|\b(?:AKIA|ASIA|xox|AIza|eyJ)|\bgh[pousr]_|github_pat_|\b[sr]k[-_]|\bBearer\b|[?&]\w+="
-    r"|://|(?i:pass|pwd|secret|token|credential|key)|[A-Z]_CODE\b"
+    r"|://|\b(?:whsec_|npm_|gl(?:pat|rt)-|pypi-|hf_|dop_v1_|shp(?:at|ss)_)"
+    r"|(?i:pass|pwd|secret|token|credential|key|auth|cookie)|[A-Z]_CODE\b"
 )
 
 

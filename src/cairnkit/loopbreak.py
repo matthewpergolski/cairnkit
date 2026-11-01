@@ -18,11 +18,14 @@ Each agent reports a failure in its own way (checked against its public docs):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
 
+from cairnkit.envsecrets import EnvValues
 from cairnkit.memory import Memory
+from cairnkit.secretscan import find_secrets
 from cairnkit.store import locked
 
 STATE_NAME = ".loop-breaker.json"
@@ -54,13 +57,24 @@ def normalize_command(command: str) -> str:
     return " ".join(str(command or "").split())
 
 
+def without_secret(command: str, known: EnvValues | None = None) -> str:
+    """The command, or a stand-in that is the same for the same command, so a streak still counts.
+
+    The stand-in matters because this text is written to disk and repeated to the agent.
+    """
+    if not find_secrets(command, known):
+        return command
+    digest = hashlib.sha256(command.encode()).hexdigest()[:12]
+    return f"(a command that looks like it holds a secret, {digest})"
+
+
 def current_command(memory: Memory) -> str:
     return str(_load(memory).get("command") or "")
 
 
 def observe(memory: Memory, command: str, *, ok: bool) -> str | None:
     """Record one command outcome. Return the nudge text on the third fail, else None."""
-    cmd = normalize_command(command)
+    cmd = without_secret(normalize_command(command), memory.env)
     if not cmd:
         return None
     with locked(memory.dir / LOCK_NAME):

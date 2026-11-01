@@ -30,6 +30,7 @@ from pathlib import Path
 from cairnkit import adapters, githook, hooks_cmd, instruction_files, skills
 from cairnkit.candidates import Candidate, Counts, mark_repeats, scan_text
 from cairnkit.check import run_check
+from cairnkit.envsecrets import EnvValues, read_env_values
 from cairnkit.hooks_cmd import run_install
 from cairnkit.init import STATUS, plan_link, run_init
 from cairnkit.memory import Memory
@@ -60,6 +61,7 @@ from cairnkit.migrate_refs import (
 )
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
 from cairnkit.schema import MAX_TEXT
+from cairnkit.secretscan import find_secrets
 
 OLD_SUFFIX = ".memory-old"
 JUNK = {".DS_Store"}
@@ -260,6 +262,20 @@ def skip_homed(root: Path, found: list[Candidate], counts: dict[str, Counts]) ->
     skipped = len(found) - len(kept)
     found[:] = kept
     return skipped
+
+
+def drop_secrets(found: list[Candidate], counts: dict[str, Counts], known: EnvValues) -> list[str]:
+    """Take out the candidates that hold a secret. Return where each one was, not its text."""
+    kept, held = [], []
+    for cand in found:
+        if find_secrets(cand.text, known):
+            held.append(f"{cand.file}:{cand.line}")
+            if cand.file in counts:
+                counts[cand.file].candidates -= 1
+        else:
+            kept.append(cand)
+    found[:] = kept
+    return held
 
 
 def worktree_only(main: Path, name: str, folder: Path, final: Path) -> list[Candidate]:
@@ -690,6 +706,12 @@ def run_migrate(
     for name, (here, final) in asides.items():
         found += worktree_only(source_dir, name, here, final)
     homed = skip_homed(root, found, counts)
+    held = drop_secrets(found, counts, read_env_values(project))
+    if held:
+        print(
+            f"{len(held)} candidate(s) hold a secret and stay out of the worklist: "
+            f"{', '.join(held)}. Remove these lines from the notes."
+        )
     stored = {}
     if not dry_run and (memdir / "facts").is_dir():
         states = Memory.open(project, path_flag).states.values()

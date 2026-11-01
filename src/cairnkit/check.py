@@ -101,20 +101,20 @@ def _path_known(root, path: str) -> bool:
 def secrets_in_notes(memory: Memory) -> list[str]:
     """Warnings for note lines that hold a secret. Notes are not checked at write time."""
     warnings = []
-    for folder in ("notes", "branches"):
-        for path in note_files(memory.dir / folder):
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except (OSError, UnicodeDecodeError):
-                continue
-            rel = path.relative_to(memory.dir).as_posix()
-            for number, line in enumerate(lines, start=1):
-                found = find_secrets(line, memory.env)
-                if found:
-                    warnings.append(
-                        f"{rel}:{number}: looks like a secret ({', '.join(found)}); "
-                        "remove that line"
-                    )
+    proposals = sorted((memory.dir / "proposals").glob("*.*"))
+    files = [*note_files(memory.dir / "notes"), *note_files(memory.dir / "branches"), *proposals]
+    for path in files:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = path.relative_to(memory.dir).as_posix()
+        for number, line in enumerate(lines, start=1):
+            found = find_secrets(line, memory.env)
+            if found:
+                warnings.append(
+                    f"{rel}:{number}: looks like a secret ({', '.join(found)}); remove that line"
+                )
     return warnings
 
 

@@ -399,6 +399,7 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
         "writer": writer_name(memory.project.root),
     }
     append_records(memory.writer_file(tomb["writer"]), [_validated(tomb)])
+    _refresh_followups(memory)
     return dropped
 
 
