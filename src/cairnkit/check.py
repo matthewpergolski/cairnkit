@@ -30,7 +30,7 @@ from cairnkit.paths import (
 )
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
-from cairnkit.secretscan import find_in_record, find_secrets
+from cairnkit.secretscan import find_in_record, find_secrets, mask
 from cairnkit.selection import clean
 from cairnkit.state import effective_status
 from cairnkit.store import Located, fact_files, read_located, repaired_lines
@@ -125,16 +125,21 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
         rec, where = item.record, f"{item.path.name}:{item.line}"
         settled = (item.path.name, item.sha) in done
         problems = [] if settled else [p + REPAIR for p in record_problems(item, index)]
+        rec_id = rec.get("id")
         found = find_in_record(rec, memory.env)
-        if found:
+        # A fact has its own line below, once. These records reach no reader, so no state names them.
+        if found and rec_id and rec_id not in memory.masked and not find_secrets(rec_id):
             problems.append(
-                f"{rec.get('id')} looks like a secret ({', '.join(found)}); remove it now: "
-                f"memory purge {rec.get('id')} --reason secret --yes"
+                f"{rec_id} looks like a secret ({', '.join(found)}). It stays on disk until "
+                f"purged. Run `memory purge {rec_id} --reason secret --yes`."
             )
         differs = writer_differs(item)
         if differs and not settled:
             warnings.append(f"{where}: {differs}{REPAIR}")
         errors += [f"{where}: {problem}" for problem in problems]
+    for fact_id in sorted(memory.masked):
+        (warnings if memory.only_plain(fact_id) else errors).append(memory.secret_problem(fact_id))
+    errors += [memory.secret_line_problem(line) for line in memory.secret_lines]
     root = memory.project.root
     for state in sorted(memory.states.values(), key=lambda s: s["id"]):
         held = state.get("held_by")
@@ -145,7 +150,10 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
                 f"fact again, or `memory change {state['id']} --status promoted --held-by "
                 f'PATH --reason "..."` to name the file that holds it now'
             )
-    return errors, warnings
+    # A problem can quote a stored value: `kind 'ghp_...' is not one of ...`.
+    return [mask(line, memory.env) for line in errors], [
+        mask(line, memory.env) for line in warnings
+    ]
 
 
 def _path_known(root, path: str) -> bool:

@@ -91,6 +91,9 @@ def _protected(state: dict) -> bool:
     """A rule, a pinned fact, or a fact that a person set back to active."""
     if state.get("kind") == "rule" or state.get("pinned"):
         return True
+    # A mask hides what differs, so two masked facts can read the same and not be the same.
+    if "[secret: " in str(state.get("text", "")):
+        return True
     return any(change.get("status") == "active" for change in state["history"])
 
 

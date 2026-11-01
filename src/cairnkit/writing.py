@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import secrets
 import sys
 
@@ -19,12 +20,12 @@ from cairnkit.paths import (
     writer_name,
 )
 from cairnkit.schema import RELS, validate_record
-from cairnkit.secretscan import find_in_record, find_secrets
-from cairnkit.selection import DATA_LABEL, clean, load_text, name
+from cairnkit.secretscan import find_in_record, find_secrets, has_real_text
+from cairnkit.selection import DATA_LABEL, clean, load_text, name, owner_rule
 from cairnkit.similar import analyze, exact_key, near_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
-from cairnkit.store import append_records, drop_id, fact_files
+from cairnkit.store import append_records, drop_id, drop_line, fact_files, scan
 
 DEFAULT_BASIS = "guess"
 # What git adds to a write is a note. With a slow git, the fact still lands in a tool's time limit.
@@ -60,8 +61,6 @@ def _check_secrets(memory: Memory, *texts: str | None) -> None:
 
 
 def _need_fact(memory: Memory, fact_id: str) -> dict:
-    if fact_id in memory.withheld:
-        raise Refused(memory.withheld_note(fact_id))
     state = memory.fact(fact_id)
     if state is None:
         raise Refused(f"no fact with id {fact_id}")
@@ -144,6 +143,15 @@ def _retired_match(memory: Memory, args, moment) -> tuple[dict, str, str | None]
     return None if best is None else best[1:]
 
 
+def _inherit(args, old: dict) -> None:
+    """A clean copy of a masked fact keeps what the fact was: a true rule keeps its force."""
+    args.kind = old.get("kind", args.kind)
+    args.pinned = args.pinned or bool(old.get("pinned"))
+    args.area = args.area or old.get("area")
+    is_owner_rule = old.get("kind") == "rule" and owner_rule(old)
+    args.basis = "told" if is_owner_rule else old.get("basis", args.basis)
+
+
 def add_fact(memory: Memory, args) -> str | None:
     """Write a fact and return its id. Never refuses a fact for being similar.
 
@@ -183,7 +191,9 @@ def add_fact(memory: Memory, args) -> str | None:
     target = _need_fact(memory, supersedes) if supersedes else None
     if target and target["status"] != "active":
         raise Refused(f"{supersedes} is {target['status']}, not active")
-    if target and args.supersedes and outranks(target, mine):
+    if target and args.supersedes in memory.masked:
+        _inherit(args, target)
+    elif target and args.supersedes and outranks(target, mine):
         kept, supersedes = target, None
     with deadline.within(LOOK_BUDGET):
         retired = None if repeat else _retired_match(memory, args, moment)
@@ -390,23 +400,26 @@ def keep_fact(memory: Memory, fact_id: str, reason: str | None) -> None:
     append_records(memory.writer_file(change["writer"]), [_validated(change)])
 
 
-def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
-    """Remove every line for fact_id and leave a tombstone. The only real deletion."""
-    if fact_id not in memory.states and not any(
-        fact_id.encode() in path.read_bytes() for path in fact_files(memory.dir)
-    ):
-        raise Refused(f"no record with id {fact_id}")
-    tomb = memory.states.get(fact_id, {})
-    if tomb.get("status") == "purged" and not find_in_record(tomb, memory.env):
-        raise Refused(f"{fact_id} is already purged")
-    if not yes:
-        raise Refused(
-            f"purge removes {fact_id} for good and cannot be undone. "
-            "To forget a fact, use `memory change ID --status expired|wrong`. "
-            "Run again with --yes to purge."
-        )
-    _check_secrets(memory, reason)
-    dropped = sum(drop_id(path, fact_id) for path in fact_files(memory.dir))
+_ID_IN_LINE = re.compile(r'"id"\s*:\s*"([^"]+)"')
+
+
+def _can_end_a_true_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> None:
+    """Purge is the one thing that loses text, and a fact with a mask can hold true text."""
+    state = memory.states[fact_id]
+    replaced = state.get("status") == "superseded" and memory.fact(state.get("superseded_by", ""))
+    if replaced or not has_real_text(str(state.get("text", ""))):
+        return
+    if yes and reason.strip().lower() == "secret":
+        return
+    raise Refused(
+        f"{fact_id} holds true text beyond the value that looks secret ({DATA_LABEL}): "
+        f"{clean(state.get('text'))}\n"
+        f'Write what is true first: memory add "TEXT" --supersedes {fact_id}. Then purge it. '
+        "If nothing in it is true, purge it with --reason secret --yes."
+    )
+
+
+def _write_tombstone(memory: Memory, fact_id: str, reason: str) -> None:
     tomb = {
         "type": "tombstone",
         "id": fact_id,
@@ -416,6 +429,53 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
     }
     append_records(memory.writer_file(tomb["writer"]), [_validated(tomb)])
     _refresh_followups(memory)
+
+
+def _purge_line(memory: Memory, ref: str, reason: str, yes: bool) -> int:
+    line = next((line for line in memory.secret_lines if line.ref == ref), None)
+    if line is None:
+        raise Refused(f"no line with a value that looks secret is {ref}. `memory check` names each.")
+    if not (yes and reason.strip().lower() == "secret"):
+        raise Refused(
+            f"purge removes this line for good, and it can hold true text. Read the rest: "
+            f"memory show {ref}. Write again what is true, then run "
+            f"memory purge {ref} --reason secret --yes"
+        )
+    dropped = sum(drop_line(path, line.sha) for path in fact_files(memory.dir))
+    _write_tombstone(memory, ref, reason)
+    return dropped
+
+
+def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
+    """Remove every line for fact_id and leave a tombstone. The only real deletion."""
+    if find_secrets(fact_id, memory.env):
+        raise Refused(
+            "this looks like a secret, so it is no id, and nothing was written. "
+            "`memory check` names each record by its id or by `line-` and a hash."
+        )
+    _check_secrets(memory, reason)
+    if fact_id.startswith("line-"):
+        return _purge_line(memory, fact_id, reason, yes)
+    located, bad = scan(fact_files(memory.dir))
+    lines = [item.record for item in located if item.record.get("id") == fact_id]
+    torn = [item for item in bad if fact_id in _ID_IN_LINE.findall(item.text)]
+    if not lines and not torn:
+        raise Refused(f"no record with id {clean(fact_id)}")
+    holds_text = torn or any(
+        rec.get("type") != "tombstone" or find_in_record(rec, memory.env) for rec in lines
+    )
+    if not holds_text:
+        raise Refused(f"{fact_id} is already purged")
+    if fact_id in memory.masked:
+        _can_end_a_true_fact(memory, fact_id, reason, yes)
+    if not yes:
+        raise Refused(
+            f"purge removes {fact_id} for good and cannot be undone. "
+            "To forget a fact, use `memory change ID --status expired|wrong`. "
+            "Run again with --yes to purge."
+        )
+    dropped = sum(drop_id(path, fact_id) for path in fact_files(memory.dir))
+    _write_tombstone(memory, fact_id, reason)
     return dropped
 
 

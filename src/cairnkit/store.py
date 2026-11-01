@@ -213,6 +213,21 @@ def locked(path: Path) -> Iterator[None]:
                 fcntl.flock(fh, fcntl.LOCK_UN)
 
 
+def drop_line(path: Path, sha: str) -> int:
+    """Rewrite one file without the lines with this hash, the hash that `scan` gives a line."""
+    lines = path.read_bytes().splitlines(keepends=True)
+    kept = [raw for raw in lines if hashlib.sha1(raw.strip()).hexdigest()[:16] != sha]
+    if len(kept) == len(lines):
+        return 0
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".purge-")
+    with os.fdopen(fd, "wb") as fh:
+        fh.writelines(kept)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    return len(lines) - len(kept)
+
+
 def drop_id(path: Path, fact_id: str) -> int:
     """Rewrite one file without the lines for fact_id. Return how many lines went.
 

@@ -9,18 +9,22 @@ from cairnkit import ranking, usage
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, merged_checker
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import mask, readable
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean, render
 from cairnkit.state import effective_status
 
 
 def run_show(memory: Memory, fact_id: str) -> int:
-    if fact_id in memory.withheld:
-        print(memory.withheld_note(fact_id))
-        return 0
+    for line in memory.secret_lines:
+        if line.ref == fact_id:
+            print(FRAME_HEADER)
+            print(clean(f"{line.file}:{line.line}: {readable(line.text, memory.env)}"))
+            print(FRAME_FOOTER)
+            print(memory.secret_line_problem(line))
+            return 0
     state = memory.states.get(fact_id)
     if state is None:
-        print(f"error: no fact with id {fact_id}")
+        print(f"error: no fact with id {clean(mask(fact_id, memory.env))}")
         return 1
     if state["status"] == "purged":
         print(FRAME_HEADER)
@@ -77,6 +81,8 @@ def run_show(memory: Memory, fact_id: str) -> int:
     computed = " (computed at read time)" if status != state["status"] else ""
     print(f"Now: {status}{computed}" + (f": {clean(reason)}" if reason else ""))
     print(FRAME_FOOTER)
+    if fact_id in memory.masked:
+        print(memory.secret_problem(fact_id))
     if status == "active":
         usage.record(memory, [fact_id], now())
     return 0
@@ -115,7 +121,7 @@ def note_hits(
     for path in note_files(folder):
         text = path.read_text(encoding="utf-8", errors="replace")
         for number, raw in enumerate(text.splitlines(), start=1):
-            line = clean(raw)
+            line = clean(mask(raw, memory.env))
             if line.strip():
                 lines.append((path.relative_to(folder).as_posix(), number, line))
     if strict:
@@ -132,12 +138,7 @@ def note_hits(
         picked.sort(key=lambda p: (-p[3], p[0], p[1]))
     shown = []
     for rel, n, line, _ in picked:
-        found = find_secrets(line, memory.env)
-        text = (
-            f"line withheld: looks like a secret ({', '.join(found)}); remove that line"
-            if found
-            else _snippet(line, terms, strict, prefix)
-        )
+        text = _snippet(line, terms, strict, prefix)
         shown.append(clean(f"- {LINK_NAME}/notes/{rel}:{n}: {text}"))
     return shown
 
