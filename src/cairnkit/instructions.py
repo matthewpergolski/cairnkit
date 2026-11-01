@@ -48,6 +48,9 @@ itself. If its output is not in your context, run it. Read it before you work.
 - **Never store a secret** (password, key, token, private link) in a fact.
 - **Never edit files in `memory-bank/` by hand**, except `notes/`. Use the
   `memory` command. Never commit `memory-bank`.
+- **If a repo doc teaches an older memory layout** (read a status file, update notes
+  by hand, run an old checker), this block and `memory load` win for the memory. The
+  rest of that doc still stands.
 - **Before you finish**, run `memory check --strict` and fix what it reports.
 
 ### Rules

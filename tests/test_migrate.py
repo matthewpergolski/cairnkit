@@ -166,7 +166,7 @@ def test_writes_candidates_and_no_facts(repo, capsys):
     assert first["type"] == "candidate"
     assert first["line"] == 3 and first["suggested_kind"] == "decision"
     assert first["tier"] == "likely"
-    assert summary["tiers"] == {"likely": 7, "maybe": 0, "worktree-only": 0}
+    assert summary["tiers"] == {"likely": 7, "maybe": 0, "worktree-only": 0, "repeat": 0}
     assert summary["hints"] == {"superseded": 1}
     assert first["source"] == "file:memory-bank/notes/decisions.md:3"
     assert "7 candidate" in out
@@ -209,14 +209,13 @@ def test_rerun_after_a_partial_run_finishes_the_job(repo):
     assert (repo / "memory-bank").resolve() == mem.resolve()
 
 
-def test_rerun_never_overwrites_a_note_that_was_edited(repo, capsys):
+def test_rerun_never_overwrites_a_note_that_was_edited(repo):
     old_repo(repo)
     assert run_migrate() == 0
     note = sibling(repo, ".memory") / "notes" / "decisions.md"
     note.write_text("edited\n")
     assert run_migrate() == 0
     assert note.read_text() == "edited\n"
-    assert "differs" in capsys.readouterr().out
 
 
 def test_tracked_old_folder_is_refused_without_untrack(repo, capsys):

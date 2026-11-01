@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from cairnkit.schema import MAX_TEXT
+from cairnkit.similar import Words, analyze, similar_pairs
 
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(\S.*)$")
 DATED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\b")
@@ -47,13 +48,17 @@ class Candidate:
     too_long: bool = False
     worktree: str | None = None  # the worktree whose own old notes hold this line
     origin: str | None = None  # the file that holds it, when it is not in the main notes
+    repeat_of: str | None = None  # the earlier candidate or the fact that says the same
 
     @property
     def tier(self) -> str:
         """`likely` for a decision, trap, lesson, event or brief line; `maybe` for the rest.
 
-        A line found only in a worktree's own old notes is `worktree-only`.
+        A line found only in a worktree's own old notes is `worktree-only`. A line that says
+        what another one says is `repeat`.
         """
+        if self.repeat_of:
+            return "repeat"
         if self.worktree:
             return "worktree-only"
         return (
@@ -163,3 +168,34 @@ def scan_text(file: str, text: str) -> tuple[list[Candidate], Counts]:
             counts.other += 1
             open_item = False
     return found, counts
+
+
+def mark_repeats(found: list[Candidate], facts: dict[str, str]) -> int:
+    """Set `repeat_of` by the test that `memory add` uses. Return how many are repeats.
+
+    Ids are `c0001` and up, in list order, as in the worklist. A date at the start of a line
+    is left out, because a number that differs means that two facts differ.
+    """
+    words: dict[str, Words] = {
+        f"c{number:04d}": analyze(DATED_RE.sub("", cand.text))
+        for number, cand in enumerate(found, start=1)
+    }
+    words |= {fid: analyze(text) for fid, text in facts.items()}
+    origin: dict[str, str] = {}
+    pairs = similar_pairs(words)
+    for pair in pairs:
+        if pair.a not in facts and pair.b not in facts:
+            later, earlier = max(pair.a, pair.b), min(pair.a, pair.b)
+            origin[later] = min(origin.get(later, earlier), earlier)
+    for pair in pairs:  # a stored fact is a better origin than another candidate
+        if (pair.a in facts) != (pair.b in facts):
+            cand, fact = (pair.b, pair.a) if pair.a in facts else (pair.a, pair.b)
+            origin[cand] = fact
+    count = 0
+    for number, cand in enumerate(found, start=1):
+        first = origin.get(f"c{number:04d}")
+        while first in origin:
+            first = origin[first]
+        cand.repeat_of = first
+        count += first is not None
+    return count

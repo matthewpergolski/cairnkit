@@ -118,6 +118,7 @@ complete. Remove a row in the change that fixes it.
 | Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A branch that came after its note and left before tidy saw it reads as unknown, and tidy names the note. So does an old fact whose branch is already gone. A stale note on such a branch stays. A false end would be worse. One false end remains: a memory moved to a new clone reads a branch as ended when that branch was never pushed and had no commit of its own when the note was written. |
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
+| A repo with notes before the tool | A tracked file that teaches the old layout keeps teaching it until an agent edits it, and a hook keeps running the old checker. The tool names each line and never edits it. The worklist marks a repeat only when the words match. It does not mark the same rule in other words. |
 | Look for secrets | `memory check` reads only `*.md` files in `notes/` and `branches/`, and a hit there is a warning. `memory add` does not see these files. |
 | Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
@@ -670,9 +671,8 @@ level only. It writes nothing into a repo.
   is behind. The line names the command that updates only those tools.
 - `memory init` and `memory migrate` print one line at the end, once per memory
   folder. It names what is behind, and the tools with no pstack and the command
-  to add one. `migrate` puts only the update in
-  `proposals/migrate-followups.md`, so a tool that you do not use cannot keep
-  that task open. `memory skills status` always lists every tool.
+  to add one. The end of a migration does not
+  depend on skills. `memory skills status` always lists every tool.
 - `skills_check = false` in `config.toml` turns the line off.
   `skills_auto_update = true` makes the session-start hook update what is
   installed, and print one line that it did. It adds no tool. The default is off.
@@ -687,7 +687,8 @@ level only. It writes nothing into a repo.
     `memory migrate --yes`. It moves the old folder aside, runs `init`, copies
     the notes into `notes/`, writes a worklist of candidate facts, and connects the
     hooks. It writes no fact and it edits no project doc. The lines that name the
-    old layout go to a task file for an agent. Steps and the manual fallback:
+    old layout go to a task file for an agent. A rerun reads only that task, and it
+    removes the task when nothing is left. Steps and the manual fallback:
     [docs/brownfield.md](docs/brownfield.md).
   - Existing hook settings are merged, never replaced. A tracked hook config is
     left alone, and the tool prints the lines to add by hand.
@@ -698,7 +699,7 @@ level only. It writes nothing into a repo.
 | Command | Who | What it does |
 |---|---|---|
 | `memory init [--path DIR] [--dry-run] [--no-hooks] [--verbose] [--preset NAME ...] [--no-default-rules] [--write-instructions[=local]] [--instructions-file PATH]` | you, once | The one setup step. Makes the memory folder, links it into every checkout and worktree, ignores the link, adds the preset rules, connects the agent tools it finds and adds the git hooks. `--no-hooks` skips the agent tools and the git hooks. `--verbose` prints each step. With `--write-instructions`, writes the rules block to untracked `CLAUDE.local.md` (and harness copies) and moves any cairnkit block out of tracked `CLAUDE.md` / `AGENTS.md`. `shared` is refused. |
-| `memory migrate [--yes] [--from DIR] [--path DIR] [--preset NAME ...] [--no-default-rules] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`, and connects the hooks. `--untrack` stages the removal of a tracked old folder; nothing is committed. Lines that name the old layout, and old checker hooks, go to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds the agent until it is done. |
+| `memory migrate [--yes] [--from DIR] [--path DIR] [--preset NAME ...] [--no-default-rules] [--untrack]` | you, once, for a project with a prose `memory-bank` | Without `--yes`, shows the plan and changes nothing (`--dry-run` is the same; with `--yes` it is refused). With `--yes`: moves the old folder to `<repo>.memory-old`, runs `init`, copies the old files into `notes/`, writes `proposals/migrate-candidates.jsonl` (candidate facts, no fact written, with the lines that only a worktree's own old notes have, without the lines that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` already hold), runs `check`, and connects the hooks. `--untrack` stages the removal of a tracked old folder; nothing is committed. Lines that name the old layout, old checker hooks and older copies go to `proposals/migrate-followups.md`, a task for an agent; `memory load` reminds the agent until it is done. The plan and the run say which checkout it acts on, what it installs, and each old check, once. A rerun reads only the task, installs nothing, and removes the task when nothing is left. |
 | `memory preset list`, `memory preset show NAME [--detect]`, `memory preset add [NAME ...] [--file PATH ...] [--dry-run]` | you, sometimes | Lists the rule presets, prints their rules, adds the missing ones to a memory. `--file` adds the rules of a preset file that the project owns. |
 | `memory skills status`, `memory skills install pstack [--tool NAME] [--adopt\|--all] [--yes]` | you, once; the hook, if `skills_auto_update` is on | Shows or installs the pstack skills at user level. Status includes installed/available skill counts. Plan by default; `--yes` acts. `--adopt` (or `--all`) replaces same-named folders so every pstack skill is installed. |
 | `memory update [--check\|--dry-run] [--source PATH\|URL] [--channel stable\|dev]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `--channel` saves the channel for a git source. `status` prints the version, the installed short commit, the source, the channel and the update lines. |

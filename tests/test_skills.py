@@ -765,16 +765,13 @@ def test_init_is_silent_when_skills_are_current(world, repo, capsys):
     assert "pstack" not in out
 
 
-def test_migrate_lists_only_the_update_in_the_follow_up_task(world, repo, capsys):
+def test_migrate_says_the_update_but_the_task_does_not_demand_it(world, repo, capsys):
     world.claude("0.15.30")
     world.dirs(".codex")
     old_repo(repo)
     code, out = run(capsys, "migrate", "--yes", "--no-default-rules")
     assert code == 0 and CMD in out
-    task = (sibling(repo, ".memory") / "proposals" / "migrate-followups.md").read_text()
-    assert task.startswith("# Migration follow-up (pending)")
-    assert CMD in task and "Codex" not in task
-    assert "not installed" not in task
+    assert not (sibling(repo, ".memory") / "proposals" / "migrate-followups.md").exists()
 
 
 def test_a_tool_with_no_pstack_cannot_hold_a_migration_open(world, repo, capsys):
@@ -870,13 +867,10 @@ def test_init_says_nothing_for_a_tool_that_is_not_found(world, repo, capsys):
     assert "pstack" not in run(capsys, "init", "--no-default-rules")[1]
 
 
-def test_migrate_mentions_once_but_the_task_keeps_its_item(world, repo, capsys):
+def test_migrate_mentions_the_update_once(world, repo, capsys):
     world.claude("0.15.30")
     old_repo(repo)
     _, out = run(capsys, "migrate", "--yes", "--no-default-rules")
     assert sum(CMD in line for line in out.splitlines()) == 1
-    task = sibling(repo, ".memory") / "proposals" / "migrate-followups.md"
-    assert CMD in task.read_text()
     _, again = run(capsys, "migrate", "--yes", "--no-default-rules")
     assert "pstack" not in again
-    assert CMD in task.read_text()

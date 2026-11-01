@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The `grep` and the skills demand in the done test of `memory migrate`, and the `(done)` state of
+  its task. A task file exists only while items are open.
 - Each path that wrote to a tracked file: `--gitignore`, `--commit-msg-guard=shared`, the
   `AGENTS.md` pointer and `memory migrate --fix-references`. Migrate now lists old paths in the
   agent task. `memory init --refresh` no longer rewrites `.githooks/`, and no command removes an
@@ -23,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory migrate` lists each check of the old tooling once, by name, with what happens to it now.
+- `memory migrate` says which checkout it acts on and what the install step reaches.
+- The worklist marks a repeat of an earlier line or a stored fact (`tier: repeat`, `repeat_of`).
+- The status heading of `memory load` counts the commits that HEAD is past the newest commit the
+  note names. A clipped note says how many lines it shows. Neither ends a fact.
 - An agent tool that you install after setup connects by itself at the next session start, push
   or merge. It prints nothing, writes no tracked file and keeps your choice of tools.
 - `memory add` needs only the text. `--basis` defaults to `guess` and `--source` to
@@ -61,7 +68,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A tool with no pstack can no longer keep a migration task open.
+- The pre-commit hook no longer refuses a staged removal of a private path. Before this, each
+  commit after `memory migrate --yes --untrack` was refused.
+- The migration task names each old hook that reads the old notes, with its file and line, not
+  only the old checker. Its `Now` line quotes the file.
+- A rerun of `memory migrate` no longer scans, reports or installs again. It reads the task again,
+  and it removes the task when nothing is left. A deleted task stays deleted.
+- An old `notes/` folder is no longer nested as `notes/notes/`. Two copies of one file no longer
+  both look active: the other copy goes to `proposals/old-copies/`, and an old path that a doc names
+  holds only a pointer. `memory check` names a later file outside `notes/`.
+- `memory check` says that its `ok` covers only the facts and the links while a migration is open.
+- The migration task reads the docs and hooks of the checkout where it runs, and a doc may keep its
+  old name once it describes the new tool.
+- pstack can no longer keep a migration task open. The run and `memory status` still name it.
 - When Claude Code or Cursor connects, the Grok adapter goes, so that each hook runs once.
 - A live note no longer ends by mistake. A branch that is checked out stays open, and a merge read
   needs real evidence. A note follows `git branch -m`.

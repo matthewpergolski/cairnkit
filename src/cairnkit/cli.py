@@ -88,7 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
         "`memory migrate`, read the plan, then run `memory migrate --yes`. "
         "It edits no project doc. Lines that name the old layout, and what needs "
         "judgment, go to proposals/migrate-followups.md, a task for an agent. A rerun "
-        "finishes a run that stopped.",
+        "finishes a run that stopped. After that it reads the task again, and removes it "
+        "when nothing is left.",
     )
     p.add_argument(
         "--from",

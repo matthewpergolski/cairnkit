@@ -152,6 +152,10 @@ Lines that name the old layout go to a task for an agent. The only tracked chang
 can make is `--untrack`, which stages the removal of a tracked old folder and commits
 nothing.
 
+When a repo doc teaches an older memory layout and `memory instructions` teaches the
+new one, `memory instructions` and `memory load` win for the memory. The rest of that
+doc still stands. The block and the load line both say so.
+
 ## A template repo owns the dev flow
 
 A template repo is a starter project with a good dev flow: a backend, a

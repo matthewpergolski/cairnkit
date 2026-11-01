@@ -12,6 +12,9 @@ Steps, all deterministic, no model, no fact written:
 Without `--yes` it only prints the plan. A rerun after a failure finishes the
 job. The old files are always in the `.memory-old` folder, or in the move that
 was not done yet.
+
+A rerun after those steps does none of them. It reads the agent task again, and
+it removes the task when nothing is left. That is the end of the migration.
 """
 
 from __future__ import annotations
@@ -24,37 +27,43 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from cairnkit import adapters, hooks_cmd, instruction_files, skills
-from cairnkit.candidates import Candidate, Counts, scan_text
+from cairnkit import adapters, githook, hooks_cmd, instruction_files, skills
+from cairnkit.candidates import Candidate, Counts, mark_repeats, scan_text
 from cairnkit.check import run_check
-from cairnkit.config import load_config
 from cairnkit.hooks_cmd import run_install
 from cairnkit.init import STATUS, plan_link, run_init
+from cairnkit.memory import Memory
 from cairnkit.migrate_refs import (
+    CANDIDATES,
     CHECKER_RE,
-    DONE,
-    PENDING,
+    OLD_COPIES,
+    TASK,
+    TEXT_SUFFIXES,
     Item,
     checker_references,
     checker_scripts,
     doc_files,
-    grep_pattern,
+    dropped_checks,
     hook_line,
+    hook_reads_old_notes,
+    is_stub,
     judgment_items,
+    named_old_files,
+    old_copy_items,
+    outside_layout,
     read_text,
     render_followups,
     rewrite_text,
+    rewritten_docs,
+    stray_files,
+    stub_text,
 )
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
 from cairnkit.schema import MAX_TEXT
 
 OLD_SUFFIX = ".memory-old"
-CANDIDATES_FILE = "proposals/migrate-candidates.jsonl"
-TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 JUNK = {".DS_Store"}
-FOLLOWUPS_FILE = "proposals/migrate-followups.md"
-NEW_NAMES = ("notes", "facts", "branches", "proposals", "config.toml", "README.md")
-TIERS = ("likely", "maybe", "worktree-only")
+TIERS = ("likely", "maybe", "worktree-only", "repeat")
 
 
 def _entries(folder: Path) -> list[Path]:
@@ -108,43 +117,124 @@ def _differing(folder: Path, reference: Path) -> int:
     return count
 
 
-def copy_notes(source: Path, notes: Path, dry_run: bool) -> tuple[int, int, list[str]]:
-    """Copy files into notes/ with the same paths. Never overwrite a note.
+def note_layout(source: Path) -> tuple[dict[str, str], list[str]]:
+    """Map each note's path to its old file, and list the old files that lost to another.
 
-    The one exception is the empty `status.md` that `memory init` writes.
-    Return (copied, same, differing relative paths).
+    An old folder can hold `notes/REL` from an earlier move. `notes/REL` stays `notes/REL`,
+    and it wins over an old `REL`, because that is the file the new layout reads.
+    """
+    layout: dict[str, str] = {}
+    losers: list[str] = []
+    for rel in sorted(_files(source), key=lambda r: not r.startswith("notes/")):
+        note = rel.removeprefix("notes/")
+        if note not in layout:
+            layout[note] = rel
+        elif not filecmp.cmp(source / rel, source / layout[note], shallow=False):
+            losers.append(rel)
+    return dict(sorted(layout.items())), losers
+
+
+def _is_template(note: Path) -> bool:
+    return note.name == "status.md" and (read_text(note) or "") == STATUS
+
+
+def copy_notes(
+    source: Path, notes: Path, layout: dict[str, str], dry_run: bool
+) -> tuple[int, int, list[str]]:
+    """Copy files into notes/. Never overwrite a note, except the empty `status.md` of init.
+
+    Return (copied, same, the note paths that differ from their old file).
     """
     copied = same = 0
     differing: list[str] = []
-    for rel in _files(source):
+    for rel, old_rel in layout.items():
         target = notes / rel
-        origin = source / rel
-        if not target.exists():
+        origin = source / old_rel
+        if target.exists() and filecmp.cmp(origin, target, shallow=False):
+            same += 1
+        elif target.exists() and not _is_template(target):
+            differing.append(rel)
+        else:
             copied += 1
             if not dry_run:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(origin, target)
-        elif filecmp.cmp(origin, target, shallow=False):
-            same += 1
-        elif rel == "status.md" and target.read_text(encoding="utf-8", errors="replace") == STATUS:
-            copied += 1
-            if not dry_run:
-                shutil.copy2(origin, target)
-        else:
-            differing.append(rel)
     return copied, same, differing
 
 
-def scan_folder(source: Path) -> tuple[list[Candidate], dict[str, Counts], int]:
+def _keep_old_copy(memdir: Path, rel: str, origin: Path, dry_run: bool) -> None:
+    """Keep a copy that lost out of `notes/`, so that nothing looks active and nothing is lost."""
+    place = memdir / OLD_COPIES / rel
+    number = 1
+    while place.exists():
+        if filecmp.cmp(origin, place, shallow=False):
+            return
+        number += 1
+        place = memdir / OLD_COPIES / f"{rel}.{number}"
+    print(f"{'would keep' if dry_run else 'keep'} the other copy of {rel} at {place}")
+    if not dry_run:
+        place.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origin, place)
+
+
+def _remove(path: Path, memdir: Path) -> None:
+    """Remove a file, and each parent folder that it leaves empty, up to the memory folder."""
+    path.unlink(missing_ok=True)
+    for folder in path.parents:
+        if folder == memdir or any(folder.iterdir()):
+            return
+        folder.rmdir()
+
+
+def _settle_strays(memdir: Path, dry_run: bool) -> None:
+    """Text outside the new layout goes into notes/, or beside it when a note differs."""
+    would = "would " if dry_run else ""
+    for rel in stray_files(memdir):
+        path, note = memdir / rel, memdir / "notes" / rel
+        if not note.exists() or _is_template(note):
+            print(f"{would}move {path} -> {note}")
+            if not dry_run:
+                note.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, note)
+                _remove(path, memdir)
+            continue
+        if filecmp.cmp(path, note, shallow=False):
+            print(f"{would}remove {path}: {note} has the same text")
+        else:
+            _keep_old_copy(memdir, rel, path, dry_run)
+        if not dry_run:
+            _remove(path, memdir)
+
+
+def _sync_stubs(memdir: Path, named: set[str], dry_run: bool) -> None:
+    """A pointer at each old path that a doc names, because an agent that follows it lands here."""
+    would = "would " if dry_run else ""
+    for path in outside_layout(memdir):
+        if is_stub(path) and path.relative_to(memdir).as_posix() not in named:
+            print(f"{would}remove the pointer {path}")
+            if not dry_run:
+                _remove(path, memdir)
+    for rel in sorted(named):
+        path = memdir / rel
+        if not path.exists():
+            print(f"{would}leave a pointer to the note at {path}")
+            if not dry_run:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(stub_text(rel), encoding="utf-8")
+
+
+def scan_folder(
+    source: Path, layout: dict[str, str]
+) -> tuple[list[Candidate], dict[str, Counts], int]:
     """Scan the text files. Return the candidates, counts by file, and files skipped."""
     found: list[Candidate] = []
     counts: dict[str, Counts] = {}
     skipped = 0
-    for rel in _files(source):
+    for rel, old_rel in layout.items():
         if Path(rel).suffix.lower() not in TEXT_SUFFIXES:
             skipped += 1
             continue
-        text = (source / rel).read_text(encoding="utf-8", errors="replace")
+        text = (source / old_rel).read_text(encoding="utf-8", errors="replace")
         items, count = scan_text(rel, text)
         found += items
         counts[rel] = count
@@ -246,6 +336,7 @@ def _worklist(found: list[Candidate], counts: dict[str, Counts], homed: int) -> 
             "happened_at": cand.happened_at,
             "hint": cand.hint,
             "held_by": cand.held_by,
+            "repeat_of": cand.repeat_of,
             "too_long": cand.too_long,
             "source": (
                 f"file:{cand.origin}:{cand.line}"
@@ -286,6 +377,11 @@ def _report_counts(
             f"{homed} candidate(s) skipped: an instruction file already holds them "
             f"({', '.join(instruction_files.FILES)})."
         )
+    if tiers["repeat"]:
+        print(
+            f"{tiers['repeat']} repeat(s) say what another line or a stored fact says "
+            "(tier repeat, with `repeat_of`). Add only the first."
+        )
     for name in names:
         n = sum(c.worktree == name for c in found)
         print(f"{n} worktree-only line(s) from {name} (in the worklist, tier worktree-only)")
@@ -313,20 +409,36 @@ def repo_files(project: Project, docs: list[str]) -> list[str]:
     return sorted(files | set(docs))
 
 
-def _references(project: Project, source_dir: Path) -> list[Item]:
-    """Lines in the docs that name the old layout. The agent decides. The tool edits no doc."""
-    root = project.main_root
+def _references(project: Project, memdir: Path, source_dir: Path) -> tuple[list[Item], set[str]]:
+    """Lines in the docs that name the old layout, and the old files they name.
+
+    The agent decides each line. The tool edits no doc.
+    """
+    root = project.root
+    places = (memdir / "notes", source_dir, source_dir / "notes")
 
     def exists(rel: str) -> bool:
-        return (source_dir / rel.rstrip("/")).exists()
+        return any((place / rel.rstrip("/")).exists() for place in places)
+
+    def is_note(rel: str) -> bool:
+        return any((place / rel).is_file() for place in places)
 
     items: list[Item] = []
-    for rel in doc_files(root):
+    named: set[str] = set()
+    docs = doc_files(root)
+    rewritten = rewritten_docs(root, docs)
+    for rel in docs:
         text = read_text(root / rel)
         if text is None:
             continue
+        named |= named_old_files(text, is_note)
         new, _count = rewrite_text(text, exists)
-        items += judgment_items(rel, new, exists)
+        found = judgment_items(rel, new, exists, rewritten)
+        lines = text.splitlines()
+        for item in found:
+            if item.kind != "old-doc-file":
+                item.text = lines[item.line - 1].strip()[:200]
+        items += found
         for number, (before, after) in enumerate(
             zip(text.splitlines(), new.splitlines(), strict=False), start=1
         ):
@@ -337,72 +449,121 @@ def _references(project: Project, source_dir: Path) -> list[Item]:
                         number,
                         "old path",
                         before.strip()[:200],
-                        "This line names the old layout. The tool does not change a project doc.",
+                        "This line names the old layout. The tool changes no tracked file.",
                         after.strip()[:200],
                     )
                 )
-    return items
+    return items, named
 
 
 def _hooks(project: Project) -> list[Item]:
-    stale = adapters.stale_hooks(project, CHECKER_RE)
-    root = project.main_root
+    """Old hooks in settings files: the checker, and any other that reads the old notes."""
+    root = project.root
+
+    def is_old(command: str) -> bool:
+        return bool(CHECKER_RE.search(command) or hook_reads_old_notes(root, command))
+
     items = []
-    for hook in stale:
-        tracked = _tracked(root, hook.rel)
-        note = " The file is tracked: change it on a branch, with the team's OK." if tracked else ""
+    for hook in adapters.stale_hooks(project, is_old):
+        why = (
+            "This hook runs the old checker, which reads the old layout."
+            if CHECKER_RE.search(hook.command)
+            else f"{hook_reads_old_notes(root, hook.command)} It runs at each {hook.event}, and "
+            "`memory load` now brings the memory."
+        )
+        note = " The tool changes no tracked file, so this edit is yours." if hook.tracked else ""
         items.append(
             Item(
                 hook.rel,
                 hook_line(root, hook.rel, hook.command),
                 "hook",
                 f"{hook.event}: {hook.command}"[:200],
-                "This hook runs the old checker, which reads the old layout." + note,
+                why + note,
                 "Remove this hook handler. The memory hooks are already installed next to it.",
             )
         )
     return items
 
 
-def _followups(
-    project: Project,
-    memdir: Path,
-    source_dir: Path,
-    items: list[Item],
-    dry_run: bool,
-) -> tuple[Path | None, int, bool]:
-    """Write the agent task. Return (its path when it exists, item count, changed)."""
-    root = project.main_root
+def _old_checker(project: Project) -> tuple[list[str], list[str]]:
+    """The old checker scripts, and the `file:line` of each line that still names one."""
+    root = project.root
     files = repo_files(project, doc_files(root))
     scripts = checker_scripts(files)
-    refs = checker_references(root, files, scripts)
-    if scripts or refs:
-        shown = ", ".join(refs[:6]) + (" ..." if len(refs) > 6 else "")
-        name = ", ".join(scripts) if scripts else "the old checker"
-        print(f"The old checker ({name}) is not deleted. It is now unused.")
-        if refs:
-            print(f"Still referenced at: {shown}")
-    names = [
-        p.name for p in source_dir.iterdir() if p.name not in NEW_NAMES and p.name != ".DS_Store"
-    ]
-    hook_files = sorted({i.file for i in items if i.kind == "hook"})
-    items = sorted(items, key=lambda i: (i.file, i.line))
-    skills_line = skills.behind_line() if load_config(memdir)["skills_check"] else None
-    text = render_followups(
-        items, scripts, refs, grep_pattern(names), root, hook_files, skills_line
-    )
-    path = memdir / FOLLOWUPS_FILE
-    old = path.read_text(encoding="utf-8") if path.is_file() else None
-    if text.startswith(DONE) and not (old or "").startswith(PENDING):
-        return None, 0, False
-    count = len(items) + (1 if skills_line else 0)
-    if old == text:
-        return path, count, False
-    print(f"{'would write' if dry_run else 'wrote'} the follow-up task {path}")
-    if not dry_run:
+    return scripts, checker_references(root, files, scripts)
+
+
+def _drops(project: Project, source: Path) -> list[str]:
+    """Each check that the old tooling made, in the repo and in the old folder."""
+    scripts = {rel: project.root / rel for rel in _old_checker(project)[0]}
+    scripts |= {rel: source / rel for rel in checker_scripts(_files(source))}
+    return dropped_checks(scripts)
+
+
+def _write_task(
+    memdir: Path, project: Project, source: Path, items: list[Item], dry_run: bool
+) -> None:
+    """Write the agent task, or remove it when nothing is open. The same input writes the same."""
+    path = memdir / TASK
+    if not items:
+        if not dry_run:
+            path.unlink(missing_ok=True)
+        return
+    scripts, refs = _old_checker(project)
+    ordered = sorted(items, key=lambda i: (i.file, i.line))
+    text = render_followups(ordered, scripts, refs, _drops(project, source))
+    if not dry_run and (not path.is_file() or path.read_text(encoding="utf-8") != text):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-    return path, count, True
+
+
+def _say_where(project: Project, dry_run: bool) -> None:
+    if dry_run:
+        print("Plan only: nothing will change without --yes.")
+    print(f"It acts on the main checkout {project.main_root}.")
+    if project.root != project.main_root:
+        print(
+            f"You ran it from the worktree {project.root}. The old notes and links are handled "
+            "from the main checkout. The docs for the agent task are read from this worktree."
+        )
+
+
+def _say_install(project: Project, would: str) -> None:
+    """Name what the install step reaches, in the plan as well as in the run."""
+    if not hooks_cmd.INSTALL_ON_INIT:
+        return
+    names = [name for name in adapters.detect(project) if name != "generic"]
+    if names:
+        places = ", ".join(str(checkout) for checkout in project.checkouts)
+        print(
+            f"{would}connect the agent tools ({', '.join(names)}) in each checkout: {places}. "
+            "Each file it writes there is untracked."
+        )
+    folder = githook.hooks_dir(project) if project.is_git else None
+    if folder:
+        print(
+            f"{would}add the git hooks pre-commit, post-checkout, pre-push and post-merge to "
+            f"{folder}, which every checkout runs. They are not shared. "
+            "It also adds commit-msg when a rule forbids AI attribution."
+        )
+
+
+def _close(project: Project, path_flag: str | None, memdir: Path, source: Path, dry: bool) -> int:
+    """A rerun after the steps are done. It reads the task again and does nothing else."""
+    _settle_strays(memdir, dry)
+    references, named = _references(project, memdir, source)
+    _sync_stubs(memdir, named, dry)
+    items = old_copy_items(memdir)
+    if (memdir / TASK).is_file():
+        items += references + _hooks(project)
+    _write_task(memdir, project, source, items, dry)
+    code = 0 if dry else run_check(project, path_flag)
+    if items:
+        print(f"Migration not finished: {len(items)} item(s) left in {memdir / TASK}.")
+        print("Do them, then run `memory migrate --yes` again. That task says how it ends.")
+    else:
+        print("Migration finished. Nothing to do.")
+    return code
 
 
 def run_migrate(
@@ -426,6 +587,9 @@ def run_migrate(
     resume = not real and _has_content(holder)
     if not real and not resume:
         if src.is_symlink() and src.resolve() == memdir.resolve():
+            if (memdir / TASK).is_file() or (memdir / OLD_COPIES).is_dir() or stray_files(memdir):
+                _say_where(project, dry_run)
+                return _close(project, path_flag, memdir, memdir / "notes", dry_run)
             print(f"{src} is already a link to {memdir}. Nothing to migrate.")
             return 0
         if src.is_symlink():
@@ -478,8 +642,11 @@ def run_migrate(
             "Add --untrack: it takes them out of the index and commits nothing"
         )
 
-    if dry_run:
-        print("Plan only: nothing will change without --yes.")
+    _say_where(project, dry_run)
+    work = memdir / CANDIDATES
+    if not moves and not tracked and work.is_file():
+        return _close(project, path_flag, memdir, source_dir, dry_run)
+
     print(f"Old notes: {source_dir} ({len(_files(source_dir))} file(s))")
     would = "would " if dry_run else ""
     for path, target, _ in moves:
@@ -499,10 +666,14 @@ def run_migrate(
         return code
 
     notes = memdir / "notes"
-    copied, same, differing = copy_notes(source_dir, notes, dry_run)
+    layout, losers = note_layout(source_dir)
+    copied, same, differing = copy_notes(source_dir, notes, layout, dry_run)
     print(f"{would}copy {copied} file(s) to {notes}; {same} already there")
     for rel in differing:
         print(f"note {notes / rel} differs from the old file. Left as it is.")
+        _keep_old_copy(memdir, rel, source_dir / layout[rel], dry_run)
+    for old_rel in losers:
+        _keep_old_copy(memdir, old_rel.removeprefix("notes/"), source_dir / old_rel, dry_run)
     links = [p for p in _entries(source_dir) if p.is_symlink()]
     if links:
         print(f"{len(links)} link(s) in the old folder were not copied. They stay in {source_dir}.")
@@ -514,38 +685,56 @@ def run_migrate(
             "Their new lines are in the worklist."
         )
 
-    found, counts, skipped = scan_folder(source_dir)
+    found, counts, skipped = scan_folder(source_dir, layout)
     asides = aside_folders(root, extras, dry_run)
     for name, (here, final) in asides.items():
         found += worktree_only(source_dir, name, here, final)
     homed = skip_homed(root, found, counts)
+    stored = {}
+    if not dry_run and (memdir / "facts").is_dir():
+        states = Memory.open(project, path_flag).states.values()
+        stored = {x["id"]: str(x["text"]) for x in states if x.get("status") == "active"}
+    mark_repeats(found, stored)
     _report_counts(found, counts, skipped, list(asides), homed)
-    work = memdir / CANDIDATES_FILE
+    # The task goes first: a worklist on disk means that this run reached the task.
+    _settle_strays(memdir, dry_run)
+    items = old_copy_items(memdir)
+    if os.path.normpath(from_dir) != LINK_NAME:
+        print(f"The references to the old folder apply only to {LINK_NAME}. Skipped.")
+    else:
+        scripts, refs = _old_checker(project)
+        if scripts or refs:
+            name = ", ".join(scripts) if scripts else "the old checker"
+            shown = ", ".join(refs[:6]) + (" ..." if len(refs) > 6 else "")
+            print(f"The old checker ({name}) is not deleted. It reads the old layout.")
+            print("When it and `memory check` disagree, believe `memory check`.")
+            if refs:
+                print(f"Still run or named at: {shown}")
+        drops = _drops(project, source_dir)
+        if drops:
+            print("What the old tooling checked. This list prints once. Tell the developer:")
+            for drop in drops:
+                print(f"  {drop}")
+        references, named = _references(project, memdir, source_dir)
+        _sync_stubs(memdir, named, dry_run)
+        items += references + _hooks(project)
+    if items:
+        print(f"{would}write the follow-up task {memdir / TASK}")
+    _write_task(memdir, project, source_dir, items, dry_run)
+
     text = _worklist(found, counts, homed)
-    changed = bool(moves) or copied > 0
     if work.is_file():
         if work.read_text(encoding="utf-8") == text:
             print(f"worklist {work} is up to date")
         else:
             print(f"worklist {work} exists and differs. Not overwritten.")
     else:
-        changed = True
         print(f"{would}write worklist {work}")
         if not dry_run:
             work.parent.mkdir(parents=True, exist_ok=True)
             work.write_text(text, encoding="utf-8")
 
-    if os.path.normpath(from_dir) != LINK_NAME:
-        print(f"The follow-up task applies only to the {LINK_NAME} folder. Skipped.")
-        follow, follow_count = None, 0
-    else:
-        follow, follow_count, wrote = _followups(
-            project, memdir, source_dir, _references(project, source_dir) + _hooks(project), dry_run
-        )
-        changed = changed or wrote
-
     if untrack and tracked:
-        changed = True
         for path, checkout in tracked:
             rel = os.path.relpath(path, checkout)
             print(f"{would}run git rm -r --cached {rel} in {checkout}")
@@ -556,24 +745,24 @@ def run_migrate(
         print("git still tracks the old folder. Run again with --untrack to stage its removal.")
 
     if dry_run:
+        _say_install(project, "would ")
         print()
         print("This was the plan. Nothing changed. Read it, then run `memory migrate --yes`.")
         line = skills.once_line(memdir, record=False)
         if line:
             print(line)
         return 0
-    if not changed:
-        print("Already migrated. Nothing to do.")
     code = run_check(project, path_flag)
     line = skills.once_line(memdir)
     if line:
         print(line)
     print()
     if hooks_cmd.INSTALL_ON_INIT:
+        _say_install(project, "")
         code = code or run_install(project, "auto", False, True, None, path_flag, quiet=True)
-    print(f"Add facts from {LINK_NAME}/{CANDIDATES_FILE}: `memory add ... --source file:...`.")
+    print(f"Optional: add facts from {LINK_NAME}/{CANDIDATES}: `memory add ... --source file:...`.")
     print(f"The old folder is kept at {holder}. Delete it yourself when you are sure.")
-    if follow and follow_count:
-        print(f"Follow-up task for an agent ({follow_count} item(s)): {follow}")
+    if items:
+        print(f"Follow-up task for an agent ({len(items)} item(s)): {memdir / TASK}")
         print("`memory load` shows a one-line reminder until the task is done.")
     return code

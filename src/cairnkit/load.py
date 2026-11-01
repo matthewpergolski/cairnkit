@@ -8,13 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import followups, hygiene, install_source, refresh, usage
+from cairnkit import followups, hygiene, install_source, migrate_refs, refresh, usage
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.init import link_here
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import (
-    LINK_NAME,
     Project,
     current_branch,
     default_branch,
@@ -61,7 +60,13 @@ def note_head(path: Path) -> list[str]:
         for line in lines
         if line.strip() and not line.startswith("#") and not line.lstrip().startswith("<!--")
     ]
-    return body[:NOTE_LINES]
+    clipped = len(body) - NOTE_LINES
+    more = (
+        [f"({NOTE_LINES} of {len(body)} lines shown. The rest is in {path}.)"]
+        if clipped > 0
+        else []
+    )
+    return body[:NOTE_LINES] + more
 
 
 def active_states(memory: Memory) -> list[dict]:
@@ -112,8 +117,9 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     stale = hygiene.hygiene_line(memory)
     if stale:
         out.append(stale)
-    if _followup_pending(memory):
-        out.append(f"Migration follow-up pending: see {LINK_NAME}/proposals/migrate-followups.md")
+    migration_line = migrate_refs.pending_line(memory.dir)
+    if migration_line:
+        out.append(migration_line)
     tidy_line = followups.pending_line(memory)
     if tidy_line:
         out.append(tidy_line)
@@ -146,7 +152,9 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out.append(render(state))
     status = note_head(memory.dir / "notes" / "status.md")
     if status:
-        out += ["## Status (notes/status.md)", *(f"- [status] {clean(x)}" for x in status)]
+        age = hygiene.commits_past_status(root, memory.dir / "notes" / "status.md")
+        out.append(f"## Status (notes/status.md{age})")
+        out += [f"- [status] {clean(x)}" for x in status]
     if branch:
         branch_note = note_head(memory.dir / "branches" / f"{branch}.md")
         if branch_note:
@@ -185,16 +193,6 @@ def _explain(
         verdict = "shown" if state["id"] in shown else "not shown"
         out.append(f"- [{state['id']}] total {total:.2f} ({detail}): {verdict}")
     return out
-
-
-def _followup_pending(memory: Memory) -> bool:
-    """True while the task that `memory migrate` wrote is not done."""
-    path = memory.dir / "proposals" / "migrate-followups.md"
-    try:
-        with path.open(encoding="utf-8") as fh:
-            return fh.readline().startswith("# Migration follow-up (pending)")
-    except OSError:
-        return False
 
 
 def run_load(
