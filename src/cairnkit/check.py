@@ -154,6 +154,9 @@ def duplicate_rules(memory: Memory) -> list[str]:
 def false_enforcement(memory: Memory) -> list[str]:
     """Warnings for active rules that name a check that is not there."""
     moment, is_merged = now(), merged_checker(memory.project.root)
+    # The hidden-hook warning already explains a git hook that does not run, and it must not
+    # fail --strict.
+    hidden = githook.hook_state(memory.project).line.startswith("warning:")
     return [
         f"rule {state['id']}: enforced_by {state['enforced_by']}: no such check here. Add the "
         f"check, or run `memory change {state['id']} --no-enforced-by --reason WHY`"
@@ -161,6 +164,7 @@ def false_enforcement(memory: Memory) -> list[str]:
         if state.get("kind") == "rule"
         and effective_status(state, moment, is_merged)[0] == "active"
         and enforcement.is_false(memory.project, state)
+        and not (hidden and state["enforced_by"].startswith("githook:"))
     ]
 
 
