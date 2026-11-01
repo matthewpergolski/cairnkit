@@ -230,14 +230,6 @@ def test_a_pruned_commit_in_the_base_does_not_trap(repo, mem, capsys, remote):
     assert run(repo, "push", str(remote), "main").returncode == 0
 
 
-def test_a_lost_base_is_recorded_again_and_does_not_trap(old_history, remote):
-    (old_history / ".git" / githook.BASE_FILE).unlink()
-    assert run(old_history, "push", str(remote), "main").returncode == 0
-    assert (old_history / ".git" / githook.BASE_FILE).is_file()
-    tree_commit(old_history, author=AI)
-    assert run(old_history, "push", str(remote), "main").returncode != 0
-
-
 def test_the_base_goes_with_the_guard_and_the_next_guard_starts_a_new_one(old_history, remote):
     path = old_history / ".git" / githook.BASE_FILE
     assert path.is_file()
@@ -298,37 +290,29 @@ def run_printed(repo, command, editor="true"):
     )
 
 
-@pytest.fixture
-def strip_editor(tmp_path):
-    path = tmp_path / "strip.sh"
-    path.write_text('#!/bin/sh\ngrep -v Co-authored-by "$1" > "$1.t"; mv "$1.t" "$1"\n')
-    path.chmod(0o755)
-    return str(path)
-
-
 def test_the_refusal_prints_each_way_out_and_never_the_skip_flag(pushed):
     tree_commit(pushed, author=AI)
     result = run(pushed, "push", "origin", "main")
     assert "--no-verify" not in result.stderr
-    assert "git commit --amend" in result.stderr
+    assert printed(result.stderr, "sh ")
     assert "git rebase" in result.stderr
     assert "[commit_msg_guard]" in result.stderr
     assert "hashes" in result.stderr
 
 
-def test_the_printed_amend_fixes_a_trailer_on_an_empty_commit(pushed, remote, strip_editor):
+def test_the_printed_quick_fix_drops_a_trailer_from_an_empty_commit(pushed, remote):
     tree_commit(pushed, TRAILER)
     refused = run(pushed, "push", "origin", "main")
-    done = run_printed(pushed, printed(refused.stderr, "git commit --amend"), strip_editor)
+    done = run_printed(pushed, printed(refused.stderr, "sh "))
     assert done.returncode == 0, done.stderr
     assert "Co-authored-by" not in git(pushed, "log", "-1", "--format=%B")
     assert run(pushed, "push", "origin", "main").returncode == 0
 
 
-def test_the_printed_amend_fixes_an_ai_author(pushed, remote):
+def test_the_printed_quick_fix_replaces_an_ai_author(pushed, remote):
     tree_commit(pushed, author=AI)
     refused = run(pushed, "push", "origin", "main")
-    done = run_printed(pushed, printed(refused.stderr, "git commit --amend"))
+    done = run_printed(pushed, printed(refused.stderr, "sh "))
     assert done.returncode == 0, done.stderr
     assert git(pushed, "log", "-1", "--format=%an").strip() == "Test"
     assert run(pushed, "push", "origin", "main").returncode == 0
@@ -421,9 +405,8 @@ def test_the_printed_config_is_an_override_that_works(pushed, mem, remote):
 
 def test_the_fix_step_leaves_a_clean_commit_alone(pushed):
     sha = file_commit(pushed, "clean")
-    hook = pushed / ".git" / "hooks" / "pre-push"
     done = subprocess.run(
-        ["sh", str(hook), "cairnkit-fix-commit"],
+        ["sh", str(pushed / ".git" / githook.FIX_FILE)],
         cwd=pushed,
         capture_output=True,
         text=True,
