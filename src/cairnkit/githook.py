@@ -47,8 +47,11 @@ CONFIG_HOOKS_SINCE = "2.54"
 # Extended regular expressions, matched without case. They name AI tools on purpose: the
 # guard exists to catch them. A name counts only as a whole name, so "Cursor Smith" and
 # "Jane Cursor" pass. These names are also people's names, so alone they need a tool word,
-# a version or a tool address: "Opus 4.7" is refused, and "Opus <opus@example.com>" passes.
+# a version or a tool address: "Opus 4.7" is refused, and "Opus <opus@example.com>" passes as
+# an author. A trailer that credits a bare model name is refused at any address, because that
+# is the line the guard exists to stop. `identity_patterns` and `patterns` can override this.
 _PERSON_LIKE = "(claude|devin|fable|opus|sonnet|haiku|mythos|jules|kimi)"
+_MODEL = "(claude|fable|opus|sonnet|haiku|mythos)"
 _NO_REPLY = "<no-?reply[^@>]*@"
 _FAMILY = "(opus|sonnet|haiku|fable|mythos)"
 _TOOL_WORD = f"(agent|ai|bot|code|cli|assistant|build|model|{_FAMILY})"
@@ -91,6 +94,7 @@ _ANY_NAME = (
 DEFAULT_GUARD_PATTERNS = [
     f"{_TRAILER}{_NAME}( *<|[ :.]*$|:)",
     f"{_TRAILER}{_PERSON_LIKE}([ .]*$|:| {_NO_REPLY})",
+    f"{_TRAILER}{_MODEL} *<",
     f"{_TRAILER}{_BOT_NAME}",
     f"{_TRAILER}[^<]*({'|'.join(_ADDRESSES)})",
     "^[^a-z0-9]*generated with ",
