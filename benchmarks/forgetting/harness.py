@@ -534,7 +534,6 @@ def run_load(states, specs, point, pol, ctx, budget, rng):
             writer_name=lambda root: point.branch,
             changed_paths=lambda root, branch: [f"{a}/x.py" for a in point.diff_areas],
             active_states=lambda memory: states,
-            _followup_pending=lambda memory: False,
             note_head=lambda path: [],
         ),
         patch.object(usage, "last_used", lambda memory: ctx["used_at"]),
