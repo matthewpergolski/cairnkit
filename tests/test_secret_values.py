@@ -282,3 +282,44 @@ def test_a_clean_tombstone_still_cannot_be_purged_again(mem, capsys):
     assert main(["purge", BAD, "--reason", "secret", "--yes"]) == 0
     assert main(["purge", BAD, "--reason", "secret", "--yes"]) != 0
     assert "already purged" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("line", "value"),
+    [
+        ("INVITE_CODE=blue-tulip-42\n", "blue-tulip-42"),
+        ("HOST_CODE=abc123xyz789\n", "abc123xyz789"),
+        ("WEBHOOK_SIGNING=whatever-long-value-7\n", "whatever-long-value-7"),
+        ("ANY_NAME=MixedCaseValue\n", "MixedCaseValue"),
+        ("ANY_NAME=a-long-plain-value-of-words\n", "a-long-plain-value-of-words"),
+        ("DATABASE_URL=postgres://app:s3cretpw99@db/app\n", "s3cretpw99"),
+        ("DATABASE_URL=postgres://app:pa%24%24word99@db/app\n", "pa$$word99"),
+        ("DATABASE_URL=postgres://app:pa%24%24word99@db/app\n", "pa%24%24word99"),
+    ],
+)
+def test_a_value_counts_by_its_own_shape_under_any_name(repo, mem, capsys, line, value):
+    (repo / ".env").write_text(line)
+    assert main(["add", f"the login is {value} today", *ADD]) != 0
+    assert value not in capsys.readouterr().err
+    assert value not in stored(mem)
+
+
+@pytest.mark.parametrize(
+    ("line", "text"),
+    [
+        ("NODE_ENV=production\n", "deploy to production"),
+        ("PORT=3000\n", "listen on port 3000"),
+        ("AWS_REGION=us-east-1\n", "we run in us-east-1"),
+        ("REGION=us-east-1\n", "we run in us-east-1"),
+        ("APP_VERSION=1.22.3\n", "pinned to 1.22.3"),
+        ("MAX_UPLOAD=10485760\n", "the limit is 10485760 bytes"),
+        ('GREETING="Hello 2 you all"\n', "the page says Hello 2 you all"),
+        ("INVITE_CODE=welcome\n", "the welcome page"),
+        ("ALGO_NAME=sha256\n", "we hash with sha256"),
+        ("DATABASE_URL=postgres://postgres:postgres@localhost/app\n", "the app uses postgres"),
+        ("DATABASE_URL=postgres://localhost/app\n", "the app uses postgres on localhost"),
+    ],
+)
+def test_an_ordinary_value_under_any_name_stays_clean(repo, mem, line, text):
+    (repo / ".env").write_text(line)
+    assert main(["add", text, *ADD]) == 0
