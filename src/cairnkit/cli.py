@@ -407,7 +407,7 @@ def run(args) -> int:
     from cairnkit.load import run_load
     from cairnkit.memory import MemoryMissing
     from cairnkit.migrate import run_migrate
-    from cairnkit.paths import find_project, resolve_memory_dir
+    from cairnkit.paths import copy_line_once, find_project, resolve_memory_dir
     from cairnkit.reading import run_search, run_show
     from cairnkit.refresh import run_refresh
     from cairnkit.repair import run_repair
@@ -516,6 +516,9 @@ def run(args) -> int:
         memory = _open(project, args)
         if args.command == "add":
             new = add_fact(memory, args)
+            line = copy_line_once(project, memory.dir)
+            if line:
+                print(line, file=sys.stderr)
             if new:
                 if args.kind == "rule" and hooks_cmd.githook_connected(project):
                     hooks_cmd.sync_guard_only(project, args.path)

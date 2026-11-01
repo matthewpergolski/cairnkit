@@ -30,6 +30,7 @@ from cairnkit.paths import (
     lost_memory,
     lost_note,
     merged_checker,
+    owner_line,
     resolve_memory_dir,
     run_git,
 )
@@ -408,7 +409,11 @@ def run_check(
             print(line)
     # After the result, and not in warnings: --strict must not fail on what git runs, and an
     # older git cannot fix a hidden hook.
-    for line in (githook.hook_state(project).line, refresh.gone_python_line(project)):
+    for line in (
+        owner_line(project, memdir),
+        githook.hook_state(project).line,
+        refresh.gone_python_line(project),
+    ):
         if line:
             print(line)
     return 1 if errors else 0

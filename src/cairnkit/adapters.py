@@ -34,7 +34,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from cairnkit.ignore import exclude, is_tracked
+from cairnkit.ignore import exclude, is_tracked, remove_file
 from cairnkit.paths import Project
 
 MARK = "cairnkit hook"
@@ -419,17 +419,18 @@ class BadConfig(Exception):
     pass
 
 
+FIX_IT = "The tool left it as it is. Fix it, then run `memory hooks install`."
+
+
 def _read(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8") or "{}")
     except ValueError as exc:
-        raise BadConfig(
-            f"{path} is not valid JSON ({exc}); fix it first. Nothing changed."
-        ) from exc
+        raise BadConfig(f"{path} is not valid JSON ({exc}). {FIX_IT}") from exc
     if not isinstance(data, dict):
-        raise BadConfig(f"{path} does not hold a JSON object. Nothing changed.")
+        raise BadConfig(f"{path} does not hold a JSON object. {FIX_IT}")
     return data
 
 
@@ -455,7 +456,7 @@ def _apply_file(
         elif path.exists() and MARK in path.read_text(encoding="utf-8"):
             steps.append(f"remove {path}")
             if not dry_run:
-                path.unlink()
+                remove_file(path, checkout)
     if install:
         steps += exclude(project, [adapter.rel], dry_run)
     return steps
@@ -484,7 +485,10 @@ def apply(
             continue
         data = _read(path)
         before = json.dumps(data, sort_keys=True)
-        data = adapter.add(data) if install else adapter.remove(data)
+        try:
+            data = adapter.add(data) if install else adapter.remove(data)
+        except (AttributeError, TypeError) as exc:
+            raise BadConfig(f"{path} does not have the shape of a hooks file. {FIX_IT}") from exc
         if json.dumps(data, sort_keys=True) == before and path.exists():
             continue
         verb = "write" if install else "update"
@@ -494,7 +498,7 @@ def apply(
         if dry_run:
             continue
         if verb == "remove":
-            path.unlink()
+            remove_file(path, checkout)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2) + "\n")

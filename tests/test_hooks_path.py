@@ -241,19 +241,6 @@ def test_check_says_when_one_hook_is_gone(repo, mem, capsys):
     assert "pre-push" in capsys.readouterr().out
 
 
-def test_a_path_outside_the_repo_holds_the_hooks(repo, mem, capsys, tmp_path):
-    folder = tmp_path / "shared-hooks"
-    folder.mkdir()
-    git(repo, "config", "core.hooksPath", str(folder))
-    assert main(HOOK) == 0
-    assert githook.holds_block((folder / "pre-commit").read_text())
-    capsys.readouterr()
-    assert main(["check"]) == 0
-    out = capsys.readouterr().out
-    assert f"git hooks: on ({folder})" in out
-    assert "warning" not in out
-
-
 def test_an_older_git_skips_and_says_why(tracked, capsys, monkeypatch):
     monkeypatch.setattr(githook, "git_runs_config_hooks", lambda: False)
     config = (tracked / ".git" / "config").read_text()

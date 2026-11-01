@@ -6,12 +6,21 @@ import contextlib
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
-from cairnkit import adapters, githook, markers, refresh, rules
+from cairnkit import adapters, githook, instructions, markers, refresh, rules
+from cairnkit.ignore import drop_lines, is_tracked
 from cairnkit.init import can_link, ensure_all_linked, is_linked
 from cairnkit.memory import Memory, MemoryMissing
-from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
+from cairnkit.paths import (
+    GIT_FOLDER_REFUSAL,
+    LINK_NAME,
+    Project,
+    inside_git_folder,
+    resolve_memory_dir,
+    run_git,
+)
 
 SEEN_FILE = ".agents-seen.json"
 # Grok also runs these tools' project hooks, and each hook must run once.
@@ -137,7 +146,8 @@ def _print_summary(
     """Two or three lines. `--verbose` or `memory hooks install` prints each step."""
     agents = [name for name in names if name != "generic"]
     print(f"Agents connected: {', '.join(agents)}." if agents else "No agent tool found here.")
-    if project.is_git and git_hook and not any(s.startswith("skip") for s in steps):
+    hook_skips = tuple(f"skip {hook}" for hook in githook.ALL_HOOKS)
+    if project.is_git and git_hook and not any(s.startswith(hook_skips) for s in steps):
         extra = ", and a commit-message check" if guard else ""
         folder = os.path.relpath(githook.hooks_dir(project), project.root)
         print(f"Git hooks installed in {folder}{extra}. They are not shared.")
@@ -215,7 +225,11 @@ def run_install(
     guard: str | None,
     flag: str | None = None,
     quiet: bool = False,
+    this_checkout: bool = False,
 ) -> int:
+    if inside_git_folder(Path.cwd()):
+        print(GIT_FOLDER_REFUSAL.format(cwd=Path.cwd()), file=sys.stderr)
+        return 1
     names = adapters.detect(project) if agent == "auto" else [agent]
     guard, tool_added, remove_guard = _plan_guard(project, flag, guard, git_hook)
     hooks = ["pre-commit", "post-checkout", "pre-push", "post-merge"] if git_hook else []
@@ -253,15 +267,26 @@ def run_install(
     else:
         # No project memory yet: never put stop-hook config into an unlinked worktree.
         targets = [project.main_root]
-    try:
-        for name in names:
-            if name != "generic":
-                steps += _connect(project, name, targets, dry_run)
-    except adapters.BadConfig as exc:
-        print(f"error: {exc}")
-        return 1
+    if this_checkout:
+        targets = [c for c in targets if c == project.root]
+        steps += [
+            f"note not connected: {c}. To connect it, run `memory hooks install` there."
+            for c in project.checkouts
+            if c != project.root
+        ]
+    bad: set[str] = set()
+    for name in names:
+        if name == "generic":
+            continue
+        try:
+            steps += _connect(project, name, targets, dry_run)
+        except adapters.BadConfig as exc:
+            bad.add(name)
+            steps.append(f"skip {name}: {exc}")
+    names = [name for name in names if name not in bad]
     if has_memory and not dry_run:
-        _remember_seen(memdir, [*names, *adapters.detect(project)])
+        # A file to fix stays out of the record, so the next look tries it again.
+        _remember_seen(memdir, [n for n in [*names, *adapters.detect(project)] if n not in bad])
     if project.is_git and git_hook:
         steps += githook.install(project, "pre-commit", githook.pre_commit_body(), dry_run)
         steps += githook.install(project, "post-checkout", githook.post_checkout_body(), dry_run)
@@ -278,9 +303,10 @@ def run_install(
         print("Dry run: nothing will change.")
     else:
         refresh.record(project, flag)
+    code = 1 if bad and agent != "auto" else 0
     if quiet:
         _print_summary(project, names, guard, git_hook, steps)
-        return 0
+        return code
     for step in steps:
         plain = step.startswith(("skip", "note"))
         print(("would " if dry_run and not plain else "") + step)
@@ -294,33 +320,56 @@ def run_install(
             print("Codex runs project hooks only in a trusted project. Review them in /hooks.")
     if not steps:
         print("Already installed. Nothing to do.")
-    return 0
+    return code
+
+
+def _take_back_blocks(project: Project, dry_run: bool) -> list[str]:
+    """The rules blocks that `--write-instructions` wrote. A tracked file never changes."""
+    memdir, _ = resolve_memory_dir(project)
+    steps = []
+    for checkout in project.checkouts:
+        for path in refresh.block_paths(project, memdir):
+            if not path.is_relative_to(checkout):
+                continue
+            if is_tracked(project, path.relative_to(checkout).as_posix(), checkout):
+                continue
+            result = instructions.take_back_block(path, checkout, dry_run)
+            if result == "removed":
+                steps.append(f"remove the rules block from {path}")
+            elif result == "broken":
+                steps.append(f"skip {markers.broken_message(path, 'memory hooks uninstall')}")
+    return steps
+
+
+def _take_back_exclude(project: Project) -> list[str]:
+    """The exclude lines of files that are now gone. The link stays, so its lines stay."""
+    rels = [*(adapter.rel for adapter in adapters.ADAPTERS.values()), *refresh.BLOCK_FILES]
+    return drop_lines(
+        project, [r for r in rels if not any(os.path.lexists(c / r) for c in project.checkouts)]
+    )
 
 
 def run_uninstall(project: Project, dry_run: bool) -> int:
     steps: list[str] = []
-    try:
-        for name in adapters.ADAPTERS:
+    bad = False
+    for name in adapters.ADAPTERS:
+        try:
             steps += adapters.apply(project, name, install=False, dry_run=dry_run)
-    except adapters.BadConfig as exc:
-        print(f"error: {exc}")
-        return 1
+        except adapters.BadConfig as exc:
+            bad = True
+            steps.append(f"skip {name}: {exc}")
+    steps += _take_back_blocks(project, dry_run)
     if project.is_git:
-        for hook in (
-            "pre-commit",
-            "post-checkout",
-            "pre-push",
-            "post-merge",
-            "post-commit",
-            "commit-msg",
-        ):
+        for hook in githook.ALL_HOOKS:
             steps += githook.uninstall(project, hook, dry_run)
         if not dry_run:
             _remember_guard(project, False)
         steps += _sync_rules(project, None, dry_run)
+    if not dry_run:
+        steps += _take_back_exclude(project)
     for step in steps:
         plain = step.startswith(("skip", "note"))
         print(("would " if dry_run and not plain else "") + step)
     if not steps:
         print("No memory hooks found. Nothing to do.")
-    return 0
+    return 1 if bad else 0

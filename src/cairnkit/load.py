@@ -29,6 +29,7 @@ from cairnkit.paths import (
     current_branch,
     default_branch,
     earlier_names,
+    load_owner_line,
     merged_checker,
     run_git,
     writer_name,
@@ -242,7 +243,8 @@ def run_load(
         notice = install_source.notice_once() if update_notice else None
         repo_line = refresh.repo_line(project, flag)
         warning = real_folder_warning(project, memory.dir)
-        lines[1:1] = [line for line in (warning, notice, repo_line) if line]
+        owner = load_owner_line(project, memory.dir)
+        lines[1:1] = [line for line in (owner, warning, notice, repo_line) if line]
         if update_notice:
             lines[1:1] = rule_notices.take_lines(memory)
     except MemoryMissing as exc:

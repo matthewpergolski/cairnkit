@@ -53,7 +53,9 @@ refuses, merges, or adds a marked block.
       6. Lists each check of the old checker, by name, once. It says what happens
          to each check now. It reads the script's text and does not run it.
       7. Runs `memory check`, then connects the agent tools and the git hooks, as
-         `memory init` does. It names each checkout and the hook folder first.
+         `memory init` does, in the checkout where you ran it. It names that checkout,
+         the checkouts it leaves alone, and the hook folder. With `--untrack`, it
+         changes the index of that checkout only, and it prints the command for each other.
    3. Turn the candidates into facts, if you want them. This step is optional. It
       is not part of the end of the migration. An agent can do it. Each
       candidate has a `source` to pass on:
@@ -139,8 +141,9 @@ refuses, merges, or adds a marked block.
    line of a shell hook and keeps the rest. It also adds personal `pre-push`
    and `post-merge` hooks. They run auto-tidy after a push or a merge.
    They stay in this clone. They are not committed. A teammate never runs them.
-   When `core.hooksPath` points into the repo, the local git config runs the
-   hooks beside that folder (git 2.54 or newer). The tool writes no tracked hook.
+   When `core.hooksPath` names a folder outside the repo's git folder, the local git
+   config runs the hooks beside that folder (git 2.54 or newer). The tool writes no
+   tracked hook, and nothing in a folder that other repos use.
 7. Check: `git status`, `memory check`, then start an agent session.
 
 To undo: `memory hooks uninstall` removes only what the tool added. The
