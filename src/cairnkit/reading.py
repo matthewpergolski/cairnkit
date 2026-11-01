@@ -77,7 +77,8 @@ def run_show(memory: Memory, fact_id: str) -> int:
         for link in change.get("add_links", []):
             parts.append(f"link {link['rel']} {link['id']}")
         why = f": {change['reason']}" if change.get("reason") else ""
-        print("  " + clean(f"{change.get('at')}  {', '.join(parts)}{why} ({change.get('writer')})"))
+        line = f"{change.get('at')}  {', '.join(parts)}{why} ({change.get('writer')})"
+        print("  " + clean(mask(line, memory.env)))
     computed = " (computed at read time)" if status != state["status"] else ""
     print(f"Now: {status}{computed}" + (f": {clean(reason)}" if reason else ""))
     print(FRAME_FOOTER)

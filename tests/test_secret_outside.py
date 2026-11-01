@@ -35,7 +35,6 @@ def test_check_names_a_secret_in_the_old_copy(repo, mem, capsys):
 def test_check_says_git_history_holds_what_was_committed(repo, mem, capsys, tmp_path):
     other = tmp_path / "side"
     other.mkdir()
-    git(repo, "rm", "-q", "--cached", "memory-bank", check=False)
     (repo / "memory-bank").rename(other / "link")
     (repo / "memory-bank").mkdir()
     (repo / "memory-bank" / "log.md").write_text(f"CRON_SECRET={VALUE}\n")

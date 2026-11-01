@@ -1,9 +1,10 @@
 """`memory repair`: settle what `memory check` finds, with no hand edit and no purge.
 
 A fact file is append-only, so a damaged line stays on disk. A `repair` record says that its bytes
-are known, so the load and the check stop counting them. Each line of the output keeps what can
-be read of the damaged line, so that an agent can write the fact again. A new bad line has other
-bytes, so a repair never hides it.
+are known, so the load and the check stop counting them. Each line of the output keeps the plain
+words of the damaged line, so that an agent can write the fact again, and it prints no value. A new
+bad line has other bytes, so a repair never hides it. A repair does not settle a value that looks
+secret: `memory check` names it until `memory purge` removes it.
 """
 
 from __future__ import annotations
@@ -13,15 +14,11 @@ from cairnkit.clock import now, stamp
 from cairnkit.config import repair_config
 from cairnkit.memory import Memory
 from cairnkit.paths import writer_name
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import mask, readable
 from cairnkit.selection import clean
-from cairnkit.store import append_records, encode, fact_files, repaired_lines, scan
+from cairnkit.store import append_records, fact_files, repaired_lines, scan
 
 SHOWN = 300
-
-
-def _shown(text: str) -> str:
-    return "[hidden: it looks like a secret]" if find_secrets(text) else clean(text)[:SHOWN]
 
 
 def run_repair(memory: Memory) -> int:
@@ -33,7 +30,8 @@ def run_repair(memory: Memory) -> int:
     records: list[dict] = []
 
     def settle(path, line: int, sha: str, why: str, text: str) -> None:
-        print(f"{path.name}:{line}: {_shown(why)}\n  It held: {_shown(text)}")
+        held = clean(readable(text, memory.env))[:SHOWN]
+        print(f"{path.name}:{line}: {clean(mask(why, memory.env))}\n  It held: {held}")
         # No text from the line goes in the record: the line can hold a secret, and purge must find
         # each copy by its id.
         records.append(
@@ -57,7 +55,9 @@ def run_repair(memory: Memory) -> int:
         if writer_differs(item):
             why.append(writer_differs(item))
         if why:
-            settle(item.path, item.line, item.sha, "; ".join(why), encode(item.record))
+            rec = item.record
+            text = str(rec.get("text") or rec.get("reason") or "")
+            settle(item.path, item.line, item.sha, "; ".join(why), text)
     # Two files can hold the same bad bytes, and a line can appear twice. One record covers each.
     unique = {(r["file"], r["sha"]): r for r in records}
     if unique:
@@ -65,7 +65,7 @@ def run_repair(memory: Memory) -> int:
         print(
             f"Recorded {len(unique)} line(s). The bytes stay in the file. Write again what is true."
         )
-    fixed = repair_config(memory.dir)
+    fixed = repair_config(memory.dir, memory.env)
     for line in fixed:
         print(line)
     memory.reload()

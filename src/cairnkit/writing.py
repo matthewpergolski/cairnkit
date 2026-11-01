@@ -20,7 +20,7 @@ from cairnkit.paths import (
     writer_name,
 )
 from cairnkit.schema import RELS, validate_record
-from cairnkit.secretscan import find_in_record, find_secrets, has_real_text
+from cairnkit.secretscan import find_in_record, find_secrets, has_real_text, mask
 from cairnkit.selection import DATA_LABEL, clean, load_text, name, owner_rule
 from cairnkit.similar import analyze, exact_key, near_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
@@ -63,7 +63,7 @@ def _check_secrets(memory: Memory, *texts: str | None) -> None:
 def _need_fact(memory: Memory, fact_id: str) -> dict:
     state = memory.fact(fact_id)
     if state is None:
-        raise Refused(f"no fact with id {fact_id}")
+        raise Refused(f"no fact with id {clean(mask(fact_id, memory.env))}")
     return state
 
 
@@ -403,13 +403,24 @@ def keep_fact(memory: Memory, fact_id: str, reason: str | None) -> None:
 _ID_IN_LINE = re.compile(r'"id"\s*:\s*"([^"]+)"')
 
 
+def _says_secret(reason: str, yes: bool) -> bool:
+    return yes and reason.strip().lower() == "secret"
+
+
+def _line_route(what: str, ref: str) -> str:
+    return (
+        f"purge removes {what} for good, and it can hold true text. `memory check` names the way "
+        f"to read it. Write again what is true, then run memory purge {ref} --reason secret --yes"
+    )
+
+
 def _can_end_a_true_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> None:
     """Purge is the one thing that loses text, and a fact with a mask can hold true text."""
     state = memory.states[fact_id]
     replaced = state.get("status") == "superseded" and memory.fact(state.get("superseded_by", ""))
     if replaced or not has_real_text(str(state.get("text", ""))):
         return
-    if yes and reason.strip().lower() == "secret":
+    if _says_secret(reason, yes):
         return
     raise Refused(
         f"{fact_id} holds true text beyond the value that looks secret ({DATA_LABEL}): "
@@ -434,13 +445,11 @@ def _write_tombstone(memory: Memory, fact_id: str, reason: str) -> None:
 def _purge_line(memory: Memory, ref: str, reason: str, yes: bool) -> int:
     line = next((line for line in memory.secret_lines if line.ref == ref), None)
     if line is None:
-        raise Refused(f"no line with a value that looks secret is {ref}. `memory check` names each.")
-    if not (yes and reason.strip().lower() == "secret"):
         raise Refused(
-            f"purge removes this line for good, and it can hold true text. Read the rest: "
-            f"memory show {ref}. Write again what is true, then run "
-            f"memory purge {ref} --reason secret --yes"
+            f"no line with a value that looks secret is {ref}. `memory check` names each."
         )
+    if not _says_secret(reason, yes):
+        raise Refused(_line_route("this line", ref))
     dropped = sum(drop_line(path, line.sha) for path in fact_files(memory.dir))
     _write_tombstone(memory, ref, reason)
     return dropped
@@ -468,6 +477,8 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
         raise Refused(f"{fact_id} is already purged")
     if fact_id in memory.masked:
         _can_end_a_true_fact(memory, fact_id, reason, yes)
+    if any(find_secrets(item.text, memory.env) for item in torn) and not _says_secret(reason, yes):
+        raise Refused(_line_route(f"this torn line of {fact_id}", fact_id))
     if not yes:
         raise Refused(
             f"purge removes {fact_id} for good and cannot be undone. "

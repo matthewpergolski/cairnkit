@@ -10,7 +10,9 @@ import pytest
 from cairnkit.cli import main
 from cairnkit.config import load_config
 
-TORN = '{"type":"fact","id":"f-20261101-dead","kind":"fact","text":"prod password=hunter2hunter2 more'
+TORN = (
+    '{"type":"fact","id":"f-20261101-dead","kind":"fact","text":"prod password=hunter2hunter2 more'
+)
 NO_ID = '{"type":"fact","text":"prod password=hunter2hunter2 and more'
 TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -62,11 +64,13 @@ def test_a_torn_secret_can_be_read_and_removed_with_no_hand_edit(mem, capsys, te
 
 def test_repair_prints_no_env_value_and_no_token_cut_short(mem, repo, capsys):
     (repo / ".env").write_text("API_TOKEN=plainvalue42xyz\n")
-    tear(mem, '{"type":"fact","id":"f-20261101-beef","kind":"fact","text":"the plainvalue42xyz here')
-    code, out = run(capsys, "repair")
+    tear(
+        mem, '{"type":"fact","id":"f-20261101-beef","kind":"fact","text":"the plainvalue42xyz here'
+    )
+    _, out = run(capsys, "repair")
     assert "plainvalue42xyz" not in out and "here" in out
     tear(mem, '\n{"type":"fact","id":"f-20261101-cafe","text":"the token ghp_abcdefghijklm')
-    code, out = run(capsys, "repair")
+    _code, out = run(capsys, "repair")
     assert "ghp_abc" not in out and "the token" in out
 
 
@@ -141,6 +145,14 @@ def test_an_old_tombstone_with_a_secret_for_an_id_has_a_route(mem, capsys):
     assert run(capsys, "check", "--strict")[0] == 0
 
 
+def test_purge_by_id_of_a_torn_secret_keeps_the_same_guard(mem, capsys):
+    tear(mem, TORN)
+    assert run(capsys, "purge", "f-20261101-dead", "--reason", "cleanup", "--yes")[0] != 0
+    assert "hunter2" in stored(mem)
+    assert run(capsys, "purge", "f-20261101-dead", "--reason", "secret", "--yes")[0] == 0
+    assert "hunter2" not in stored(mem)
+
+
 def test_a_purged_line_comes_back_as_no_problem_in_a_second_file(mem, capsys):
     (mem / "facts" / "other.jsonl").write_text(TORN)
     tear(mem, TORN)
@@ -152,7 +164,7 @@ def test_a_purged_line_comes_back_as_no_problem_in_a_second_file(mem, capsys):
 
 def test_config_repair_prints_no_value_and_keeps_none_on_disk(mem, capsys):
     (mem / "config.toml").write_text(f'auto_tidy = "report"\napi_token = "{TOKEN}"\n')
-    code, out = run(capsys, "repair")
+    _code, out = run(capsys, "repair")
     assert TOKEN not in out and "api_token" in out
     assert TOKEN not in (mem / "config.toml").read_text()
     assert TOKEN not in (mem / "config.toml.bad").read_text()
@@ -194,7 +206,7 @@ def test_a_second_repair_keeps_the_first_bad_file(mem, capsys):
     run(capsys, "repair")
     assert (mem / "config.toml.bad").read_text() == "first_typo = 1\n"
     (mem / "config.toml").write_text("second_typo = 2\n")
-    code, out = run(capsys, "repair")
+    _code, out = run(capsys, "repair")
     assert (mem / "config.toml.bad").read_text() == "first_typo = 1\n"
     assert (mem / "config.toml.bad.2").read_text() == "second_typo = 2\n"
     assert "config.toml.bad.2" in out

@@ -355,7 +355,9 @@ SHAPES: list[Shape] = [
     # The body is the secret, and a text can end before the END line.
     Shape(
         "private key",
-        re.compile(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"),
+        re.compile(
+            r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
+        ),
     ),
     Shape("AWS access key", re.compile(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b")),
     Shape(
@@ -440,6 +442,8 @@ class KnownValues(Protocol):
 
     def mask(self, text: str) -> str: ...
 
+    def only_plain(self, names: list[str]) -> bool: ...
+
 
 HIDDEN = "hidden text"
 ENV_VALUE = "env value"
@@ -454,7 +458,8 @@ def mask_token(name: str) -> str:
     return f"[secret: {name}]"
 
 
-# Fields that a tool writes from a closed set. Scanning them costs time and finds nothing.
+# Fields that a tool writes from a closed set, or reads as a name. A known value is no catch here:
+# a mask on a branch named `release` would end its notes. `find_in_closed_fields` looks for shapes.
 UNSCANNED_FIELDS = frozenset(
     [
         "type",
@@ -471,6 +476,10 @@ UNSCANNED_FIELDS = frozenset(
         "purged_at",
         "cid",
         "rel",
+        "until_branch_merged",
+        "branch_tip",
+        "held_by",
+        "enforced_by",
     ]
 )
 
@@ -551,10 +560,38 @@ def mask_record(value: object, known: KnownValues | None = None) -> object:
     return value
 
 
+def find_in_closed_fields(record: dict) -> list[str]:
+    """A secret where only a tool writes. Known values stay out: a writer can be named `release`."""
+    return sorted(
+        {
+            name
+            for key in UNSCANNED_FIELDS
+            if isinstance(record.get(key), str)
+            for name in find_secrets(record[key])
+        }
+    )
+
+
+def mask_closed_fields(record: dict) -> dict:
+    return {
+        key: mask(value) if key in UNSCANNED_FIELDS and isinstance(value, str) else value
+        for key, value in record.items()
+    }
+
+
+def real_secrets(text: str, known: KnownValues | None = None) -> list[str]:
+    """What must leave a file that no fact state masks: a plain word from `.env` can be chance."""
+    return [name for name in find_secrets(text, known) if not (known and known.only_plain([name]))]
+
+
+TEXT_IN_LINE = re.compile(r'"(?:text|summary)"\s*:\s*"(.*)', re.DOTALL)
+
+
 def readable(text: str, known: KnownValues | None = None) -> str:
     """Only masks and plain words, for a damaged line: a cut token matches no shape."""
+    inner = TEXT_IN_LINE.search(text)
     words: list[str] = []
-    for index, part in enumerate(MASK.split(mask(text, known))):
+    for index, part in enumerate(MASK.split(mask(inner[1] if inner else text, known))):
         if index % 2:
             words.append(part)
             continue

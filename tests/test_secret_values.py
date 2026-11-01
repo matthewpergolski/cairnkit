@@ -173,7 +173,7 @@ def test_load_masks_a_stored_secret_and_keeps_the_fact(mem, capsys, record):
     assert "correct.horse.battery" not in out
     assert "staging login: password=[secret: assigned secret]" in out
     assert "Keep this fact." in out
-    assert f'memory add "TEXT" --supersedes' in out and BAD in out
+    assert 'memory add "TEXT" --supersedes' in out and BAD in out
     assert "Remove it now" not in out and "no person" not in out
 
 
@@ -192,7 +192,9 @@ def test_each_field_of_a_stored_fact_is_masked(mem, capsys, record):
 
 
 def test_a_masked_rule_keeps_its_section(mem, capsys):
-    owner = fact(BAD, f"Never deploy on Friday, the {OLD_SECRET} account", kind="rule", basis="told")
+    owner = fact(
+        BAD, f"Never deploy on Friday, the {OLD_SECRET} account", kind="rule", basis="told"
+    )
     plant(mem, owner)
     assert main(["load"]) == 0
     before_frame = capsys.readouterr().out.split("Stored notes")[0]
@@ -259,7 +261,10 @@ def test_show_search_change_and_keep_work_on_the_masked_text(mem, capsys):
 
 
 def test_supersede_of_an_owner_rule_with_a_mask_keeps_its_force(mem, capsys):
-    plant(mem, fact(BAD, f"Never deploy on Friday, the {OLD_SECRET} account", kind="rule", basis="told"))
+    plant(
+        mem,
+        fact(BAD, f"Never deploy on Friday, the {OLD_SECRET} account", kind="rule", basis="told"),
+    )
     assert main(["add", "Never deploy on Friday, the bot account", "--supersedes", BAD, *ADD]) == 0
     capsys.readouterr()
     assert main(["load"]) == 0
@@ -267,6 +272,31 @@ def test_supersede_of_an_owner_rule_with_a_mask_keeps_its_force(mem, capsys):
     assert "the bot account" in before_frame
     assert main(["purge", BAD, "--reason", "replaced", "--yes"]) == 0
     assert "correct.horse.battery" not in stored(mem)
+
+
+def test_an_agent_replaces_an_owner_rule_and_it_keeps_its_force(mem, capsys, monkeypatch):
+    plant(mem, fact(BAD, f"Never deploy Friday, {OLD_SECRET} account", kind="rule", basis="told"))
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert main(["add", "Never deploy Friday, the bot account", "--supersedes", BAD]) == 0
+    capsys.readouterr()
+    assert main(["load"]) == 0
+    assert "the bot account" in capsys.readouterr().out.split("Stored notes")[0]
+
+
+def test_a_branch_named_as_a_env_word_keeps_its_note(repo, mem, capsys):
+    git(repo, "switch", "-qc", "release-word")
+    note = fact(
+        BAD,
+        "a plain note for the branch",
+        scope="short",
+        until_branch_merged="release-word",
+        writer="main",
+    )
+    plant(mem, note)
+    (repo / ".env").write_text("API_TOKEN=release-word\n")
+    assert main(["load"]) == 0
+    assert "a plain note for the branch" in capsys.readouterr().out
+    assert main(["check", "--strict"]) == 0
 
 
 def test_supersede_keeps_pinned_and_the_kind(mem, capsys):

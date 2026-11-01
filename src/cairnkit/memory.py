@@ -8,10 +8,15 @@ from pathlib import Path
 from cairnkit.config import load_config
 from cairnkit.envsecrets import EnvValues, read_env_values
 from cairnkit.paths import Project, lost_memory, lost_note, resolve_memory_dir
-from cairnkit.secretscan import find_in_record, find_secrets, mask, mask_record
+from cairnkit.secretscan import (
+    find_in_closed_fields,
+    find_in_record,
+    find_secrets,
+    mask_closed_fields,
+    mask_record,
+)
 from cairnkit.state import fold
 from cairnkit.store import encode, fact_files, repaired_lines, scan
-
 
 SHOWN_IDS = 5
 ON_DISK = "Reads mask it, and it stays on disk until purged."
@@ -87,11 +92,12 @@ class Memory:
                     SecretLine(item.path.name, item.line, item.sha, found, item.text)
                 )
         for item in located:
-            rec_id = item.record.get("id")
-            found = find_in_record(item.record, self.env) if rec_id is None else None
-            found = found or (find_secrets(rec_id, self.env) if isinstance(rec_id, str) else None)
+            rec = item.record
+            found = find_in_closed_fields(rec)
+            if rec.get("id") is None:
+                found = found or find_in_record(rec, self.env)
             if found:
-                text = encode(item.record)
+                text = str(rec.get("text") or rec.get("reason") or encode(rec))
                 self.secret_lines.append(
                     SecretLine(item.path.name, item.line, item.sha, found, text)
                 )
@@ -101,10 +107,9 @@ class Memory:
             if found:
                 self.masked[fact_id] = found
                 state = mask_record(state, self.env)
-            shown_id = mask(fact_id, self.env)
-            if shown_id != fact_id:
-                state = {**state, "id": shown_id}
-            self.states[shown_id] = state
+            if find_in_closed_fields(state):
+                state = mask_closed_fields(state)
+            self.states[state["id"]] = state
 
     def writer_file(self, writer: str) -> Path:
         return self.dir / "facts" / f"{writer}.jsonl"
