@@ -4,10 +4,25 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
-from cairnkit.ignore import append_lines, exclude, is_tracked, missing_lines
-from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir
+from cairnkit.ignore import append_lines, exclude, is_tracked, keep_out_of_git, missing_lines
+from cairnkit.paths import (
+    ENV_DIR,
+    IDENTITY_FILE,
+    LINK_NAME,
+    PATH_FILE,
+    Project,
+    holds_memory,
+    linked_memory,
+    lost_memory,
+    lost_note,
+    read_identity,
+    record_file,
+    resolve_memory_dir,
+    root_commits,
+)
 from cairnkit.presets import NONE, apply
 
 IGNORE_LINES = [LINK_NAME, PATH_FILE]
@@ -114,13 +129,47 @@ def is_linked(checkout: Path, memdir: Path) -> bool:
 
 
 def can_link(project: Project, checkout: Path, memdir: Path) -> bool:
-    """True when ensure_linked would create a link in this checkout."""
+    """True when ensure_linked would create or repair a link in this checkout."""
     link = checkout / LINK_NAME
+    dangling = link.is_symlink() and not link.exists()
     return (
-        (memdir / "facts").is_dir()
-        and not os.path.lexists(link)
+        holds_memory(memdir)
+        and (dangling or not os.path.lexists(link))
         and not is_tracked(project, LINK_NAME, checkout)
     )
+
+
+def remember(project: Project, memdir: Path, source: str) -> None:
+    """Note where the memory is, so a later move can be traced. Never raises.
+
+    The memory folder gets an id. The repo records the id and the absolute path in its git
+    folder, because a relative link says nothing once the repo has moved. A new place also
+    gets a look for work trees that hold it. The usual call reads two small files, and it
+    runs no git.
+    """
+    if source in ("flag", ENV_DIR) or not holds_memory(memdir):
+        return
+    try:
+        identity = read_identity(memdir) or _write_identity(project, memdir)
+        path = record_file(project)
+        if path is None or identity is None:
+            return
+        text = f"{identity[0]}\n{memdir.resolve()}\n"
+        if not path.is_file() or path.read_text() != text:
+            keep_out_of_git(memdir)
+            path.write_text(text)
+    except (OSError, UnicodeDecodeError):
+        return
+
+
+def _write_identity(project: Project, memdir: Path) -> tuple[str, set[str]] | None:
+    roots = root_commits(project)
+    try:
+        with (memdir / IDENTITY_FILE).open("x") as fh:
+            fh.write(f"{uuid.uuid4().hex}\n{' '.join(sorted(roots))}\n")
+    except FileExistsError:
+        pass
+    return read_identity(memdir)
 
 
 def ensure_linked(
@@ -129,12 +178,11 @@ def ensure_linked(
     flag: str | None = None,
     memdir: Path | None = None,
 ) -> str | None:
-    """Link checkout to the project's memory when the link is plainly missing.
+    """Link checkout to the project's memory when the link is missing or dangles.
 
     Memory is resolved from the main checkout, so a worktree needs no
-    .memory-path of its own. Acts only on a missing path that git does not
-    track in this checkout, and only when the memory folder exists. Returns a
-    notice, or None.
+    .memory-path of its own. Acts only on a path that git does not track in this
+    checkout, and only when the memory folder exists. Returns a notice, or None.
     """
     if memdir is None:
         memdir, _ = resolve_memory_dir(project, flag)
@@ -146,16 +194,20 @@ def ensure_linked(
         exclude(project, IGNORE_LINES)  # first: a link git does not ignore is worse than none
     except OSError:
         return None
+    repaired = link.is_symlink()
     try:
+        if repaired:
+            link.unlink()
         link.symlink_to(target, target_is_directory=True)
     except OSError:
         return None
-    return f"memory: linked {link} -> {target}"
+    return f"memory: {'relinked' if repaired else 'linked'} {link} -> {target}"
 
 
 def ensure_all_linked(project: Project, flag: str | None = None) -> list[str]:
     """Ensure every checkout is linked. Return the notice lines that were printed."""
-    memdir, _ = resolve_memory_dir(project, flag)
+    memdir, source = resolve_memory_dir(project, flag)
+    remember(project, memdir, source)
     return [
         line
         for checkout in project.checkouts
@@ -164,8 +216,41 @@ def ensure_all_linked(project: Project, flag: str | None = None) -> list[str]:
 
 
 def link_here(project: Project, flag: str | None = None) -> str | None:
-    """Link this checkout when its memory link is plainly missing. Return a line, or None."""
-    return ensure_linked(project, project.root, flag)
+    """Link this checkout when its memory link is missing or dangles. Return a line, or None."""
+    memdir, source = resolve_memory_dir(project, flag)
+    remember(project, memdir, source)
+    return ensure_linked(project, project.root, flag, memdir)
+
+
+def real_folder_warning(project: Project, memdir: Path) -> str | None:
+    """Name a real file or folder where the link belongs. Git puts one there on an old branch."""
+    link = project.root / LINK_NAME
+    if link.is_symlink() or not os.path.lexists(link):
+        return None
+    what = "real folder" if link.is_dir() else "real file"
+    cause = (
+        "because this branch tracks it (a branch from before the memory moved out of git)"
+        if is_tracked(project, LINK_NAME)
+        else "not a link"
+    )
+    return (
+        f"warning: {link} is a {what}, {cause}. It is not your memory, and what it says can "
+        f"be old, such as a status. Trust this load. The memory is at {memdir}."
+    )
+
+
+def _empty_memory_refusal(project: Project, memdir: Path, source: str) -> str | None:
+    """Why init must not make an empty memory here. An empty memory reads as lost facts."""
+    if source in ("flag", ENV_DIR):
+        linked = linked_memory(project)
+        if linked is None or linked == memdir.resolve():
+            return None
+        return (
+            f"{LINK_NAME} points to the memory at {linked}, and {memdir} holds no memory. "
+            "To move the memory: move the folder, then run `memory init --path NEW_PLACE`."
+        )
+    lost = lost_memory(project)
+    return lost_note(lost) if lost else None
 
 
 def run_init(
@@ -191,6 +276,11 @@ def run_init(
         )
         return 1
     memdir, source = resolve_memory_dir(project, path_flag)
+    if not holds_memory(memdir) and not moved:
+        refusal = _empty_memory_refusal(project, memdir, source)
+        if refusal:
+            print(f"error: {refusal}\nNothing changed.", file=sys.stderr)
+            return 1
     say = print
     if dry_run:
         say("Dry run: nothing will change.")
@@ -207,6 +297,13 @@ def run_init(
             file=sys.stderr,
         )
         return 1
+    if not dry_run:
+        leaks = keep_out_of_git(memdir)
+        if leaks:
+            for leak in leaks:
+                print(f"error: {leak}", file=sys.stderr)
+            print("Nothing changed.", file=sys.stderr)
+            return 1
 
     steps: list[str] = []
     if not memdir.is_dir():
@@ -249,6 +346,9 @@ def run_init(
             steps.append(f"add {', '.join(missing)} to {ignore_file}")
             if not dry_run:
                 _append_ignore(ignore_file, missing)
+
+    if not dry_run:
+        remember(project, *resolve_memory_dir(project))
 
     if verbose or dry_run:
         for step in steps:

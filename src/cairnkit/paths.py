@@ -10,6 +10,11 @@ from pathlib import Path
 LINK_NAME = "memory-bank"
 PATH_FILE = ".memory-path"
 ENV_DIR = "MEMORY_DIR"
+IDENTITY_FILE = ".identity"
+RECORD_FILE = "cairnkit-memory"
+_GIT_LOCATION_ENV = frozenset(
+    {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX"}
+)
 
 
 @dataclass
@@ -35,11 +40,13 @@ class Project:
         return self.common_dir is not None
 
 
-def run_git(cwd: Path, *args: str, timeout: float = 3.0) -> str | None:
+def run_git(
+    cwd: Path, *args: str, timeout: float = 3.0, env: dict[str, str] | None = None
+) -> str | None:
     """Run git. Return its output, or None when git fails or is missing."""
     try:
         result = subprocess.run(
-            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -106,34 +113,216 @@ def _read_worktrees(root: Path) -> tuple[Path | None, bool, list[Path]]:
 def resolve_memory_dir(project: Project, flag: str | None = None) -> tuple[Path, str]:
     """Return the memory folder and where the setting came from.
 
-    Order: flag, MEMORY_DIR, first line of .memory-path in the project's home,
-    then the default sibling folder `<home>.memory`.
+    Order: flag, MEMORY_DIR, the .memory-path target when it holds a memory, a link that
+    resolves to a memory, the place this repo last recorded, the .memory-path target, then
+    the default folder. A name is only a guess, so a link or a record beats it.
     """
     if flag:
         return Path(flag).expanduser().absolute(), "flag"
     env = os.environ.get(ENV_DIR)
     if env:
         return Path(env).expanduser().absolute(), ENV_DIR
-    path_file = project.home / PATH_FILE
-    if path_file.is_file():
-        lines = path_file.read_text().splitlines()
-        first = lines[0].strip() if lines else ""
-        if first:
-            target = Path(first).expanduser()
-            if not target.is_absolute():
-                target = project.home / target
-            return Path(os.path.normpath(target)), PATH_FILE
+    named = _path_file_target(project)
+    if named and holds_memory(named):
+        return named, PATH_FILE
+    linked = linked_memory(project)
+    if linked:
+        return linked, "link"
+    recorded = _recorded_memory(project)
+    if recorded:
+        return recorded, "this repo's record"
+    if named:
+        return named, PATH_FILE
     return _default_memory_dir(project), "default"
+
+
+def holds_memory(folder: Path) -> bool:
+    return (folder / "facts").is_dir()
+
+
+def _path_file_target(project: Project) -> Path | None:
+    path_file = project.home / PATH_FILE
+    if not path_file.is_file():
+        return None
+    lines = path_file.read_text().splitlines()
+    first = lines[0].strip() if lines else ""
+    if not first:
+        return None
+    target = Path(first).expanduser()
+    if not target.is_absolute():
+        target = project.home / target
+    return Path(os.path.normpath(target))
+
+
+def linked_memory(project: Project) -> Path | None:
+    """The memory that an existing link resolves to. The main checkout's link goes first."""
+    for checkout in [project.main_root, *project.checkouts]:
+        link = checkout / LINK_NAME
+        if link.is_symlink() and holds_memory(link):
+            return link.resolve()
+    return None
+
+
+def read_identity(folder: Path) -> tuple[str, set[str]] | None:
+    """A memory's id and the root commits of its project. None when the folder has no id."""
+    try:
+        lines = (folder / IDENTITY_FILE).read_text().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not lines or not lines[0].strip():
+        return None
+    return lines[0].strip(), set(lines[1].split()) if len(lines) > 1 else set()
+
+
+def record_file(project: Project) -> Path | None:
+    return project.common_dir / RECORD_FILE if project.common_dir else None
+
+
+def _read_record(project: Project) -> tuple[str, Path] | None:
+    """The memory id and the absolute path that this repo last saw."""
+    path = record_file(project)
+    try:
+        lines = path.read_text().splitlines() if path else []
+    except (OSError, UnicodeDecodeError):
+        return None
+    return (lines[0], Path(lines[1])) if len(lines) >= 2 else None
+
+
+def _recorded_memory(project: Project) -> Path | None:
+    """The memory with the recorded id: at its recorded place, or moved to a folder near it."""
+    record = _read_record(project)
+    if record is None:
+        return None
+    memory_id, place = record
+
+    def is_it(folder: Path) -> bool:
+        identity = read_identity(folder)
+        return holds_memory(folder) and identity is not None and identity[0] == memory_id
+
+    if is_it(place):
+        return place
+    for parent in dict.fromkeys((project.home.parent, place.parent)):
+        for folder in _folders(parent):
+            if is_it(folder):
+                return folder
+    return None
+
+
+def _folders(parent: Path) -> list[Path]:
+    try:
+        return sorted(p for p in parent.iterdir() if p.is_dir())
+    except OSError:
+        return []
+
+
+def tree_env() -> dict[str, str]:
+    """The environment for git in a folder that the caller names.
+
+    A git hook sets GIT_DIR. With it, git reads that repo and calls the current folder its
+    top, whichever folder that is.
+    """
+    return {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV}
+
+
+def enclosing_trees(folder: Path) -> list[Path]:
+    """Every git work tree that holds this folder, nearest first."""
+    trees: list[Path] = []
+    here = folder.resolve()
+    while True:
+        while not here.is_dir():
+            here = here.parent
+        top = run_git(here, "rev-parse", "--show-toplevel", env=tree_env())
+        if not top:
+            return trees
+        trees.append(Path(top))
+        if Path(top).parent == Path(top):
+            return trees
+        here = Path(top).parent
 
 
 def _default_memory_dir(project: Project) -> Path:
     home = project.home
-    if not project.bare:
-        return home.parent / f"{home.name}.memory"
-    # In the layout proj/.bare the worktrees sit beside it, and proj names the project.
-    if home.name.startswith("."):
-        return home.parent / f"{home.parent.name}.memory"
-    return home.parent / f"{home.name.removesuffix('.git')}.memory"
+    if project.bare:
+        # In the layout proj/.bare the worktrees sit beside it, and proj names the project.
+        stem = home.parent.name if home.name.startswith(".") else home.name.removesuffix(".git")
+        return home.parent / f"{stem}.memory"
+    sibling = home.parent / f"{home.name}.memory"
+    if holds_memory(sibling):
+        return sibling
+    trees = enclosing_trees(home.parent)
+    if not trees or not os.access(trees[-1].parent, os.W_OK):
+        return sibling
+    # A folder inside a work tree can be committed by `git add -A` or deleted by `git clean`.
+    outermost = trees[-1]
+    path = home.resolve().relative_to(outermost)
+    return outermost.parent / f"{'.'.join((outermost.name, *path.parts))}.memory"
+
+
+@dataclass
+class LostMemory:
+    """What this project knows about a memory that it cannot reach."""
+
+    gone: Path | None
+    found: list[Path]
+    default: Path
+
+
+def lost_memory(project: Project) -> LostMemory | None:
+    """Read only. None means that nothing shows that this project had a memory."""
+    gone = _dangling_target(project)
+    if gone is None:
+        record = _read_record(project)
+        gone = record[1] if record else None
+    found = _unclaimed_memories(project)
+    if gone is None and not found:
+        return None
+    return LostMemory(gone, found, _default_memory_dir(project))
+
+
+def lost_note(lost: LostMemory) -> str:
+    """Say what is known and the one command that is needed. Never advise a bare init."""
+    start = f"To start a new memory instead: `memory init --path {lost.default}`."
+    parts = [f"This project's memory was at {lost.gone}, and it is not there."] if lost.gone else []
+    if lost.found:
+        names = " or ".join(f"`memory init --path {folder}`" for folder in lost.found)
+        parts.append(f"A memory with no project was found. If it is this project's: {names}.")
+    else:
+        parts.append("If you moved it, run `memory init --path NEW_PLACE`.")
+    return " ".join([*parts, start])
+
+
+def _dangling_target(project: Project) -> Path | None:
+    for checkout in [project.main_root, *project.checkouts]:
+        link = checkout / LINK_NAME
+        if link.is_symlink() and not link.exists():
+            return Path(os.path.normpath(checkout / os.readlink(link)))
+    return None
+
+
+def _unclaimed_memories(project: Project) -> list[Path]:
+    """Folders beside the project that look like a memory, and that nothing else claims.
+
+    A memory whose project folder still exists has its owner. A memory that names root
+    commits with none in common with this repo belongs to another project.
+    """
+    ours = root_commits(project)
+    found = []
+    for folder in _folders(project.home.parent):
+        if not holds_memory(folder) or not (folder / "config.toml").is_file():
+            continue
+        if folder.name.endswith(".memory") and folder.with_suffix("").is_dir():
+            continue
+        identity = read_identity(folder)
+        if identity and identity[1] and ours and not identity[1] & ours:
+            continue
+        found.append(folder)
+    return found
+
+
+def root_commits(project: Project) -> set[str]:
+    if not project.is_git:
+        return set()
+    return set((run_git(project.root, "rev-list", "--max-parents=0", "HEAD") or "").split())
 
 
 def current_branch(root: Path) -> str | None:

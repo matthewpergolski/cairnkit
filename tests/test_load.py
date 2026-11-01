@@ -33,7 +33,8 @@ def test_no_memory_warns_and_exits_zero(repo, capsys):
 
 
 def test_broken_link_warns_and_exits_zero(repo, mem, capsys, tmp_path):
-    mem.rename(tmp_path / "moved")
+    (tmp_path / "far").mkdir()
+    mem.rename(tmp_path / "far" / "moved")
     out = load(capsys)
     assert "not loaded" in out
 

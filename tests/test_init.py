@@ -91,9 +91,12 @@ def test_env_var_sets_location(repo, tmp_path, monkeypatch):
     assert (repo / "memory-bank").resolve() == target.resolve()
 
 
-def test_relinks_when_link_points_elsewhere(repo, tmp_path):
+def test_dangling_link_needs_a_named_place_before_a_new_memory(repo, tmp_path, capsys):
     (repo / "memory-bank").symlink_to(tmp_path / "old-place")
-    assert main(["init"]) == 0
+    assert main(["init"]) == 1
+    assert str(tmp_path / "old-place") in capsys.readouterr().err
+    assert not sibling(repo).exists()
+    assert main(["init", "--path", str(sibling(repo))]) == 0
     assert (repo / "memory-bank").resolve() == sibling(repo).resolve()
 
 

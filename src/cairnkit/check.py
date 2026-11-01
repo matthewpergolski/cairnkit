@@ -6,9 +6,19 @@ from collections import Counter
 
 from cairnkit import instruction_files, migrate_refs, presets
 from cairnkit.clock import now
+from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory
-from cairnkit.paths import LINK_NAME, Project, merged_checker, resolve_memory_dir, run_git
+from cairnkit.paths import (
+    ENV_DIR,
+    LINK_NAME,
+    Project,
+    lost_memory,
+    lost_note,
+    merged_checker,
+    resolve_memory_dir,
+    run_git,
+)
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_in_record, find_secrets
@@ -204,6 +214,11 @@ def run_check(
     memdir, source = resolve_memory_dir(project, flag)
     for linked in ensure_all_linked(project, flag):
         print(linked)
+    if not (memdir / "facts").is_dir() and source not in ("flag", ENV_DIR):
+        lost = lost_memory(project)
+        if lost:
+            print(f"{'error' if lost.gone else 'note'}: {lost_note(lost)}")
+            return 1 if lost.gone else 0
     link_exists = any((c / LINK_NAME).is_symlink() for c in project.checkouts)
     if not memdir.is_dir() and not link_exists:
         print(f"memory check: skipped: no memory folder at {memdir}")
@@ -211,6 +226,7 @@ def run_check(
     errors = check_links(project, memdir)
     warnings: list[str] = []
     if (memdir / "facts").is_dir():
+        errors += keep_out_of_git(memdir)
         memory = Memory.open(project, flag)
         record_errors, warnings = check_records(memory)
         errors += record_errors

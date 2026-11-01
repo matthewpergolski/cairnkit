@@ -128,7 +128,7 @@ def test_older_memory_with_no_link_stays_where_it_is(tmp_path, monkeypatch, caps
 
 
 def test_memory_files_the_parent_already_tracks_are_an_error(tmp_path, monkeypatch, capsys):
-    top, inner, memdir = older_memory_inside_parent(tmp_path)
+    top, inner, _memdir = older_memory_inside_parent(tmp_path)
     (inner / "memory-bank").symlink_to("../inner.memory", target_is_directory=True)
     git(top, "add", "-f", "inner.memory/README.md")
     git(top, "commit", "-qm", "the old leak")
@@ -136,7 +136,7 @@ def test_memory_files_the_parent_already_tracks_are_an_error(tmp_path, monkeypat
     capsys.readouterr()
     assert main(["check"]) == 1
     out = capsys.readouterr().out
-    assert str(top) in out and "tracks" in out and "git rm" in out
+    assert str(top) in out and "tracks" in out and "rm -r --cached" in out
     assert main(["load"]) == 0
 
 

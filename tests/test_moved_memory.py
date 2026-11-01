@@ -61,9 +61,7 @@ def test_init_after_a_rename_keeps_the_valid_link(repo, mem, capsys, monkeypatch
     assert FACT in run(capsys, "load")[1]
 
 
-def test_valid_link_wins_over_an_unrelated_folder_with_the_new_name(
-    repo, mem, capsys, monkeypatch
-):
+def test_valid_link_wins_over_an_unrelated_folder_with_the_new_name(repo, mem, capsys, monkeypatch):
     stored(repo, mem, capsys)
     other = repo.parent / "renamed.memory"
     (other / "facts").mkdir(parents=True)
@@ -82,9 +80,7 @@ def test_link_to_a_folder_with_no_memory_does_not_win(repo, mem, capsys, tmp_pat
     assert code == 1 and "points to" in out
 
 
-def test_init_path_to_an_empty_folder_never_replaces_a_valid_link(
-    repo, mem, capsys, tmp_path
-):
+def test_init_path_to_an_empty_folder_never_replaces_a_valid_link(repo, mem, capsys, tmp_path):
     stored(repo, mem, capsys)
     code, out = run(capsys, "init", "--path", str(tmp_path / "typo"))
     assert code == 1
@@ -131,7 +127,8 @@ def test_a_worktree_link_finds_the_memory_when_the_main_link_is_gone(
     (repo / "memory-bank").unlink()
     (repo / ".git" / "cairnkit-memory").unlink()
     new = move(repo, repo.parent / "renamed", monkeypatch)
-    repaired = subprocess.run(["git", "worktree", "repair"], cwd=new, capture_output=True)
+    wt = new / ".worktrees" / "keep"
+    repaired = subprocess.run(["git", "worktree", "repair", str(wt)], cwd=new, capture_output=True)
     assert repaired.returncode == 0
     assert FACT in run(capsys, "load")[1]
 
@@ -179,7 +176,7 @@ def test_memory_moved_beside_its_old_place_is_found(repo, capsys, tmp_path):
     assert main(["add", FACT]) == 0
     assert main(["load"]) == 0
     place.rename(keep / "two")
-    code, out = run(capsys, "load")
+    _code, out = run(capsys, "load")
     assert FACT in out
     assert (repo / "memory-bank").resolve() == (keep / "two").resolve()
 
@@ -240,7 +237,7 @@ def test_sibling_under_the_old_name_with_no_link_returns(repo, mem, capsys, monk
     stored(repo, mem, capsys)
     (repo / "memory-bank").unlink()
     new = move(repo, repo.parent / "renamed", monkeypatch)
-    code, out = run(capsys, "load")
+    _code, out = run(capsys, "load")
     assert FACT in out
     assert (new / "memory-bank").resolve() == mem.resolve()
     assert memories_beside(new) == ["proj.memory"]
