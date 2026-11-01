@@ -42,6 +42,9 @@ MAX_REFS = 40
 PENDING = "# Migration follow-up (pending)"
 TASK = "proposals/migrate-followups.md"
 CANDIDATES = "proposals/migrate-candidates.jsonl"
+OLD_COPIES = "proposals/old-copies"
+STUB_HEADER = "# Moved by `memory migrate`"
+TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 NEW_TOOL_RE = re.compile(r"memory (?:load|add)\b")
 
 
@@ -59,6 +62,36 @@ def is_new_layout(rel: str) -> bool:
     return rel.split("/")[0] in NEW_DIRS or rel in NEW_FILES
 
 
+def is_stub(path: Path) -> bool:
+    return (read_text(path) or "").startswith(STUB_HEADER)
+
+
+def stub_text(rel: str) -> str:
+    return (
+        f"{STUB_HEADER}\n\n"
+        f"This file is now `{LINK_NAME}/notes/{rel}`. Read it there, and write it there.\n"
+        "The facts come from `memory load`. A repo doc that sends you here is out of date.\n"
+    )
+
+
+def outside_layout(memdir: Path) -> list[Path]:
+    """Regular files in the memory folder outside the new layout. Tool state starts with a dot."""
+    found: list[Path] = []
+    for child in memdir.iterdir() if memdir.is_dir() else []:
+        if not child.name.startswith(".") and not is_new_layout(child.name):
+            found += child.rglob("*") if child.is_dir() else [child]
+    return sorted(p for p in found if p.is_file() and not p.is_symlink())
+
+
+def stray_files(memdir: Path) -> list[str]:
+    """Text files that `memory load` never reads. Old instructions lead an agent to write them."""
+    return [
+        p.relative_to(memdir).as_posix()
+        for p in outside_layout(memdir)
+        if p.suffix.lower() in TEXT_SUFFIXES and not is_stub(p)
+    ]
+
+
 def rewrite_text(text: str, exists: Callable[[str], bool]) -> tuple[str, int]:
     """Move `memory-bank/REL` to `memory-bank/notes/REL` when `exists(REL)`. Return (text, n)."""
     count = 0
@@ -72,6 +105,15 @@ def rewrite_text(text: str, exists: Callable[[str], bool]) -> tuple[str, int]:
         return f"{LINK_NAME}/notes/{rel}"
 
     return PATH_RE.sub(move, text), count
+
+
+def named_old_files(text: str, is_note: Callable[[str], bool]) -> set[str]:
+    """Old paths in a doc that are notes now. A path that climbs out of the folder is no note."""
+    return {
+        rel
+        for rel in PATH_RE.findall(text)
+        if not is_new_layout(rel) and ".." not in PurePosixPath(rel).parts and is_note(rel)
+    }
 
 
 def rewritten_docs(root: Path, files: Iterable[str]) -> set[str]:
@@ -201,6 +243,37 @@ def hook_line(root: Path, rel: str, command: str) -> int:
         if needle in line:
             return number
     return 1
+
+
+def old_copy_items(memdir: Path) -> list[Item]:
+    """One task for each older copy that the tool kept. Deleting the copy closes the task."""
+    folder = memdir / OLD_COPIES
+    items = []
+    for path in sorted(folder.rglob("*")) if folder.is_dir() else []:
+        if not path.is_file():
+            continue
+        rel = path.relative_to(folder).as_posix()
+        note_rel = re.sub(r"\.\d+$", "", rel)
+        old = (read_text(path) or "").splitlines()
+        new = (read_text(memdir / "notes" / note_rel) or "").splitlines()
+        number = next(
+            (n for n, (a, b) in enumerate(zip(old, new, strict=False), start=1) if a != b),
+            min(len(old), len(new)) + 1,
+        )
+        note = f"{LINK_NAME}/notes/{note_rel}"
+        items.append(
+            Item(
+                f"{LINK_NAME}/{OLD_COPIES}/{rel}",
+                number,
+                "old-copy",
+                old[number - 1].strip()[:200] if number <= len(old) else "(no more lines here)",
+                f"Two copies of this file disagreed, first at this line. `{note}` is the one that "
+                "`memory load` reads. The tool moved this copy out of the way and deleted nothing.",
+                f"Compare the two. Carry each line that is still true into `{note}`. "
+                "Then delete this copy.",
+            )
+        )
+    return items
 
 
 def render_followups(items: list[Item], scripts: list[str], refs: list[str]) -> str:
