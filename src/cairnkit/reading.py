@@ -19,8 +19,10 @@ def run_show(memory: Memory, fact_id: str) -> int:
         print(f"error: no fact with id {fact_id}")
         return 1
     if state["status"] == "purged":
-        print(f"{fact_id}: purged on {state.get('purged_at')} ({state.get('reason')}).")
+        print(FRAME_HEADER)
+        print(clean(f"{fact_id}: purged on {state.get('purged_at')} ({state.get('reason')})."))
         print("The content was removed for good.")
+        print(FRAME_FOOTER)
         return 0
     status, reason = effective_status(state, now(), merged_checker(memory.project.root))
     print(FRAME_HEADER)
@@ -46,7 +48,7 @@ def run_show(memory: Memory, fact_id: str) -> int:
     for link in state.get("links", []):
         print(f"  link: {clean(link['rel'])} {clean(link['id'])}")
     print("History:")
-    print(f"  {state.get('learned_at')}  created (active) by {state.get('writer')}")
+    print(f"  {clean(state.get('learned_at'))}  created (active) by {clean(state.get('writer'))}")
     for change in state["history"]:
         parts = []
         if "status" in change:
@@ -64,8 +66,8 @@ def run_show(memory: Memory, fact_id: str) -> int:
             parts.append(f"branch tip {clean(change['branch_tip'])}")
         for link in change.get("add_links", []):
             parts.append(f"link {link['rel']} {link['id']}")
-        why = f": {clean(change['reason'])}" if change.get("reason") else ""
-        print(f"  {change.get('at')}  {', '.join(parts)}{why} ({clean(change.get('writer'))})")
+        why = f": {change['reason']}" if change.get("reason") else ""
+        print("  " + clean(f"{change.get('at')}  {', '.join(parts)}{why} ({change.get('writer')})"))
     computed = " (computed at read time)" if status != state["status"] else ""
     print(f"Now: {status}{computed}" + (f": {clean(reason)}" if reason else ""))
     print(FRAME_FOOTER)
@@ -123,7 +125,7 @@ def note_hits(
         ]
         picked.sort(key=lambda p: (-p[3], p[0], p[1]))
     return [
-        f"- {LINK_NAME}/notes/{rel}:{n}: {_snippet(line, terms, strict, prefix)}"
+        clean(f"- {LINK_NAME}/notes/{rel}:{n}: {_snippet(line, terms, strict, prefix)}")
         for rel, n, line, _ in picked
     ]
 

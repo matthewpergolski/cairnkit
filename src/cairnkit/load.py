@@ -23,11 +23,14 @@ from cairnkit.paths import (
     writer_name,
 )
 from cairnkit.selection import (
+    AGENT_RULES,
     FRAME_FOOTER,
     FRAME_HEADER,
     areas_for_paths,
     branch_words,
     clean,
+    name,
+    owner_rule,
     pick,
     render,
     score_parts,
@@ -124,8 +127,9 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     if tidy_line:
         out.append(tidy_line)
     rules.sort(key=lambda s: s.get("learned_at", ""))
-    enforced = [s for s in rules if s.get("enforced_by")]
-    advisory = [s for s in rules if not s.get("enforced_by")]
+    instructions = [s for s in rules if owner_rule(s)]
+    enforced = [s for s in instructions if s.get("enforced_by")]
+    advisory = [s for s in instructions if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
         out += [render(s) for s in enforced]
@@ -133,6 +137,10 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
         out.append("## Advisory rules")
         out += [render(s) for s in advisory]
     out.append(FRAME_HEADER)
+    agent_rules = [s for s in rules if not owner_rule(s)]
+    if agent_rules:
+        out.append(AGENT_RULES)
+        out += [render(s) for s in agent_rules]
     pinned = [s for s in long_shown if s.get("pinned")]
     if pinned:
         out.append("## Pinned")
@@ -148,7 +156,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     for state in sorted(long_bullets, key=lambda s: (s.get("area", ""), s.get("happened_at", ""))):
         if state.get("area") != current:
             current = state.get("area")
-            out.append(f"### {clean(current)}")
+            out.append(f"### {name(current)}")
         out.append(render(state))
     status = note_head(memory.dir / "notes" / "status.md")
     if status:

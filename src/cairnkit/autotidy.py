@@ -37,6 +37,7 @@ from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import UNKNOWN, branch_reader, branch_tip, merged_checker
 from cairnkit.schema import validate_record
+from cairnkit.selection import clean
 from cairnkit.similar import analyze, exact_key, similar_pairs
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, locked
@@ -275,7 +276,7 @@ def print_unknown(memory: Memory) -> None:
         "and no record says that this clone held it."
     )
     for fact_id, branch in found:
-        print(f"- {fact_id} until {branch}")
+        print(clean(f"- {fact_id} until {branch}"))
     print('To end one that is over: memory change ID --status expired --reason "..."')
 
 
@@ -478,7 +479,7 @@ def run_auto(memory: Memory, dry_run: bool) -> int:
     verb = "Would retire" if dry_run else "Retired"
     print(f"{verb} {len(found)} fact(s):")
     for item in found:
-        print(f"- {item.id} [{item.case}] {item.reason} {item.text!r}")
+        print(clean(f"- {item.id} [{item.case}] {item.reason} {item.text!r}"))
     if not dry_run:
         print(f"Log with the undo command for each: {memory.dir / LOG_NAME}")
     return 0

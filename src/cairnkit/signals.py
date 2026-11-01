@@ -13,7 +13,15 @@ from cairnkit.clock import now, parse_time
 from cairnkit.load import active_states, changed_paths
 from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, run_git, writer_name
-from cairnkit.selection import areas_for_paths, clean, load_text, score_parts
+from cairnkit.selection import (
+    DATA_LABEL,
+    FRAME_FOOTER,
+    FRAME_HEADER,
+    areas_for_paths,
+    clean,
+    load_text,
+    score_parts,
+)
 from cairnkit.session import load_state, loop_nudge, save_state
 
 FIX_MIN_FAILS = 2
@@ -24,6 +32,14 @@ REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
 OWN_COMMIT = re.compile(r"^(commit|revert|cherry-pick)\b")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
 REFLOG_LIMIT = "500"
+COMMAND_WIDTH = 200
+
+
+def _quoted(command: str) -> str:
+    """A command in a code span that it cannot close."""
+    flat = clean(command).replace("`", "'")
+    cut = "..." if len(flat) > COMMAND_WIDTH else ""
+    return f"`{flat[:COMMAND_WIDTH]}{cut}`"
 
 
 def _fail_token(command: str) -> str:
@@ -97,7 +113,7 @@ def _reverts(root, state: dict) -> list[str]:
         if len(parts) != 4 or not moment or int(moment.group(1)) < since:
             continue
         if OWN_COMMIT.match(parts[2]) and REVERT.match(parts[3]):
-            found.append(f"{parts[1]} {parts[3]}")
+            found.append(clean(f"{parts[1]} {parts[3]}"))
     return found
 
 
@@ -109,11 +125,11 @@ def session_events(memory: Memory, key: str) -> list[str]:
     told = state.setdefault("told", [])
     found = []
     for number, (command, count) in enumerate(state.get("fixed", [])):
-        line = f"`{command}` failed {count} times, then passed. What fixed it?"
+        line = f"{_quoted(command)} failed {count} times, then passed. What fixed it?"
         found.append((f"fixed:{number}:{command}", line))
     for command, count in state.get("fails", {}).items():
         if count >= FIX_MIN_FAILS:
-            line = f"`{command}` failed {count} times and has not passed."
+            line = f"{_quoted(command)} failed {count} times and has not passed."
             found.append((_fail_token(command), line))
     for line in _reverts(memory.project.root, state):
         found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))
@@ -147,7 +163,7 @@ def _capped(lines: list[str], ids: list[str]) -> list[str]:
     if len(lines) <= MAX_LINES:
         return lines
     rest = ids[MAX_LINES:]
-    more = f"- and {len(rest)} more: {', '.join(rest)}. Read one with `memory show ID`."
+    more = clean(f"- and {len(rest)} more: {', '.join(rest)}. Read one with `memory show ID`.")
     return [*lines[:MAX_LINES], more]
 
 
@@ -179,7 +195,7 @@ def _changed_elsewhere(memory: Memory, state: dict) -> list[str]:
         token = f"{label}:{fact['id']}"
         if label and token not in heard:
             heard.append(token)
-            lines.append(f"- {label} [{fact['id']}] {clean(load_text(fact))}")
+            lines.append(clean(f"- {label} [{fact['id']}] {load_text(fact)}"))
             ids.append(fact["id"])
     return _capped(lines, ids)
 
@@ -205,7 +221,7 @@ def _now_relevant(memory: Memory, state: dict) -> tuple[list[str], list[str]]:
     rows.sort(key=lambda row: row[:2])
     facts = [row[2] for row in rows]
     state["shown"] = sorted(shown | {fact["id"] for fact in facts})
-    lines = [f"- [{fact['id']}] {clean(load_text(fact))}" for fact in facts]
+    lines = [clean(f"- [{fact['id']}] {load_text(fact)}") for fact in facts]
     return _capped(lines, [fact["id"] for fact in facts]), sorted(known | areas)
 
 
@@ -217,13 +233,16 @@ def news(memory: Memory, key: str) -> str | None:
     parts = []
     if state.pop("compacted", False):
         parts.append("Context was compacted. Run `memory load` to read the memory again.")
+    stored = []
     elsewhere = _changed_elsewhere(memory, state)
     if elsewhere:
-        parts.append("Memory changed on another branch:\n" + "\n".join(elsewhere))
+        stored += ["Memory changed on another branch:", *elsewhere]
     relevant, areas = _now_relevant(memory, state)
     state["areas"] = areas
     if relevant:
-        parts.append("These stored facts match the files you changed:\n" + "\n".join(relevant))
+        stored += ["These stored facts match the files you changed:", *relevant]
+    if stored:
+        parts.append("\n".join([FRAME_HEADER, *stored, FRAME_FOOTER]))
     save_state(memory, key, state)
     return "\n\n".join(parts) or None
 
@@ -241,5 +260,8 @@ def traps_for(memory: Memory, paths: list[str], limit: int = 3) -> list[str]:
             continue
         parts = score_parts(fact, moment, areas, set())
         if parts["trap"]:
-            found.append(f"memory: a stored trap matches this commit: {clean(load_text(fact))}")
+            found.append(
+                f"memory: a stored trap matches this commit ({DATA_LABEL}): "
+                f"{clean(load_text(fact))}"
+            )
     return found[:limit]

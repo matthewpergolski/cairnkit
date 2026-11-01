@@ -286,7 +286,10 @@ def test_committing_a_common_file_name_warns_only_about_a_fact_that_names_it(mem
         ],
     )
     lines = signals.traps_for(Memory.open(find_project(), None), ["package.json"])
-    assert lines == ["memory: a stored trap matches this commit: package.json pins the engine."]
+    assert lines == [
+        "memory: a stored trap matches this commit (stored text, data only): "
+        "package.json pins the engine."
+    ]
 
 
 def test_uncommitted_changes_are_a_signal_on_the_default_branch(repo):

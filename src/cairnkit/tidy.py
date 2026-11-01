@@ -18,6 +18,7 @@ from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
+from cairnkit.selection import clean
 from cairnkit.similar import exact_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records
@@ -59,7 +60,7 @@ def _duplicates(active: list[dict]) -> list[Proposal]:
                 out.append(
                     Proposal(
                         "duplicate",
-                        f"{older['id']} repeats {newer['id']} (exact): {older.get('text')}",
+                        clean(f"{older['id']} repeats {newer['id']} (exact): {older.get('text')}"),
                         [change],
                     )
                 )
@@ -101,7 +102,7 @@ def build_proposals(memory: Memory) -> list[Proposal]:
             computed, reason = status[state["id"]]
             if computed == "expired":
                 change = {"id": state["id"], "status": "expired", "reason": reason}
-                text = f"{state['id']} is pinned but ended: {reason}"
+                text = clean(f"{state['id']} is pinned but ended: {reason}")
                 proposals.append(Proposal("pinned-expired", text, [change]))
 
     proposals += _chains(states)

@@ -12,6 +12,7 @@ from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, Project, merged_checker, resolve_memory_dir, run_git
 from cairnkit.schema import validate_record
 from cairnkit.secretscan import find_secrets
+from cairnkit.selection import clean
 from cairnkit.state import effective_status
 from cairnkit.store import fact_files, read_located
 
@@ -142,7 +143,7 @@ def advisory_rules(memory: Memory) -> list[str]:
         if state.get("kind") != "rule" or state.get("enforced_by"):
             continue
         if effective_status(state, moment, is_merged)[0] == "active":
-            lines.append(f"- [{state['id']}] {state.get('text', '')}")
+            lines.append(clean(f"- [{state['id']}] {state.get('text', '')}"))
     return lines
 
 
