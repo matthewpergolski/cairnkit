@@ -13,6 +13,7 @@ from cairnkit import config, skills
 from cairnkit.cli import main
 
 CMD = "memory skills install pstack --yes"
+ADD = "memory skills install pstack --tool NAME --yes"
 SKILLS = ("poteto-mode", "unslop", "tdd")
 
 
@@ -198,25 +199,23 @@ def test_the_advisory_is_silent_when_no_tool_is_found(world):
     assert skills.advisory() is None
 
 
-def test_no_network_when_no_tool_applies(world, mem, capsys, monkeypatch):
+def test_no_network_when_no_tool_applies(world, mem, capsys):
     assert skills.advisory() is None  # no tool found
+    assert skills.behind_line() is None
     world.dirs(".codex")
-    assert skills.advisory(["claude"]) is None  # a tool is found, but not the one asked for
-    assert skills.session_line(mem) is None  # the running tool is not known
-    monkeypatch.setenv("CLAUDECODE", "1")
-    assert skills.session_line(mem) is None  # it runs Claude Code, which is not found
-    for command in ("check", "load"):
+    assert skills.behind_line() is None  # a tool is found, but it has no pstack to update
+    for command in ("check", "load", "status"):
         run(capsys, command)
     assert world.fetches == 0
 
 
-def test_the_advisory_names_a_missing_tool_and_the_one_command(world):
+def test_the_advisory_makes_adding_a_tool_its_own_act(world):
     world.claude("0.15.32")
     world.dirs(".codex")
     line = skills.advisory()
     assert line and "\n" not in line
-    assert "Codex" in line and "missing" in line and "Claude Code" not in line
-    assert line.endswith(CMD) or CMD in line
+    assert "Codex" in line and "Claude Code" not in line
+    assert ADD in line and CMD not in line
 
 
 def test_the_advisory_names_a_tool_that_is_behind(world):
@@ -225,42 +224,82 @@ def test_the_advisory_names_a_tool_that_is_behind(world):
     assert "Claude Code" in line and "0.15.30" in line and "0.15.32" in line and CMD in line
 
 
-def test_check_prints_the_advisory_and_load_prints_it(world, mem, capsys, monkeypatch):
-    world.dirs(".codex")
-    monkeypatch.setenv("CODEX_THREAD_ID", "t1")
-    _, out = run(capsys, "check")
-    assert CMD in out
-    _, out = run(capsys, "load")
-    assert CMD in out
-    assert sum(CMD in line for line in out.splitlines()) == 1
+def test_the_behind_line_leaves_out_a_tool_with_no_pstack(world):
+    world.claude("0.15.30")
+    world.dirs(".codex", ".cursor")
+    line = skills.behind_line()
+    assert "Claude Code" in line and CMD in line
+    assert "Codex" not in line and "Cursor" not in line
 
 
-def test_check_and_load_are_silent_when_current(world, mem, capsys):
+def test_the_command_in_the_behind_line_updates_only_what_is_installed(world, capsys):
+    world.claude("0.15.30")
+    world.mark("codex", "0.15.30")
+    world.dirs(".cursor")
+    world.find("opencode", "pi", "grok")
+    line = skills.behind_line()
+    command = line[line.index("memory skills") :].split()
+    assert run(capsys, *command[1:])[0] == 0
+    assert any(c[:3] == ["claude", "plugin", "update"] for c in world.commands)
+    assert json.loads((skills.skills_dir("codex") / ".pstack/install.json").read_text())[
+        "version"
+    ] == "0.15.32"
+    for tool in ("cursor", "opencode", "pi", "grok"):
+        assert not skills.skills_dir(tool).exists()
+
+
+def test_the_behind_line_names_a_partial_install(world, capsys):
     world.claude("0.15.32")
-    for command in ("check", "load"):
-        _, out = run(capsys, command)
-        assert "pstack" not in out
+    world.mark("codex", names=("tdd",))
+    skills.record_catalog(3, list(SKILLS))
+    line = skills.behind_line()
+    assert "Codex" in line and "partial" in line and CMD in line
+    assert "Claude Code" not in line
 
 
-def test_skills_check_false_silences_the_advisory(world, mem, capsys, monkeypatch):
+def test_pstack_is_not_in_the_load_or_the_check(world, mem, capsys, monkeypatch):
+    world.claude("0.15.30")
     world.dirs(".codex")
-    monkeypatch.setenv("CODEX_THREAD_ID", "t1")
-    (mem / "config.toml").write_text("skills_check = false\n")
+    monkeypatch.setenv("CLAUDECODE", "1")
     for command in ("check", "load"):
+        assert "pstack" not in run(capsys, command)[1]
+
+
+def test_status_names_the_exact_update_command(world, mem, capsys):
+    world.claude("0.15.30")
+    world.dirs(".codex")
+    _, out = run(capsys, "status")
+    line = next(x for x in out.splitlines() if "pstack" in x)
+    assert line.endswith(CMD) and "Claude Code" in line and "Codex" not in line
+    assert world.commands == []
+
+
+def test_status_is_silent_about_pstack_when_only_missing(world, mem, capsys):
+    world.dirs(".codex", ".cursor")
+    assert "pstack" not in run(capsys, "status")[1]
+
+
+def test_check_load_and_status_are_silent_when_current(world, mem, capsys):
+    world.claude("0.15.32")
+    for command in ("check", "load", "status"):
         _, out = run(capsys, command)
         assert "pstack" not in out
+
+
+def test_skills_check_false_silences_the_advisory(world, mem, capsys):
+    world.claude("0.15.30")
+    (mem / "config.toml").write_text("skills_check = false\n")
+    assert "pstack" not in run(capsys, "status")[1]
 
 
 def test_the_advisory_never_blocks_when_the_check_breaks(world, mem, capsys, monkeypatch):
-    monkeypatch.setenv("CODEX_THREAD_ID", "t1")
-
     def boom():
         raise RuntimeError("broken")
 
     monkeypatch.setattr(skills, "installed_version", lambda tool: boom())
     world.dirs(".codex")
-    assert run(capsys, "check")[0] == 0
-    assert run(capsys, "load")[0] == 0
+    for command in ("check", "load", "status"):
+        assert run(capsys, command)[0] == 0
 
 
 # --- install: the plan --------------------------------------------------------------
@@ -268,13 +307,38 @@ def test_the_advisory_never_blocks_when_the_check_breaks(world, mem, capsys, mon
 
 def test_install_shows_a_plan_and_changes_nothing_without_yes(world, capsys):
     world.dirs(".claude", ".codex")
-    code, out = run(capsys, "skills", "install", "pstack")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "all")
     assert code == 0
     assert "claude plugin marketplace add cursor/plugins" in out
     assert "claude plugin install pstack@cursor-plugins --scope user" in out
     assert "Codex" in out and "--yes" in out
     assert world.commands == [] and world.clones == 0
     assert not (world.home / ".codex" / "skills").exists()
+
+
+def test_the_default_plan_updates_only_what_is_installed(world, capsys):
+    world.claude("0.15.30")
+    world.dirs(".codex")
+    code, out = run(capsys, "skills", "install", "pstack")
+    assert code == 0 and "update" in out and "Claude Code" in out
+    assert "Codex" not in out and CMD in out
+    assert world.commands == [] and world.clones == 0
+
+
+def test_the_default_installs_nothing_when_no_tool_has_pstack(world, capsys):
+    world.dirs(".claude", ".codex")
+    code, out = run(capsys, "skills", "install", "pstack", "--yes")
+    assert code == 0 and ADD in out and "Claude Code" in out and "Codex" in out
+    assert world.commands == [] and world.clones == 0
+    assert not (world.home / ".codex" / "skills").exists()
+
+
+def test_a_new_tool_takes_its_own_command(world, capsys):
+    world.claude("0.15.32")
+    world.dirs(".codex", ".cursor")
+    assert run(capsys, "skills", "install", "pstack", "--tool", "codex", "--yes")[0] == 0
+    assert (world.home / ".codex" / "skills" / "tdd" / "SKILL.md").is_file()
+    assert not (world.home / ".cursor" / "skills").exists()
 
 
 def test_install_with_no_tool_found_says_so(world, capsys):
@@ -288,7 +352,7 @@ def test_install_with_no_tool_found_says_so(world, capsys):
 
 def test_install_claude_adds_the_marketplace_then_the_plugin(world, capsys):
     world.dirs(".claude")
-    code, _ = run(capsys, "skills", "install", "pstack", "--yes")
+    code, _ = run(capsys, "skills", "install", "pstack", "--tool", "claude", "--yes")
     assert code == 0
     assert world.commands == [
         ["claude", "plugin", "marketplace", "add", "cursor/plugins"],
@@ -299,7 +363,7 @@ def test_install_claude_adds_the_marketplace_then_the_plugin(world, capsys):
 def test_install_claude_skips_a_marketplace_that_is_known(world, capsys):
     world.dirs(".claude")
     world.marketplace()
-    run(capsys, "skills", "install", "pstack", "--yes")
+    run(capsys, "skills", "install", "pstack", "--tool", "claude", "--yes")
     assert world.commands == [
         ["claude", "plugin", "install", "pstack@cursor-plugins", "--scope", "user"]
     ]
@@ -326,14 +390,14 @@ def test_a_rerun_with_nothing_to_do_says_so(world, capsys):
 def test_install_without_the_claude_command_fails_and_says_why(world, capsys):
     world.dirs(".claude")
     world.claude_ok = False
-    code, out = run(capsys, "skills", "install", "pstack", "--yes")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "claude", "--yes")
     assert code == 1 and "claude" in out and "not on PATH" in out
 
 
 def test_a_failed_claude_command_fails_the_install(world, capsys, monkeypatch):
     world.dirs(".claude")
     monkeypatch.setattr(skills, "_run", lambda argv, timeout=120: (1, "boom"))
-    code, out = run(capsys, "skills", "install", "pstack", "--yes")
+    code, out = run(capsys, "skills", "install", "pstack", "--tool", "claude", "--yes")
     assert code == 1 and "boom" in out
 
 
@@ -474,9 +538,9 @@ def test_install_grok_copies_into_native_skills(world, capsys):
     assert marker["version"] == "0.15.32" and sorted(marker["skills"]) == sorted(SKILLS)
 
 
-def test_the_default_installs_every_tool_that_it_finds(world, capsys):
+def test_tool_all_installs_every_tool_that_it_finds(world, capsys):
     world.dirs(".claude", ".codex")
-    run(capsys, "skills", "install", "pstack", "--yes")
+    run(capsys, "skills", "install", "pstack", "--tool", "all", "--yes")
     assert (world.home / ".codex" / "skills" / "tdd" / "SKILL.md").is_file()
     assert not (world.home / ".cursor" / "skills").exists()
     assert any(c[:3] == ["claude", "plugin", "install"] for c in world.commands)
@@ -612,7 +676,7 @@ def test_status_shows_installed_vs_available_skill_counts(world, capsys):
 
 def test_install_touches_no_tracked_file_in_a_repo(world, repo, capsys):
     world.dirs(".codex", ".claude")
-    run(capsys, "skills", "install", "pstack", "--yes")
+    run(capsys, "skills", "install", "pstack", "--tool", "all", "--yes")
     assert git(repo, "status", "--porcelain") == ""
 
 
@@ -638,23 +702,32 @@ def start(capsys, monkeypatch, agent="claude"):
     return capsys.readouterr().out
 
 
-def test_session_start_shows_the_advisory_and_installs_nothing_by_default(
+def test_session_start_is_silent_about_pstack_and_installs_nothing_by_default(
     world, mem, capsys, monkeypatch
 ):
     world.dirs(".codex")
-    out = start(capsys, monkeypatch, "codex")
-    assert CMD in out
+    world.claude("0.15.30")
+    out = start(capsys, monkeypatch, "claude")
+    assert "pstack" not in out
     assert world.clones == 0 and not (world.home / ".codex" / "skills").exists()
+    assert world.commands == []
 
 
-def test_session_start_updates_when_skills_auto_update_is_true(world, mem, capsys, monkeypatch):
+def test_auto_update_updates_only_what_is_installed(world, mem, capsys, monkeypatch):
+    world.mark("codex", "0.15.30")
+    world.dirs(".cursor")
+    (mem / "config.toml").write_text("skills_auto_update = true\n")
+    out = start(capsys, monkeypatch)
+    assert "pstack updated" in out and "Codex" in out and "Cursor" not in out
+    assert not (world.home / ".cursor" / "skills").exists()
+    assert sum("pstack" in line for line in out.splitlines()) == 1
+
+
+def test_auto_update_installs_nothing_new(world, mem, capsys, monkeypatch):
     world.dirs(".codex")
     (mem / "config.toml").write_text("skills_auto_update = true\n")
     out = start(capsys, monkeypatch)
-    assert (world.home / ".codex" / "skills" / "tdd" / "SKILL.md").is_file()
-    assert "pstack updated" in out and "Codex" in out
-    assert CMD not in out  # it is current now
-    assert sum("pstack" in line for line in out.splitlines()) == 1
+    assert "pstack" not in out and world.clones == 0
 
 
 def test_auto_update_is_silent_when_current(world, mem, capsys, monkeypatch):
@@ -665,7 +738,7 @@ def test_auto_update_is_silent_when_current(world, mem, capsys, monkeypatch):
 
 
 def test_auto_update_that_fails_still_starts_the_session(world, mem, capsys, monkeypatch):
-    world.dirs(".codex")
+    world.mark("codex", "0.15.30")
     (mem / "config.toml").write_text("skills_auto_update = true\n")
 
     def fail():
@@ -673,7 +746,7 @@ def test_auto_update_that_fails_still_starts_the_session(world, mem, capsys, mon
 
     monkeypatch.setattr(skills, "checkout", fail)
     out = start(capsys, monkeypatch, "codex")
-    assert "auto-update failed" in out and CMD in out
+    assert "auto-update failed" in out and "# Project memory" in out
 
 
 # --- init and migrate ---------------------------------------------------------------
@@ -682,7 +755,7 @@ def test_auto_update_that_fails_still_starts_the_session(world, mem, capsys, mon
 def test_init_ends_with_the_advisory(world, repo, capsys):
     world.dirs(".codex")
     _, out = run(capsys, "init", "--no-default-rules")
-    assert out.strip().splitlines()[-1].endswith(CMD) or CMD in out.splitlines()[-1]
+    assert ADD in out.strip().splitlines()[-1]
 
 
 def test_init_is_silent_when_skills_are_current(world, repo, capsys):
@@ -691,14 +764,25 @@ def test_init_is_silent_when_skills_are_current(world, repo, capsys):
     assert "pstack" not in out
 
 
-def test_migrate_lists_the_install_in_the_follow_up_task(world, repo, capsys):
+def test_migrate_lists_only_the_update_in_the_follow_up_task(world, repo, capsys):
+    world.claude("0.15.30")
     world.dirs(".codex")
     old_repo(repo)
     code, out = run(capsys, "migrate", "--yes", "--no-default-rules")
     assert code == 0 and CMD in out
     task = (sibling(repo, ".memory") / "proposals" / "migrate-followups.md").read_text()
     assert task.startswith("# Migration follow-up (pending)")
-    assert CMD in task
+    assert CMD in task and "Codex" not in task
+    assert "not installed" not in task
+
+
+def test_a_tool_with_no_pstack_cannot_hold_a_migration_open(world, repo, capsys):
+    world.dirs(".codex")
+    old_repo(repo)
+    code, out = run(capsys, "migrate", "--yes", "--no-default-rules")
+    assert code == 0 and ADD in out
+    path = sibling(repo, ".memory") / "proposals" / "migrate-followups.md"
+    assert not path.exists() or "pstack" not in path.read_text()
 
 
 def test_skills_check_false_keeps_migrate_off_the_network(world, repo, capsys, monkeypatch):
@@ -722,140 +806,11 @@ def test_migrate_task_has_no_install_line_when_current(world, repo, capsys):
     assert not path.exists() or CMD not in path.read_text()
 
 
-# --- quiet: only the tool that runs this session, and not forever -------------------
-
-
-@pytest.mark.parametrize(
-    "marker,tool,value",
-    [
-        ("CLAUDECODE", "claude", "1"),
-        ("CODEX_THREAD_ID", "codex", "1"),
-        ("CODEX_SANDBOX", "codex", "1"),
-        ("CODEX_CI", "codex", "1"),
-        ("CURSOR_AGENT", "cursor", "1"),
-        ("CURSOR_TRACE_ID", "cursor", "1"),
-        ("OPENCODE", "opencode", "1"),
-        ("OPENCODE_SESSION_ID", "opencode", "s1"),
-        ("PI_CODING_AGENT", "pi", "true"),
-        ("GROK_SESSION_ID", "grok", "s1"),
-        ("GROK_HOOK_EVENT", "grok", "SessionStart"),
-        ("GROK_WORKSPACE_ROOT", "grok", "/tmp/ws"),
-    ],
-)
-def test_the_running_tool_comes_from_the_environment(monkeypatch, marker, tool, value):
-    monkeypatch.setenv(marker, value)
-    assert skills.running_tool() == tool
-
-
-def test_the_running_tool_is_unknown_with_no_marker_or_with_two(monkeypatch):
-    assert skills.running_tool() is None
-    monkeypatch.setenv("CLAUDECODE", "1")
-    monkeypatch.setenv("CURSOR_AGENT", "1")
-    assert skills.running_tool() is None
-
-
-def test_the_hook_agent_beats_the_environment(monkeypatch):
-    monkeypatch.setenv("CLAUDECODE", "1")
-    assert skills.running_tool("codex") == "codex"
-    assert skills.running_tool("generic") == "claude"
-
-
-def test_a_session_hears_only_about_its_own_tool(world, mem, capsys, monkeypatch):
+def test_status_by_hand_still_lists_every_tool(world, capsys):
     world.dirs(".codex", ".cursor")
-    world.find("opencode", "pi", "grok")
-    monkeypatch.setenv("CODEX_THREAD_ID", "t1")
-    for command in ("check", "load"):
-        _, out = run(capsys, command)
-        line = next(x for x in out.splitlines() if "pstack" in x)
-        assert "Codex" in line and "Cursor" not in line
-        assert "OpenCode" not in line and "Pi" not in line
-        assert "Grok Build" not in line
-
-
-def test_an_opencode_session_hears_only_about_opencode(world, mem, capsys, monkeypatch):
-    world.find("opencode", "pi", "grok")
-    monkeypatch.setenv("OPENCODE", "1")
-    _, out = run(capsys, "check")
-    line = next(x for x in out.splitlines() if "pstack" in x)
-    assert "OpenCode" in line and "Pi" not in line and "Grok Build" not in line
-
-
-def test_a_grok_session_hears_only_about_grok(world, mem, capsys, monkeypatch):
-    world.find("opencode", "pi", "grok")
-    monkeypatch.setenv("GROK_SESSION_ID", "s1")
-    _, out = run(capsys, "check")
-    line = next(x for x in out.splitlines() if "pstack" in x)
-    assert "Grok Build" in line and "OpenCode" not in line and "Pi" not in line
-
-
-def test_an_unknown_session_hears_nothing(world, mem, capsys, monkeypatch):
-    world.dirs(".codex", ".cursor", ".claude")
-    for command in ("check", "load"):
-        _, out = run(capsys, command)
-        assert "pstack" not in out
-    assert "pstack" not in start(capsys, monkeypatch, "generic")
-
-
-def test_the_hook_names_the_tool_that_called_it(world, mem, capsys, monkeypatch):
-    world.dirs(".codex", ".cursor")
-    out = start(capsys, monkeypatch, "cursor")
-    line = next(x for x in out.splitlines() if "pstack" in x)
-    assert "Cursor" in line and "Codex" not in line
-    assert "pstack" not in start(capsys, monkeypatch, "claude")  # not found on this machine
-
-
-def test_status_by_hand_still_lists_every_tool(world, capsys, monkeypatch):
-    world.dirs(".codex", ".cursor")
-    monkeypatch.setenv("CODEX_THREAD_ID", "t1")
     _, out = run(capsys, "skills", "status")
     assert "Codex" in out and "Cursor" in out and "Claude Code" in out
     assert "OpenCode" in out and "Pi:" in out and "Grok Build" in out
-
-
-def _shown(out):
-    return sum(CMD in line for line in out.splitlines())
-
-
-def test_a_behind_line_stops_after_three_sessions(world, mem, capsys, monkeypatch):
-    world.claude("0.15.30")
-    shown = [_shown(start(capsys, monkeypatch, "claude")) for _ in range(5)]
-    assert shown == [1, 1, 1, 0, 0]
-    assert "pstack" not in run(capsys, "load")[1]
-    assert "pstack" not in run(capsys, "check")[1]
-
-
-def test_a_newer_latest_brings_the_line_back_for_three_more(world, mem, capsys, monkeypatch):
-    world.claude("0.15.30")
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-24T08:00:00+00:00")
-    for _ in range(4):
-        start(capsys, monkeypatch, "claude")
-    world.latest = "0.16.0"
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-26T08:00:00+00:00")
-    shown = [_shown(start(capsys, monkeypatch, "claude")) for _ in range(4)]
-    assert shown == [1, 1, 1, 0]
-    assert "0.16.0" in skills.advisory(["claude"])
-
-
-def test_a_manual_load_or_check_does_not_use_up_the_three(world, mem, capsys, monkeypatch):
-    world.claude("0.15.30")
-    monkeypatch.setenv("CLAUDECODE", "1")
-    for _ in range(5):
-        assert _shown(run(capsys, "load")[1]) == 1
-        assert _shown(run(capsys, "check")[1]) == 1
-    assert _shown(start(capsys, monkeypatch, "claude")) == 1
-
-
-def test_the_count_is_kept_in_a_small_file_in_the_memory_folder(world, mem, capsys, monkeypatch):
-    world.claude("0.15.30")
-    start(capsys, monkeypatch, "claude")
-    state = json.loads((mem / ".skills-advisory.json").read_text())
-    assert state["shown"]["claude"]["sessions"] == 1
-
-
-def test_a_broken_state_file_never_blocks(world, mem, capsys, monkeypatch):
-    world.claude("0.15.30")
-    (mem / ".skills-advisory.json").write_text("{not json")
-    assert _shown(start(capsys, monkeypatch, "claude")) == 1
 
 
 def test_init_mentions_found_tools_once_per_memory_folder(world, repo, capsys):
@@ -869,8 +824,8 @@ def test_init_mentions_found_tools_once_per_memory_folder(world, repo, capsys):
 
 def test_init_dry_run_does_not_use_up_the_one_mention(world, repo, capsys):
     world.dirs(".codex")
-    assert CMD in run(capsys, "init", "--dry-run", "--no-default-rules")[1]
-    assert CMD in run(capsys, "init", "--no-default-rules")[1]
+    assert ADD in run(capsys, "init", "--dry-run", "--no-default-rules")[1]
+    assert ADD in run(capsys, "init", "--no-default-rules")[1]
     assert "pstack" not in run(capsys, "init", "--no-default-rules")[1]
 
 
@@ -880,10 +835,10 @@ def test_init_says_nothing_for_a_tool_that_is_not_found(world, repo, capsys):
 
 
 def test_migrate_mentions_once_but_the_task_keeps_its_item(world, repo, capsys):
-    world.dirs(".codex")
+    world.claude("0.15.30")
     old_repo(repo)
     _, out = run(capsys, "migrate", "--yes", "--no-default-rules")
-    assert _shown(out) == 1
+    assert sum(CMD in line for line in out.splitlines()) == 1
     task = sibling(repo, ".memory") / "proposals" / "migrate-followups.md"
     assert CMD in task.read_text()
     _, again = run(capsys, "migrate", "--yes", "--no-default-rules")
