@@ -38,7 +38,7 @@ def fact_lines(count: int, vocabulary_size: int, seed: int = 0) -> list[str]:
     texts = [varied_text(rng, vocabulary, 20) for _ in range(count)]
     lines = [fact_line(i, text) for i, text in enumerate(texts)]
     for i, text in enumerate(texts[-NEAR_REPEATS:]):
-        lines.append(fact_line(count + i, f"{text} extra", day=20))
+        lines.append(fact_line(count + i, f"the {text}", day=20))
     return lines
 
 

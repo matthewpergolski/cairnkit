@@ -1,0 +1,64 @@
+{"src":"audit","label":"different","a":"The staging database lives in us-east-1 and uses replica set alpha for all reads","b":"The production database lives in us-east-1 and uses replica set alpha for all reads"}
+{"src":"audit","label":"different","a":"Payments retry three times before the job gives up and alerts on call","b":"Payments retry five times before the job gives up and alerts on call"}
+{"src":"audit","label":"different","a":"The app listens on port 8080 behind the proxy in the staging cluster","b":"The app listens on port 9090 behind the proxy in the staging cluster"}
+{"src":"audit","label":"different","a":"Run the migration script before the deploy on each host","b":"Do not run the migration script before the deploy on each host"}
+{"src":"docs","label":"repeat","a":"Ask one question about each line: is it an instruction or a fact?","b":"Ask one question about each line: is it an **instruction** or a **fact**?"}
+{"src":"docs","label":"repeat","a":"Yes, within the word budget.","b":"Yes, within the word budget"}
+{"src":"docs","label":"repeat","a":"`postToolUseFailure` runs `memory hook after-shell`.","b":"`PostToolUseFailure` runs `memory hook after-shell`."}
+{"src":"docs","label":"repeat","a":"the first line of `.memory-path` in the main checkout;","b":"the first line of `.memory-path` in the main checkout."}
+{"src":"docs","label":"repeat","a":"`uv tool install --force --reinstall git+https://github.com/matthewpergolski/cairnkit`","b":"`uv tool install --force --reinstall git+https://github.com/matthewpergolski/cairnkit`."}
+{"src":"docs","label":"repeat","a":"## How memory fits with CLAUDE.md and AGENTS.md","b":"# How memory fits with CLAUDE.md and AGENTS.md"}
+{"src":"docs","label":"repeat","a":"Each fact that loads now shows its text.","b":"Each fact that loads shows its text."}
+{"src":"docs","label":"repeat","a":"Never touches a rule, a pinned fact, or a fact that someone set back to `active`.","b":"A retire never touches a rule, a pinned fact, or a fact that someone set back to `active`."}
+{"src":"docs","label":"repeat","a":"`memory hooks install --agent generic` prints the commands to connect by hand.","b":"`memory hooks install --agent generic` prints the two commands to connect by hand."}
+{"src":"docs","label":"repeat","a":"In each repo that used the old tool: `memory init --refresh`.","b":"In each repo that used the old tool, run `memory init --refresh`."}
+{"src":"docs","label":"repeat","a":"`memory init` and `memory hooks install` add the guard by themselves when the memory holds a rule against AI attribution.","b":"`memory init` and `memory hooks install` add the guard when the memory holds a rule against AI attribution."}
+{"src":"docs","label":"repeat","a":"It never adds a second block.","b":"Never adds a second block."}
+{"src":"docs","label":"repeat","a":"Read the limits before you use a number.","b":"Read its limits before you use a number."}
+{"src":"docs","label":"repeat","a":"A fact that the agent never writes is lost.","b":"Capture | A fact that the agent never writes is lost."}
+{"src":"docs","label":"repeat","a":"A push does not count as a session start.","b":"A push or a merge does not count as a session start."}
+{"src":"docs","label":"repeat","a":"Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`,","b":"Claude Code reads `AGENTS.md` only when the project has no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`."}
+{"src":"docs","label":"repeat","a":"The clock alone ends nothing, and","b":"The clock alone ends nothing."}
+{"src":"docs","label":"repeat","a":"that still fails, and a revert.","b":"still fails, and a revert."}
+{"src":"docs","label":"repeat","a":"`scope` | no | `long` or `short`.","b":"`scope` | no | `long` (default) or `short`."}
+{"src":"docs","label":"repeat","a":"Refresh reads `# cairnkit:docs-check` in the hook instead.","b":"Refresh reads the comment `# cairnkit:docs-check` in the hook."}
+{"src":"docs","label":"repeat","a":"An exact repeat of a rule or a pinned fact writes nothing.","b":"An exact repeat of a rule or a pinned fact writes nothing and says so."}
+{"src":"docs","label":"repeat","a":"`memory init` is the one setup step.","b":"Run the one setup step: `memory init`."}
+{"src":"docs","label":"repeat","a":"A file that is not valid JSON is refused.","b":"refuses a file that is not valid JSON."}
+{"src":"docs","label":"different","a":"`git push --no-verify` skips the pre-push hook, as git does for every pre-push hook.","b":"`git push --no-verify` skips the pre-push hook, as git does for every"}
+{"src":"docs","label":"different","a":"A held tidy lock can add up to about three seconds.","b":"A held tidy lock can add up to about"}
+{"src":"docs","label":"different","a":"The rules about memory itself ship inside the tool.","b":"The rules about memory itself ship inside the"}
+{"src":"docs","label":"different","a":"After `memory update`, the receipt points to the","b":"the uv receipt points to after `memory update`."}
+{"src":"docs","label":"different","a":"`uv tool install --force git+https://github.com/matthewpergolski/cairnkit@v0.3.1`","b":"```text uv tool install --force --reinstall git+https://github.com/matthewpergolski/cairnkit@v0.3.1 ```"}
+{"src":"docs","label":"different","a":"Review | `memory tidy`, `memory tidy --apply ID ...` | Lists exact repeats, pinned short-term notes that ended, and chains of superseded facts.","b":"`memory tidy`, `memory tidy --apply ID ...` | an agent | Lists exact repeats, pinned short-term notes that ended, and chains of superseded facts."}
+{"src":"docs","label":"different","a":"Agent | File | Events and hook events","b":"Agent | File | Tool events and hook events"}
+{"src":"docs","label":"different","a":"the source, the channel of a git install, and the update lines.","b":"recorded, the install source, the channel of a git install, and the update"}
+{"src":"docs","label":"different","a":"`memory hooks install --agent generic` prints the two commands to connect by hand.","b":"agent, `memory hooks install --agent generic` prints the commands to connect by"}
+{"src":"docs","label":"different","a":"Smoke: `command` — result (or “not needed, because …”)","b":"Unit: `command` — result (or “not needed, because …”)"}
+{"src":"docs","label":"different","a":"The output goes to the agent task file.","b":"The pair goes to the agent task file."}
+{"src":"docs","label":"different","a":"This record holds no real run for Cursor.","b":"This record holds no real run."}
+{"src":"docs","label":"different","a":"Long session | .83 | .09","b":"Long session | .83 | .83 | .09"}
+{"src":"docs","label":"different","a":"Vacation | .82 | .82 | .59","b":"Vacation | .82 | .59"}
+{"src":"docs","label":"different","a":"The default branch itself never reads as merged.","b":"A note on the default branch itself never reads as merged."}
+{"src":"docs","label":"different","a":"`happened_at` is the date of the event.","b":"For an event, `happened_at` is the date of the event."}
+{"src":"docs","label":"different","a":"`writer` | yes | The writer name.","b":"`writer` | The writer name."}
+{"src":"tests","label":"repeat","a":"Deploys need a clean tree.","b":"deploys need a CLEAN tree!"}
+{"src":"tests","label":"repeat","a":"The cache must be warmed before the release job runs.","b":"The cache must be warmed before the release job runs now."}
+{"src":"tests","label":"repeat","a":"The deploy script needs a full database pool to pass.","b":"The deploy script needs a full database pool to pass today."}
+{"src":"tests","label":"different","a":"The cache must be warmed before the release job runs.","b":"The cache must not be warmed before the release job runs."}
+{"src":"tests","label":"different","a":"Branch main is rebased on master; lint and tests pass, and the build is not blocked by CI","b":"Branch main is rebased on master; style and tests pass, and the build is not blocked by CI"}
+{"src":"tests","label":"different","a":"Branch main is rebased on master; lint and tests pass, and the build is not blocked by CI","b":"Branch main is not rebased on master; lint and tests pass, and the build is not blocked by CI"}
+{"src":"tests","label":"different","a":"Retry 3 times, wait 3 seconds, then stop and report the failure to the job owner","b":"Retry 3 times, wait 3 seconds, 3 then stop and report the failure to the job owner"}
+{"src":"written","label":"repeat","a":"The release job warms the cache from the migration file","b":"The release jobs warms the caches from the migration files"}
+{"src":"written","label":"repeat","a":"Release job warms the cache before tag","b":"The release job warms the cache before the tag"}
+{"src":"written","label":"repeat","a":"Branches retries the batches","b":"Branch retry the batch"}
+{"src":"written","label":"different","a":"Use https for the billing API in every environment","b":"Use http for the billing API in every environment"}
+{"src":"written","label":"different","a":"The parser module is written in C++","b":"The parser module is written in C#"}
+{"src":"written","label":"different","a":"Service alpha calls service beta over gRPC at startup","b":"Service beta calls service alpha over gRPC at startup"}
+{"src":"written","label":"different","a":"Connect to 東京 before the deploy","b":"Connect to 大阪 before the deploy"}
+{"src":"written","label":"different","a":"Merge the branch then run the tests","b":"Run the tests then merge the branch"}
+{"src":"written","label":"different","a":"The old job was broken in the release","b":"The old job is broken in the release"}
+{"src":"written","label":"different","a":"Use the read replica for reports and the primary for writes","b":"Use the primary for reports and the read replica for writes"}
+{"src":"written","label":"different","a":"The webhook secret rotates at the end of each month on the billing host","b":"The webhook secret rotates at the end of each week on the billing host"}
+{"src":"written","label":"different","a":"Only the admin role can read the audit log table in this service","b":"Only the owner role can read the audit log table in this service"}
+{"src":"written","label":"different","a":"The nightly job writes to the eu bucket and skips the backup step","b":"The nightly job writes to the us bucket and skips the backup step"}

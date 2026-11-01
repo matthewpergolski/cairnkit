@@ -1,4 +1,4 @@
-"""Auto-tidy retires a near duplicate when the meaning matches, and only then."""
+"""The near-repeat scan stays fast, and auto-tidy retires a repeat from it only by form."""
 
 from __future__ import annotations
 
@@ -10,10 +10,9 @@ import string
 
 from conftest import make_fact, write_facts
 
-from cairnkit import autotidy, similar
-from cairnkit.autotidy import _near_duplicates, outranks
+from cairnkit import similar
 from cairnkit.cli import main
-from cairnkit.similar import analyze, exact_key, similarity
+from cairnkit.similar import analyze, similar_pairs, similarity
 
 NOW = "2026-10-20T12:00:00+00:00"
 OLD = "2026-10-17T12:00:00+00:00"
@@ -39,7 +38,7 @@ def test_near_duplicate_with_the_same_meaning_is_superseded(mem, capsys, monkeyp
         mem,
         [
             make_fact(A, "The cache must be warmed before the release job runs."),
-            make_fact(B, "The cache must be warmed before the release job runs now."),
+            make_fact(B, "The cache must be warmed before the release jobs run."),
         ],
     )
     code, _ = auto(capsys)
@@ -83,35 +82,20 @@ def _facts(count: int, vocabulary: int, seed: int = 0) -> list[dict]:
     ]
 
 
-def _retired_when_each_pair_is_checked(facts: list[dict]) -> set[tuple[str, str, str]]:
-    found = set()
-    for kind in {f["kind"] for f in facts}:
-        ordered = sorted(
-            (f for f in facts if f["kind"] == kind), key=lambda s: (s["learned_at"], s["id"])
-        )
-        for i, older in enumerate(ordered):
-            best = None
-            for newer in ordered[i + 1 :]:
-                if exact_key(older["text"]) == exact_key(newer["text"]) or outranks(older, newer):
-                    continue
-                score = similarity(analyze(older["text"]), analyze(newer["text"]))
-                if score is not None and (best is None or score > best[0]):
-                    best = (score, newer)
-            if best:
-                found.add((older["id"], best[1]["id"], f"{best[0]:.0%}"))
-    return found
+def _words(facts: list[dict]) -> dict:
+    return {f["id"]: analyze(f["text"]) for f in facts}
 
 
-def test_near_repeats_are_the_same_as_when_each_pair_is_checked():
+def test_the_scan_finds_the_same_pairs_as_a_check_of_each_pair():
     for seed in range(5):
-        facts = _facts(150, 13, seed)
-        expected = _retired_when_each_pair_is_checked(facts)
-        assert expected, "the fixture must hold near repeats"
-        got = {
-            (r.id, r.superseded_by, r.reason.split("(")[1].split(" ")[0])
-            for r in _near_duplicates(facts, set())
+        words = _words(_facts(150, 13, seed))
+        expected = {
+            frozenset(pair)
+            for pair in itertools.combinations(words, 2)
+            if similarity(words[pair[0]], words[pair[1]]) is not None
         }
-        assert got == expected
+        assert expected, "the fixture must hold near repeats"
+        assert {frozenset((p.a, p.b)) for p in similar_pairs(words)} == expected
 
 
 def test_a_large_memory_does_not_compare_each_pair(monkeypatch):
@@ -123,8 +107,7 @@ def test_a_large_memory_does_not_compare_each_pair(monkeypatch):
         return real(a, b)
 
     monkeypatch.setattr(similar, "similarity", counted)
-    monkeypatch.setattr(autotidy, "similarity", counted, raising=False)
-    _near_duplicates(_facts(2000, 3000), set())
+    similar_pairs(_words(_facts(2000, 3000)))
     assert len(calls) < (2000 * 1999 // 2) / 100
 
 
@@ -137,8 +120,8 @@ def test_facts_with_few_distinct_words_stop_at_the_comparison_limit(monkeypatch)
         return real(a, b)
 
     monkeypatch.setattr(similar, "similarity", counted)
-    _near_duplicates(_facts(2000, 13), set())
-    assert len(calls) <= 2 * similar.MAX_COMPARISONS  # one limit for each kind in the fixture
+    similar_pairs(_words(_facts(2000, 13)))
+    assert len(calls) <= similar.MAX_COMPARISONS
 
 
 def test_stop_tidies_when_the_tidy_state_is_old(repo, mem, capsys, monkeypatch):

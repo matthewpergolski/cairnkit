@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from conftest import make_fact, write_facts
 
@@ -81,6 +84,14 @@ def test_a_trivial_form_change_is_retired(mem, capsys, a, b):
     _ask(capsys, "tidy", "--auto")
     assert _status(OLD) == "superseded"
     assert _status(NEW) == "active"
+
+
+def test_the_labelled_set_has_no_false_retire():
+    fixture = Path(__file__).parent.parent / "benchmarks" / "fixtures" / "near_repeats.jsonl"
+    rows = [json.loads(line) for line in fixture.read_text(encoding="utf-8").splitlines()]
+    retired = [row for row in rows if near_key(row["a"]) == near_key(row["b"])]
+    assert retired, "the set must hold repeats that differ only in form"
+    assert [row["a"] for row in retired if row["label"] == "different"] == []
 
 
 def test_each_key_keeps_order_and_needs_words():
@@ -196,6 +207,7 @@ def test_notes_for_two_branches_stay_apart(mem, capsys):
                 a,
                 scope="short",
                 until_branch_merged="alpha",
+                expires_at="2099-01-01",
                 learned_at="2026-10-01T00:00:00+00:00",
             ),
             make_fact(
@@ -203,9 +215,10 @@ def test_notes_for_two_branches_stay_apart(mem, capsys):
                 b,
                 scope="short",
                 until_branch_merged="beta",
+                expires_at="2099-01-01",
                 learned_at="2026-10-02T00:00:00+00:00",
             ),
         ],
     )
     _, out = _ask(capsys, "tidy", "--auto", "--dry-run")
-    assert OLD not in out.split("Kept")[0] or "Would retire" not in out
+    assert "near-duplicate" not in out

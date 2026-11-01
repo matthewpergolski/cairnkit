@@ -21,7 +21,7 @@ from cairnkit.paths import (
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_in_record, find_secrets
 from cairnkit.selection import DATA_LABEL, clean, load_text, name
-from cairnkit.similar import analyze, exact_key, possible_conflicts, similarity
+from cairnkit.similar import analyze, exact_key, near_key, possible_conflicts, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, drop_id, fact_files
@@ -109,17 +109,21 @@ def _find_similar(memory: Memory, args, moment) -> tuple[dict, float] | None:
     """The best active fact of the same kind and scope that is similar to the new text."""
     scope = _scope(args)
     words = analyze(args.text)
+    key = exact_key(args.text)
     is_merged = merged_checker(memory.project.root)
-    best: tuple[float, str, dict] | None = None  # (score, learned_at, state)
+    best: tuple[tuple, dict] | None = None  # (exact repeat first, score, learned_at), state
     for state in memory.states.values():
         if state.get("status") == "purged" or state.get("kind", "fact") != args.kind:
             continue
         if state["scope"] != scope or effective_status(state, moment, is_merged)[0] != "active":
             continue
         score = similarity(words, analyze(state.get("text", "")))
-        if score is not None and (best is None or (score, state.get("learned_at", "")) > best[:2]):
-            best = (score, state.get("learned_at", ""), state)
-    return None if best is None else (best[2], best[0])
+        if score is None:
+            continue
+        rank = (exact_key(state.get("text", "")) == key, score, state.get("learned_at", ""))
+        if best is None or rank > best[0]:
+            best = (rank, state)
+    return None if best is None else (best[1], best[0][1])
 
 
 def _retired_match(memory: Memory, args, moment) -> tuple[dict, str, str | None] | None:
@@ -156,7 +160,7 @@ def add_fact(memory: Memory, args) -> str | None:
     mine = {"basis": args.basis}
     if not args.supersedes:
         match = _find_similar(memory, args, moment)
-        if match and match[1] == 1.0:
+        if match and exact_key(match[0].get("text", "")) == exact_key(args.text):
             old = match[0]
             if old.get("kind") == "rule" or old.get("pinned"):
                 print(f"already exists: {old['id']} says this. Nothing written.")
@@ -290,12 +294,18 @@ def add_fact(memory: Memory, args) -> str | None:
     _print_conflicts(memory, fact, moment, {supersedes} | ({near[0]["id"]} if near else set()))
     if near:
         old, score = near
-        fate = (
-            "Both stay active, because a person stated the older one, and an agent task lists "
-            "the pair."
-            if outranks(old, mine)
-            else "An agent task lists the pair, and auto-tidy can supersede the older one."
-        )
+        if outranks(old, mine):
+            fate = (
+                "Both stay active, because a person stated the older one, and an agent task "
+                "lists the pair."
+            )
+        elif near_key(old.get("text", "")) == near_key(args.text):
+            fate = "An agent task lists the pair, and auto-tidy can supersede the older one."
+        else:
+            fate = (
+                "Both stay active, because a differing word can make a different fact, and an "
+                "agent task lists the pair."
+            )
         print(
             f"similar to {old['id']} ({score:.0%} the same words; {DATA_LABEL}): "
             f"{clean(old.get('text'))}\n"

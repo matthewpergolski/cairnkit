@@ -81,8 +81,8 @@ def open_pairs(memory: Memory) -> list[tuple[dict, dict, float, str]]:
     found: dict[frozenset, tuple[Pair, str]] = {}
     for words in groups.values():
         for pair in similar_pairs(words):
-            same = pair.score == 1.0
             a, b = active[pair.a], active[pair.b]
+            same = exact_key(str(a.get("text", ""))) == exact_key(str(b.get("text", "")))
             if same and not (_protected(a) or _protected(b) or outranks(a, b) or outranks(b, a)):
                 continue  # `memory tidy --auto` retires an exact repeat
             found[frozenset((pair.a, pair.b))] = (pair, "found by scan")
