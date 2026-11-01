@@ -127,7 +127,7 @@ def test_a_new_commit_on_old_history_is_still_refused(old_history, remote):
 
 def test_a_commit_rewritten_after_the_guard_counts_as_new(old_history, remote):
     git(old_history, "reset", "-q", "--hard", "HEAD~1")
-    tree_commit(old_history, TRAILER)
+    tree_commit(old_history, f"Rewritten {TRAILER}")
     assert run(old_history, "push", str(remote), "main").returncode != 0
 
 
