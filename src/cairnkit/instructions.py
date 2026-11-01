@@ -32,7 +32,7 @@ itself. If its output is not in your context, run it. Read it before you work.
   it, use `--supersedes ID`. `memory add` refuses text that looks like a secret. It
   does not refuse a repeat: it supersedes the same text by itself. It writes a near
   repeat, in another case or plural too, and flags the pair; an agent task
-  (`proposals/tidy-followups.md`) lists each flagged pair.
+  (`proposals/tidy-followups.md`) lists the likeliest repeats.
 - **Long or short.** Decisions, traps and lessons are long-term (the default).
   Working notes for this branch or task are short-term: add `--short`. They end
   when the branch is merged.
