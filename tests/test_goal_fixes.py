@@ -407,9 +407,9 @@ def test_a_tool_with_the_channel_flag_says_nothing_of_it(channels, monkeypatch, 
     monkeypatch.setattr(
         update,
         "_run",
-        lambda argv, timeout=900: (0, "--channel")
-        if argv[1:] == ["update", "--help"]
-        else real(argv, timeout),
+        lambda argv, timeout=900: (
+            (0, "--channel") if argv[1:] == ["update", "--help"] else real(argv, timeout)
+        ),
     )
     monkeypatch.setenv("FAKE_NEW_VERSION", "0.2.0")
     assert main(["update", "--channel", "stable"]) == 0
