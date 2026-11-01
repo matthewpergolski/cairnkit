@@ -176,10 +176,12 @@ def test_writes_candidates_and_no_facts(repo, capsys):
     )
 
 
-def test_runs_check_and_reports_ok(repo, capsys):
+def test_runs_check_and_reports_what_is_open(repo, capsys):
     old_repo(repo)
     assert run_migrate() == 0
-    assert "memory check: ok" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "memory check: ok" not in out
+    assert "to do in" in out
 
 
 def test_preset_rules_are_added_as_init_does(repo):

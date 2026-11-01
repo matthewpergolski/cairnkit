@@ -14,15 +14,14 @@ from cairnkit import (
     followups,
     hygiene,
     install_source,
-    migrate_refs,
-    refresh,
     rule_notices,
     usage,
 )
+from cairnkit.check import read_health
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
 from cairnkit.envsecrets import EnvValues
-from cairnkit.init import link_here, real_folder_warning
+from cairnkit.init import real_folder_warning
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import (
     Project,
@@ -138,9 +137,6 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     stale = hygiene.hygiene_line(memory)
     if stale:
         out.append(stale)
-    migration_line = migrate_refs.pending_line(memory.dir)
-    if migration_line:
-        out.append(migration_line)
     tidy_line = followups.pending_line(memory)
     if tidy_line:
         out.append(tidy_line)
@@ -236,15 +232,21 @@ def run_load(
     update_notice: bool = True,
 ) -> int:
     try:
-        linked = link_here(project, flag)
-        memory = Memory.open(project, flag)
+        health = read_health(project, flag)
+        if health.missing:
+            print(health.answer())
+            return 0
+        memory = health.memory or Memory.open(project, flag)
         lines = build_output(memory, area, budget, explain)
-        # Right under the header, so the agent sees them first.
+        # Right under the header, so the agent sees them first. No detail from a stored record
+        # goes here: this text is outside the frame that marks stored text as data.
         notice = install_source.notice_once() if update_notice else None
-        repo_line = refresh.repo_line(project, flag)
         warning = real_folder_warning(project, memory.dir)
         owner = load_owner_line(project, memory.dir)
-        lines[1:1] = [line for line in (owner, warning, notice, repo_line) if line]
+        answer = [] if health.is_ok else [health.answer()]
+        if health.errors or health.warnings:
+            answer.append("`memory check` lists each one with its fix.")
+        lines[1:1] = [line for line in (owner, warning, notice, *answer, *health.todo) if line]
         if update_notice:
             lines[1:1] = rule_notices.take_lines(memory)
     except MemoryMissing as exc:
@@ -253,7 +255,5 @@ def run_load(
     except Exception as exc:
         print(f"memory: not loaded: unexpected error: {exc}")
         return 0
-    if linked:
-        print(linked)
-    print("\n".join(lines))
+    print("\n".join([*health.linked, *lines]))
     return 0

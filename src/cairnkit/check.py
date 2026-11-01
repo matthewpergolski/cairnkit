@@ -5,10 +5,11 @@ from __future__ import annotations
 import glob
 import os
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from cairnkit import (
+    deadline,
     enforcement,
     githook,
     instruction_files,
@@ -19,9 +20,10 @@ from cairnkit import (
 )
 from cairnkit.clock import now
 from cairnkit.config import config_problems, secrets_in_config
+from cairnkit.docs_cmd import status_line
 from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
-from cairnkit.memory import Memory
+from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.migrate_refs import OLD_SUFFIX
 from cairnkit.paths import (
     ENV_DIR,
@@ -272,12 +274,12 @@ def duplicate_rules(memory: Memory) -> list[str]:
     return warnings
 
 
-def false_enforcement(memory: Memory) -> list[str]:
+def false_enforcement(memory: Memory, state: githook.HookState) -> list[str]:
     """Warnings for active rules that name a check that is not there."""
     moment, is_merged = now(), merged_checker(memory.project.root)
     # The hidden-hook warning already explains a git hook that does not run, and it must not
     # fail --strict.
-    hidden = githook.hook_state(memory.project).line.startswith("warning:")
+    hidden = state.dead or state.line.startswith("warning:")
     return [
         f"rule {state['id']}: enforced_by {state['enforced_by']}: no such check here. Add the "
         f"check, or run `memory change {state['id']} --no-enforced-by --reason WHY`"
@@ -342,78 +344,143 @@ def print_advisory(memory: Memory) -> None:
         print("To enforce one: add a check, then `memory change ID --enforced-by TYPE:VALUE`.")
 
 
+@dataclass
+class Health:
+    """The one answer about a memory. Status, check, load and stop read it.
+
+    `errors` fail `memory check`. `warnings` fail `--strict`. `todo` is work outside the facts. It
+    fails no check, because it must not stop a commit, and an `ok` beside it would be false.
+    """
+
+    memdir: Path | None = None
+    source: str = ""
+    memory: Memory | None = None
+    missing: str | None = None
+    gone: bool = False
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    todo: list[str] = field(default_factory=list)
+    info: list[str] = field(default_factory=list)
+    linked: list[str] = field(default_factory=list)
+
+    def answer(self, strict: bool = False) -> str:
+        if self.missing:
+            return f"memory: not loaded: {self.missing}"
+        errors = len(self.errors) + (len(self.warnings) if strict else 0)
+        warnings = 0 if strict else len(self.warnings)
+        counts = [
+            f"{count} {label}"
+            for count, label in (
+                (errors, "error(s)"),
+                (warnings, "warning(s)"),
+                (len(self.todo), "to do"),
+            )
+            if count
+        ]
+        if counts:
+            return f"memory check: {', '.join(counts)} in {self.memdir} (from {self.source})"
+        return f"memory check: ok ({len(fact_files(self.memdir))} fact file(s) in {self.memdir})"
+
+    @property
+    def is_ok(self) -> bool:
+        return not (self.missing or self.errors or self.warnings or self.todo)
+
+    def details(self, strict: bool = False) -> list[str]:
+        return [
+            *(f"warning: {line}" for line in ([] if strict else self.warnings)),
+            *(f"error: {line}" for line in (self.warnings if strict else []) + self.errors),
+        ]
+
+    def exit_code(self, strict: bool = False) -> int:
+        if self.missing:
+            return 1 if self.gone else 0
+        return 1 if self.errors or (strict and self.warnings) else 0
+
+
+def _hook_lines(state: githook.HookState, health: Health) -> None:
+    if state.dead:
+        health.errors.append(state.line)
+    elif state.line.startswith("git hooks: on"):
+        health.info.append(state.line)
+    elif state.line:
+        health.todo.append(state.line)
+
+
+def _read_health(project: Project, flag: str | None) -> Health:
+    memdir, source = resolve_memory_dir(project, flag)
+    health = Health(memdir, source, linked=ensure_all_linked(project, flag))
+    has_facts = (memdir / "facts").is_dir()
+    if not has_facts and source not in ("flag", ENV_DIR):
+        lost = lost_memory(project)
+        if lost:
+            health.missing, health.gone = lost_note(lost), bool(lost.gone)
+            return health
+    if not memdir.is_dir() and not any((c / LINK_NAME).is_symlink() for c in project.checkouts):
+        health.missing = f"no memory folder at {memdir} (from {source}); run `memory init`"
+        return health
+    health.errors += check_links(project, memdir)
+    if not has_facts:
+        health.errors.append(f"{memdir}: no facts/ folder; run `memory init`")
+        return health
+    health.errors += keep_out_of_git(memdir)
+    memory = health.memory = Memory.open(project, flag)
+    record_errors, warnings = check_records(memory)
+    health.errors += record_errors
+    hooks = githook.hook_state(project)
+    health.warnings += warnings + duplicate_rules(memory) + false_enforcement(memory, hooks)
+    health.warnings += secrets_in_notes(memory)
+    # The load tells the agent that a plain word can stay, so --strict must not fail on it.
+    health.info += [
+        f"note: {memory.secret_problem(fact_id)}"
+        for fact_id in sorted(memory.masked)
+        if memory.only_plain(fact_id)
+    ]
+    health.info += list(filter(None, (history_note(memory), native.secret_note(memory))))
+    owner = owner_line(project, memdir)
+    if owner:
+        health.info.append(owner)
+    count, words = rule_words(memory)
+    if words > RULE_WORD_CAP:
+        health.todo.append(
+            f"note: {count} active rule(s) hold {words} words; every session loads them "
+            f"all. Above {RULE_WORD_CAP} words, merge rules or end the ones that do not apply."
+        )
+    health.todo += migrate_refs.check_notes(memdir)
+    _hook_lines(hooks, health)
+    # For a hook that it can fix, repo_line says only what the hook state already said.
+    repo = refresh.gone_python_line(project) if hooks.fixable else refresh.repo_line(project, flag)
+    docs = status_line(project) if deadline.has_time() else None
+    health.todo += [line for line in (repo, docs) if line]
+    note = preset_note(project, memdir)
+    if note:
+        health.info.append(note)
+    return health
+
+
+def read_health(project: Project, flag: str | None = None) -> Health:
+    """Compute the answer once. A command never fails on the way to saying what is wrong."""
+    try:
+        return _read_health(project, flag)
+    except MemoryMissing as exc:
+        return Health(missing=str(exc))
+    except Exception as exc:
+        return Health(missing=f"unexpected error: {exc}", gone=True)
+
+
 def run_check(
     project: Project,
     flag: str | None,
     strict: bool = False,
     advisory: bool = False,
 ) -> int:
-    memdir, source = resolve_memory_dir(project, flag)
-    for linked in ensure_all_linked(project, flag):
-        print(linked)
-    if not (memdir / "facts").is_dir() and source not in ("flag", ENV_DIR):
-        lost = lost_memory(project)
-        if lost:
-            print(f"{'error' if lost.gone else 'note'}: {lost_note(lost)}")
-            return 1 if lost.gone else 0
-    link_exists = any((c / LINK_NAME).is_symlink() for c in project.checkouts)
-    if not memdir.is_dir() and not link_exists:
-        print(f"memory check: skipped: no memory folder at {memdir}")
-        return 0
-    errors = check_links(project, memdir)
-    warnings: list[str] = []
-    if (memdir / "facts").is_dir():
-        errors += keep_out_of_git(memdir)
-        memory = Memory.open(project, flag)
-        record_errors, warnings = check_records(memory)
-        plain_notes = [
-            memory.secret_problem(fact_id)
-            for fact_id in sorted(memory.masked)
-            if memory.only_plain(fact_id)
-        ]
-        errors += record_errors
-        warnings += duplicate_rules(memory)
-        warnings += false_enforcement(memory)
-        warnings += secrets_in_notes(memory)
-        for line in filter(None, (history_note(memory), native.secret_note(memory))):
-            print(line)
-        count, words = rule_words(memory)
-        if words > RULE_WORD_CAP:
-            print(
-                f"note: {count} active rule(s) hold {words} words; every session loads them "
-                f"all. Above {RULE_WORD_CAP} words, merge rules or end the ones that do not apply."
-            )
-        if advisory:
-            print_advisory(memory)
-        note = preset_note(project, memdir)
-        if note:
-            print(note)
-    else:
-        plain_notes = []
-        errors.append(f"{memdir}: no facts/ folder; run `memory init`")
-    if strict:
-        errors += warnings
-        warnings = []
-    # The load tells the agent that this can stay, so --strict must not fail on it.
-    for line in plain_notes:
-        print(f"note: {line}")
-    for line in warnings:
-        print(f"warning: {line}")
-    for line in errors:
-        print(f"error: {line}")
-    if errors:
-        print(f"memory check: {len(errors)} error(s) in {memdir} (from {source})")
-    else:
-        print(f"memory check: ok ({len(fact_files(memdir))} fact file(s) in {memdir})")
-        for line in migrate_refs.check_notes(memdir):
-            print(line)
-    # After the result, and not in warnings: --strict must not fail on what git runs, and an
-    # older git cannot fix a hidden hook.
-    for line in (
-        owner_line(project, memdir),
-        githook.hook_state(project).line,
-        refresh.gone_python_line(project),
-    ):
-        if line:
-            print(line)
-    return 1 if errors else 0
+    health = read_health(project, flag)
+    for line in health.linked:
+        print(line)
+    if advisory and health.memory:
+        print_advisory(health.memory)
+    for line in health.details(strict):
+        print(line)
+    print(health.answer(strict))
+    for line in health.todo + health.info:
+        print(line)
+    return health.exit_code(strict)

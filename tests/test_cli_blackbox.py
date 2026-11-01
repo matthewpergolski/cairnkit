@@ -61,7 +61,7 @@ def test_both_scripts_report_their_name_and_version(run):
 def test_init_status_check_add_search(repo, run):
     code, out, _ = run("check")
     assert code == 0
-    assert "skipped: no memory folder" in out
+    assert "memory: not loaded: no memory folder" in out
 
     code, out, _ = run("init")
     assert code == 0
@@ -75,7 +75,7 @@ def test_init_status_check_add_search(repo, run):
     code, out, _ = run("status")
     assert code == 0
     assert __version__ in out
-    assert "Repo files: current." in out
+    assert "memory check: ok" in out
 
     code, out, _ = run("check")
     assert code == 0

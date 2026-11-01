@@ -41,6 +41,8 @@ itself. If its output is not in your context, run it. Read it before you work.
   It stopped being true: `memory change ID --status expired --reason "..."`.
   It was never true: `memory change ID --status wrong --reason "..."`.
   A short-term note is still true later: `memory keep ID`.
+- **Pin, link, tidy.** `memory add "..." --pinned` loads a fact in each session.
+  `memory change ID --link related:OTHER` links two facts. `memory tidy` lists what to clean.
 - **Look before you try.** `memory search WORDS --all` shows old facts with the
   reason they ended. Use it to answer "did we try this before?".
 - **Basis.** Write `seen` only for what you observed, and `told` for what a person

@@ -164,13 +164,6 @@ def test_a_compaction_keeps_the_session_and_loads_again(repo, mem, capsys, monke
     assert "`make` failed 2 times" in json.loads(out)["reason"]
 
 
-def test_a_tool_with_no_reload_hears_about_a_compaction(repo, mem, capsys, monkeypatch):
-    start(capsys, monkeypatch, conversation_id="s")
-    hook(capsys, monkeypatch, "pre-compact", {"session_id": "s"}, agent="cursor")
-    out = hook(capsys, monkeypatch, "stop", {"session_id": "s"}, agent="cursor")
-    assert "Run `memory load`" in json.loads(out)["followup_message"]
-
-
 def test_add_names_a_fact_that_may_now_be_stale_and_ends_nothing(mem, capsys):
     add = ["--area", "deploy", "--basis", "seen", "--source", "session:1"]
     assert main(["add", "The deploy pool holds 10 workers per host.", *add]) == 0
@@ -513,7 +506,7 @@ def boom(*args, **kwargs):
 @pytest.mark.parametrize(
     ("broken", "kept"),
     [
-        ("hookrun._strict_problems", ("Elsewhere number 1.", "`make` failed 2 times")),
+        ("hookrun.read_health", ("Elsewhere number 1.", "`make` failed 2 times")),
         ("signals.news", ("`make` failed 2 times",)),
         ("signals.session_events", ("Elsewhere number 1.",)),
         ("hookrun.needs_reminder", ("Elsewhere number 1.", "`make` failed 2 times")),

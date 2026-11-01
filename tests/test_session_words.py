@@ -11,7 +11,7 @@ from cairnkit.cli import main
 from cairnkit.discover import DISCOVER, RULES_SHORT
 
 AGENTS = ("claude", "codex", "cursor", "pi", "opencode", "grok")
-OTHER_WORDS_BUDGET = 135
+OTHER_WORDS_BUDGET = 104
 
 
 def hook(capsys, monkeypatch, event, agent, payload):
@@ -36,6 +36,7 @@ def model_text(capsys, monkeypatch, agent) -> str:
 
 @pytest.fixture
 def thirty_facts(mem):
+    assert main(["hooks", "install"]) == 0
     for index in range(30):
         assert (
             main(

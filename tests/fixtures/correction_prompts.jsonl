@@ -1,0 +1,70 @@
+{"split":"tune","correction":true,"prompt":"you deleted my env file"}
+{"split":"tune","correction":true,"prompt":"You removed the config I needed, please put it back"}
+{"split":"tune","correction":true,"prompt":"that's wrong, the port is 7643"}
+{"split":"tune","correction":true,"prompt":"no, use the other database"}
+{"split":"tune","correction":true,"prompt":"I told you not to touch the migrations"}
+{"split":"tune","correction":true,"prompt":"this is not what I asked for"}
+{"split":"tune","correction":true,"prompt":"you broke the login page"}
+{"split":"tune","correction":true,"prompt":"why did you force push?"}
+{"split":"tune","correction":true,"prompt":"you forgot to run the tests again"}
+{"split":"tune","correction":true,"prompt":"wrong branch, this belongs on dev"}
+{"split":"tune","correction":true,"prompt":"undo that, it was fine before"}
+{"split":"tune","correction":true,"prompt":"you should not have changed the schema"}
+{"split":"tune","correction":true,"prompt":"I said to keep the old file"}
+{"split":"tune","correction":true,"prompt":"stop adding comments everywhere"}
+{"split":"tune","correction":true,"prompt":"Don't do that again."}
+{"split":"tune","correction":false,"prompt":"don't add comments to this file"}
+{"split":"tune","correction":false,"prompt":"no need to rush, take your time"}
+{"split":"tune","correction":false,"prompt":"there is no test for the parser yet"}
+{"split":"tune","correction":false,"prompt":"No, thanks, that looks good"}
+{"split":"tune","correction":false,"prompt":"please don't use a new dependency here"}
+{"split":"tune","correction":false,"prompt":"if you deleted the cache, rerun the build"}
+{"split":"tune","correction":false,"prompt":"add a retry when the request is wrong or missing"}
+{"split":"tune","correction":false,"prompt":"can you check why this test is failing"}
+{"split":"tune","correction":false,"prompt":"what happens when no user is found?"}
+{"split":"tune","correction":false,"prompt":"I don't know how the deploy script works, can you read it"}
+{"split":"tune","correction":false,"prompt":"Fix the bug where the wrong total shows on the cart"}
+{"split":"tune","correction":false,"prompt":"make sure no secrets go in the log"}
+{"split":"tune","correction":false,"prompt":"do not merge until CI passes"}
+{"split":"tune","correction":false,"prompt":"the error says `you deleted a required field`, what does it mean"}
+{"split":"tune","correction":false,"prompt":"write a function that returns no value when the list is empty"}
+{"split":"tune","correction":false,"prompt":"delete the old README section and add a new one"}
+{"split":"tune","correction":false,"prompt":"Remove the unused imports, then commit"}
+{"split":"tune","correction":false,"prompt":"why does the cache not clear on deploy?"}
+{"split":"tune","correction":false,"prompt":"not now, first finish the parser"}
+{"split":"tune","correction":false,"prompt":"nothing else, thanks"}
+{"split":"held","correction":true,"prompt":"You overwrote my changes in app.py"}
+{"split":"held","correction":true,"prompt":"that isn't right, the table is called users"}
+{"split":"held","correction":true,"prompt":"no. run it against staging, never prod"}
+{"split":"held","correction":true,"prompt":"I asked you not to rebase"}
+{"split":"held","correction":true,"prompt":"not what I meant, I wanted the second option"}
+{"split":"held","correction":true,"prompt":"you just wiped my local data"}
+{"split":"held","correction":true,"prompt":"you shouldn't have merged that"}
+{"split":"held","correction":true,"prompt":"put it back the way it was"}
+{"split":"held","correction":true,"prompt":"you missed the second call site"}
+{"split":"held","correction":true,"prompt":"that was a mistake, you ignored the rule about commits"}
+{"split":"held","correction":true,"prompt":"wrong file, I meant config.toml"}
+{"split":"held","correction":true,"prompt":"Hmm, that's incorrect. The limit is 200."}
+{"split":"held","correction":true,"prompt":"my .env is gone, what did you do"}
+{"split":"held","correction":true,"prompt":"nope, try again with the real data"}
+{"split":"held","correction":true,"prompt":"I never asked you to change the README"}
+{"split":"held","correction":false,"prompt":"no problem, go ahead"}
+{"split":"held","correction":false,"prompt":"don't worry about the docs today"}
+{"split":"held","correction":false,"prompt":"No rush. Add the flag when you get to it."}
+{"split":"held","correction":false,"prompt":"it should not retry on a 404"}
+{"split":"held","correction":false,"prompt":"tell me if something is wrong with the plan"}
+{"split":"held","correction":false,"prompt":"Does this code do the wrong thing when n is 0?"}
+{"split":"held","correction":false,"prompt":"Never log the token. Now add the logger."}
+{"split":"held","correction":false,"prompt":"we have no staging server, so test locally"}
+{"split":"held","correction":false,"prompt":"don't use tabs in the YAML"}
+{"split":"held","correction":false,"prompt":"can you restore the database from the backup file for the demo"}
+{"split":"held","correction":false,"prompt":"When you removed that flag in the last PR, did the docs change?"}
+{"split":"held","correction":false,"prompt":"the bot said \"that's wrong\" in the log, find out where it prints that"}
+{"split":"held","correction":false,"prompt":"there's no way to undo a purge, right?"}
+{"split":"held","correction":false,"prompt":"no tests needed for this one"}
+{"split":"held","correction":false,"prompt":"I said in the spec that dates are UTC, read section 3"}
+{"split":"held","correction":false,"prompt":"Stop the dev server, then run the build"}
+{"split":"held","correction":false,"prompt":"why did the build pass on CI but not here?"}
+{"split":"held","correction":false,"prompt":"Let's not refactor that yet"}
+{"split":"held","correction":false,"prompt":"Review this PR and say what is wrong with it"}
+{"split":"held","correction":false,"prompt":"You should add a test for the empty list"}

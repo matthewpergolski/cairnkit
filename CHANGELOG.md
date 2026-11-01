@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Stop names a correction from the owner, or a file that was here at the session start and is gone,
+  once, and asks if a trap belongs in memory. The tool writes no fact. On a labelled set of 40
+  ordinary prompts and 30 corrections, 0 false nudges and 1 miss.
+- `memory repair` settles a bad line with an appended record and keeps the bytes. It also drops a
+  bad setting from `config.toml` and keeps a copy. A gone `held_by` clears with
+  `memory change ID --status active`. `memory purge` is needed only for a secret.
+
+- `memory migrate` lists each check of the old tooling once, by name, with what happens to it now.
+- `memory migrate` says which checkout it acts on and what the install step reaches.
+- The worklist marks a repeat of an earlier line or a stored fact (`tier: repeat`, `repeat_of`).
+- The status heading of `memory load` counts the commits that HEAD is past the newest commit the
+  note names. A clipped note says how many lines it shows. Neither ends a fact.
+- An agent tool that you install after setup connects by itself at the next session start, push
+  or merge. It prints nothing, writes no tracked file and keeps your choice of tools.
+- `memory add` needs only the text. `--basis` defaults to `guess` and `--source` to
+  `session:<today>`. The output names the default basis. A near repeat with basis `guess`
+  no longer retires a `seen` fact in auto-tidy.
+- `evals/agents`: a kit that runs real agents on `dev` against production.
+- The attribution guard refuses a commit whose author or committer is an AI tool, and a
+  `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
+  `commit-msg`. A person whose name holds a tool word passes.
+- `memory add` of a rule against AI attribution turns the guard on at once.
+- The guard knows model names such as Fable and Opus, and `Assisted-by`, `Signed-off-by` and
+  `Written by` lines. A co-author named Claude Monet now passes.
+- With a Python that is gone, the pre-commit hook still refuses the private paths and lets other
+  commits through. `memory status`, `memory check` and the load name the gone Python, for git
+  hooks and agent hooks.
+- A rule whose `enforced_by` check is not there loads as advisory, and `memory check` warns.
+- Under a `core.hooksPath` in the repo, git 2.54 or newer runs the personal hooks beside the
+  tracked ones, from the local git config. No tracked file changes.
+- `memory check` and `memory status` print the real hook state, and warn when `core.hooksPath`
+  hides the hooks. The session start names the fix to the agent.
+- `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
+- Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
+- A subagent gets a load of 300 words at its start on Claude Code and Codex.
+- The pre-commit hook prints a stored trap that matches the staged files. Git output reaches every
+  agent, including one with no adapter. It never refuses the commit.
+- The session start names new notes in Claude Code's own memory, once, so that an agent can copy
+  what matters.
+- The session hears about events by name: a command that failed and then passed, a command that
+  still fails, and a revert. The tool writes no fact for them.
+- `memory add` names an older fact in the same area that may now be stale. It ends nothing.
+- A running session hears about facts from other branches, about auto-tidy changes, and about
+  stored facts that match files it changed later (`UserPromptSubmit`, and after each tool).
+
 ### Changed
 
 - A stored value that looks secret is masked, not withheld. The fact loads in its normal section
@@ -27,6 +74,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where it ran. It prints what to run in the others.
 - `memory hooks uninstall` also removes the rules blocks, the tool folders it leaves empty and
   the exclude lines of the files it removed.
+- `memory status`, `memory check` and `memory load` read one health function and print one answer
+  line. `memory check: ok` now means that nothing is open, and open work outside the facts prints
+  as `to do`. `Repo files: current.` and `memory check: skipped` are gone.
+- Stop blocks on all that `memory check --strict` fails, also a false `enforced_by`.
+- Cursor uses `postToolUse` in place of `afterShellExecution`, whose output its docs do not read,
+  and `beforeSubmitPrompt`. After a compaction it gets the load itself at its next tool result.
+  A pass after failures now counts on Cursor. `memory init --refresh` writes the new hooks.
+- The session start spends fewer words on tool text: the footer and the rules no longer overlap.
+- `memory skills install pstack` with no `--tool` updates only the tools that have pstack. To add
+  a tool, use `--tool NAME` or `--tool all`. `skills_auto_update` adds no tool.
+- The pstack line moved from the load and `memory check` to `memory status`.
+- The Codex trust line shows only after Codex has run a session.
+- The update notice shows once per version pair in a load, and never in a subagent load.
+  `memory status` always shows it.
+- A session start has 31 fewer words that are not facts. The look-up line printed twice.
+- Setup is one step. `memory init` connects the agent tools and the git hooks, with a short
+  output (`--verbose` prints each step, `--no-hooks` skips the hooks). A rule against AI
+  attribution installs its commit-msg check by itself.
+- `--short` ends with its branch, or when an agent ends it. The clock alone ends nothing.
+- With no signal about the work, `memory load` keeps one place for each area, and a trap holds it.
+- A trap in a changed area ranks higher. Uncommitted changes and each part of a changed path are
+  signals, and a fact that names a changed file ranks higher.
 
 ### Fixed
 
@@ -73,6 +142,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory init` and `memory hooks install` refuse in a bare repo or a `.git` folder, where they
   wrote tool folders and said that nothing in git changes.
 - `.git/info/exclude` holds one header, and an old repeat of it collapses.
+- After a move, hooks beside `core.hooksPath` that are gone now read as an error that names
+  `memory hooks install`, in place of a false warning while each commit failed.
 - Auto-tidy retires a near repeat only when the words match in order after case, plural,
   punctuation and stop words. Staging against production and three times against five now go to
   the agent task. An exact repeat now needs the same order, and it keeps symbols and non-ASCII
@@ -88,88 +159,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The clean-up of 0.3.1 ends a mined fact only with proof that its gate wrote it, so a fact that a
   person accepted stays.
 - A stop blocks once for a given problem, and each line names its command.
-
-### Removed
-
-- The `grep` and the skills demand in the done test of `memory migrate`, and the `(done)` state of
-  its task. A task file exists only while items are open.
-- Each path that wrote to a tracked file: `--gitignore`, `--commit-msg-guard=shared`, the
-  `AGENTS.md` pointer and `memory migrate --fix-references`. Migrate now lists old paths in the
-  agent task. `memory init --refresh` no longer rewrites `.githooks/`, and no command removes an
-  old block from a tracked `CLAUDE.md` or `AGENTS.md`: it writes `CLAUDE.local.md` and says so.
-- Scenario folding in `memory load`. Each fact that loads now shows its text.
-- The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
-  writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session
-  start. They stay in the archive.
-- The `docs/state` line that `post-merge` printed on each merge. `memory status` shows the state,
-  and says what `memory docs --force` writes. Nobody has to act at a merge.
-- Every rule that ended a fact because of its age: `STALE_DAYS`, the 14-day default of `--short`,
-  `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
-- Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
-
-### Added
-
-- `memory repair` settles a bad line with an appended record and keeps the bytes. It also drops a
-  bad setting from `config.toml` and keeps a copy. A gone `held_by` clears with
-  `memory change ID --status active`. `memory purge` is needed only for a secret.
-
-- `memory migrate` lists each check of the old tooling once, by name, with what happens to it now.
-- `memory migrate` says which checkout it acts on and what the install step reaches.
-- The worklist marks a repeat of an earlier line or a stored fact (`tier: repeat`, `repeat_of`).
-- The status heading of `memory load` counts the commits that HEAD is past the newest commit the
-  note names. A clipped note says how many lines it shows. Neither ends a fact.
-- An agent tool that you install after setup connects by itself at the next session start, push
-  or merge. It prints nothing, writes no tracked file and keeps your choice of tools.
-- `memory add` needs only the text. `--basis` defaults to `guess` and `--source` to
-  `session:<today>`. The output names the default basis. A near repeat with basis `guess`
-  no longer retires a `seen` fact in auto-tidy.
-- `evals/agents`: a kit that runs real agents on `dev` against production.
-- The attribution guard refuses a commit whose author or committer is an AI tool, and a
-  `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
-  `commit-msg`. A person whose name holds a tool word passes.
-- `memory add` of a rule against AI attribution turns the guard on at once.
-- The guard knows model names such as Fable and Opus, and `Assisted-by`, `Signed-off-by` and
-  `Written by` lines. A co-author named Claude Monet now passes.
-- With a Python that is gone, the pre-commit hook still refuses the private paths and lets other
-  commits through. `memory status`, `memory check` and the load name the gone Python, for git
-  hooks and agent hooks.
-- A rule whose `enforced_by` check is not there loads as advisory, and `memory check` warns.
-- Under a `core.hooksPath` in the repo, git 2.54 or newer runs the personal hooks beside the
-  tracked ones, from the local git config. No tracked file changes.
-- `memory check` and `memory status` print the real hook state, and warn when `core.hooksPath`
-  hides the hooks. The session start names the fix to the agent.
-- `memory update --channel dev|stable`. An install pinned to the `dev` branch follows that branch.
-- Hook adapters for Pi, OpenCode and Grok Build, as untracked files.
-- A subagent gets a load of 300 words at its start on Claude Code and Codex.
-- The pre-commit hook prints a stored trap that matches the staged files. Git output reaches every
-  agent, including one with no adapter. It never refuses the commit.
-- The session start names new notes in Claude Code's own memory, once, so that an agent can copy
-  what matters.
-- The session hears about events by name: a command that failed and then passed, a command that
-  still fails, and a revert. The tool writes no fact for them.
-- `memory add` names an older fact in the same area that may now be stale. It ends nothing.
-- A running session hears about facts from other branches, about auto-tidy changes, and about
-  stored facts that match files it changed later (`UserPromptSubmit`, and after each tool).
-
-### Changed
-
-- `memory skills install pstack` with no `--tool` updates only the tools that have pstack. To add
-  a tool, use `--tool NAME` or `--tool all`. `skills_auto_update` adds no tool.
-- The pstack line moved from the load and `memory check` to `memory status`.
-- The Codex trust line shows only after Codex has run a session.
-- The update notice shows once per version pair in a load, and never in a subagent load.
-  `memory status` always shows it.
-- A session start has 31 fewer words that are not facts. The look-up line printed twice.
-- Setup is one step. `memory init` connects the agent tools and the git hooks, with a short
-  output (`--verbose` prints each step, `--no-hooks` skips the hooks). A rule against AI
-  attribution installs its commit-msg check by itself.
-- `--short` ends with its branch, or when an agent ends it. The clock alone ends nothing.
-- With no signal about the work, `memory load` keeps one place for each area, and a trap holds it.
-- A trap in a changed area ranks higher. Uncommitted changes and each part of a changed path are
-  signals, and a fact that names a changed file ranks higher.
-
-### Fixed
-
 - A renamed or moved project keeps its memory with no step. A valid link wins over the folder
   name. A dangling link repairs itself from a record in the git folder and an id in the memory.
   `memory init` no longer replaces a valid link with an empty folder, and it refuses to make an
@@ -241,6 +230,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory search` takes several words with no quotes. `memory add --kind rule --summary`
   writes the rule and says that it does not store the summary. `--area` is optional.
 - `post-merge` allows 3 seconds for the docs check, so a slow start does not lose its line.
+
+### Removed
+
+- The `grep` and the skills demand in the done test of `memory migrate`, and the `(done)` state of
+  its task. A task file exists only while items are open.
+- Each path that wrote to a tracked file: `--gitignore`, `--commit-msg-guard=shared`, the
+  `AGENTS.md` pointer and `memory migrate --fix-references`. Migrate now lists old paths in the
+  agent task. `memory init --refresh` no longer rewrites `.githooks/`, and no command removes an
+  old block from a tracked `CLAUDE.md` or `AGENTS.md`: it writes `CLAUDE.local.md` and says so.
+- Scenario folding in `memory load`. Each fact that loads now shows its text.
+- The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
+  writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session
+  start. They stay in the archive.
+- The `docs/state` line that `post-merge` printed on each merge. `memory status` shows the state,
+  and says what `memory docs --force` writes. Nobody has to act at a merge.
+- Every rule that ended a fact because of its age: `STALE_DAYS`, the 14-day default of `--short`,
+  `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
+- Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
 
 ## [0.3.1] - 2026-10-30
 

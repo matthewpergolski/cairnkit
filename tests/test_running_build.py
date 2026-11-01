@@ -197,7 +197,15 @@ def test_the_version_needs_no_git_for_a_plain_install(tmp_path, monkeypatch, cap
     assert version_output(capsys) == "memory 0.3.1"
 
 
-# --- `Repo files: current` is true ----------------------------------------------------
+ANSWER_OK = "memory check: ok"
+
+
+def repo_lines(lines: list[str]) -> list[str]:
+    """The status lines that ask for a refresh of the repo files."""
+    return [line for line in lines if "memory init --refresh" in line]
+
+
+# --- `memory check: ok` is true -------------------------------------------------------
 
 
 def old_block(repo, hook: str = "post-commit", marks=None) -> None:
@@ -217,7 +225,7 @@ def test_a_leftover_post_commit_block_is_not_current(repo, tmp_path, monkeypatch
     assert main(["init"]) == 0
     old_block(repo)
     lines = status_output(capsys)
-    assert "Repo files: current." not in lines
+    assert not any(ANSWER_OK in line for line in lines)
     assert any("post-commit" in line and "memory init --refresh" in line for line in lines)
 
 
@@ -238,7 +246,7 @@ def test_refresh_removes_the_block_and_keeps_the_owners_lines(repo, tmp_path, mo
     hook = repo / ".git" / "hooks" / "post-commit"
     assert not githook.holds_block(hook.read_text())
     assert "echo mine" in hook.read_text()
-    assert "Repo files: current." in status_output(capsys)
+    assert not repo_lines(status_output(capsys))
 
 
 def test_a_hook_with_the_markers_from_before_the_rename_is_not_current(
@@ -247,17 +255,17 @@ def test_a_hook_with_the_markers_from_before_the_rename_is_not_current(
     plain_install(tmp_path, monkeypatch)
     assert main(["init"]) == 0
     old_block(repo, "pre-push", githook.PAIRS[1])
-    assert "Repo files: current." not in status_output(capsys)
+    assert repo_lines(status_output(capsys))
     assert main(["init", "--refresh"]) == 0
     text = (repo / ".git" / "hooks" / "pre-push").read_text()
     assert githook.PAIRS[1][0] not in text
-    assert "Repo files: current." in status_output(capsys)
+    assert not repo_lines(status_output(capsys))
 
 
 def test_a_fresh_init_is_current(repo, tmp_path, monkeypatch, capsys):
     plain_install(tmp_path, monkeypatch)
     assert main(["init"]) == 0
-    assert "Repo files: current." in status_output(capsys)
+    assert not repo_lines(status_output(capsys))
 
 
 def _mined_fact(mem) -> str:

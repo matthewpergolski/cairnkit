@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from conftest import make_fact, write_facts
 
-from cairnkit import signals
+from cairnkit import instructions, signals
 from cairnkit.cli import main
 from cairnkit.load import changed_paths
 from cairnkit.memory import Memory
@@ -81,17 +81,19 @@ def test_load_does_not_print_a_pinned_fact_twice(mem, capsys, monkeypatch):
     assert out.count("f-20261001-p001") == 1
 
 
-def test_load_footer_names_show_pinned_link_and_tidy(mem, capsys, monkeypatch):
+def test_load_footer_names_show_and_the_instructions_name_the_rest(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(mem, [make_fact("f-20261001-0001", "One fact.")])
     out = load(capsys)
     assert "memory show" in out
-    assert "--pinned" in out
-    assert "--link" in out
-    assert "memory tidy" in out
+    assert "memory instructions" in out
+    text = instructions.text()
+    assert "--pinned" in text
+    assert "--link" in text
+    assert "memory tidy" in text
 
 
-def test_load_hygiene_line_flags_stale_and_suggests_tidy(mem, capsys, monkeypatch):
+def test_load_hygiene_line_flags_a_source_that_is_gone(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(
         mem,
@@ -110,7 +112,6 @@ def test_load_hygiene_line_flags_stale_and_suggests_tidy(mem, capsys, monkeypatc
         ],
     )
     out = load(capsys)
-    assert "tidy" in out.lower()
     assert "stale" in out.lower() or "older" in out.lower() or "missing" in out.lower()
 
 
@@ -121,8 +122,7 @@ def test_session_start_mentions_discoverability(mem, capsys, monkeypatch):
     assert main(["hook", "session-start", "--agent", "claude"]) == 0
     out = capsys.readouterr().out
     assert "memory show" in out
-    assert "--pinned" in out
-    assert "memory tidy" in out
+    assert "memory instructions" in out
 
 
 def _same_area(n: int, area: str = "deploy") -> list[dict]:

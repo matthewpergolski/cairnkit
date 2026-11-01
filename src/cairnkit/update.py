@@ -426,9 +426,7 @@ def _say_changes(bar: Progress, source, old: str | None, new: str | None) -> Non
 
 def run_status(project, flag: str | None) -> int:
     """The version, the source, and one line for each update that is due."""
-    from cairnkit import githook
-    from cairnkit.docs_cmd import status_line
-    from cairnkit.refresh import repo_line
+    from cairnkit.check import read_health
 
     source, _ = src.installed(None)
     build = src.running_build()
@@ -441,13 +439,9 @@ def run_status(project, flag: str | None) -> int:
     print(src.update_line(background=False) or "No update found.")
     for line in src.pending_change_lines():
         print(line)
-    print(repo_line(project, flag) or "Repo files: current.")
-    hooks = githook.hook_state(project).line
-    if hooks:
-        print(hooks)
-    docs = status_line(project)
-    if docs:
-        print(docs)
+    health = read_health(project, flag)
+    for line in [*health.linked, health.answer(), *health.details(), *health.todo, *health.info]:
+        print(line)
     with contextlib.suppress(OSError, ValueError):
         line = skills.status_line(resolve_memory_dir(project, flag)[0])
         if line:
