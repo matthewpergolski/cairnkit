@@ -406,7 +406,8 @@ def _verify(bar: Progress, source, found: Latest) -> str:
             "Put the uv tool bin folder on PATH. `uv tool dir --bin` prints it.",
         )
     code, out = _run([entry, "--version"], 60)
-    new = out.strip().removeprefix("memory").strip() if code == 0 else ""
+    words = out.split()
+    new = words[1] if code == 0 and len(words) > 1 else ""
     if not new or (found.version and new != found.version):
         expected = found.version or "its version"
         raise SourceError(
@@ -427,14 +428,14 @@ def run_status(project, flag: str | None) -> int:
     """The version, the source, and one line for each update that is due."""
     from cairnkit.refresh import repo_line
 
-    source, commit = src.installed(None)
-    print(f"memory {src.current_version()}{src.ref_tag(commit)}")
+    source, _ = src.installed(None)
+    build = src.running_build()
+    print(f"memory {src.current_version()}{src.ref_tag(build.commit)}")
     if source is None:
         print("Source: unknown. `memory update --source PATH` sets it.")
     else:
         print(f"Source: {source.label}" + (", editable" if source.editable else ""))
-        if source.kind == "git":
-            print(f"Channel: {src.channel(source)}")
+        print(f"Channel: {build.channel}")
     print(src.update_line(background=False) or "No update found.")
     for line in src.pending_change_lines():
         print(line)

@@ -96,8 +96,9 @@ def no_real_machine(tmp_path_factory, monkeypatch):
     runners often set XDG_CONFIG_HOME to the real ~/.config; without this pin,
     OpenCode detection escapes HOME and tests share / pollute the runner.
     """
-    from cairnkit import skills
+    from cairnkit import install_source, skills
 
+    monkeypatch.setattr(install_source, "_direct_url", lambda: None)
     machine = tmp_path_factory.mktemp("machine")  # outside the test's own tmp folder
     (machine / "home").mkdir()
     monkeypatch.setenv("HOME", str(machine / "home"))

@@ -52,8 +52,10 @@ def run(repo, tmp_path):
 
 
 def test_both_scripts_report_their_name_and_version(run):
-    assert run("--version") == (0, f"cairnkit {__version__}\n", "")
-    assert run("--version", command="memory") == (0, f"memory {__version__}\n", "")
+    for command in ("cairnkit", "memory"):
+        code, out, err = run("--version", command=command)
+        assert (code, err) == (0, "")
+        assert out.startswith(f"{command} {__version__}")
 
 
 def test_init_status_check_add_search(repo, run):
