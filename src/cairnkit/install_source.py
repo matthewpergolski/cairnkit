@@ -32,6 +32,7 @@ OLD_PACKAGE = "project-memory"
 OLD_RECORD = "project-memory-install.json"
 RECEIPT = "uv-receipt.toml"
 CACHE = "update-check.json"
+NOTICE = "update-notice.json"
 FRESH = timedelta(days=1)
 FRESH_AFTER_FAILURE = timedelta(hours=1)
 # Build, cache and log files that are not source. This is not a full ignore-rules reader.
@@ -740,6 +741,34 @@ def update_line(background: bool = True) -> str | None:
     except Exception:
         return None
     return None
+
+
+def _mark_notice(line: str) -> None:
+    _notice_path().parent.mkdir(parents=True, exist_ok=True)
+    _notice_path().write_text(json.dumps({"shown": line}) + "\n", encoding="utf-8")
+
+
+def _notice_path() -> Path:
+    return cache_dir() / NOTICE
+
+
+def notice_once() -> str | None:
+    """The update line for a load, once per version pair. Never raises.
+
+    `memory status` always has the line. When the record cannot be written, the notice stays
+    silent, because it would otherwise repeat in each session.
+    """
+    line = update_line()
+    if not line:
+        return None
+    try:
+        with contextlib.suppress(OSError, ValueError):
+            if json.loads(_notice_path().read_text(encoding="utf-8")).get("shown") == line:
+                return None
+        _mark_notice(line)
+    except Exception:
+        return None
+    return line
 
 
 def pending_change_lines() -> list[str]:

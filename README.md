@@ -106,8 +106,7 @@ complete. Remove a row in the change that fixes it.
 
 | Goal | What happens today |
 |---|---|
-| Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`, and `memory init` says so. |
-| Setup is one step | `memory init` connects only the agent tools that it finds at that time. A tool that you install later has no adapter until `memory init` runs again. |
+| Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`. `memory init` and `memory status` say so only after a Codex session in the last 30 days. Codex does not record the approval in a place the tool reads, so `memory status` keeps the line while Codex is in use. |
 | Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo, the git hooks are not written. |
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
@@ -121,7 +120,7 @@ complete. Remove a row in the change that fixes it.
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
 | Look for secrets | `memory check` reads only `*.md` files in `notes/` and `branches/`, and a hit there is a warning. `memory add` does not see these files. |
 | Enforce what must never happen | The commit-msg guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. |
-| No work for the developer | The session start can print a line about the optional pstack skills, for 3 sessions per version pair. When a newer tool exists, the session start says "Tell the owner". Nothing installs the update by itself. |
+| No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
 ## Install
 
@@ -201,7 +200,7 @@ It is not:
     folder is read with local git only.
   - `memory update`: fetches the checked commit from that git URL. Its
     `uv build` can download build tools from PyPI.
-  - The pstack skills check (session start, `memory check`, `memory init`,
+  - The pstack skills check (`memory status`, `memory init`,
     `memory migrate`, `memory skills status`): reads `pstack/plugin.json`
     from `github.com/cursor/plugins`, at most once a day (once an hour after
     a failure). It runs only when Claude Code, Codex, Cursor, OpenCode, Pi or
@@ -264,8 +263,8 @@ fresh install has no record of the installed commit, so it installs once
 more to write that record. A local folder must have no uncommitted changes,
 and `memory update` does not pull it.
 
-`memory status` and the session start show one line when the source is
-newer. They show another line when this repo's hooks and rules block come
+`memory status` shows one line when the source is newer. A load shows that
+line once per version pair. Both show another line when this repo's hooks and rules block come
 from an older version, or when the local post-merge hook holds a cairnkit
 block that has no docs check. Then run `memory init --refresh`. It rewrites
 them in place. Each repo catches up the next time it is used. An update
@@ -641,9 +640,10 @@ level only. It writes nothing into a repo.
   available count (so a partial install is visible). The latest version comes
   from `pstack/plugin.json` on the `main` branch of `cursor/plugins`. The
   answer is cached for one day. Offline, it is skipped.
-- `memory skills install pstack` shows the plan. `--yes` does it. The same
-  command updates. A rerun with nothing to do says so. `--tool NAME` picks one
-  tool (`claude`, `codex`, `cursor`, `opencode`, `pi`, `grok`, or `all`). For
+- `memory skills install pstack` shows the plan. `--yes` does it. With no
+  `--tool`, it updates only the tools that already have pstack. A rerun with
+  nothing to do says so. To add pstack to a new tool, name it: `--tool NAME`
+  (`claude`, `codex`, `cursor`, `opencode`, `pi`, `grok`, or `all`). For
   Claude Code it runs `claude plugin marketplace add cursor/plugins` and
   `claude plugin install pstack@cursor-plugins --scope user` (Claude loads
   the plugin's `skills/` as a unit; it does not copy into `~/.claude/skills`).
@@ -661,25 +661,17 @@ level only. It writes nothing into a repo.
   default it keeps a skill of yours that has the same name. `--adopt` (also
   `--all`) replaces those same-named folders so every pstack skill is
   installed, and prints which ones it adopted.
-- The advisory is quiet. A session hears only about the tool that runs it. The
-  tool is known from the hook's `--agent`, or from one set of environment
-  markers (`CLAUDECODE`; `CODEX_CI`, `CODEX_SANDBOX` or `CODEX_THREAD_ID`;
-  `CURSOR_AGENT` or `CURSOR_TRACE_ID`; `OPENCODE` or `OPENCODE_SESSION_ID`;
-  `PI_CODING_AGENT`; `GROK_SESSION_ID`, `GROK_HOOK_EVENT` or
-  `GROK_WORKSPACE_ROOT`). When it is not known, nothing is printed.
-  `memory load` (at session start) and `memory check` print one line when
-  pstack is missing or behind for that tool. The line ends with
-  `Run: memory skills install pstack --yes`. For one pair of installed and
-  latest versions it shows in 3 session starts, then stops. A newer latest
-  version starts a new count. The count is in `.skills-advisory.json` in the
-  memory folder. A manual `memory load` or `memory check` does not use it up.
-- `memory init` and `memory migrate` print one line at the end for the tools
-  that are found on the machine, once per memory folder. `migrate` also puts
-  the line in `proposals/migrate-followups.md`, so the agent runs it.
-  `memory skills status` always lists every tool.
+- pstack is optional and not about memory, so no session start or `memory
+  check` names it. `memory status` prints one line when a tool that has pstack
+  is behind. The line names the command that updates only those tools.
+- `memory init` and `memory migrate` print one line at the end, once per memory
+  folder. It names what is behind, and the tools with no pstack and the command
+  to add one. `migrate` puts only the update in
+  `proposals/migrate-followups.md`, so a tool that you do not use cannot keep
+  that task open. `memory skills status` always lists every tool.
 - `skills_check = false` in `config.toml` turns the line off.
-  `skills_auto_update = true` makes the session-start hook run the update
-  itself, and print one line that it did. The default is off.
+  `skills_auto_update = true` makes the session-start hook update what is
+  installed, and print one line that it did. It adds no tool. The default is off.
 
 ## Greenfield vs brownfield projects
 

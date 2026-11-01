@@ -256,7 +256,7 @@ def render_followups(
         checks.append(f"This prints nothing: `grep -nE 'check[_-]?memory' {files}`")
     checks.append("`memory check` says ok.")
     if skills_line:
-        checks.append("`memory skills status` shows no tool as `not installed` or `behind`.")
+        checks.append("`memory skills status` shows no installed tool as `behind`.")
     checks.append("Run `memory migrate --yes`: it marks this file done. Or delete this file.")
     lines += ["", "## Done when", ""]
     lines += [f"{number}. {check}" for number, check in enumerate(checks, start=1)]

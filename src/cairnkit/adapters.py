@@ -26,13 +26,16 @@ The core never depends on these tools. Only this module names them.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
 import sys
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 
+from cairnkit.clock import now
 from cairnkit.ignore import exclude, is_tracked
 from cairnkit.paths import Project
 
@@ -40,6 +43,8 @@ MARK = "cairnkit hook"
 # What a hook command held before the rename. Install replaces it; uninstall removes it.
 MARKS = (MARK, "project_memory hook")
 EXPERIMENTAL = {"codex", "cursor", "grok", "pi", "opencode"}
+CODEX_RECENT = timedelta(days=30)
+CODEX_TRUST = "Codex: approve the hooks once with /hooks, because Codex asks for trust itself."
 
 
 def hook_command(event: str, agent: str) -> str:
@@ -394,6 +399,23 @@ def detect(project: Project) -> list[str]:
     if "grok" in found and {"claude", "cursor"} & set(found):
         found.remove("grok")  # Grok runs those hooks too, and each hook must run once.
     return found or ["generic"]
+
+
+def codex_in_use() -> bool:
+    """True when Codex wrote a session lately. A program on PATH or a home folder is not use.
+
+    Codex keeps each session as `sessions/YYYY/MM/DD/rollout-*.jsonl` under `CODEX_HOME`.
+    Other files there, such as its logs, change while nobody runs a session.
+    """
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    try:
+        for day in sorted((home / "sessions").glob("[0-9]*/[0-9]*/[0-9]*"), reverse=True):
+            if any(day.iterdir()):
+                year, month, dd = (int(part) for part in day.parts[-3:])
+                return now().date() - date(year, month, dd) <= CODEX_RECENT
+    except (OSError, ValueError):
+        pass
+    return False
 
 
 def _empty(data: dict) -> bool:

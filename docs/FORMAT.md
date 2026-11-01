@@ -72,7 +72,8 @@ before the home folder and the file system root.
   .loop-breaker.json            the last command and its fail streak (safe to delete)
   .loop-breaker.lock            the lock for that file
   .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
-  .skills-advisory.json         how often the pstack line was shown (safe to delete)
+  .skills-advisory.json         whether init or migrate named pstack once (safe to delete)
+  .agents-seen.json             the agent tools seen at setup and since; a tool not in it is new
 ```
 
 An implementation must create `facts/`, `notes/`, `branches/`, `README.md`
@@ -226,9 +227,9 @@ such field, it loads when `writer` is the current writer.
 
 ```toml
 auto_tidy = "auto"            # "auto", "report" (only say), "on" (retire) or "off"
-skills_check = true           # false: no advisory line about the pstack skills (also init, migrate)
-skills_auto_update = false    # true: session start installs or updates pstack (user level)
-                              # (fills missing skills; does not --adopt same-named folders)
+skills_check = true           # false: no line about the pstack skills (status, init, migrate)
+skills_auto_update = false    # true: session start updates pstack where it is installed (user level)
+                              # (adds no tool; does not --adopt same-named folders)
 
 [areas]                       # path prefix -> area, for ranking in `memory load`
 "src/db/" = "database"
@@ -495,6 +496,8 @@ The user cache is `$XDG_CACHE_HOME/cairnkit`, else `~/.cache/cairnkit`:
 - `update-check.json`: the last update check (`checked`, `source`,
   `installed`, `newer`, `from`, `to`, and `failed` after a failure). It is
   fresh for one day, or one hour after a failure.
+- `update-notice.json`: the last update notice that a load showed. It holds
+  the notice to once per version pair.
 - `wheels/<12 hex of the environment path>/install-*/<wheel>`: the wheel that
   the uv receipt points to after `memory update`.
 - `wheels/update.lock`: the lock that one update holds from the check to the
