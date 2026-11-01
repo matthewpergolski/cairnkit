@@ -13,6 +13,7 @@ sources:
   - src/cairnkit/cli.py
   - src/cairnkit/clock.py
   - src/cairnkit/config.py
+  - src/cairnkit/deadline.py
   - src/cairnkit/detect.py
   - src/cairnkit/discover.py
   - src/cairnkit/docs_cmd.py
@@ -47,6 +48,7 @@ sources:
   - src/cairnkit/ranking.py
   - src/cairnkit/reading.py
   - src/cairnkit/refresh.py
+  - src/cairnkit/repair.py
   - src/cairnkit/rules.py
   - src/cairnkit/rules_target.py
   - src/cairnkit/schema.py
@@ -95,6 +97,7 @@ flowchart TB
     Library --> candidates[candidates]
     Library --> clock[clock]
     Library --> config[config]
+    Library --> deadline[deadline]
     Library --> detect[detect]
     Library --> discover[discover]
     Library --> docs_inventory[docs_inventory]
@@ -117,6 +120,7 @@ flowchart TB
     Library --> paths[paths]
     Library --> progress[progress]
     Library --> ranking[ranking]
+    Library --> repair[repair]
     Library --> rules[rules]
     Library --> rules_target[rules_target]
     Library --> schema[schema]
