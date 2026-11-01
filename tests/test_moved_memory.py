@@ -246,12 +246,13 @@ def test_sibling_under_the_old_name_with_no_link_returns(repo, mem, capsys, monk
 
 
 def old_install_beside_a_new_clone(repo, mem, capsys, monkeypatch, tmp_path):
-    """A memory from before this version: no id in it, no record in the repo."""
+    """A memory from before this version: no id, no record in the repo. Its remote names it."""
     stored(repo, mem, capsys)
     (mem / ".identity").unlink()
     (repo / "memory-bank").unlink()
     (repo / ".git" / "cairnkit-memory").unlink()
     new = move(repo, repo.parent / "renamed", monkeypatch)
+    git(new, "remote", "add", "origin", "https://example.com/someone/proj.git")
     return new
 
 
