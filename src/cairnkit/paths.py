@@ -14,12 +14,21 @@ ENV_DIR = "MEMORY_DIR"
 
 @dataclass
 class Project:
-    """One project: the checkout we are in, the main checkout, and all worktrees."""
+    """One project: the checkout we are in, the main checkout, and all worktrees.
+
+    `home` holds .memory-path and names the default memory. It is the main checkout, or
+    the bare repo when no main checkout exists. `main_root` is always a checkout.
+    """
 
     root: Path
     main_root: Path
     checkouts: list[Path] = field(default_factory=list)
     common_dir: Path | None = None
+    home: Path | None = None
+    bare: bool = False
+
+    def __post_init__(self) -> None:
+        self.home = self.home or self.main_root
 
     @property
     def is_git(self) -> bool:
@@ -47,11 +56,19 @@ def find_project(cwd: Path | None = None) -> Project:
         return Project(root=root, main_root=root, checkouts=[root])
     root = Path(top)
     common = Path(run_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir") or "")
-    main_root = common.parent if common.name == ".git" else root
-    checkouts = _list_worktrees(root) or [root]
+    first, bare, listed = _read_worktrees(root)
+    home = first or root
+    if home == common and not bare:
+        # A submodule or a separate git dir: git lists its git dir, not its checkout.
+        tree = run_git(common, "config", "core.worktree")
+        home = Path(os.path.normpath(common / tree)) if tree else root
+    checkouts = [home if path == common else path for path in listed] or [root]
+    main_root = checkouts[0] if bare else home
     if main_root not in checkouts:
         checkouts.insert(0, main_root)
-    return Project(root=root, main_root=main_root, checkouts=checkouts, common_dir=common)
+    return Project(
+        root=root, main_root=main_root, checkouts=checkouts, common_dir=common, home=home, bare=bare
+    )
 
 
 def plain_root(cwd: Path) -> Path:
@@ -71,47 +88,52 @@ def plain_root(cwd: Path) -> Path:
     return cwd
 
 
-def _list_worktrees(root: Path) -> list[Path]:
+def _read_worktrees(root: Path) -> tuple[Path | None, bool, list[Path]]:
+    """Return git's first entry, whether it is a bare repo, and each checkout that exists."""
     out = run_git(root, "worktree", "list", "--porcelain")
     if not out:
-        return []
-    paths = []
-    bare = False
-    for line in out.splitlines():
-        if line.startswith("worktree "):
-            paths.append(Path(line.removeprefix("worktree ")))
-            bare = False
-        elif line == "bare":
-            bare = True
-            paths.pop()
-        elif line == "prunable" or line.startswith("prunable "):
-            if paths and not bare:
-                paths.pop()
-    return [p for p in paths if p.is_dir()]
+        return None, False, []
+    entries = [block.splitlines() for block in out.split("\n\n")]
+    paths = [
+        Path(lines[0].removeprefix("worktree "))
+        for lines in entries
+        if "bare" not in lines and not any(line.startswith("prunable") for line in lines)
+    ]
+    first = Path(entries[0][0].removeprefix("worktree "))
+    return first, "bare" in entries[0], [p for p in paths if p.is_dir()]
 
 
 def resolve_memory_dir(project: Project, flag: str | None = None) -> tuple[Path, str]:
     """Return the memory folder and where the setting came from.
 
-    Order: flag, MEMORY_DIR, first line of .memory-path in the main checkout,
-    then the default sibling folder `<main checkout>.memory`.
+    Order: flag, MEMORY_DIR, first line of .memory-path in the project's home,
+    then the default sibling folder `<home>.memory`.
     """
     if flag:
         return Path(flag).expanduser().absolute(), "flag"
     env = os.environ.get(ENV_DIR)
     if env:
         return Path(env).expanduser().absolute(), ENV_DIR
-    path_file = project.main_root / PATH_FILE
+    path_file = project.home / PATH_FILE
     if path_file.is_file():
         lines = path_file.read_text().splitlines()
         first = lines[0].strip() if lines else ""
         if first:
             target = Path(first).expanduser()
             if not target.is_absolute():
-                target = project.main_root / target
+                target = project.home / target
             return Path(os.path.normpath(target)), PATH_FILE
-    default = project.main_root.parent / f"{project.main_root.name}.memory"
-    return default, "default"
+    return _default_memory_dir(project), "default"
+
+
+def _default_memory_dir(project: Project) -> Path:
+    home = project.home
+    if not project.bare:
+        return home.parent / f"{home.name}.memory"
+    # In the layout proj/.bare the worktrees sit beside it, and proj names the project.
+    if home.name.startswith("."):
+        return home.parent / f"{home.parent.name}.memory"
+    return home.parent / f"{home.name.removesuffix('.git')}.memory"
 
 
 def current_branch(root: Path) -> str | None:

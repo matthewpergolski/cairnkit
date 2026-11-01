@@ -212,8 +212,8 @@ def run_init(
     if not memdir.is_dir():
         steps.append(f"create {memdir}")
     if path_flag:
-        rel = os.path.relpath(memdir, project.main_root)
-        current = project.main_root / PATH_FILE
+        rel = os.path.relpath(memdir, project.home)
+        current = project.home / PATH_FILE
         if not current.is_file() or current.read_text().splitlines()[:1] != [rel]:
             steps.append(f"write {current}: {rel}")
             if not dry_run:
