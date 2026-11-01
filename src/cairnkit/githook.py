@@ -49,6 +49,7 @@ CONFIG_HOOKS_SINCE = "2.54"
 # "Jane Cursor" pass. These names are also people's names, so alone they need a tool word,
 # a version or a tool address: "Opus 4.7" is refused, and "Opus <opus@example.com>" passes.
 _PERSON_LIKE = "(claude|devin|fable|opus|sonnet|haiku|mythos|jules|kimi)"
+_NO_REPLY = "<no-?reply[^@>]*@"
 _FAMILY = "(opus|sonnet|haiku|fable|mythos)"
 _TOOL_WORD = f"(agent|ai|bot|code|cli|assistant|build|model|{_FAMILY})"
 _VERSION_END = "( [0-9][0-9.]*)?( \\([^)]*\\))?"
@@ -89,7 +90,7 @@ _ANY_NAME = (
 # Matched on each line of a commit message that is not a comment.
 DEFAULT_GUARD_PATTERNS = [
     f"{_TRAILER}{_NAME}( *<|[ :.]*$|:)",
-    f"{_TRAILER}{_PERSON_LIKE}([ .]*$|:)",
+    f"{_TRAILER}{_PERSON_LIKE}([ .]*$|:| {_NO_REPLY})",
     f"{_TRAILER}{_BOT_NAME}",
     f"{_TRAILER}[^<]*({'|'.join(_ADDRESSES)})",
     "^[^a-z0-9]*generated with ",
@@ -102,6 +103,7 @@ DEFAULT_GUARD_PATTERNS = [
 # pattern must not end in $.
 DEFAULT_IDENTITY_PATTERNS = [
     f"^{_NAME} <",
+    f"^{_PERSON_LIKE} {_NO_REPLY}",
     f"^{_BOT_NAME} <",
     "^[^<]*\\(aider\\) <",
     *_ADDRESSES,
