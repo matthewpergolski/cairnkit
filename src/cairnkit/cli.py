@@ -271,6 +271,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reason", required=True, help="for example: secret")
     p.add_argument("--yes", action="store_true", help="confirm; there is no undo")
 
+    sub.add_parser(
+        "repair",
+        parents=[common],
+        help="settle bad lines and a bad config that `memory check` names; deletes no fact",
+    )
+
     p = sub.add_parser("check", parents=[common], help="check facts, links and secrets")
     p.add_argument("--strict", action="store_true", help="warnings are errors too")
     p.add_argument("--advisory", action="store_true", help="also list rules that no check enforces")
@@ -404,6 +410,7 @@ def run(args) -> int:
     from cairnkit.paths import find_project, resolve_memory_dir
     from cairnkit.reading import run_search, run_show
     from cairnkit.refresh import run_refresh
+    from cairnkit.repair import run_repair
     from cairnkit.tidy import run_tidy
     from cairnkit.update import run_status, run_update
     from cairnkit.writing import Refused, add_fact, change_fact, fail, keep_fact, purge_fact
@@ -522,6 +529,8 @@ def run(args) -> int:
         elif args.command == "purge":
             dropped = purge_fact(memory, args.id, args.reason, args.yes)
             print(f"purged {args.id}: removed {dropped} line(s), wrote a tombstone")
+        elif args.command == "repair":
+            return run_repair(memory)
         elif args.command == "show":
             return run_show(memory, args.id)
         elif args.command == "tidy":
@@ -550,7 +559,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
-    return run(args)
+    from cairnkit import deadline
+    from cairnkit.store import LockBusy
+
+    # The budget starts before the first git call, because a slow git is what it must outlast.
+    name = args.event if args.command == "hook" else args.command
+    try:
+        with deadline.within(deadline.COMMAND_BUDGET.get(name)):
+            return run(args)
+    except LockBusy as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

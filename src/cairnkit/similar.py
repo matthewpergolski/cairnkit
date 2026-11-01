@@ -1,9 +1,13 @@
 """When are two facts the same thing said twice?
 
-Two facts are similar when they share at least 80 percent of their words
-(Jaccard on the lower-case word sets). That test only flags. A pair is not
-similar at all when the words that differ hold a number, a negation or one
-side of an opposite pair, because one changed word can reverse the meaning.
+Three tests, from strict to loose:
+
+- `exact_key`: the same words in the same order. Case and punctuation do not count.
+- `near_key`: also ignores a plural and a stop word. No word that differs can change the meaning,
+  so auto-tidy may retire the older fact with no agent.
+- `similarity`: at least 80 percent of the words (Jaccard on the word sets), and the same count of
+  each number, negation and opposite. This test only flags a pair for an agent. One other word
+  can make a different fact: staging against production, or three against five.
 """
 
 from __future__ import annotations
@@ -34,8 +38,17 @@ OPPOSITES = {
 }  # fmt: skip
 
 
+# Only forms that change no meaning. "was" and "this" stay out: tense and reference can matter.
+STOP_WORDS = {"a", "an", "the", "is", "are"}
+# Words where a final s does not mean a plural: https is not http, and news is not new.
+NOT_PLURAL = {"https", "news", "windows", "means", "goods", "always", "sometimes", "besides"}
+_WORD = re.compile(r"[^\W_]+")
+# These symbols are part of a value: C++ against C#, x < 5 against x > 5, 5% against $5.
+_WORD_OR_SYMBOL = re.compile(r"[^\W_]+|[+#<>=%$]")
+
+
 def tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]+", text.lower()))
+    return set(_WORD.findall(text.lower()))
 
 
 def overlap(a: set[str], b: set[str]) -> float:
@@ -54,18 +67,33 @@ class Words(NamedTuple):
 
 
 def analyze(text: str) -> Words:
-    found = re.findall(r"[a-z0-9]+", text.lower())
+    found = _WORD.findall(text.lower())
     return Words(set(found), Counter(w for w in found if _meaningful(w)))
 
 
-def exact_key(text: str) -> tuple[frozenset[str], frozenset[tuple[str, int]]]:
-    """Two texts are an exact repeat when this key is the same."""
-    words = analyze(text)
-    return frozenset(words.tokens), frozenset(words.meaning.items())
+def exact_key(text: str) -> tuple[str, ...]:
+    """Two texts are an exact repeat when this key is the same. Order can change the meaning."""
+    return tuple(_WORD_OR_SYMBOL.findall(text.lower()))
+
+
+def _singular(word: str) -> str:
+    """One form for a word and its plural. It is a key, so it need not be a real word."""
+    if not word.isalpha() or word in NOT_PLURAL:
+        return word
+    if word.endswith(("ch", "sh", "ss", "x", "z")):  # branch and branches, cache and caches
+        return word + "e"
+    if len(word) < 4 or word.endswith(("us", "is")) or not word.endswith("s"):
+        return word
+    return word[:-3] + "y" if word.endswith("ies") else word[:-1]
+
+
+def near_key(text: str) -> tuple[str, ...]:
+    """Two texts with this key differ only in case, plural, punctuation or a stop word."""
+    return tuple(_singular(word) for word in exact_key(text) if word not in STOP_WORDS)
 
 
 def similarity(a: Words, b: Words) -> float | None:
-    """The overlap when the two texts are similar, else None.
+    """The overlap when the two texts are similar, else None. This only flags a pair.
 
     The count of each number, negation and opposite must be the same in both.
     A count catches a second "not" in a text that already has one.

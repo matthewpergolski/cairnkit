@@ -9,6 +9,7 @@ prints the neutral output and exits 0.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -18,6 +19,7 @@ import sys
 from cairnkit import (
     adapters,
     autotidy,
+    deadline,
     followups,
     hooks_cmd,
     legacy,
@@ -54,6 +56,10 @@ from cairnkit.session import (
 )
 
 NOTE_IDS = 10
+STOP_SEEN = ".stop-problems.json"
+STDIN_WAIT = 1
+# Of the total session budget. The optional steps stop first, so the load keeps this much.
+LOAD_RESERVE = 3.0
 SUBAGENT_BUDGET = 300
 # Agents that need a JSON empty object when memory exists but there is nothing to say.
 JSON_NEUTRAL = frozenset({"codex", "cursor"})
@@ -78,8 +84,10 @@ def has_memory(project: Project, flag: str | None) -> bool:
 
 
 def read_payload() -> dict:
+    raw = ""
     try:
-        raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+        with _time_budget(STDIN_WAIT):  # a tool writes this at once, then closes it
+            raw = sys.stdin.read() if not sys.stdin.isatty() else ""
         data = json.loads(raw) if raw.strip() else {}
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
@@ -214,6 +222,42 @@ def skills_note(project: Project, flag: str | None) -> str:
     return ""
 
 
+def _native_note(project: Project, flag: str | None) -> str:
+    with contextlib.suppress(Exception):
+        line = native.session_line(Memory.open(project, flag))
+        return line + "\n\n" if line else ""
+    return ""
+
+
+def _legacy_clean(project: Project, flag: str | None) -> None:
+    with contextlib.suppress(Exception):
+        legacy.clean(Memory.open(project, flag))
+
+
+def _optional_work(project: Project, flag: str | None) -> str:
+    """Do what can wait for a later session, in order, while time is left. Return its notes.
+
+    A step that it skips runs at the next session start. After a git timeout it skips the rest:
+    tidy reads which checkouts exist, and a timed-out git may have left some out.
+    """
+    steps = (
+        _legacy_clean,
+        sync_tools,
+        auto_retire_note,
+        skills_note,
+        _native_note,
+        refresh_followups,
+        compact_usage,
+    )
+    note = ""
+    with deadline.within(deadline.left() - LOAD_RESERVE):
+        for step in steps:
+            if not deadline.has_time():
+                break
+            note += step(project, flag) or ""
+    return note
+
+
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not has_memory(project, flag):
         with contextlib.suppress(Exception):
@@ -222,15 +266,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
                 event = {"hook_event_name": "SessionStart", **payload}
                 _context(agent, event, f"memory: not loaded: {lost_note(lost)}")
         return 0
-    with contextlib.suppress(Exception):
-        legacy.clean(Memory.open(project, flag))
-    sync_tools(project, flag)
-    note = auto_retire_note(project, flag) + skills_note(project, flag)
-    with contextlib.suppress(Exception):
-        line = native.session_line(Memory.open(project, flag))
-        note += line + "\n\n" if line else ""
-    refresh_followups(project, flag)
-    compact_usage(project, flag)
+    note = _optional_work(project, flag)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         run_load(project, flag, None, 600)
@@ -263,14 +299,39 @@ def _strict_problems(project: Project, flag: str | None) -> list[str]:
     return problems + errors + warnings + secrets_in_notes(memory)
 
 
+def _new_problems(project: Project, flag: str | None, problems: list[str]) -> list[str]:
+    """The problems that have not blocked a stop yet. Each one blocks once, in all sessions.
+
+    A problem that ends and comes back counts as new. With no place to record what was said,
+    it says nothing, because a block at each stop is the worse failure.
+    """
+    memdir, _ = resolve_memory_dir(project, flag)
+    path = memdir / STOP_SEEN
+    try:
+        seen = set(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        seen = set()
+    keys = {problem: hashlib.sha1(problem.encode()).hexdigest()[:16] for problem in problems}
+    if set(keys.values()) == seen:
+        return []
+    try:
+        path.write_text(json.dumps(sorted(keys.values())), encoding="utf-8")
+    except OSError:
+        return []
+    return [problem for problem, key in keys.items() if key not in seen]
+
+
 def stop_message(project: Project, flag: str | None, payload: dict) -> str | None:
     """What the agent must hear at stop. A failure in one step keeps the other steps."""
     parts = []
     with contextlib.suppress(Exception):
-        problems = _strict_problems(project, flag)
+        problems = _new_problems(project, flag, _strict_problems(project, flag))
         if problems:
             shown = "\n".join(f"- {clean(p)}" for p in problems[:20])
-            parts.append(f"`memory check --strict` found problems. Fix them:\n{shown}")
+            parts.append(
+                f"`memory check --strict` found problems. Run the command on each line:\n{shown}\n"
+                "This stop names each problem once. `memory check --strict` lists what is open."
+            )
     try:
         memory = Memory.open(project, flag)
     except Exception:

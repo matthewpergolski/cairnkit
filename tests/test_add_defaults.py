@@ -84,7 +84,7 @@ def test_auto_tidy_does_not_let_a_near_repeat_guess_retire_a_seen_fact(mem, caps
         mem,
         [
             make_fact(OLD, words, basis="seen", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(NEW, words + " today", basis="guess", learned_at="2026-10-02T00:00:00+00:00"),
+            make_fact(NEW, words + "s", basis="guess", learned_at="2026-10-02T00:00:00+00:00"),
         ],
     )
     assert autotidy.find(_memory()) == []
@@ -96,7 +96,7 @@ def test_auto_tidy_still_lets_a_near_repeat_seen_retire_a_guess(mem, capsys):
         mem,
         [
             make_fact(OLD, words, basis="guess", learned_at="2026-10-01T00:00:00+00:00"),
-            make_fact(NEW, words + " today", basis="seen", learned_at="2026-10-02T00:00:00+00:00"),
+            make_fact(NEW, words + "s", basis="seen", learned_at="2026-10-02T00:00:00+00:00"),
         ],
     )
     assert [item.id for item in autotidy.find(_memory())] == [OLD]

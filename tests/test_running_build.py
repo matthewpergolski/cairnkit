@@ -285,7 +285,15 @@ def _mined_fact(mem) -> str:
         "source": "commit:abc1234",
         "area": "general",
     }
-    decision = {"type": "decision", "id": "c-1", "status": "accepted", "fact_id": fact["id"]}
+    # The hook wrote both in one run of tag v0.3.1. That time is the proof that the gate wrote it.
+    candidate["created_at"] = "2026-10-01T12:00:00+00:00"
+    decision = {
+        "type": "decision",
+        "id": "c-1",
+        "status": "accepted",
+        "fact_id": fact["id"],
+        "at": "2026-10-01T12:00:00+00:00",
+    }
     (mem / "proposals").mkdir(exist_ok=True)
     (mem / "proposals" / "auto-candidates.jsonl").write_text(
         json.dumps(candidate) + "\n" + json.dumps(decision) + "\n"

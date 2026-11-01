@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Auto-tidy retires a near repeat only when the words match in order after case, plural,
+  punctuation and stop words. Staging against production and three times against five now go to
+  the agent task. An exact repeat now needs the same order, and it keeps symbols and non-ASCII
+  words, so reversed words and `C++` against `C#` stay two facts, at `memory add` too.
+- A damaged line loses only that line. A cut inside a character no longer hides each fact of that
+  writer. An add after a torn tail loads, purge works, and U+2028 in a text no longer splits a record.
+- One record that the code cannot use is skipped and counted. It no longer stops the load or crashes
+  `memory check`.
+- A session start has a total budget of 7 seconds, under the shortest adapter timeout. Optional
+  steps stop first, and the load still prints the facts. A lock wait ends after 5 seconds, and
+  `memory add` says that it wrote nothing. With a slow git, `memory add` still lands soon.
+- A bad value or a typo in `config.toml` keeps auto-tidy off, and `memory check` names it.
+- The clean-up of 0.3.1 ends a mined fact only with proof that its gate wrote it, so a fact that a
+  person accepted stays.
+- A stop blocks once for a given problem, and each line names its command.
+
 ### Removed
 
 - The `grep` and the skills demand in the done test of `memory migrate`, and the `(done)` state of
@@ -26,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
 
 ### Added
+
+- `memory repair` settles a bad line with an appended record and keeps the bytes. It also drops a
+  bad setting from `config.toml` and keeps a copy. A gone `held_by` clears with
+  `memory change ID --status active`. `memory purge` is needed only for a secret.
 
 - `memory migrate` lists each check of the old tooling once, by name, with what happens to it now.
 - `memory migrate` says which checkout it acts on and what the install step reaches.

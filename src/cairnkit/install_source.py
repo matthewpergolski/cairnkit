@@ -22,7 +22,7 @@ from importlib import metadata
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlparse, urlsplit, urlunsplit
 
-from cairnkit import __version__
+from cairnkit import __version__, deadline
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.skills import cache_dir, is_behind
 
@@ -146,17 +146,24 @@ def git(args: list[str], timeout: float = 3.0) -> str | None:
     Empty stdout on exit 0 stays ``""``. A failed command is ``None``.
     """
     refuse_pinned_args(args)
+    room = deadline.left()
+    if room <= 0 or deadline.git_stuck():
+        return None
     try:
         done = subprocess.run(
             ["git", *args],
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=min(timeout, room),
             check=False,
             stdin=subprocess.DEVNULL,
             env=git_env(),
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        if timeout <= room:
+            deadline.note_git_timeout()
+        return None
+    except OSError:
         return None
     return done.stdout.strip() if done.returncode == 0 else None
 

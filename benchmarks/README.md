@@ -5,6 +5,8 @@ This folder holds these benchmarks. None of them asks a model anything.
 - `session_words.py` counts the words of a session start that are not facts, per adapter.
 - `connect_cost.py` measures what the look for a new agent tool adds to a session start.
 - `retrieval_eval.py` scores `memory search` and `memory load` on probe questions.
+- `near_repeat_eval.py` counts false retires and repeats caught on a labelled set of pairs.
+- `session_start_time.py` times the real session-start hook.
 - `forgetting/` replays synthetic project histories through the real load under each
   forgetting policy. See [Forgetting benchmark](#forgetting-benchmark).
 

@@ -11,7 +11,7 @@ BASES = ("seen", "told", "guess")
 STATUSES = ("active", "superseded", "expired", "wrong", "promoted")
 SCOPES = ("long", "short")
 RELS = ("related", "depends_on", "caused_by", "contradicts", "similar_to")
-TYPES = ("fact", "change", "tombstone")
+TYPES = ("fact", "change", "tombstone", "repair")
 MAX_TEXT = 2000  # fact body, every kind except rule
 RULE_MAX_TEXT = 400  # kind == rule; each rule loads in every session
 MAX_SUMMARY = 200  # optional load line
@@ -154,6 +154,13 @@ def _check_tombstone(rec: dict) -> list[str]:
     return errors
 
 
+def _check_repair(rec: dict) -> list[str]:
+    errors = [f"missing field {n!r}" for n in ("file", "sha", "at", "writer") if n not in rec]
+    if "at" in rec and not is_time(rec["at"]):
+        errors.append(f"at {rec['at']!r} is not an ISO 8601 date-time")
+    return errors
+
+
 def validate_record(rec: object) -> list[str]:
     """Return the problems with one record. An empty list means it is well formed."""
     if not isinstance(rec, dict):
@@ -165,4 +172,6 @@ def validate_record(rec: object) -> list[str]:
         return _check_change(rec)
     if kind == "tombstone":
         return _check_tombstone(rec)
+    if kind == "repair":
+        return _check_repair(rec)
     return [f"type {kind!r} is not one of {', '.join(TYPES)}"]

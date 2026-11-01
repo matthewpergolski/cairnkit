@@ -48,7 +48,7 @@ def _duplicates(active: list[dict]) -> list[Proposal]:
         if older["id"] in done:
             continue
         for newer in ordered[i + 1 :]:
-            if newer["id"] in done or not toks[older["id"]][0]:
+            if newer["id"] in done or not toks[older["id"]]:
                 continue
             if toks[older["id"]] == toks[newer["id"]] and not outranks(older, newer):
                 change = {

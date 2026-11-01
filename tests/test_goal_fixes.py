@@ -253,12 +253,20 @@ NEAR = "The deploy script needs a full database pool to pass."
 NEARER = "The deploy script needs a full database pool to pass today."
 
 
-def test_a_near_repeat_says_that_auto_tidy_can_supersede_the_older_fact(mem, capsys):
+def test_a_near_repeat_in_form_says_that_auto_tidy_can_supersede_the_older_fact(mem, capsys):
     _add_out(capsys, NEAR)
-    out = _add_out(capsys, NEARER)
+    out = _add_out(capsys, NEAR.replace("script", "scripts"))
     assert "similar to" in out
     assert "Both stay active" not in out
     assert "auto-tidy" in out
+
+
+def test_a_near_repeat_with_another_word_says_that_both_stay(mem, capsys):
+    _add_out(capsys, NEAR)
+    out = _add_out(capsys, NEARER)
+    assert "similar to" in out
+    assert "Both stay active" in out
+    assert "auto-tidy" not in out
 
 
 def test_a_near_repeat_of_a_stated_fact_says_that_both_stay(mem, capsys):
