@@ -429,7 +429,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
 - `pre-compact`: marks the session as compacted, so that the next news says so.
 - `pre-commit`: exits 1 only when a staged path is `memory-bank`, `.memory-path`
   or inside the memory folder. Else it prints each stored trap (up to 3) that matches
-  the staged files on stderr, and exits 0. A problem in the memory never stops a commit.
+  the staged files on stderr, each on one line labelled as data, and exits 0. A problem in the
+  memory never stops a commit.
 - `post-checkout`: makes the `memory-bank` link and the adapter files in a new worktree.
 - `pre-push` and `post-merge`: run the same auto-tidy step as `session-start`.
   `post-commit` does the same, for a hook that 0.3.1 wrote.
