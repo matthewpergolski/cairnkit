@@ -45,6 +45,7 @@ BASE_FILE = "cairnkit-guard-base"
 # In the git folder, not a hook, so nothing that git passes to a hook can select it. The fix that
 # a refused push prints runs it on each commit.
 FIX_FILE = "cairnkit-fix-commit"
+OLD_FIX_MODE = '"$1" = cairnkit-fix-commit'
 PYTHON_GONE_MARK = "# The Python of this hook cannot run the tool."
 PERSONAL_HOOKS = ("pre-commit", "post-checkout", "pre-push", "post-merge")
 # Under a core.hooksPath outside the git folder, our files live here and the git config runs them.
