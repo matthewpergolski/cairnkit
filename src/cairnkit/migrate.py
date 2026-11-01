@@ -501,7 +501,9 @@ def _write_task(
         path.write_text(text, encoding="utf-8")
 
 
-def _say_where(project: Project) -> None:
+def _say_where(project: Project, dry_run: bool) -> None:
+    if dry_run:
+        print("Plan only: nothing will change without --yes.")
     print(f"It acts on the main checkout {project.main_root}.")
     if project.root != project.main_root:
         print(
@@ -570,6 +572,7 @@ def run_migrate(
     if not real and not resume:
         if src.is_symlink() and src.resolve() == memdir.resolve():
             if (memdir / TASK).is_file() or (memdir / OLD_COPIES).is_dir() or stray_files(memdir):
+                _say_where(project, dry_run)
                 return _close(project, path_flag, memdir, memdir / "notes", dry_run)
             print(f"{src} is already a link to {memdir}. Nothing to migrate.")
             return 0
@@ -623,9 +626,7 @@ def run_migrate(
             "Add --untrack: it takes them out of the index and commits nothing"
         )
 
-    if dry_run:
-        print("Plan only: nothing will change without --yes.")
-    _say_where(project)
+    _say_where(project, dry_run)
     work = memdir / CANDIDATES
     if not moves and not tracked and work.is_file():
         return _close(project, path_flag, memdir, source_dir, dry_run)
