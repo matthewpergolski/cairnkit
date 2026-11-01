@@ -127,13 +127,14 @@ hex characters. A new id must not exist in any fact file.
 | `tags` | no | A list of words for search and ranking. |
 | `happened_at` | yes | When it happened or became true. A date (`2026-10-03`) or a date-time. |
 | `learned_at` | yes | When it was written. A date-time with an offset. |
-| `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. |
-| `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. A `told` fact is never superseded or retired by a fact with another basis. |
+| `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. `memory add` writes `session:<today>` when no source is given. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. |
+| `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. `memory add` writes `guess` when no basis is given. An exact repeat with no basis keeps the basis of the older fact. A `told` fact is never superseded or retired by a fact with another basis. Auto-tidy does not let a near repeat with basis `guess` retire a `seen` fact. |
 | `author` | no | `agent:<tool>` (`claude`, `codex`, `cursor`, `opencode`, `pi` or `grok`) when the tool could tell that an agent wrote the fact. Absent otherwise, and in older facts. |
 | `status` | yes | Always `active` in a fact record. Changes set other values. |
 | `scope` | no | `long` (default) or `short`. |
 | `expires_at` | no | The date-time when the fact ends. Present only when an agent passed `--expires`. It counts only with `scope: short`. There is no default. |
 | `until_branch_merged` | no | Short-term only. The fact ends when this branch reads as merged (section 4). `--short` sets it to the current branch unless `--expires` is given. |
+| `branch_tip` | no | The full commit hash of that branch when the fact was written, from a local branch or a remote copy. Absent when no ref had the name. It is the record that the branch existed (section 4). |
 | `links` | no | A list of `{"rel": ..., "id": ...}`. `rel` is `related`, `depends_on`, `caused_by`, `contradicts` or `similar_to`. |
 | `pinned` | no | `true` loads the fact in every session. Use it rarely. |
 | `enforced_by` | no | Rules only. The check that fails when the rule is broken, as `<type>:<value>`: `githook:commit-msg`, `lint:ruff:T201`, `test:tests/test_x.py`, `ci:<job>`. No spaces, at most 120 characters after the colon. A rule without it is advisory. |
@@ -156,12 +157,13 @@ A change does not edit the fact. It adds a new state.
 | `scope` | no | `long` or `short`. `memory keep` writes `"scope": "long"`. |
 | `add_links` | no | Links to add. |
 | `enforced_by` | no | Rules only. A `<type>:<value>` string sets it. `null` clears it (the rule is advisory again). |
+| `branch_tip` | no | Auto-tidy only. The first tip that it saw of the end branch of a fact with no `branch_tip`. It changes no status. |
 | `cid` | no | A hash that auto-tidy writes. Two sessions that write the same change write it once. A reader applies only the first change with a `cid`. |
 | `case` | no | Auto-tidy only. Why it retired the fact: `duplicate`, `near-duplicate`, `ended`, `file-gone` or `mined`. |
 | `writer` | yes | The writer name. |
 
-A change must set at least one of `status`, `scope`, `add_links` or
-`enforced_by`.
+A change must set at least one of `status`, `scope`, `add_links`, `enforced_by` or
+`branch_tip`.
 
 ### Status
 
@@ -216,8 +218,11 @@ A reader computes the status of a fact; it does not only read it:
   default branch and one of these is true: the tip is an ancestor of the default
   branch, or `git merge-tree --write-tree BASE TIP` gives the tree of the default
   branch (a squash merge; git 2.38 or later).
-- A branch with no local copy reads as merged only when no ref in `refs/remotes`
-  has that name.
+- A branch in no ref in `refs/heads` or `refs/remotes` reads as merged or deleted only
+  when `branch_tip` names a commit in this clone, or when a reflog shows that the branch
+  was renamed and the new name is in no ref. Otherwise it reads as unknown: the fact stays
+  active, and `memory tidy` names it. A fact from before `branch_tip` has none, so it
+  stays until auto-tidy sees its branch, or until an agent ends it.
 
 A short-term fact loads when `until_branch_merged` is the current branch. With no
 such field, it loads when `writer` is the current writer.
