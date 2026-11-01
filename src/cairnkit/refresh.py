@@ -27,6 +27,8 @@ BLOCK_FILES = (
     ".pi/APPEND_SYSTEM.md",
 )
 COMMAND = "memory init --refresh"
+# 0.3.1 builds on the dev channel wrote this line into post-merge. It printed on each merge.
+OLD_DOCS_CHECK_MARK = "# cairnkit:docs-check"
 
 
 def tool_version() -> str:
@@ -93,15 +95,12 @@ def _agents(project: Project) -> dict[str, list[Path]]:
     return found
 
 
-def _post_merge_lacks_docs_check(project: Project) -> bool:
-    """A local post-merge cairnkit block with no docs-check stanza."""
+def _hook_text_is_old(project: Project) -> bool:
+    """A hook block from this version number that older dev builds wrote differently."""
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder is None or githook._inside_worktree(project, folder):
         return False
-    path = folder / "post-merge"
-    if not _has_block(path):
-        return False
-    return not _holds(path, githook.DOCS_CHECK_MARK) or not _holds(path, "docs --check")
+    return _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK)
 
 
 def _local_hooks(project: Project) -> list[str]:
@@ -128,13 +127,13 @@ def wrote_files(project: Project, memdir: Path) -> bool:
 
 
 def repo_line(project: Project, flag: str | None) -> str | None:
-    """One line when repo files are older, or post-merge lacks the docs check. Never raises."""
+    """One line when repo files are older than this tool. Never raises."""
     try:
         memdir = _memdir(project, flag)
         if memdir is None:
             return None
         version = read_stamp(memdir).get("version")
-        stale_hook = _post_merge_lacks_docs_check(project)
+        stale_hook = _hook_text_is_old(project)
         if version:
             if not is_behind(version, tool_version()) and not stale_hook:
                 return None

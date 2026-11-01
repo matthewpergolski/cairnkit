@@ -317,21 +317,7 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   command runs in a group that discards output, so the shell's alarm line is
   not printed. With none of those tools the command runs unbounded. It ends
   with `|| true`. It does not read the hook arguments. It never fails the push.
-- `post-merge`: that same quiet tidy block, after a docs check that runs
-  only when `docs/state` is a directory and `PY` is executable. The docs
-  check half begins with the line `# cairnkit:docs-check` so
-  `memory init --refresh` can tell an older post-merge body apart without a
-  package version bump. A comment names `docs --check` for that same
-  refresh scan. The timed child is `PY -c` directly (same pattern as
-  the quiet hooks, with a bound of 3 seconds), so a hung start is not left orphaned
-  under a nested shell.
-  That `-c` asks `has_memory(find_project(), None)`, then runs the same
-  compare as `memory docs --check` via `atlas_freshness`. When the result
-  is stale, it prints
-  `cairnkit: docs/state looks out of date; run memory docs --force`
-  on its own stdout. It does not print the page list. Stderr of the timed
-  child goes to `/dev/null`. The timed command ends with `|| true`. The
-  hook writes nothing and never fails the merge.
+- `post-merge`: that same quiet tidy block. It never fails the merge.
 - `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
@@ -380,11 +366,9 @@ and hooks of this repo:
 `blocks` lists the files that got a rules block, relative to the checkout.
 When `version` is lower than the running tool, the session start prints one
 line that asks for `memory init --refresh`. The same line appears when the
-local `post-merge` hook holds a cairnkit block that either lacks
-`# cairnkit:docs-check` or lacks `docs --check`, even when `version` equals
-the running tool. A release that changes a block or hook raises the version.
-This post-merge docs check does not. Refresh reads the comment
-`# cairnkit:docs-check` in the hook.
+local `post-merge` hook still holds `# cairnkit:docs-check`, the docs check
+that older builds of the same version wrote. A release that changes a block
+or hook raises the version.
 
 ## 7. The hook commands
 
@@ -435,10 +419,7 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   `post-commit` does the same, for a hook that 0.3.1 wrote.
   They do not count as a session start. The tidy command prints nothing
   (including when the interpreter lacks cairnkit). They always exit 0. With no
-  memory folder the tidy does nothing. Before the tidy command, the
-  `post-merge` shell runs the docs-check half described above (timed
-  `PY -c` with the same compare as `memory docs --check`). When that
-  compare is stale, the shell prints one warn line on stdout. The tidy
+  memory folder the tidy does nothing. The tidy
   command's shell bounds hung process start to 3 seconds when
   `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`).
   The perl command runs in a group that discards output, so the shell's

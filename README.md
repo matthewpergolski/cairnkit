@@ -174,11 +174,8 @@ agent tools and the git hooks, run `memory init --no-hooks`.
 
 `memory init` adds four personal git hooks: `pre-commit`, `post-checkout`,
 `pre-push` and `post-merge`. They are not shared. The last two run auto-tidy after
-a push or a merge. On a merge, when memory exists and `docs/state` is out of date,
-`post-merge` prints
-`cairnkit: docs/state looks out of date; run memory docs --force`.
-The merge still succeeds. Git hooks work for every agent, including an agent with
-no adapter.
+a push or a merge. They print nothing. Git hooks work for every agent, including an
+agent with no adapter.
 
 `memory hooks install` remains for repair and for one specific agent. For example,
 `memory hooks install --agent pi` writes the Pi adapter when the tool does not find
@@ -376,8 +373,7 @@ The same step runs after a push or a merge. In a long session, the stop hook als
 runs it when the last tidy is more than one day old. This timing never ends a fact
 by its age. The git hooks are personal. They live in this clone's `.git/hooks`.
 They are not shared, and a teammate never runs them. A push or a merge does not
-count as a session start. The git hook never stops git. It prints nothing, except
-the `docs/state` line from `post-merge`. A shell bound of 3 seconds covers a hung
+count as a session start. The git hook never stops git, and it prints nothing. A shell bound of 3 seconds covers a hung
 python start when `timeout`, `gtimeout`, or `perl` is available (stock macOS
 has `perl`). The perl command runs in a group that discards output, so the
 shell's alarm line is not printed. Without any of those the start is unbounded.
@@ -711,7 +707,7 @@ level only. It writes nothing into a repo.
 | `memory load [--area AREA] [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]] [--instructions-file PATH]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. `shared` is refused. |
-| `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
+| `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--force` rewrites the pages and removes other Markdown files in that folder. No hook runs it, because the folder may be tracked. `memory status` shows one line when the pages differ from the code. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
 | `memory purge ID --reason secret --yes` | you, rarely | Removes a secret for good. |
 
 ### Where the memory lives

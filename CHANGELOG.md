@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The commit miner, the quality gate, `memory candidates` and the `post-commit` hook. An agent
   writes each fact. A memory from 0.3.1 ends the facts that the miner wrote, at the next session
   start. They stay in the archive.
+- The `docs/state` line that `post-merge` printed on each merge. `memory status` shows the state,
+  and says what `memory docs --force` writes. Nobody has to act at a merge.
 - Every rule that ended a fact because of its age: `STALE_DAYS`, the 14-day default of `--short`,
   `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
 - Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
