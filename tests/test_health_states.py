@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 from conftest import git, make_fact, write_facts
 
+from cairnkit import githook
 from cairnkit.cli import main
 from cairnkit.migrate_refs import PENDING, TASK
 
@@ -90,9 +92,13 @@ def stale_atlas(repo: Path, tmp_path: Path, monkeypatch) -> None:
 
 
 def rename_break(repo: Path, tmp_path: Path, monkeypatch) -> None:
+    """A move breaks only the absolute command of an earlier install. Today's command holds no path."""
     (repo / ".githooks").mkdir()
     git(repo, "config", "core.hooksPath", ".githooks")
     init(repo)
+    for hook in githook.PERSONAL_HOOKS:
+        old = repo / ".git" / githook.PRIVATE_DIR / hook
+        git(repo, "config", "--local", f"hook.{githook.CONFIG_PREFIX}{hook}.command", str(old))
     moved = repo.rename(tmp_path / "renamed")
     monkeypatch.chdir(moved)
 
@@ -170,6 +176,42 @@ def test_stop_blocks_only_on_what_strict_fails(row, repo, tmp_path, monkeypatch,
     assert code == 0
     blocked = bool(out) and json.loads(out[0]).get("decision") == "block"
     assert blocked is row.stop_blocks
+
+
+def _commit(folder: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", "a commit after the move"],
+        cwd=folder,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.skipif(not githook.git_runs_config_hooks(), reason="this git has no config hooks")
+def test_session_start_heals_the_rename_break(repo, tmp_path, monkeypatch, capsys):
+    rename_break(repo, tmp_path, monkeypatch)
+    moved = tmp_path / "renamed"
+    assert _commit(moved).returncode != 0, "the planted command must really break a commit"
+    assert run(capsys, "hook", "session-start", "--agent", "generic")[0] == 0
+    code, check = run(capsys, "check")
+    assert code == 0
+    assert not any("which is gone" in line for line in check)
+    result = _commit(moved)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(not githook.git_runs_config_hooks(), reason="this git has no config hooks")
+def test_a_move_after_todays_install_is_healthy(repo, tmp_path, monkeypatch, capsys):
+    (repo / ".githooks").mkdir()
+    git(repo, "config", "core.hooksPath", ".githooks")
+    init(repo)
+    moved = repo.rename(tmp_path / "renamed")
+    monkeypatch.chdir(moved)
+    code, check = run(capsys, "check")
+    assert code == 0
+    assert answer_of(check)[0].startswith(OK)
+    result = _commit(moved)
+    assert result.returncode == 0, result.stderr
 
 
 def test_a_problem_also_says_how_a_load_finds_the_fix(repo, tmp_path, monkeypatch, capsys):
