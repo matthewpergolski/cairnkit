@@ -98,7 +98,7 @@ def _pair(mem, a, b, **older):
 def test_add_keeps_both_facts_when_any_character_differs(mem, capsys, a, b):
     write_facts(mem, [make_fact(OLD, a)])
     code, out = _ask(capsys, "add", b, *FLAGS)
-    assert code == 0 and "same words" not in out
+    assert code == 0 and "has the same words" not in out
     assert _status(OLD) == "active"
 
 
@@ -110,10 +110,7 @@ def test_auto_tidy_keeps_both_facts_and_the_agent_task_lists_the_pair(mem, capsy
     assert _status(OLD) == _status(NEW) == "active"
 
 
-@pytest.mark.parametrize(
-    "a,b",
-    [pair for pair in ADD_WOULD_END + TIDY_WOULD_END if pair[0] != "use --no-cache here"],
-)
+@pytest.mark.parametrize("a,b", ADD_WOULD_END + TIDY_WOULD_END)
 def test_a_change_in_form_reaches_the_agent_task(mem, capsys, a, b):
     _pair(mem, a, b)
     _ask(capsys, "tidy")
@@ -133,7 +130,7 @@ def test_the_same_text_is_retired(mem, capsys, a, b):
 def test_add_supersedes_the_same_text(mem, capsys, a, b):
     write_facts(mem, [make_fact(OLD, a)])
     _, out = _ask(capsys, "add", b, *FLAGS)
-    assert "same words" in out
+    assert "has the same words" in out
     assert _status(OLD) == "superseded"
 
 
@@ -148,7 +145,7 @@ def test_a_mark_that_can_change_the_meaning_keeps_both_facts(mem, capsys, a, b):
 def test_a_symbol_only_repeat_is_still_a_repeat(mem, capsys):
     write_facts(mem, [make_fact(OLD, "✅")])
     _, out = _ask(capsys, "add", "✅", *FLAGS)
-    assert "same words" in out
+    assert "has the same words" in out
     assert _status(OLD) == "superseded"
 
 

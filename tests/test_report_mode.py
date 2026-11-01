@@ -15,7 +15,7 @@ A, B = "f-20261001-0001", "f-20261002-0002"
 def copies():
     return [
         make_fact(A, "Deploys need a clean tree.", learned_at="2026-10-01T00:00:00+00:00"),
-        make_fact(B, "deploys need a CLEAN tree!", learned_at="2026-10-02T00:00:00+00:00"),
+        make_fact(B, "Deploys need a clean tree", learned_at="2026-10-02T00:00:00+00:00"),
     ]
 
 
@@ -58,7 +58,7 @@ def test_a_new_report_is_logged_again(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(mem, copies())
     start(capsys, monkeypatch)
-    write_facts(mem, [make_fact("f-20261003-0003", "deploys NEED a clean tree")])
+    write_facts(mem, [make_fact("f-20261003-0003", "Deploys need a clean tree;")])
     start(capsys, monkeypatch)
     assert len((mem / "auto-tidy.log").read_text().splitlines()) == 2
 

@@ -28,7 +28,7 @@ def two_copies(**second):
     return [
         make_fact(A, "Deploys need a clean tree.", learned_at="2026-10-01T00:00:00+00:00"),
         make_fact(
-            B, "deploys need a CLEAN tree!", learned_at="2026-10-02T00:00:00+00:00", **second
+            B, "Deploys need a clean tree", learned_at="2026-10-02T00:00:00+00:00", **second
         ),
     ]
 

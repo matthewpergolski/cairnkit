@@ -18,7 +18,7 @@ A, B = "f-20261001-0001", "f-20261002-0002"
 def copies():
     return [
         make_fact(A, "Deploys need a clean tree.", learned_at="2026-10-01T00:00:00+00:00"),
-        make_fact(B, "deploys need a CLEAN tree!", learned_at="2026-10-02T00:00:00+00:00"),
+        make_fact(B, "Deploys need a clean tree", learned_at="2026-10-02T00:00:00+00:00"),
     ]
 
 

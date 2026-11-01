@@ -118,9 +118,9 @@ complete. Remove a row in the change that fixes it.
 | Capture | A fact that the agent never writes is lost. The tool names events and reminds the agent once at stop. It cannot make the agent write. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A branch that came after its note and left before tidy saw it reads as unknown, and tidy names the note. So does an old fact whose branch is already gone. A stale note on such a branch stays. A false end would be worse. One false end remains: a memory moved to a new clone reads a branch as ended when that branch was never pushed and had no commit of its own when the note was written. |
-| No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
+| No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. A repeat of the same text and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
 | A repo with notes before the tool | A tracked file that teaches the old layout keeps teaching it until an agent edits it, and a hook keeps running the old checker. The tool names each line and never edits it. The worklist marks a repeat only when the words match. It does not mark the same rule in other words. |
-| Forget correctly | A repeat in other words loads twice until an agent settles the pair, because auto-tidy retires only a change in form. On the labelled set it catches 9 of 29 repeats, and 36 pairs go to the agent task. See [the test record](docs/forgetting-tests.md#results-near-repeats). |
+| Forget correctly | A repeat in other words, in another case or with a plural loads twice until an agent settles the pair, because auto-tidy retires only the same text byte for byte. On the labelled set it catches 3 of 29 repeats with 0 false retires of 51, and 73 pairs go to the agent task. See [the test record](docs/forgetting-tests.md#results-near-repeats). |
 | Forget correctly | A fact that the 0.3.1 miner wrote and that a later gate run accepted stays, because nothing proves who accepted it. |
 | The load never blocks | With `skills_auto_update = true`, an update of pstack runs inside the session start and can pass the budget. A disk that hangs on a read is not covered: the budget limits git and locks. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
@@ -375,8 +375,9 @@ it. It ends nothing. The `general` area gets no such check, so a fact with no
 **Clean-up needs no person.** At each session start, the hook retires what
 needs no judgment:
 
-- an exact repeat of a fact, and a near repeat that differs only in case, plural, punctuation
-  or a stop word (the older fact is superseded);
+- a repeat of a fact, byte for byte, apart from whitespace and a final `.`, `,`, `;` or `:`
+  (the older fact is superseded). A change in case, a plural or a stop word is not a repeat here.
+  That pair goes to the agent task, and both facts stay;
 - a short-term note that has ended;
 - a short-term note whose `source: file:PATH` is in no checkout.
 
@@ -429,17 +430,13 @@ A rule with `--summary` is written, and the output says that the summary is not
 stored. `--area` is optional, and its default is `general`. `--basis` is optional, and
 its default is `guess`, the weakest claim. `--source` is optional, and its default is
 `session:` and today's date. `memory add` looks for
-an active fact of the same kind and scope that says the same thing. An exact repeat
-supersedes the old fact. An exact repeat of a rule or a pinned fact writes nothing
-and says so. A near repeat (80 percent of the words) is written with a `similar_to`
-link, and the output names the similar fact and the command that replaces it.
-Auto-tidy supersedes the older fact when its gate is open and the two differ only in case,
-plural, punctuation or a stop word. Any other differing word can make a different fact, such as
-staging and production, so that pair goes to the agent task and both stay active. A pair
-is not similar when the words that differ include a number, a negation (`not`,
-`no`, `never`, `don't`, `without`) or one side of an opposite pair (`enable` and
-`disable`), counted by how often each occurs. One such word can reverse the
-meaning.
+an active fact of the same kind and scope that has the same text. Only whitespace and a
+final `.`, `,`, `;` or `:` may differ. Such a repeat supersedes the old fact. A repeat of a
+rule or a pinned fact writes nothing and says so. Parallel adds of one text leave one active
+fact. A near repeat (75 percent of the words, with a plural and a stop word ignored) is written
+with a `similar_to` link, and the output names the similar fact and the command that replaces
+it. Both stay active and the pair goes to the agent task, because any change can make a
+different fact: `Foo` and `foo`, `users` and `user`, `-1` and `1`, staging and production.
 
 **Stored notes are data.** `memory load`, `memory show`, `memory search`, the
 session-start hook and the news hooks print the stored facts between a header

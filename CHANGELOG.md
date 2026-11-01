@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Auto-tidy retires a near repeat only when the words match in order after case, plural,
-  punctuation and stop words. Staging against production and three times against five now go to
-  the agent task. An exact repeat now needs the same order, and it keeps symbols and non-ASCII
-  words, so reversed words and `C++` against `C#` stay two facts, at `memory add` too.
+- Auto-tidy and `memory add` end a fact with no agent only for the same text, byte for byte, apart
+  from whitespace and a final `.`, `,`, `;` or `:`. `-1` and `1`, `Foo` and `foo`, `users` and
+  `user`, `plan A` and `plan` now keep both facts, and the agent task lists the pair. On the labelled
+  set: 0 false retires of 51 (16 before), 3 repeats caught of 29 (9 before).
 - A damaged line loses only that line. A cut inside a character no longer hides each fact of that
   writer. An add after a torn tail loads, purge works, and U+2028 in a text no longer splits a record.
 - One record that the code cannot use is skipped and counted. It no longer stops the load or crashes

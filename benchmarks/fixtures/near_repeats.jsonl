@@ -62,3 +62,19 @@
 {"src":"written","label":"different","a":"The webhook secret rotates at the end of each month on the billing host","b":"The webhook secret rotates at the end of each week on the billing host"}
 {"src":"written","label":"different","a":"Only the admin role can read the audit log table in this service","b":"Only the owner role can read the audit log table in this service"}
 {"src":"written","label":"different","a":"The nightly job writes to the eu bucket and skips the backup step","b":"The nightly job writes to the us bucket and skips the backup step"}
+{"a": "-1 is the limit", "b": "1 is the limit", "label": "different", "src": "audit-990d229"}
+{"a": "retries != 0", "b": "retries = 0", "label": "different", "src": "audit-990d229"}
+{"a": "≤ 200 ms", "b": "≥ 200 ms", "label": "different", "src": "audit-990d229"}
+{"a": "Deploy ✅", "b": "Deploy ❌", "label": "different", "src": "audit-990d229"}
+{"a": "foo.bar is on", "b": "foo bar is on", "label": "different", "src": "audit-990d229"}
+{"a": "use --no-cache here", "b": "use no cache here", "label": "different", "src": "audit-990d229"}
+{"a": "Foo", "b": "foo", "label": "different", "src": "audit-990d229"}
+{"a": "foo-bar", "b": "foo bar", "label": "different", "src": "audit-990d229"}
+{"a": "rails", "b": "rail", "label": "different", "src": "audit-990d229"}
+{"a": "plan A", "b": "plan", "label": "different", "src": "audit-990d229"}
+{"a": "table users", "b": "table user", "label": "different", "src": "audit-990d229"}
+{"a": "cluster A", "b": "cluster", "label": "different", "src": "audit-990d229"}
+{"a": "GitHub Pages", "b": "GitHub Page", "label": "different", "src": "audit-990d229"}
+{"a": "a.example.com", "b": "example.com", "label": "different", "src": "audit-990d229"}
+{"a": "Run step A then step B", "b": "Run step then step B", "label": "different", "src": "audit-990d229"}
+{"a": "a/b test", "b": "b test", "label": "different", "src": "audit-990d229"}

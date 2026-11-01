@@ -1,13 +1,12 @@
 """When are two facts the same thing said twice?
 
-Three tests, from strict to loose:
+Two tests:
 
-- `exact_key`: the same words in the same order. Case and punctuation do not count.
-- `near_key`: also ignores a plural and a stop word. No word that differs can change the meaning,
-  so auto-tidy may retire the older fact with no agent.
-- `similarity`: at least 80 percent of the words (Jaccard on the word sets), and the same count of
-  each number, negation and opposite. This test only flags a pair for an agent. One other word
-  can make a different fact: staging against production, or three against five.
+- `repeat_key`: the same text, byte for byte, apart from whitespace and a final `.`, `,`, `;` or
+  `:`. Only this test lets the code end a fact with no agent. A case, a plural, a stop word or a
+  symbol can make a different fact: `Foo` and `foo`, `users` and `user`, `-1` and `1`.
+- `similarity`: at least 75 percent of the words (Jaccard), with a plural and a stop word ignored.
+  This test only flags a pair for an agent, so a false match costs one look and loses nothing.
 """
 
 from __future__ import annotations
@@ -16,35 +15,25 @@ import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from cairnkit.state import effective_status
 
-NEAR = 0.8
+NEAR = 0.75
 # Same area and this much overlap: 11 of 13 stale pairs and 0 false pairs on the fixture.
 # See docs/forgetting-tests.md. The fixture is hand-written, so this only prompts the agent.
 CONFLICT_OVERLAP = 0.25
 MAX_COMPARISONS = 200_000
 
-# Words that can reverse or change a fact. `don` and `t` come from "don't" split at the quote.
-NEGATIONS = {
-    "not", "no", "never", "none", "nor", "cannot", "without", "don", "doesn", "didn", "isn",
-    "aren", "wasn", "weren", "won", "can", "shouldn", "couldn", "wouldn", "haven", "hasn", "t",
-}  # fmt: skip
-OPPOSITES = {
-    "enable", "enabled", "disable", "disabled", "allow", "allowed", "forbid", "forbidden",
-    "always", "before", "after", "on", "off", "true", "false", "yes", "add", "remove",
-    "start", "stop", "increase", "decrease", "with", "must", "may",
-}  # fmt: skip
-
-
-# Only forms that change no meaning. "was" and "this" stay out: tense and reference can matter.
+# `!` and `?` stay: `println!` is not `println`, and `is it on?` is not `is it on`.
+_FINAL_MARKS = ".,;: "
 STOP_WORDS = {"a", "an", "the", "is", "are"}
-# Words where a final s does not mean a plural: https is not http, and news is not new.
-NOT_PLURAL = {"https", "news", "windows", "means", "goods", "always", "sometimes", "besides"}
 _WORD = re.compile(r"[^\W_]+")
-# These symbols are part of a value: C++ against C#, x < 5 against x > 5, 5% against $5.
-_WORD_OR_SYMBOL = re.compile(r"[^\W_]+|[+#<>=%$]")
+
+
+def repeat_key(text: str) -> str:
+    """Two texts are a repeat when this key is the same. A text of marks alone keeps its marks."""
+    flat = " ".join(text.split())
+    return flat.rstrip(_FINAL_MARKS) or flat
 
 
 def tokens(text: str) -> set[str]:
@@ -55,30 +44,9 @@ def overlap(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
-def _meaningful(word: str) -> bool:
-    return any(ch.isdigit() for ch in word) or word in NEGATIONS or word in OPPOSITES
-
-
-class Words(NamedTuple):
-    """The word set of a text, and a count of its numbers, negations and opposites."""
-
-    tokens: set[str]
-    meaning: Counter[str]
-
-
-def analyze(text: str) -> Words:
-    found = _WORD.findall(text.lower())
-    return Words(set(found), Counter(w for w in found if _meaningful(w)))
-
-
-def exact_key(text: str) -> tuple[str, ...]:
-    """Two texts are an exact repeat when this key is the same. Order can change the meaning."""
-    return tuple(_WORD_OR_SYMBOL.findall(text.lower()))
-
-
 def _singular(word: str) -> str:
     """One form for a word and its plural. It is a key, so it need not be a real word."""
-    if not word.isalpha() or word in NOT_PLURAL:
+    if not word.isalpha():
         return word
     if word.endswith(("ch", "sh", "ss", "x", "z")):  # branch and branches, cache and caches
         return word + "e"
@@ -87,21 +55,15 @@ def _singular(word: str) -> str:
     return word[:-3] + "y" if word.endswith("ies") else word[:-1]
 
 
-def near_key(text: str) -> tuple[str, ...]:
-    """Two texts with this key differ only in case, plural, punctuation or a stop word."""
-    return tuple(_singular(word) for word in exact_key(text) if word not in STOP_WORDS)
+def analyze(text: str) -> set[str]:
+    """The words that `similarity` compares."""
+    return {_singular(word) for word in tokens(text) if word not in STOP_WORDS}
 
 
-def similarity(a: Words, b: Words) -> float | None:
-    """The overlap when the two texts are similar, else None. This only flags a pair.
-
-    The count of each number, negation and opposite must be the same in both.
-    A count catches a second "not" in a text that already has one.
-    """
-    score = overlap(a.tokens, b.tokens)
-    if score < NEAR or a.meaning != b.meaning:
-        return None
-    return score
+def similarity(a: set[str], b: set[str]) -> float | None:
+    """The overlap when the two word sets are similar, else None. This only flags a pair."""
+    score = overlap(a, b)
+    return score if score >= NEAR else None
 
 
 @dataclass(frozen=True)
@@ -111,19 +73,19 @@ class Pair:
     score: float
 
 
-def similar_pairs(words: dict[str, Words]) -> list[Pair]:
-    """Similar pairs among {id: Words}. A prefix filter keeps it fast for many facts.
+def similar_pairs(words: dict[str, set[str]]) -> list[Pair]:
+    """Similar pairs among {id: word set}. A prefix filter keeps it fast for many facts.
 
     Facts that use few distinct words defeat the filter. This runs at session start and it is only
     a clean-up, so at MAX_COMPARISONS it stops and returns what it found. It starts from the newest
     ids, because a new repeat is the one that was not seen in an earlier session.
     """
-    freq = Counter(word for w in words.values() for word in w.tokens)
+    freq = Counter(word for w in words.values() for word in w)
     index: dict[str, list[str]] = defaultdict(list)
     seen: set[tuple[str, str]] = set()
     found: list[Pair] = []
     for fid in sorted(words, reverse=True):
-        ws = sorted(words[fid].tokens, key=lambda w: (freq[w], w))
+        ws = sorted(words[fid], key=lambda w: (freq[w], w))
         for word in ws[: len(ws) - math.ceil(NEAR * len(ws)) + 1]:
             for other in index[word]:
                 pair = (fid, other)
@@ -143,14 +105,14 @@ def possible_conflicts(memory, fact: dict, moment, is_merged) -> list[dict]:
     area = fact.get("area")
     if not area or area == "general":
         return []
-    words = analyze(fact["text"]).tokens
+    words = tokens(fact["text"])
     rows = []
     for state in memory.states.values():
         if state["id"] == fact["id"] or state.get("kind") == "rule" or state.get("area") != area:
             continue
         if effective_status(state, moment, is_merged)[0] != "active":
             continue
-        score = overlap(words, analyze(str(state.get("text", ""))).tokens)
+        score = overlap(words, tokens(str(state.get("text", ""))))
         if score >= CONFLICT_OVERLAP:
             rows.append((score, state))
     rows.sort(key=lambda row: (-row[0], row[1]["id"]))

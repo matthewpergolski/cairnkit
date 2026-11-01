@@ -548,7 +548,7 @@ def test_a_repeat_in_the_old_notes_is_marked_and_the_first_stays(repo, capsys):
         repo / "memory-bank" / "decisions.md",
         "# Decisions\n- 2026-10-09 Never add AI attribution to commits.\n",
     )
-    write(repo / "memory-bank" / "traps.md", "# Traps\n- Never add AI attribution to commits!\n")
+    write(repo / "memory-bank" / "traps.md", "# Traps\n- Never add AI attribution to commits\n")
     out = migrate(capsys, "--yes")
     rows = worklist(repo)
     first = next(r for r in rows[1:] if r.get("file") == "decisions.md")

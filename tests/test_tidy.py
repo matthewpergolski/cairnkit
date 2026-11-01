@@ -39,7 +39,7 @@ def test_exact_and_near_duplicates(mem, capsys, monkeypatch):
             ),
             make_fact(
                 "f-20261002-0002",
-                "deploys need a CLEAN tree!",
+                "Deploys need a clean tree",
                 learned_at="2026-10-02T00:00:00+00:00",
             ),
             make_fact(

@@ -8,16 +8,15 @@ session start.
 
 What it retires:
 
-- `duplicate`: two active facts with the same words in the same order, kind and scope.
-  The older one is superseded by the newest.
+- `duplicate`: two active facts of the same kind and scope whose text is the same byte for byte,
+  apart from whitespace and a final `.`, `,`, `;` or `:`. The older one is superseded by the
+  newest. Any other difference, a case or a plural too, can make a different fact, so that pair
+  goes to the agent task and both stay.
 - `ended`: a short-term fact that is past its end date, or whose branch is merged, or
   gone after a record said that it existed. With no such record, merged is unknown and
   the fact stays.
 - `file-gone`: a short-term fact whose `source` is `file:PATH`, when PATH
   is in no checkout of the project.
-- `near-duplicate`: an active fact with the same kind, scope and end branch as a newer one,
-  when they differ only in case, plural, punctuation or a stop word. Any other differing word
-  can make a different fact, so that pair goes to the agent task.
 
 What it never touches: rules, pinned facts, and a fact that a person set back
 to active. Age ends no fact: nothing here reads how old a long-term fact is.
@@ -37,7 +36,7 @@ from cairnkit.memory import Memory
 from cairnkit.paths import UNKNOWN, branch_reader, branch_tip, merged_checker
 from cairnkit.schema import validate_record
 from cairnkit.selection import clean
-from cairnkit.similar import exact_key, near_key
+from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, locked
 
@@ -104,11 +103,6 @@ def outranks(old: dict, new: dict) -> bool:
     return stated(old) and not stated(new)
 
 
-def _guess_over_seen(old: dict, new: dict) -> bool:
-    """A guess with other words must not end an observation. `guess` is also the default basis."""
-    return old.get("basis") == "seen" and new.get("basis") == "guess"
-
-
 def _file_gone(memory: Memory, state: dict) -> str | None:
     source = str(state.get("source", ""))
     if not source.startswith("file:"):
@@ -146,7 +140,7 @@ def find(memory: Memory) -> list[Retirement]:
 
     groups: dict[tuple, list[dict]] = {}
     for state in candidates:
-        words = exact_key(str(state.get("text", "")))
+        words = repeat_key(str(state.get("text", "")))
         if state["id"] not in taken and words:
             key = (state.get("kind"), state["scope"], state.get("until_branch_merged"), words)
             groups.setdefault(key, []).append(state)
@@ -161,41 +155,7 @@ def find(memory: Memory) -> list[Retirement]:
             found.append(
                 Retirement(old["id"], "duplicate", "superseded", reason, text, newest["id"])
             )
-            taken.add(old["id"])
-    found.extend(_near_duplicates(candidates, taken))
     return sorted(found, key=lambda r: r.id)
-
-
-def _near_duplicates(candidates: list[dict], taken: set[str]) -> list[Retirement]:
-    """Supersede an older fact with the newest one that differs only in form."""
-    groups: dict[tuple, list[dict]] = {}
-    for state in candidates:
-        key = near_key(str(state.get("text", "")))
-        if state["id"] not in taken and key:
-            group = (state.get("kind"), state["scope"], state.get("until_branch_merged"), key)
-            groups.setdefault(group, []).append(state)
-    extra: list[Retirement] = []
-    for same in groups.values():
-        ordered = sorted(same, key=lambda s: (s.get("learned_at", ""), s["id"]))
-        for i, old in enumerate(ordered[:-1]):
-            newer = next(
-                (
-                    new
-                    for new in reversed(ordered[i + 1 :])
-                    if not outranks(old, new) and not _guess_over_seen(old, new)
-                ),
-                None,
-            )
-            if newer:
-                text = " ".join(str(old.get("text", "")).split())[:SNIPPET]
-                reason = (
-                    f"similar_to {newer['id']}: only case, plural, punctuation or a stop word "
-                    "differ."
-                )
-                extra.append(
-                    Retirement(old["id"], "near-duplicate", "superseded", reason, text, newer["id"])
-                )
-    return extra
 
 
 def write_log(memory: Memory, found: list[Retirement], at: str) -> None:

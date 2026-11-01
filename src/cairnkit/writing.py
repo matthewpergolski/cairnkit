@@ -21,7 +21,7 @@ from cairnkit.paths import (
 from cairnkit.schema import RELS, validate_record
 from cairnkit.secretscan import find_in_record, find_secrets
 from cairnkit.selection import DATA_LABEL, clean, load_text, name
-from cairnkit.similar import analyze, exact_key, near_key, possible_conflicts, similarity
+from cairnkit.similar import analyze, possible_conflicts, repeat_key, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, drop_id, fact_files
@@ -107,37 +107,56 @@ def _no_end_event(memory: Memory, fact: dict) -> str | None:
     return f"{branch} is the default branch" if branch == base else None
 
 
-def _find_similar(memory: Memory, args, moment) -> tuple[dict, float] | None:
-    """The best active fact of the same kind and scope that is similar to the new text."""
+def _peers(memory: Memory, args, moment, is_merged) -> list[dict]:
+    """Active facts of the same kind and scope as the new one."""
     scope = _scope(args)
+    return [
+        state
+        for state in memory.states.values()
+        if state.get("status") != "purged"
+        and state.get("kind", "fact") == args.kind
+        and state["scope"] == scope
+        and effective_status(state, moment, is_merged)[0] == "active"
+    ]
+
+
+def _find_repeat(memory: Memory, args, moment, is_merged) -> dict | None:
+    """The newest active fact of the same kind and scope that has the same text."""
+    key = repeat_key(args.text)
+    same = [
+        state
+        for state in _peers(memory, args, moment, is_merged)
+        if repeat_key(state.get("text", "")) == key
+    ]
+    return max(same, key=lambda state: state.get("learned_at", ""), default=None)
+
+
+def _find_similar(memory: Memory, args, moment, is_merged) -> tuple[dict, float] | None:
+    """The best active fact of the same kind and scope with similar words, not the same text."""
+    key = repeat_key(args.text)
     words = analyze(args.text)
-    key = exact_key(args.text)
-    is_merged = merged_checker(memory.project.root)
-    best: tuple[tuple, dict] | None = None  # (exact repeat first, score, learned_at), state
-    for state in memory.states.values():
-        if state.get("status") == "purged" or state.get("kind", "fact") != args.kind:
-            continue
-        if state["scope"] != scope or effective_status(state, moment, is_merged)[0] != "active":
-            continue
-        score = similarity(words, analyze(state.get("text", "")))
+    best: tuple[tuple, dict] | None = None  # (score, learned_at), state
+    for state in _peers(memory, args, moment, is_merged):
+        text = state.get("text", "")
+        score = None if repeat_key(text) == key else similarity(words, analyze(text))
         if score is None:
             continue
-        rank = (exact_key(state.get("text", "")) == key, score, state.get("learned_at", ""))
+        rank = (score, state.get("learned_at", ""))
         if best is None or rank > best[0]:
             best = (rank, state)
-    return None if best is None else (best[1], best[0][1])
+    return None if best is None else (best[1], best[0][0])
 
 
 def _retired_match(memory: Memory, args, moment) -> tuple[dict, str, str | None] | None:
     """The newest retired fact of the same kind with the new words: (state, status, reason)."""
-    key = exact_key(args.text)
+    key = repeat_key(args.text)
     is_merged = merged_checker(memory.project.root)
     best = None
     for state in memory.states.values():
         if state.get("status") == "purged" or state.get("kind", "fact") != args.kind:
             continue
         status, reason = effective_status(state, moment, is_merged)
-        if status not in ("expired", "wrong", "superseded") or key != exact_key(state["text"]):
+        if status not in ("expired", "wrong", "superseded") or key != repeat_key(state["text"]):
             continue
         if best is None or (state.get("learned_at", ""), state["id"]) > best[0]:
             best = ((state.get("learned_at", ""), state["id"]), state, status, reason)
@@ -161,10 +180,11 @@ def add_fact(memory: Memory, args) -> str | None:
     args.source = args.source or f"session:{moment.date().isoformat()}"
     mine = {"basis": args.basis}
     if not args.supersedes:
+        is_merged = merged_checker(memory.project.root)
         with deadline.within(LOOK_BUDGET):
-            match = _find_similar(memory, args, moment)
-        if match and exact_key(match[0].get("text", "")) == exact_key(args.text):
-            old = match[0]
+            old = _find_repeat(memory, args, moment, is_merged)
+            near = None if old else _find_similar(memory, args, moment, is_merged)
+        if old:
             if old.get("kind") == "rule" or old.get("pinned"):
                 print(f"already exists: {old['id']} says this. Nothing written.")
                 return None
@@ -174,8 +194,6 @@ def add_fact(memory: Memory, args) -> str | None:
                 repeat = old["id"]
                 # No claim was made, and the words are the same, so the older claim still holds.
                 args.basis = claimed or old.get("basis", DEFAULT_BASIS)
-        elif match:
-            near = match
     writer = writer_name(memory.project.root)
     links = [parse_link(v) for v in args.link or []]
     _check_links(memory, links)
@@ -304,8 +322,6 @@ def add_fact(memory: Memory, args) -> str | None:
                 "Both stay active, because a person stated the older one, and an agent task "
                 "lists the pair."
             )
-        elif near_key(old.get("text", "")) == near_key(args.text):
-            fate = "An agent task lists the pair, and auto-tidy can supersede the older one."
         else:
             fate = (
                 "Both stay active, because a differing word can make a different fact, and an "

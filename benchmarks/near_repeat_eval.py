@@ -1,11 +1,12 @@
-"""Measure which pairs of facts auto-tidy would retire with no agent, before and after a rule.
+"""Measure which pairs of facts the code would retire with no agent, before and after a rule.
 
 The labelled set is `fixtures/near_repeats.jsonl`. A label says whether the older text can go:
 `repeat` when the newer text says everything that the older one says, `different` when it does
-not. One author wrote the labels. The `docs` rows are real sentences from this repo.
+not. One author wrote the labels. The `docs` rows are real sentences from this repo. The
+`audit-990d229` rows are the false retires that an audit found in the `before` rule.
 
-`before` is the rule that this change replaced, kept here as a copy: at least 80 percent of the
-words, the same count of numbers, negations and opposites. `after` is the rule in the code.
+`before` is the rule that this change replaced, kept here as a copy: the same words in order,
+after case, plural, punctuation and stop words. `after` is the rule in the code.
 
 With `--facts FOLDER` it also counts the pairs in each `*.jsonl` of a folder. Give it a copy of a
 real memory. It prints only counts and ids, so that private text stays out of a report.
@@ -18,31 +19,40 @@ import itertools
 import json
 import re
 import sys
-from collections import Counter
 from pathlib import Path
 
-from cairnkit.similar import NEGATIONS, OPPOSITES, analyze, exact_key, near_key, similarity
+from cairnkit.similar import analyze, repeat_key, similarity
 from cairnkit.store import read_records
 
 FIXTURE = Path(__file__).parent / "fixtures" / "near_repeats.jsonl"
+_STOP = {"a", "an", "the", "is", "are"}
+_NOT_PLURAL = {"https", "news", "windows", "means", "goods", "always", "sometimes", "besides"}
+
+
+def _singular(word: str) -> str:
+    if not word.isalpha() or word in _NOT_PLURAL:
+        return word
+    if word.endswith(("ch", "sh", "ss", "x", "z")):
+        return word + "e"
+    if len(word) < 4 or word.endswith(("us", "is")) or not word.endswith("s"):
+        return word
+    return word[:-3] + "y" if word.endswith("ies") else word[:-1]
+
+
+def _exact(text: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"[^\W_]+|[+#<>=%$]", text.lower()))
+
+
+def _near(text: str) -> tuple[str, ...]:
+    return tuple(_singular(word) for word in _exact(text) if word not in _STOP)
 
 
 def before(a: str, b: str) -> bool:
-    words_a, words_b = [re.findall(r"[a-z0-9]+", text.lower()) for text in (a, b)]
-    set_a, set_b = set(words_a), set(words_b)
-    if not set_a or not set_b or len(set_a & set_b) / len(set_a | set_b) < 0.8:
-        return False
-
-    def meaning(words: list[str]) -> Counter:
-        return Counter(
-            w for w in words if any(ch.isdigit() for ch in w) or w in NEGATIONS or w in OPPOSITES
-        )
-
-    return meaning(words_a) == meaning(words_b)
+    return bool(_near(a)) and (_exact(a) == _exact(b) or _near(a) == _near(b))
 
 
 def after(a: str, b: str) -> bool:
-    return bool(near_key(a)) and (exact_key(a) == exact_key(b) or near_key(a) == near_key(b))
+    return repeat_key(a) == repeat_key(b)
 
 
 def score(rule, rows: list[dict]) -> dict[str, int]:
