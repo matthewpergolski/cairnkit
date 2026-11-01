@@ -115,8 +115,22 @@ def resolve_memory_dir(project: Project, flag: str | None = None) -> tuple[Path,
 
 
 def current_branch(root: Path) -> str | None:
+    """The branch of this checkout. During a rebase, the branch being rebased."""
     name = run_git(root, "symbolic-ref", "--quiet", "--short", "HEAD")
-    return name or None
+    return name or _rebased_branch(root)
+
+
+def _rebased_branch(root: Path) -> str | None:
+    for state in ("rebase-merge", "rebase-apply"):
+        path = run_git(
+            root, "rev-parse", "--path-format=absolute", "--git-path", f"{state}/head-name"
+        )
+        try:
+            head = Path(path or "").read_text().strip()
+        except OSError:
+            continue
+        return head.removeprefix("refs/heads/") if head.startswith("refs/heads/") else None
+    return None
 
 
 def writer_name(root: Path) -> str:
