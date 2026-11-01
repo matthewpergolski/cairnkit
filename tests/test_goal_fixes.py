@@ -7,7 +7,7 @@ from conftest import git
 from test_update import head
 from test_update import machine as update_machine
 
-from cairnkit import install_source
+from cairnkit import install_source, update
 from cairnkit.cli import main
 from cairnkit.hookrun import pre_commit
 from cairnkit.memory import Memory
@@ -392,3 +392,25 @@ def test_a_channel_on_a_folder_source_is_refused_and_not_saved(machine, capsys, 
     assert "folder" in err and "--channel" in err
     assert not install_source._channel_path().exists()
     assert machine.uv_calls() == []
+
+
+def test_an_older_tool_with_no_channel_flag_says_the_way_back(channels, monkeypatch, capsys):
+    monkeypatch.setenv("FAKE_NEW_VERSION", "0.2.0")
+    assert main(["update", "--channel", "stable"]) == 0
+    out = capsys.readouterr().out
+    assert "no `--channel`" in out
+    assert f"uv tool install --force --reinstall git+{channels.url}@dev" in out
+
+
+def test_a_tool_with_the_channel_flag_says_nothing_of_it(channels, monkeypatch, capsys):
+    real = update._run
+    monkeypatch.setattr(
+        update,
+        "_run",
+        lambda argv, timeout=900: (0, "--channel")
+        if argv[1:] == ["update", "--help"]
+        else real(argv, timeout),
+    )
+    monkeypatch.setenv("FAKE_NEW_VERSION", "0.2.0")
+    assert main(["update", "--channel", "stable"]) == 0
+    assert "no `--channel`" not in capsys.readouterr().out
