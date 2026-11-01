@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 from cairnkit import deadline
 
@@ -14,6 +16,8 @@ PATH_FILE = ".memory-path"
 ENV_DIR = "MEMORY_DIR"
 IDENTITY_FILE = ".identity"
 RECORD_FILE = "cairnkit-memory"
+COPY_NOTED_FILE = "cairnkit-copy-noted"
+SHARED_SETTING = "cairnkit.sharedmemory"
 _GIT_LOCATION_ENV = frozenset(
     {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX"}
 )
@@ -158,7 +162,7 @@ def resolve_memory_dir(project: Project, flag: str | None = None) -> tuple[Path,
         return recorded, "this repo's record"
     if named:
         return named, PATH_FILE
-    return _default_memory_dir(project), "default"
+    return default_memory_dir(project), "default"
 
 
 def holds_memory(folder: Path) -> bool:
@@ -188,49 +192,178 @@ def linked_memory(project: Project) -> Path | None:
     return None
 
 
-def read_identity(folder: Path) -> tuple[str, set[str]] | None:
-    """A memory's id and the root commits of its project. None when the folder has no id."""
+class Identity(NamedTuple):
+    """What a memory says about itself. A memory from before the owner line has no owner."""
+
+    id: str
+    roots: set[str]
+    owner: Path | None
+
+
+class Record(NamedTuple):
+    """What a repo says about its memory. A record from before the repo line has no repo."""
+
+    id: str
+    place: Path
+    repo: Path | None
+
+
+def read_identity(folder: Path) -> Identity | None:
+    """A memory's id, its project's root commits and its owner. None when it has no id."""
     try:
         lines = (folder / IDENTITY_FILE).read_text().splitlines()
     except (OSError, UnicodeDecodeError):
         return None
     if not lines or not lines[0].strip():
         return None
-    return lines[0].strip(), set(lines[1].split()) if len(lines) > 1 else set()
+    roots = set(lines[1].split()) if len(lines) > 1 else set()
+    return Identity(lines[0].strip(), roots, Path(lines[2]) if len(lines) > 2 else None)
+
+
+def write_identity(folder: Path, identity: Identity) -> None:
+    """Replace the file whole, so a reader never sees half of it."""
+    roots = " ".join(sorted(identity.roots))
+    temp = folder / f"{IDENTITY_FILE}.{os.getpid()}"
+    temp.write_text(f"{identity.id}\n{roots}\n{identity.owner}\n")
+    os.replace(temp, folder / IDENTITY_FILE)
+
+
+def project_key(project: Project) -> Path:
+    """The one path that names this project in each of its checkouts."""
+    return (project.common_dir or project.home).resolve()
 
 
 def record_file(project: Project) -> Path | None:
     return project.common_dir / RECORD_FILE if project.common_dir else None
 
 
-def _read_record(project: Project) -> tuple[str, Path] | None:
-    """The memory id and the absolute path that this repo last saw."""
+def _read_record(project: Project) -> Record | None:
+    """The memory that this repo last saw."""
     path = record_file(project)
     try:
         lines = path.read_text().splitlines() if path else []
     except (OSError, UnicodeDecodeError):
         return None
-    return (lines[0], Path(lines[1])) if len(lines) >= 2 else None
+    if len(lines) < 2:
+        return None
+    return Record(lines[0], Path(lines[1]), Path(lines[2]) if len(lines) > 2 else None)
+
+
+def _has_id(folder: Path, memory_id: str) -> bool:
+    identity = read_identity(folder)
+    return holds_memory(folder) and identity is not None and identity.id == memory_id
+
+
+def _same_id_folders(project: Project, record: Record) -> list[Path]:
+    """The folders near the project or the old place that hold a memory with the recorded id."""
+    parents = dict.fromkeys((project.home.parent, record.place.parent))
+    return [f for parent in parents for f in _folders(parent) if _has_id(f, record.id)]
 
 
 def _recorded_memory(project: Project) -> Path | None:
-    """The memory with the recorded id: at its recorded place, or moved to a folder near it."""
+    """The memory with the recorded id, at its recorded place or moved under an expected name.
+
+    A copy has the same id, so the id alone cannot tell the real memory from an old backup.
+    With more than one, or with a name that nothing expects, a person or agent must choose.
+    """
     record = _read_record(project)
     if record is None:
         return None
-    memory_id, place = record
+    if _has_id(record.place, record.id):
+        return record.place
+    found = _same_id_folders(project, record)
+    expected = {
+        record.place.name,
+        f"{project.home.name}.memory",
+        default_memory_dir(project).name,
+    }
+    return found[0] if len(found) == 1 and found[0].name in expected else None
 
-    def is_it(folder: Path) -> bool:
-        identity = read_identity(folder)
-        return holds_memory(folder) and identity is not None and identity[0] == memory_id
 
-    if is_it(place):
-        return place
-    for parent in dict.fromkeys((project.home.parent, place.parent)):
-        for folder in _folders(parent):
-            if is_it(folder):
-                return folder
-    return None
+OURS, COPY, ANOTHER = "ours", "copy", "another"
+
+
+def _still_uses(owner: Path, memory_id: str, memdir: Path) -> bool:
+    """True when the project at `owner` still exists and still uses this memory."""
+    try:
+        lines = (owner / RECORD_FILE).read_text().splitlines()
+    except (OSError, UnicodeDecodeError):
+        lines = []
+    if lines:
+        return lines[0] == memory_id
+    link = owner / LINK_NAME
+    return link.is_symlink() and link.resolve() == memdir.resolve()
+
+
+def owner_state(project: Project, memdir: Path) -> tuple[str, Path | None]:
+    """Whose memory this is: (OURS, None), (COPY, owner) or (ANOTHER, owner, when known).
+
+    An owner that is gone, or that now uses another memory, is a repo that moved, so the memory
+    is ours unless its root commits say that it belongs to another history. The usual call
+    reads two small files and runs no git.
+    """
+    identity = read_identity(memdir)
+    here = project_key(project)
+    if identity is None or identity.owner == here:
+        return OURS, None
+    if identity.owner and _still_uses(identity.owner, identity.id, memdir):
+        record = _read_record(project)
+        copied = record and record.id == identity.id and record.repo not in (None, here)
+        return (COPY if copied else ANOTHER), identity.owner
+    ours = root_commits(project)
+    if identity.roots and ours and not identity.roots & ours:
+        return ANOTHER, None
+    return OURS, None
+
+
+def _shown(owner: Path | None) -> str:
+    if owner is None:
+        return "another project"
+    return f"another project ({owner.parent if owner.name == '.git' else owner})"
+
+
+def owner_line(project: Project, memdir: Path) -> str | None:
+    """The one line that says this memory belongs to another project. None when it does not."""
+    state, owner = owner_state(project, memdir)
+    if state == OURS:
+        return None
+    if state == COPY:
+        return (
+            f"note: this repo is a copy, and {memdir} belongs to {_shown(owner)}. What you add "
+            "here goes there. `memory init` gives this copy its own memory."
+        )
+    if project.is_git and (
+        run_git(project.root, "config", "--local", "--bool", "--get", SHARED_SETTING) == "true"
+    ):
+        return None
+    return (
+        f"note: {memdir} belongs to {_shown(owner)}, so both projects read and write its facts. "
+        f"For a memory of its own: `memory init --path {default_memory_dir(project)}`. To share "
+        f"it on purpose: `git config {SHARED_SETTING} true`."
+    )
+
+
+def copy_line_once(project: Project, memdir: Path) -> str | None:
+    """The line for a copied repo, the first time only."""
+    if owner_state(project, memdir)[0] != COPY:
+        return None
+    marker = project_key(project) / COPY_NOTED_FILE
+    here = str(project_key(project))
+    try:
+        if marker.read_text() == here:  # a second copy brings this file along
+            return None
+    except (OSError, UnicodeDecodeError):
+        pass
+    with contextlib.suppress(OSError):
+        marker.write_text(here)
+    return owner_line(project, memdir)
+
+
+def load_owner_line(project: Project, memdir: Path) -> str | None:
+    """Each load says it, unless this is a copied repo, which hears it once."""
+    if owner_state(project, memdir)[0] == COPY:
+        return copy_line_once(project, memdir)
+    return owner_line(project, memdir)
 
 
 def _folders(parent: Path) -> list[Path]:
@@ -265,7 +398,7 @@ def enclosing_trees(folder: Path) -> list[Path]:
         here = Path(top).parent
 
 
-def _default_memory_dir(project: Project) -> Path:
+def default_memory_dir(project: Project) -> Path:
     home = project.home
     if project.bare:
         # In the layout proj/.bare the worktrees sit beside it, and proj names the project.
@@ -293,27 +426,38 @@ class LostMemory:
 
 
 def lost_memory(project: Project) -> LostMemory | None:
-    """Read only. None means that nothing shows that this project had a memory."""
-    gone = _dangling_target(project)
-    if gone is None:
-        record = _read_record(project)
-        gone = record[1] if record else None
-    found = _unclaimed_memories(project)
+    """Read only. None means that nothing shows that this project had a memory.
+
+    `gone` is proof that it had one. `found` alone is only a folder that could be its memory.
+    """
+    record = _read_record(project)
+    gone = _dangling_target(project) or (record.place if record else None)
+    found = _same_id_folders(project, record) if record else []
+    found = found or _earlier_memories(project)
     if gone is None and not found:
         return None
-    return LostMemory(gone, found, _default_memory_dir(project))
+    return LostMemory(gone, found, default_memory_dir(project))
+
+
+def earlier_note(found: list[Path]) -> str:
+    """One short note. It names only a folder whose name could be this project's earlier name."""
+    commands = " or ".join(f"`memory init --path {folder}`" for folder in found)
+    return f"A memory beside this project could be its own under an earlier name: {commands}."
 
 
 def lost_note(lost: LostMemory) -> str:
-    """Say what is known and the one command that is needed. Never advise a bare init."""
-    start = f"To start a new memory instead: `memory init --path {lost.default}`."
-    parts = [f"This project's memory was at {lost.gone}, and it is not there."] if lost.gone else []
+    """Say what is known and the one command that is needed."""
+    if lost.gone is None:
+        return f"{earlier_note(lost.found)} If not, run `memory init`."
+    # A bare init would hide a memory that this project is known to have.
+    parts = [f"This project's memory was at {lost.gone}, and it is not there."]
     if lost.found:
         names = " or ".join(f"`memory init --path {folder}`" for folder in lost.found)
-        parts.append(f"A memory with no project was found. If it is this project's: {names}.")
+        parts.append(f"Found, and each can be an old copy, so choose the newest: {names}.")
     else:
         parts.append("If you moved it, run `memory init --path NEW_PLACE`.")
-    return " ".join([*parts, start])
+    parts.append(f"To start a new memory instead: `memory init --path {lost.default}`.")
+    return " ".join(parts)
 
 
 def _dangling_target(project: Project) -> Path | None:
@@ -324,21 +468,24 @@ def _dangling_target(project: Project) -> Path | None:
     return None
 
 
-def _unclaimed_memories(project: Project) -> list[Path]:
-    """Folders beside the project that look like a memory, and that nothing else claims.
+def _earlier_memories(project: Project) -> list[Path]:
+    """Memories beside the project whose name could be this project's earlier name.
 
-    A memory whose project folder still exists has its owner. A memory that names root
-    commits with none in common with this repo belongs to another project.
+    Only `<name>.memory` with no folder `<name>` fits. An owner that still uses the memory rules
+    it out, and so do root commits that this repo lacks. An empty repo has no root commits, so
+    no memory that had commits can be its own.
     """
     ours = root_commits(project)
     found = []
     for folder in _folders(project.home.parent):
+        if not folder.name.endswith(".memory") or folder.with_suffix("").is_dir():
+            continue
         if not holds_memory(folder) or not (folder / "config.toml").is_file():
             continue
-        if folder.name.endswith(".memory") and folder.with_suffix("").is_dir():
-            continue
         identity = read_identity(folder)
-        if identity and identity[1] and ours and not identity[1] & ours:
+        if identity and identity.owner and _still_uses(identity.owner, identity.id, folder):
+            continue
+        if identity and identity.roots and not identity.roots & ours:
             continue
         found.append(folder)
     return found

@@ -32,13 +32,15 @@ from cairnkit import (
 )
 from cairnkit.check import check_links, check_records, secrets_in_notes
 from cairnkit.discover import RULES_SHORT
-from cairnkit.init import ensure_all_linked, ensure_linked
+from cairnkit.init import ensure_all_linked, ensure_linked, run_init
 from cairnkit.load import run_load
 from cairnkit.memory import Memory
 from cairnkit.paths import (
     LINK_NAME,
     PATH_FILE,
+    LostMemory,
     Project,
+    earlier_note,
     lost_memory,
     lost_note,
     resolve_memory_dir,
@@ -259,17 +261,33 @@ def _optional_work(project: Project, flag: str | None) -> str:
     return note
 
 
+def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> str:
+    """A project with hook files is set up, so a missing memory needs no second step.
+
+    A memory known to be lost stays a question for the agent. An empty one would hide it.
+    """
+    connected = any(adapters.holds_ours(project.root / a.rel) for a in adapters.ADAPTERS.values())
+    if not connected or (lost and lost.gone):
+        return ""
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        run_init(project, None, verbose=False)
+    return f"{earlier_note(lost.found)}\n" if lost else ""
+
+
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     with contextlib.suppress(Exception):  # before all else: an old command stops each commit
         githook.heal_wiring(project)
+    made_note = ""
     if not has_memory(project, flag):
         with contextlib.suppress(Exception):
             lost = lost_memory(project)
-            if lost:
+            made_note = _make_memory_if_connected(project, lost)
+            if not has_memory(project, flag) and lost:
                 event = {"hook_event_name": "SessionStart", **payload}
                 _context(agent, event, f"memory: not loaded: {lost_note(lost)}")
-        return 0
-    note = _optional_work(project, flag)
+        if not has_memory(project, flag):
+            return 0
+    note = made_note + _optional_work(project, flag)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         run_load(project, flag, None, 600)

@@ -403,15 +403,14 @@ def test_a_memory_named_for_the_project_returns(repo, mem, capsys, tmp_path, mon
     assert (new / "memory-bank").resolve() == (tmp_path / "renamed.memory").resolve()
 
 
-def test_a_good_name_does_not_win_beside_another_copy(repo, mem, capsys, tmp_path, monkeypatch):
+def test_a_backup_does_not_beat_the_project_name(repo, mem, capsys, tmp_path, monkeypatch):
     with_fact(capsys)
     new = tmp_path / "renamed"
     repo.rename(new)
     good = tmp_path / "renamed.memory"
     mem.rename(good)
-    backup = tmp_path / "proj.memory-x"
-    shutil.copytree(good, backup)
+    shutil.copytree(good, tmp_path / "proj.memory-x")
     monkeypatch.chdir(new)
-    code, out = run(capsys, "load")
-    assert code == 0 and FACT not in out
-    assert str(good) in out and str(backup) in out
+    _, out = run(capsys, "load")
+    assert FACT in out
+    assert (new / "memory-bank").resolve() == good.resolve()

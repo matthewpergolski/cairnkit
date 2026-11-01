@@ -155,7 +155,7 @@ def git_runs_config_hooks() -> bool:
 
 
 def _is_private(project: Project, folder: Path) -> bool:
-    """True for a folder in this repo's git folder. Git tracks nothing there, and no repo uses it."""
+    """True for a folder in this repo's git folder: never tracked, and no other repo reads it."""
     return project.common_dir is not None and folder.resolve().is_relative_to(
         project.common_dir.resolve()
     )
