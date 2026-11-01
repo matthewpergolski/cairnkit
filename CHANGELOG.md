@@ -103,6 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `docs/update.md` and the README give the tested way from stable back to dev, by a git URL or a
+  local folder. An update to a version with no `--channel` says so and prints the way back.
 - A rule-change notice in a load holds no stored text above the frame. It names the id and the
   `memory show` command.
 - A roll back to 0.3.1 keeps working after a dev repair or a branch tip note. `memory repair` writes

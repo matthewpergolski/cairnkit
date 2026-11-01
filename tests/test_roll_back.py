@@ -154,6 +154,9 @@ def test_a_torn_line_stops_the_old_tool_the_same_with_or_without_a_repair(tools)
     assert "not valid JSON" in refused.stderr
     assert "repair" not in refused.stderr.replace("memory repair", "")
     assert tools.new("check", "--strict").returncode == 0
+    facts = tools.mem / "facts" / "main.jsonl"
+    facts.write_text(facts.read_text().replace(BAD_TEXT + "\n", ""))
+    tools.assert_old_works([kept], "line-removed.txt")
 
 
 def test_a_repair_from_an_earlier_dev_build_stays_settled(tools):

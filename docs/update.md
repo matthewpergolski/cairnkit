@@ -89,6 +89,49 @@ An install pinned to `@dev` (`uv tool install git+URL@dev`) follows the `dev` br
 with no saved choice. A saved choice wins over a pin. A local folder has no channel:
 it takes the current commit of that folder.
 
+### From stable back to dev
+
+The highest release tag can be older than `--channel`. The code of v0.3.1 has no
+`--channel`, so after `memory update --channel stable` lands there,
+`memory update --channel dev` stops with `unrecognized arguments: --channel dev`. A
+dev build says this when it installs such a version. Use one of these two ways:
+
+```sh
+# dev is on the remote
+uv tool install --force --reinstall git+URL@dev
+memory update --channel dev
+
+# dev is only in a local folder: a clean checkout of dev
+memory update --source FOLDER
+```
+
+The first way needs the second command too, because a saved `stable` wins over the pin.
+Until the `dev` branch is on GitHub, only the local folder way works from a GitHub
+install. After the folder way, `memory update --source URL --channel dev` follows the
+remote again.
+
+`memory update --source URL` from a dev build also takes the highest release tag. This
+is a roll back, and the version number can stay the same: `memory updated: 0.3.1 ->
+0.3.1 (d523c01)`. To see what you run, read `memory --version`. It prints `memory 0.3.1`
+for a release, `memory 0.3.1 (dev @e1bd5b2)` on dev, and `memory 0.3.1 (folder @1941435)`
+for a local folder.
+
+### After a roll back to 0.3.1
+
+Run `memory init --refresh` and `memory hooks install` in each repo with the older tool.
+Each of these from a dev build reads and commits under 0.3.1, and each works when you return
+to dev: `repairs.jsonl`, `author`, `branch_tip`, `.identity`, `.write.lock`, a masked word,
+and the tombstone of `memory purge line-HASH`.
+
+Two things stop a commit under 0.3.1, because 0.3.1 cannot read them. Dev cannot change this,
+because only `memory purge` may rewrite a fact file:
+
+- A torn line stops each commit under 0.3.1, with or without a repair. `memory repair` settles
+  it for dev only. Remove the line by hand to commit under 0.3.1.
+- A dev build from before `repairs.jsonl` wrote a `repair` record, and one from before the fix
+  wrote a change with only a `branch_tip`. Each stops a commit under 0.3.1. Neither holds a fact,
+  so remove the line by hand. Dev no longer writes them.
+
 ## How it knows a newer version exists
 
 On the `dev` channel, a commit of the `dev` branch that is not the recorded commit is

@@ -132,6 +132,7 @@ complete. Remove a row in the change that fixes it.
 | Enforce what must never happen | A standing wish, such as "Every PR must attach a demo video", has no "did this still happen" check. `--enforced-by githook:pre-push` reads as enforced because of the tool's own block, which never looks at the wish. `--enforced-by test:PATH` looks only for the file, and nothing runs it. `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. An AI commit from before the guard goes out with a count, and a trailer that another person committed is named, because the guard must not trap a person. The tool lists known names, so a new tool passes until it has a known shape, such as a dotted version. |
 | No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory renamed to a name that is not its recorded name or the project's name needs the same command, and so do several copies with its id, because a copy can be an old backup. The load names each one for the agent. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git. |
 | Each project has its own memory | A copied repo uses the first repo's memory until the next `memory init` in the copy. It hears this once, at its first load or add, and `memory check` says it each time. |
+| A personal tool the owner can roll back | Under 0.3.1 a torn line stops each commit, also after a dev repair, because a repair keeps the bytes. So does a `repair` record or a `branch_tip`-only change that an earlier dev build wrote. The owner removes the line by hand. See [docs/update.md](docs/update.md#after-a-roll-back-to-031). |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
 ## Install
@@ -275,6 +276,13 @@ newer, it changes nothing. One exception: the first `memory update` after a
 fresh install has no record of the installed commit, so it installs once
 more to write that record. A local folder must have no uncommitted changes,
 and `memory update` does not pull it.
+
+The code of v0.3.1 has no `--channel`. To go from there back to dev, run
+`uv tool install --force --reinstall git+URL@dev`, then `memory update --channel dev`. With
+`dev` only in a local folder, run `memory update --source FOLDER`. `memory update --source URL`
+from a dev build takes the highest release tag, so it is a roll back. The version number can
+stay the same: read `memory --version`. Details:
+[docs/update.md](docs/update.md#from-stable-back-to-dev).
 
 `memory status` shows one line when the source is newer. A load shows that
 line once per version pair. Both show another line when this repo's hooks and rules block come
