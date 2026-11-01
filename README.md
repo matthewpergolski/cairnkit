@@ -106,7 +106,7 @@ complete. Remove a row in the change that fixes it.
 
 | Goal | What happens today |
 |---|---|
-| Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`. `memory init` and `memory status` say so only after a Codex session in the last 30 days. Codex does not record the approval in a place the tool reads, so `memory status` keeps the line while Codex is in use. |
+| Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`. `memory init` and `memory status` say so only after Codex has run a session. Codex does not record the approval in a place the tool reads, so `memory status` keeps the line while Codex is in use. |
 | Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo, the git hooks are not written. |
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
