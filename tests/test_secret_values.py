@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 
@@ -163,24 +164,49 @@ def plant(mem, *records: dict) -> None:
         fact(BAD, f"staging login: {OLD_SECRET}"),
         fact(BAD, f"staging login: {OLD_SECRET}", kind="rule"),
         fact(BAD, f"staging login: {OLD_SECRET}", pinned=True),
-        fact(BAD, "plain words", summary=OLD_SECRET),
-        fact(BAD, "plain words", source=f"note {OLD_SECRET}"),
     ],
 )
-def test_load_withholds_a_stored_secret_and_names_the_purge(mem, capsys, record):
+def test_load_masks_a_stored_secret_and_keeps_the_fact(mem, capsys, record):
     plant(mem, fact("f-20261001-aaaa", "Keep this fact."), record)
     assert main(["load"]) == 0
     out = capsys.readouterr().out
     assert "correct.horse.battery" not in out
-    assert BAD in out and f"memory purge {BAD}" in out
+    assert "staging login: password=[secret: assigned secret]" in out
     assert "Keep this fact." in out
+    assert f'memory add "TEXT" --supersedes' in out and BAD in out
+    assert "Remove it now" not in out and "no person" not in out
 
 
-def test_the_agent_can_purge_it_with_no_person(mem, capsys):
-    plant(mem, fact(BAD, f"login {OLD_SECRET}"))
+@pytest.mark.parametrize(
+    "record",
+    [
+        fact(BAD, "plain words", summary=OLD_SECRET),
+        fact(BAD, "plain words", source=f"note:{OLD_SECRET}"),
+    ],
+)
+def test_each_field_of_a_stored_fact_is_masked(mem, capsys, record):
+    plant(mem, record)
+    assert main(["load"]) == 0
+    assert main(["show", BAD]) == 0
+    assert "correct.horse.battery" not in capsys.readouterr().out
+
+
+def test_a_masked_rule_keeps_its_section(mem, capsys):
+    owner = fact(BAD, f"Never deploy on Friday, the {OLD_SECRET} account", kind="rule", basis="told")
+    plant(mem, owner)
+    assert main(["load"]) == 0
+    before_frame = capsys.readouterr().out.split("Stored notes")[0]
+    assert "Never deploy on Friday" in before_frame
+
+
+def test_the_agent_replaces_then_purges_with_no_person(mem, capsys):
+    plant(mem, fact(BAD, f"login {OLD_SECRET} for staging and more"))
     assert main(["check"]) == 1
-    assert f"memory purge {BAD}" in capsys.readouterr().out
-    assert main(["purge", BAD, "--reason", "secret", "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert f"memory purge {BAD}" in out and "on disk" in out
+    assert main(["add", "login is in the vault for staging", "--supersedes", BAD, *ADD]) == 0
+    assert main(["check"]) == 1
+    assert main(["purge", BAD, "--reason", "replaced", "--yes"]) == 0
     assert "correct.horse.battery" not in stored(mem)
     capsys.readouterr()
     assert main(["load"]) == 0
@@ -188,44 +214,111 @@ def test_the_agent_can_purge_it_with_no_person(mem, capsys):
     assert main(["check"]) == 0
 
 
-def test_a_real_value_stored_before_is_withheld_by_load_and_check(repo, mem, capsys):
+def test_a_word_from_a_env_file_is_masked_and_can_stay(repo, mem, capsys):
     plant(mem, fact(BAD, f"login uses {VALUE} on staging"))
     assert main(["load"]) == 0
     assert VALUE in capsys.readouterr().out
     (repo / ".env").write_text(f"DB_PASSWORD={VALUE}\n")
     assert main(["load"]) == 0
     out = capsys.readouterr().out
-    assert VALUE not in out and BAD in out and "DB_PASSWORD" in out
-    assert main(["check"]) == 1
+    assert VALUE not in out and "login uses [secret: DB_PASSWORD] on staging" in out
+    assert "leave the fact" in out
+    assert main(["check"]) == 0
     out = capsys.readouterr().out
-    assert VALUE not in out and f"memory purge {BAD}" in out
+    assert VALUE not in out and f"memory purge {BAD}" in out and "on disk" in out
+    assert main(["check", "--strict"]) == 1
+    (repo / ".env").unlink()
+    assert main(["check", "--strict"]) == 0
+    assert VALUE in stored(mem)
 
 
-def test_show_search_and_change_hold_the_text_back(mem, capsys):
-    plant(mem, fact(BAD, f"staging login {OLD_SECRET}"))
+def test_a_value_with_its_own_shape_stays_an_error(repo, mem, capsys):
+    plant(mem, fact(BAD, "login uses abc123xyz789 on staging"))
+    (repo / ".env").write_text("HOST_CODE=abc123xyz789\n")
+    assert main(["check"]) == 1
+    assert "abc123xyz789" not in capsys.readouterr().out
+
+
+def test_show_search_change_and_keep_work_on_the_masked_text(mem, capsys):
+    short = fact(BAD, f"staging login {OLD_SECRET} now", scope="short")
+    plant(mem, fact("f-20261001-aaaa", "Other fact."), short)
     assert main(["show", BAD]) == 0
     out = capsys.readouterr().out
-    assert "correct.horse.battery" not in out and f"memory purge {BAD}" in out
+    assert "correct.horse.battery" not in out and "staging login" in out
+    assert "--supersedes" in out and f"memory purge {BAD}" in out
     assert main(["search", "staging", "login"]) == 0
-    assert "correct.horse.battery" not in capsys.readouterr().out
-    assert main(["search", "--all", "staging"]) == 0
-    assert "correct.horse.battery" not in capsys.readouterr().out
-    assert main(["change", BAD, "--status", "wrong", "--reason", "no"]) != 0
-    assert f"memory purge {BAD}" in capsys.readouterr().err
+    out = capsys.readouterr().out
+    assert "correct.horse.battery" not in out and "staging login" in out
+    assert main(["search", "--all", "correct.horse.battery"]) == 0
+    assert BAD not in capsys.readouterr().out
+    assert main(["keep", BAD, "--reason", "still true"]) == 0
+    assert main(["change", BAD, "--link", "related:f-20261001-aaaa", "--reason", "same"]) == 0
+    assert main(["change", BAD, "--status", "wrong", "--reason", "no"]) == 0
+    out = capsys.readouterr()
+    assert "correct.horse.battery" not in out.out + out.err
 
 
-def test_an_ended_fact_with_a_secret_is_named_too(mem, capsys):
-    change = {
-        "type": "change",
-        "id": BAD,
-        "at": "2026-10-02T00:00:00+00:00",
-        "status": "wrong",
-        "reason": "bad",
-        "writer": "main",
-    }
-    plant(mem, fact(BAD, f"login {OLD_SECRET}"), change)
+def test_supersede_of_an_owner_rule_with_a_mask_keeps_its_force(mem, capsys):
+    plant(mem, fact(BAD, f"Never deploy on Friday, the {OLD_SECRET} account", kind="rule", basis="told"))
+    assert main(["add", "Never deploy on Friday, the bot account", "--supersedes", BAD, *ADD]) == 0
+    capsys.readouterr()
     assert main(["load"]) == 0
-    assert f"memory purge {BAD}" in capsys.readouterr().out
+    before_frame = capsys.readouterr().out.split("Stored notes")[0]
+    assert "the bot account" in before_frame
+    assert main(["purge", BAD, "--reason", "replaced", "--yes"]) == 0
+    assert "correct.horse.battery" not in stored(mem)
+
+
+def test_supersede_keeps_pinned_and_the_kind(mem, capsys):
+    plant(mem, fact(BAD, f"Trap: login {OLD_SECRET} fails", kind="trap", pinned=True))
+    assert main(["add", "Trap: login fails on staging", "--supersedes", BAD, *ADD]) == 0
+    capsys.readouterr()
+    assert main(["load"]) == 0
+    out = capsys.readouterr().out
+    assert "## Pinned" in out and "Trap: login fails on staging" in out
+
+
+def test_purge_refuses_a_true_fact_with_no_replacement(mem, capsys):
+    plant(mem, fact(BAD, f"Trap: the nightly job uses {OLD_SECRET} and fails"))
+    assert main(["purge", BAD, "--reason", "cleanup", "--yes"]) != 0
+    err = capsys.readouterr().err
+    assert "correct.horse.battery" not in err
+    assert "Trap: the nightly job" in err and "--supersedes" in err
+    assert "correct.horse.battery" in stored(mem)
+
+
+def test_purge_with_reason_secret_and_yes_is_the_explicit_way(mem):
+    plant(mem, fact(BAD, f"Trap: the nightly job uses {OLD_SECRET} and fails"))
+    assert main(["purge", BAD, "--reason", "secret"]) != 0
+    assert "correct.horse.battery" in stored(mem)
+    assert main(["purge", BAD, "--reason", "secret", "--yes"]) == 0
+    assert "correct.horse.battery" not in stored(mem)
+
+
+def test_purge_of_a_fact_that_is_only_the_secret_needs_no_replacement(mem):
+    plant(mem, fact(BAD, OLD_SECRET))
+    assert main(["purge", BAD, "--reason", "cleanup", "--yes"]) == 0
+    assert "correct.horse.battery" not in stored(mem)
+
+
+def test_each_masked_fact_blocks_a_stop_once(repo, mem, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
+    plant(mem, fact(BAD, f"staging login {OLD_SECRET} now"))
+    assert main(["hook", "stop", "--agent", "claude"]) == 0
+    assert BAD in capsys.readouterr().out
+    for _ in range(2):
+        monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
+        assert main(["hook", "stop", "--agent", "claude"]) == 0
+        assert BAD not in capsys.readouterr().out
+
+
+def test_two_masked_texts_that_read_the_same_are_not_retired(mem, capsys):
+    one = fact(BAD, "staging login password=hunter2hunter2 today")
+    two = fact("f-20261002-cccc", "staging login password=wolverine99zz today")
+    plant(mem, one, two)
+    assert main(["tidy", "--auto", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Nothing to retire" in out
 
 
 def test_a_similar_new_fact_does_not_print_the_stored_secret(mem, capsys):
@@ -235,18 +328,18 @@ def test_a_similar_new_fact_does_not_print_the_stored_secret(mem, capsys):
     assert "correct.horse.battery" not in captured.out + captured.err
 
 
-def test_a_note_line_with_a_secret_is_not_loaded_or_found(mem, capsys):
+def test_a_note_line_with_a_secret_loads_masked(mem, capsys):
     notes = mem / "notes"
     notes.mkdir(exist_ok=True)
     (notes / "status.md").write_text(f"Working on staging.\nstaging login {OLD_SECRET}\n")
     assert main(["load"]) == 0
     out = capsys.readouterr().out
     assert "Working on staging." in out
-    assert "correct.horse.battery" not in out and "notes/status.md" in out
+    assert "correct.horse.battery" not in out and "staging login password=[secret:" in out
     assert main(["search", "staging"]) == 0
     out = capsys.readouterr().out
     assert "correct.horse.battery" not in out
-    assert "status.md:2" in out
+    assert "status.md:2" in out and "staging login" in out
     assert main(["check"]) == 0
     assert "status.md:2" in capsys.readouterr().out
 
