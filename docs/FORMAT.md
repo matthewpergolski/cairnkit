@@ -23,7 +23,8 @@ The memory folder is the first of these:
 4. the folder that a `memory-bank` link resolves to, when it holds `facts/`. The link of the
    main checkout goes first;
 5. the folder with the id in `<common git folder>/cairnkit-memory`: at the recorded path, or
-   directly in the parent of the home or of the recorded path;
+   directly in the parent of the home or of the recorded path, when it is the only folder there
+   with that id and its name is the recorded name, `<name of home>.memory` or the default name;
 6. the `.memory-path` target that does not exist yet;
 7. the default: `<parent of home>/<name of home>.memory`.
 
@@ -39,10 +40,20 @@ An existing `<name of home>.memory` that holds `facts/` is kept. The sibling is 
 that parent is not writable. Any memory inside a work tree gets a line `/<path>` in that repo's
 `info/exclude`, and `git check-ignore` must confirm it.
 
-`<common git folder>/cairnkit-memory` has two lines: the memory id and its absolute path.
-`.identity` in the memory folder has two lines: a random id, and the project's root commits
-separated by spaces. Neither file holds a time. A memory whose root commits share none with
-this repo belongs to another project.
+`<common git folder>/cairnkit-memory` has three lines: the memory id, its absolute path, and
+the absolute path of the common git folder that wrote the file.
+`.identity` in the memory folder has three lines: a random id, the project's root commits
+separated by spaces, and the owner: the absolute path of the owner's common git folder, or of
+the folder of a project with no git. Neither file holds a time. A file with fewer lines is from
+an earlier version, and the next load adds the line when the memory is this project's.
+
+A memory belongs to another project when its owner still exists and that owner's record names
+the memory, or when its owner is gone and its root commits share none with this repo. An owner
+that is gone, or that now uses another memory, means that the repo moved: the memory passes to
+this project. A record that names another live git folder means that this repo is a copy.
+`<common git folder>/cairnkit-copy-noted` holds that repo's git folder after the copy has heard
+this once. The local git setting `cairnkit.sharedmemory = true` says that a project shares
+another project's memory on purpose.
 
 Each checkout (the main checkout and each worktree) holds a symbolic link
 named `memory-bank` to the memory folder. The link target is a relative path,
@@ -331,12 +342,17 @@ marker with no end marker runs to the end of the file.
 
 Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `commit-msg`
 in the hooks folder that git uses (`git rev-parse --git-path hooks`).
-When that folder is inside a checkout (`core.hooksPath` points into the repo), the
-files go to `.git/cairnkit-hooks` instead, and each one gets `hook.cairnkit-NAME.event`
-and `hook.cairnkit-NAME.command` in the local git config, so git 2.54 or newer runs it
-beside that folder. A hook there that already runs memory gets no second run. An older
-git gets nothing, and the tool says so. Install and refresh remove a `post-commit` block
-that 0.3.1 wrote.
+When that folder is outside the repo's git folder (`core.hooksPath` names a folder in a
+checkout, or a global folder), the tool writes nothing there. The files go to
+`.git/cairnkit-hooks` instead, and each one gets `hook.cairnkit-NAME.event` and
+`hook.cairnkit-NAME.command` in the local git config, so git 2.54 or newer runs it beside that
+folder. The command is
+`"$(git rev-parse --path-format=absolute --git-common-dir)"/cairnkit-hooks/NAME`. It holds no
+path, so a moved or copied repo keeps working. Session start replaces a path that an earlier
+install stored. A hook in that folder that already runs memory gets no second run, and the tool
+names it. Git older than 2.54 does not read `hook.*`, so it ignores these settings with no
+error: only the hook in its hooks folder runs. The tool writes nothing then, and it says so.
+Install and refresh remove a `post-commit` block that 0.3.1 wrote.
 
 | | Start | End |
 |---|---|---|

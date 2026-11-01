@@ -107,7 +107,7 @@ complete. Remove a row in the change that fixes it.
 | Goal | What happens today |
 |---|---|
 | Setup is one step | Codex asks for its own trust step. The developer approves the hooks once with `/hooks`. `memory init` and `memory status` say so only after Codex has run a session. Codex does not record the approval in a place the tool reads, so `memory status` keeps the line while Codex is in use. |
-| Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` points into the repo and git is older than 2.54, the git hooks do not run, and `memory check` says so. |
+| Setup is one step | When git tracks an adapter file, the tool writes nothing there and prints the commands to add by hand. When `core.hooksPath` names a folder outside the repo's git folder and git is older than 2.54, the git hooks do not run, and `memory check` says so. An older git ignores `hook.*` config, so a repo connected under a newer git also runs no memory hook when an older git makes the commit, and the tool cannot see that. |
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
 | Each agent gets the same result | Grok Build reads only `systemMessage` from `SessionStart`, so a hook cannot add the memory to the context there. The memory reaches the model at the first tool result. A reply before the first tool has no memory. |
@@ -125,7 +125,8 @@ complete. Remove a row in the change that fixes it.
 | The load never blocks | With `skills_auto_update = true`, an update of pstack runs inside the session start and can pass the budget. A disk that hangs on a read is not covered: the budget limits git and locks. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
 | Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
-| No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git, and that name can block `memory init` once for a new project beside an old memory. |
+| No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory renamed to a name that is not its recorded name or the project's name needs the same command, and so do several copies with its id, because a copy can be an old backup. The load names each one for the agent. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git. |
+| Each project has its own memory | A copied repo uses the first repo's memory until the next `memory init` in the copy. It hears this once, at its first load or add, and `memory check` says it each time. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
 ## Install
@@ -178,10 +179,10 @@ session end. To see the plan first, run `memory init --dry-run`. To skip the
 agent tools and the git hooks, run `memory init --no-hooks`.
 
 `memory init` adds four personal git hooks: `pre-commit`, `post-checkout`,
-`pre-push` and `post-merge`. They are not shared. When `core.hooksPath` points into the
-repo, they live in `.git/cairnkit-hooks`, and the local git config runs them beside the
-tracked hooks (git 2.54 or newer). The tool changes no tracked hook and leaves
-`core.hooksPath` as it is. `memory check` and `memory status` print the real hook state. The last two run auto-tidy after
+`pre-push` and `post-merge`. They are not shared. When `core.hooksPath` names a folder
+outside the repo's git folder, they live in `.git/cairnkit-hooks`, and the local git config
+runs them beside that folder (git 2.54 or newer). The tool changes nothing in that folder and
+leaves `core.hooksPath` as it is. `memory check` and `memory status` print the real hook state. The last two run auto-tidy after
 a push or a merge. They print nothing. Git hooks work for every agent, including an
 agent with no adapter.
 
@@ -297,22 +298,21 @@ rm memory-bank           # the link; the memory folder stays
 rm -f .memory-path       # only if you used --path
 ```
 
+`memory hooks uninstall` takes back what the tool wrote and nothing else: the hook files
+and the hook lines in their settings, each rules block that `--write-instructions` wrote, a
+file that held only that block, each tool folder that this leaves empty, and the
+`.git/info/exclude` lines of those files. Your own text and files stay. It changes no tracked
+file, and no folder outside the repo's git folder.
+
 These stay, and you can remove them by hand:
 
-- the lines that `memory init` and `memory hooks install` added to
-  `.git/info/exclude` (`memory-bank`, `.memory-path`, and the adapter files
-  such as `.claude/settings.local.json`);
-- empty `.claude/`, `.codex/`, `.cursor/`, `.grok/`, `.pi/` or `.opencode/` folders
-  that held only those adapter files;
-- the rules block, if you wrote one, between the `<!-- cairnkit:start -->`
-  and `<!-- cairnkit:end -->` lines, and the file `CLAUDE.local.md` if
-  `--write-instructions` made it (or `AGENTS.local.md`, which older versions
-  wrote);
-- tracked hooks in `.githooks/`, or a pointer line in `AGENTS.md`, that an older
-  version wrote. `memory hooks uninstall` looks only in the hooks folder that git
-  uses, and it never changes tracked hooks;
+- the lines `memory-bank` and `.memory-path` in `.git/info/exclude`;
+- tracked hooks in `.githooks/`, a pointer line in `AGENTS.md`, or a block in a global
+  `core.hooksPath` folder, that an older version wrote;
 - the `memory-bank` link in each other worktree. Remove it there too;
-- the file `.git/cairnkit-memory`, which records where the memory is;
+- the files `.git/cairnkit-memory`, which records where the memory is, and
+  `.git/cairnkit-copy-noted`;
+- the local git setting `cairnkit.sharedmemory`, if you set it;
 - the user cache `~/.cache/cairnkit/`;
 - the pstack skills, if you installed them: they are at user level, in
   Claude Code and in `~/.codex/skills`, `~/.cursor/skills`,
@@ -754,10 +754,24 @@ The tool uses the first of these:
    stays out of the outer work tree.
 
 Rename or move the project, and the memory comes along. No step is needed. Move the
-memory folder beside the project or beside its old place, and the next load finds it by
-its id and relinks. For a move farther away, the load names the old place and asks for
-`memory init --path NEW_PLACE`. `memory init` never makes an empty memory where
-this project shows signs of an old one. It names what it found and exits 1.
+memory folder beside the project or beside its old place, under its recorded name or the
+project's name, and the next load finds it by its id and relinks. With another name, or with
+more than one folder that has its id, the tool adopts none, because a copy can be an old
+backup. The load names each folder, and `memory init --path FOLDER` picks one. For a move
+farther away, the load names the old place and asks for `memory init --path NEW_PLACE`.
+
+`memory init` never refuses because of a neighbor. It makes this project's own memory. A
+folder `<name>.memory` with no folder `<name>` could be this project's memory under an
+earlier name, so one note names it with the command that adopts it. Other memories are not
+named. `memory init` makes no empty memory only when this project is known to have had one
+that is gone. It names what it found and exits 1. A connected project with no memory and no
+such proof gets its memory at session start.
+
+A memory has one owner. `--path` to a memory that another project uses is honored, and
+`memory init` and each load say so in one line. To silence that line because you share the
+memory on purpose, run `git config cairnkit.sharedmemory true` in that repo. A copied repo
+hears it once, and the next `memory init` there gives it its own memory. The first repo keeps
+its memory.
 
 A memory that lands inside a work tree (an older memory, a `--path`, or no
 writable folder outside) gets a line in that repo's `.git/info/exclude`. Git must then

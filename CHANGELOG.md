@@ -7,8 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A memory has one owner, in a third line of `.identity`. The repo record has a third line too.
+  `--path` to a memory that another project uses is honored, and `memory init`, `memory check`
+  and each load say so in one line. `git config cairnkit.sharedmemory true` states it on purpose.
+- Self-repair adopts a folder with the recorded id only when it is the only one and its name is
+  the recorded name or the project's name. Otherwise the load names each one with its command.
+  A memory folder renamed to another name now needs `memory init --path FOLDER`.
+- `memory migrate --untrack` changes the index, and writes agent files, only in the checkout
+  where it ran. It prints what to run in the others.
+- `memory hooks uninstall` also removes the rules blocks, the tool folders it leaves empty and
+  the exclude lines of the files it removed.
+
 ### Fixed
 
+- `memory init` no longer refuses for a neighbor folder, and it never offers an unrelated
+  memory. A connected project with no memory gets one at session start. It still refuses when
+  this project is known to have had a memory that is gone.
+- A copied repo hears once that it uses the first repo's memory, and the next `memory init`
+  gives it its own. A stale backup no longer wins after the memory is deleted.
+- A rename no longer stops each commit and branch switch under `core.hooksPath`: the stored hook
+  command holds no path, and session start replaces an old one. `memory check` says what is true.
+- A global `core.hooksPath` no longer takes one repo's hooks and guard to every repo. The tool
+  writes only in this repo's git folder, and uninstall in one repo leaves the others alone.
+- One tool's bad hook file stops only that tool. The other tools and the git hooks still install.
+- `memory init` and `memory hooks install` refuse in a bare repo or a `.git` folder, where they
+  wrote tool folders and said that nothing in git changes.
+- `.git/info/exclude` holds one header, and an old repeat of it collapses.
 - Auto-tidy retires a near repeat only when the words match in order after case, plural,
   punctuation and stop words. Staging against production and three times against five now go to
   the agent task. An exact repeat now needs the same order, and it keeps symbols and non-ASCII
