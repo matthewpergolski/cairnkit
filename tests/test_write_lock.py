@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import os
+import re
 import subprocess
 import sys
 from argparse import Namespace
@@ -131,3 +132,27 @@ def test_an_add_reads_a_repeat_that_landed_after_the_memory_opened(mem, repo, ca
     assert "has the same words" in capsys.readouterr().out
     memory.reload()
     assert memory.states[TARGET]["status"] == "superseded"
+
+
+def test_a_purge_of_a_line_keeps_a_fact_added_during_its_rewrite(mem, repo, monkeypatch, capsys):
+    torn = '{"type":"fact","id":"f-20261101-dead","text":"prod password=hunter2hunter2 more\n'
+    (mem / "facts" / "main.jsonl").write_text(torn)
+    main(["check"])
+    ref = re.search(r"line-[0-9a-f]+", capsys.readouterr().out)[0]
+    text = "A fact added during the line rewrite."
+    real_replace = os.replace
+    adders = []
+
+    def replace(src, dst):
+        adders.append(_add_process(repo, text))
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            adders[0].wait(timeout=2.0)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(store.os, "replace", replace)
+    assert main(["purge", ref, "--reason", "secret", "--yes"]) == 0
+    _, err = adders[0].communicate(timeout=30)
+    assert adders[0].returncode == 0, err
+    stored = (mem / "facts" / "main.jsonl").read_text()
+    assert text in stored
+    assert "hunter2" not in stored
