@@ -111,11 +111,12 @@ complete. Remove a row in the change that fixes it.
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
 | Each agent gets the same result | Grok Build reads only `systemMessage` from `SessionStart`, so a hook cannot add the memory to the context there. The memory reaches the model at the first tool result. A reply before the first tool has no memory. |
-| Each agent gets the same result | Cursor cannot add text to the context during a session, except at stop. News and the compaction notice wait for its next stop. |
-| Each agent gets the same result | A subagent gets a load at its start on Claude Code and Codex. The hook is also written for Grok Build, but nobody tested it. On Cursor, Pi and OpenCode, a subagent misses the memory unless its brief says to run `memory load`. |
+| Each agent gets the same result | Cursor adds no text at a prompt. News, and the load after a compaction, wait for its next `Shell`, `Write` or `Delete` tool result, or its next stop. This comes from its public docs. No real Cursor run tested it. |
+| Each agent gets the same result | A subagent gets a load at its start on Claude Code and Codex. The hook is also written for Grok Build, but nobody tested it. These stay unwired, so a subagent misses the memory unless its brief says to run `memory load`: Cursor, because its docs let `subagentStart` only allow or deny; Pi, because it has no built-in subagents; OpenCode, because its docs name child sessions and no plugin event for them. |
 | Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news after a `bash` tool and at idle. |
 | Stored text is data | The tool knows that an agent wrote a rule only from the agent tool's environment markers. An agent tool with no marker, or an agent that claims basis `told`, still writes a rule that prints as an instruction. A `told` rule from an agent names that agent. A hand-edited fact file can claim anything. |
 | Capture | A fact that the agent never writes is lost. The tool names events and reminds the agent once at stop. It cannot make the agent write. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). |
+| Capture | Stop names a correction only when a hook sees the prompt: Claude Code, Codex, Cursor and Pi. The OpenCode plugin docs name no prompt hook, and the Grok Build hook docs name no prompt field, so these two hear only about a lost file. The test reads English words in the prompt. A lost file is found by comparing the disk with the session start, so each agent hears it. A file inside a folder that git does not know at all is not seen, and neither is that whole folder, because it is most often build output. |
 | Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A branch that came after its note and left before tidy saw it reads as unknown, and tidy names the note. So does an old fact whose branch is already gone. A stale note on such a branch stays. A false end would be worse. One false end remains: a memory moved to a new clone reads a branch as ended when that branch was never pushed and had no commit of its own when the note was written. |
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. An exact repeat, a near repeat, and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
@@ -124,7 +125,7 @@ complete. Remove a row in the change that fixes it.
 | Forget correctly | A fact that the 0.3.1 miner wrote and that a later gate run accepted stays, because nothing proves who accepted it. |
 | The load never blocks | With `skills_auto_update = true`, an update of pstack runs inside the session start and can pass the budget. A disk that hangs on a read is not covered: the budget limits git and locks. |
 | Look for secrets | A bare word after `password is`, with no quote and no digit, reads as English, so it is stored unless a `.env*` file holds it. The tool reads `.env*` files only near the checkout root, and it reads only variables whose name means a secret, so the password in `DATABASE_URL` is not matched. A hit in `notes/` or `branches/` is a warning, because `memory add` does not see these files. |
-| Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
+| Enforce what must never happen | `memory check` looks for the check of a `ci:`, `lint:`, `test:` or `githook:` rule by name. It does not prove that the check fails when the rule is broken. Another type of `enforced_by` stays as written. With a Python that is gone, the hooks do nothing else, and a memory folder inside the repo at a custom path is not refused. The attribution guard installs only when the memory holds a rule against AI attribution. Plain `memory init` adds no such rule. A git hook cannot see a pull request body, so a pull request footer has no check here. A standing wish, such as "Every PR must attach a demo video", has no "did this still happen" check. `--enforced-by githook:pre-push` reads as enforced because of the tool's own block, which never looks at the wish. `--enforced-by test:PATH` looks only for the file, and nothing runs it. `git commit --no-verify` and `git push --no-verify` skip the guard, as git does for each hook. |
 | No work for the developer | A memory moved away from both the project and its old place needs `memory init --path NEW_PLACE`, because the tool does not search the disk. A memory or project moved before the first load of this version has no record, so the tool can only name a likely folder beside the project. The same holds for a plain folder with no git, and that name can block `memory init` once for a new project beside an old memory. |
 | No work for the developer | When a newer tool exists, the load says "Tell the owner" once per version pair, and `memory status` always says it. Nothing installs the update by itself. |
 
@@ -784,7 +785,7 @@ That file is local, and it covers every worktree. Nothing in the repo changes.
 |---|---|---|---|---|---|
 | Claude Code | `SessionStart`: stdout goes into the context | `Stop`: `{"decision": "block"}` makes the agent continue once | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
 | Codex | `SessionStart`: stdout goes into the context | `Stop`: JSON `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
-| Cursor | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | `postToolUseFailure` counts failures. It hears news only at stop. | `preCompact` marks it, and the agent hears at its next stop | None |
+| Cursor | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | `beforeSubmitPrompt` reads the prompt. `postToolUse` for `Shell`, `Write` and `Delete` adds `additional_context`, and `postToolUseFailure` counts failures. | `preCompact` holds a load for the next of those tool results, or for stop | None |
 | Grok Build | `SessionStart`: reads only `systemMessage`, so the load waits for the first tool result | `Stop`: `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact`; the load waits for the next tool result | `SubagentStart` hook is written, not tested |
 | Pi | `session_start`; the load goes out at `before_agent_start` | `agent_end`: a follow-up that starts a turn, once | `before_agent_start`, `tool_result` for `bash` | `session_compact`; the load goes out at the next `before_agent_start` | None |
 | OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `tool.execute.after` for `bash` | `session.compacted` reloads | None |
@@ -792,7 +793,17 @@ That file is local, and it covers every worktree. Nothing in the repo changes.
 
 **Long sessions.** News covers facts from other branches, auto-tidy changes, and
 stored facts that match files changed after the load. Traps come first, and each
-item is named once. The compaction notice asks the agent to run `memory load`.
+item is named once.
+
+**Corrections and lost files.** When the owner's prompt corrects the agent, or a file that was
+here at the session start is gone, stop names it once and asks if a trap belongs in memory. The
+tool writes no fact. A fact written after the correction, or one that names the file, ends the
+question. So does a prompt that names the file, because the owner knows about it.
+
+**One answer.** `memory status`, `memory check` and `memory load` print the same answer line, and
+stop blocks on what `--strict` fails. A healthy load prints no answer, so it spends no words.
+`memory check: ok` means that nothing is open. Work outside the facts prints as `to do`. It exits 0,
+also with `--strict`, because it must not stop a commit.
 
 **Native memory.** Claude Code keeps its own per-project notes, and other agents
 cannot see them. When that store has new notes, the session start names them once,
@@ -826,7 +837,7 @@ Rules for every adapter:
 ## CI
 
 There is no memory folder on CI. `memory check` prints
-`memory check: skipped: no memory folder at <path>` and exits 0.
+`memory: not loaded: no memory folder at <path>` and exits 0.
 
 ## Work on the tool
 

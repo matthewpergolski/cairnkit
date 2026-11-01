@@ -393,7 +393,7 @@ prints the commands instead. Each file is added to `.git/info/exclude`.
 | Claude Code | `.claude/settings.local.json` | `SessionStart` (matcher `startup\|resume\|clear\|compact`, timeout 10): `session-start`. `Stop` (timeout 30): `stop`. `PostToolUse` and `PostToolUseFailure` (timeout 5): `after-shell`. `UserPromptSubmit` (timeout 5): `prompt`. `SubagentStart` (timeout 10): `subagent-start`. |
 | Codex | `.codex/hooks.json` | The same shape, with no `PostToolUseFailure`. |
 | Grok Build | `.grok/hooks/cairnkit.json` | The same shape as Claude Code. |
-| Cursor | `.cursor/hooks.json` | `version: 1`. `hooks.sessionStart[]` (timeout 10): `session-start`. `hooks.stop[]` (timeout 30, `loop_limit: 1`): `stop`. `hooks.afterShellExecution[]` and `hooks.postToolUseFailure[]` (timeout 5): `after-shell`. `hooks.preCompact[]` (timeout 5): `pre-compact`. |
+| Cursor | `.cursor/hooks.json` | `version: 1`. `hooks.sessionStart[]` (timeout 10): `session-start`. `hooks.stop[]` (timeout 30, `loop_limit: 1`): `stop`. `hooks.beforeSubmitPrompt[]` (timeout 5): `prompt`. `hooks.postToolUse[]` (matcher `Shell|Write|Delete`) and `hooks.postToolUseFailure[]` (timeout 5): `after-shell`. `hooks.preCompact[]` (timeout 5): `pre-compact`. |
 
 A JSON entry has the shape `{"matcher": ..., "hooks": [{"type": "command", "command":
 CMD, "timeout": N}]}`, except in Cursor, where an entry is `{"command": CMD, "timeout":
@@ -461,12 +461,12 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   breaker and for the events of `stop`. Then they add the same news as `prompt`, and
   the load that `grok` holds. The third identical failure adds the nudge. The output is
   `{"hookSpecificOutput": {"hookEventName": EVENT, "additionalContext": TEXT}}` for
-  `claude`, `codex` and `grok`, `{"additional_context": TEXT, "followup_message": TEXT}`
+  `claude`, `codex` and `grok`, `{"additional_context": TEXT}`
   for `cursor`, and TEXT on stdout for `pi` and `opencode`. A payload with no command, or
   a command and no outcome, is not counted. The hook always exits 0.
 - `subagent-start`: prints `{"hookSpecificOutput": {"hookEventName": "SubagentStart",
   "additionalContext": TEXT}}`, where TEXT is a load of 300 words. It writes nothing.
-- `pre-compact`: marks the session as compacted, so that the next news says so.
+- `pre-compact`: holds a load for the next tool result or stop. Only Cursor needs this.
 - `pre-commit`: exits 1 only when a staged path is `memory-bank`, `.memory-path`
   or inside the memory folder. Else it prints each stored trap (up to 3) that matches
   the staged files on stderr, each on one line labelled as data, and exits 0. A problem in the
@@ -501,7 +501,7 @@ search the memory, or ask the person.
 |---|---|
 | Claude Code | Yes. `PostToolUseFailure` runs `memory hook after-shell`. `PostToolUse` fires only on a success. |
 | Codex | Yes. `PostToolUse` fires for each result. The exit code is in the text of the result. |
-| Cursor | Yes. `postToolUseFailure` runs `memory hook after-shell`. `afterShellExecution` has no exit code, so it says nothing about the outcome. |
+| Cursor | Yes. `postToolUseFailure` and `postToolUse` run `memory hook after-shell`. |
 | Grok Build | The same events as Claude Code. Not checked in a real run. |
 | Pi | Yes, for `bash`, from `tool_result`. Not checked in a real run. |
 | OpenCode | Yes, for `bash`, from `tool.execute.after`. Not checked in a real run. |

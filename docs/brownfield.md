@@ -97,7 +97,7 @@ refuses, merges, or adds a marked block.
       Where a repo doc and `memory instructions` disagree about the memory,
       `memory instructions` wins. The rest of that doc still stands.
       While the task is open, `memory load` shows one line with the count, and
-      `memory check` says that its `ok` covers only the facts and the links.
+      `memory check` counts the open task as `to do`, and it does not say `ok`.
 
       **The migration has one end.** The agent runs `memory migrate --yes`. It reads each
       item again, in the checkout where it runs. A fix on a branch counts when the agent

@@ -7,8 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Stop names a correction from the owner, or a file that was here at the session start and is gone,
+  once, and asks if a trap belongs in memory. The tool writes no fact. On a labelled set of 40
+  ordinary prompts and 30 corrections, 0 false nudges and 1 miss.
+
+### Changed
+
+- `memory status`, `memory check` and `memory load` read one health function and print one answer
+  line. `memory check: ok` now means that nothing is open, and open work outside the facts prints
+  as `to do`. `Repo files: current.` and `memory check: skipped` are gone.
+- Stop blocks on all that `memory check --strict` fails, also a false `enforced_by`.
+- Cursor uses `postToolUse` in place of `afterShellExecution`, whose output its docs do not read,
+  and `beforeSubmitPrompt`. After a compaction it gets the load itself at its next tool result.
+  A pass after failures now counts on Cursor. `memory init --refresh` writes the new hooks.
+- The session start spends fewer words on tool text: the footer and the rules no longer overlap.
+
 ### Fixed
 
+- After a move, hooks beside `core.hooksPath` that are gone now read as an error that names
+  `memory hooks install`, in place of a false warning while each commit failed.
 - Auto-tidy retires a near repeat only when the words match in order after case, plural,
   punctuation and stop words. Staging against production and three times against five now go to
   the agent task. An exact repeat now needs the same order, and it keeps symbols and non-ASCII
