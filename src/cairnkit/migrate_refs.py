@@ -223,6 +223,18 @@ def rewritten_docs(root: Path, files: Iterable[str]) -> set[str]:
     }
 
 
+def older_layout_places(root: Path, files: Iterable[str]) -> list[str]:
+    """`FILE:LINE` for each line that names the old notes or the old checker."""
+    places = []
+    for name in files:
+        lines = (read_text(root / name) or "").splitlines()
+        for number, line in enumerate(lines, start=1):
+            old_path = any(not is_new_layout(m.group(1)) for m in PATH_RE.finditer(line))
+            if old_path or CHECKER_RE.search(line):
+                places.append(f"{name}:{number}")
+    return places
+
+
 def judgment_items(
     file: str, text: str, exists: Callable[[str], bool], rewritten: Collection[str] = ()
 ) -> list[Item]:

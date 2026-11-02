@@ -54,6 +54,18 @@ def secret_note(memory: Memory) -> str | None:
     return f"note: Claude Code's own memory. {_secret_text(places)}" if places else None
 
 
+def status_line(memory: Memory) -> str | None:
+    """For `memory status`: where the native store is, and how many notes it holds."""
+    store = _claude_store(memory.project.main_root)
+    count = sum(1 for p in store.glob("*.md") if p.name != "MEMORY.md")
+    if not count:
+        return None
+    return (
+        f"Claude Code's own memory: {count} note(s) in {store}. Other agents cannot see them. "
+        "This tool reads that store and never edits it. To share one, copy it with `memory add`."
+    )
+
+
 def session_line(memory: Memory) -> str | None:
     """One line when the native store has entries that this memory has not named yet."""
     store = _claude_store(memory.project.main_root)

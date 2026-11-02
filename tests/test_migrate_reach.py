@@ -84,3 +84,20 @@ def test_a_later_load_in_the_other_checkout_still_works(tracked_notes, capsys, m
     capsys.readouterr()
     assert main(["load"]) == 0
     assert "not loaded" not in capsys.readouterr().out
+
+
+def test_a_plan_of_tracked_notes_shows_the_plan_and_names_each_folder_once(repo, capsys):
+    (repo / "memory-bank").mkdir()
+    (repo / "memory-bank" / "status.md").write_text("Old status.\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "notes")
+    add_worktree(repo, "work")
+    capsys.readouterr()
+    assert main(["migrate"]) == 0
+    out = capsys.readouterr().out
+    assert "would move" in out
+    assert "git still tracks the old folder. Run again with --untrack" in out
+    assert (repo / "memory-bank" / "status.md").read_text() == "Old status.\n"
+    assert main(["migrate", "--yes"]) == 1
+    err = capsys.readouterr().err
+    assert "git tracks files in memory-bank. Moving them" in err

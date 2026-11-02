@@ -15,14 +15,18 @@ of the file.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from cairnkit.candidates import BULLET_RE, FENCE_RE, HEADING_RE
 from cairnkit.instructions import PAIRS
+from cairnkit.memory import Memory
+from cairnkit.migrate_refs import TASK, older_layout_places
 
 FILES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
+OLDER_STATE = ".older-instructions.json"
 BLOCK_ENDS = dict(PAIRS)  # the start marker of memory's block, and its end marker
 
 SENTENCE_END_RE = re.compile(r"[.!?]+[*_`'\")\]]*(?:\s+|$)")
@@ -141,3 +145,27 @@ def home(found: list[Item], text: str) -> Item | None:
             if words == want:
                 return item
     return None
+
+
+def older_layout_line(memory: Memory) -> str | None:
+    """One line, once for each place, for a doc that teaches an older memory. It edits no doc.
+
+    An open migration task names these lines and says which one wins, so this line waits for it.
+    """
+    if (memory.dir / TASK).is_file():
+        return None
+    places = older_layout_places(memory.project.root, FILES)
+    path = memory.dir / OLDER_STATE
+    try:
+        known = set(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        known = set()
+    new = [place for place in places if place not in known]
+    if not new:
+        return None
+    path.write_text(json.dumps(sorted(known | set(new))), encoding="utf-8")
+    return (
+        f"{', '.join(new)} teaches an older memory layout. For the memory, `memory load` and "
+        "`memory instructions` win. The rest of that file still stands. This tool edits no "
+        "tracked file."
+    )

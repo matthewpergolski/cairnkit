@@ -24,6 +24,7 @@ from cairnkit import (
     followups,
     githook,
     hooks_cmd,
+    instruction_files,
     legacy,
     loopbreak,
     native,
@@ -236,6 +237,13 @@ def _native_note(project: Project, flag: str | None) -> str:
     return ""
 
 
+def _older_instructions_note(project: Project, flag: str | None) -> str:
+    with contextlib.suppress(Exception):
+        line = instruction_files.older_layout_line(Memory.open(project, flag))
+        return line + "\n\n" if line else ""
+    return ""
+
+
 def _legacy_clean(project: Project, flag: str | None) -> None:
     with contextlib.suppress(Exception):
         legacy.clean(Memory.open(project, flag))
@@ -253,6 +261,7 @@ def _optional_work(project: Project, flag: str | None) -> str:
         auto_retire_note,
         skills_note,
         _native_note,
+        _older_instructions_note,
         refresh_followups,
         compact_usage,
     )

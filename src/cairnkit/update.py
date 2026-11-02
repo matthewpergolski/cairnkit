@@ -18,7 +18,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from cairnkit import adapters, skills
+from cairnkit import adapters, native, skills
 from cairnkit import install_source as src
 from cairnkit.install_source import Latest, SourceError
 from cairnkit.paths import resolve_memory_dir
@@ -433,6 +433,7 @@ def _say_changes(bar: Progress, source, old: str | None, new: str | None) -> Non
 def run_status(project, flag: str | None) -> int:
     """The version, the source, and one line for each update that is due."""
     from cairnkit.check import read_health
+    from cairnkit.docs_cmd import status_line as docs_status_line
 
     source, _ = src.installed(None)
     build = src.running_build()
@@ -448,6 +449,12 @@ def run_status(project, flag: str | None) -> int:
     health = read_health(project, flag)
     for line in [*health.linked, health.answer(), *health.details(), *health.todo, *health.info]:
         print(line)
+    atlas = docs_status_line(project)
+    if atlas:
+        print(atlas)
+    own_memory = native.status_line(health.memory) if health.memory else None
+    if own_memory:
+        print(own_memory)
     with contextlib.suppress(OSError, ValueError):
         line = skills.status_line(resolve_memory_dir(project, flag)[0])
         if line:

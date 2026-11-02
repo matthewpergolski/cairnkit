@@ -196,7 +196,8 @@ def status_line(project: Project) -> str | None:
         f"Docs atlas: {len(result.changed)} page(s) in {STATE_DIR.as_posix()} differ from the "
         "code. `memory docs --force` uses no model and no network. It rewrites only the atlas "
         "pages, removes an atlas page that has no source now, and keeps all other Markdown. "
-        "The folder may be tracked, so nothing runs it by itself."
+        "The folder may be tracked, so nothing runs it by itself, and no session hears this. "
+        "`memory docs --check` fails while they differ, for a project that wants CI to own it."
     )
 
 

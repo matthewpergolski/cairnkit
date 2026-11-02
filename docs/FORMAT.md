@@ -112,6 +112,7 @@ before the home folder and the file system root.
   .loop-breaker.json            the last command and its fail streak (safe to delete)
   .loop-breaker.lock            the lock for that file
   .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
+  .older-instructions.json      the lines of older repo docs that the session start already named (safe to delete)
   .skills-advisory.json         whether init or migrate named pstack once (safe to delete)
   .agents-seen.json             the agent tools seen at setup and since; a tool not in it is new
   .rule-notices                 ids of rules that an agent changed; the next load names each once
@@ -283,9 +284,15 @@ A reader computes the status of a fact; it does not only read it:
   default branch and one of these is true: the tip is an ancestor of the default
   branch, or `git merge-tree --write-tree BASE TIP` gives the tree of the default
   branch (a squash merge; git 2.38 or later).
+- A base is the default branch, `dev` or `develop`, local or on `origin`. Each test for
+  merged runs against each base. A squash also counts when one of the last 30 commits of
+  the base on those files adds and removes the same lines as the whole branch.
+- A branch with only a remote copy reads as open, unless a squash or a merge commit in a
+  base took the tip of that copy.
 - A branch in no ref in `refs/heads` or `refs/remotes` reads as merged or deleted only
-  when `branch_tip` names a commit in this clone, or when a reflog shows that the branch
-  was renamed and the new name is in no ref. Otherwise it reads as unknown: the fact stays
+  when `branch_tip` names a commit in this clone that landed in a base, or when a reflog
+  shows that the branch was renamed and the new name is in no ref. Otherwise it reads as
+  unknown: the fact stays
   active, and `memory tidy` names it. A fact from before `branch_tip` has none, so it
   stays until auto-tidy sees its branch, or until an agent ends it.
 
@@ -490,7 +497,9 @@ a project's Claude Code and Cursor hooks. With no memory folder, each event does
 nothing and exits 0, except that `pre-commit` still refuses a private memory path.
 
 - `session-start`: ends the facts that the 0.3.1 commit miner wrote, and removes its
-  files. Runs the auto-tidy step. Names new native memory notes. Prints the output of
+  files. Runs the auto-tidy step. Names new native memory notes, and each new line of
+  `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` that names the old notes or the old checker,
+  unless a migration task is open. Prints the output of
   `memory load` and a short rules text. For `cursor` it prints
   `{"additional_context": TEXT}`. For `grok` it holds the text in the session file,
   prints `{"systemMessage": "Project memory is ready."}`, and the next `after-shell`

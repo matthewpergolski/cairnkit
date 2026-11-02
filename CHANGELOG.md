@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A session start names, once, each line of `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` that
+  teaches an older memory, and says which one wins. It edits no tracked file.
+- `memory status` says how many notes Claude Code's own memory holds for this project, and where.
+  It only reads that store.
 - A stop blocks once to ask for a fact when the work changed, or when the owner stated a decision,
   an approval, a promise, a limit, a preference, a reason or a review, and no fact followed. An
   answer of "nothing" lets the agent finish. Plain work does not block again until a fact and 6 more
@@ -77,6 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A stale docs atlas prints only in `memory status`. A load and `memory check` no longer print it
+  or count it as a thing to do, because nobody acted on it at each merge. `memory docs --check`
+  still fails, for a project whose CI owns the atlas.
 - A stop blocks only for a new event, and each event once per session: a health problem, a command
   that failed at least twice and then passed, a revert, a correction, or a lost file that no prompt
   named or asked to remove. In 20 ordinary turns, an agent that never writes sees 0 blocks on a plain
@@ -134,6 +141,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signals, and a fact that names a changed file ranks higher.
 
 ### Fixed
+
+- `memory check` knows a `held_by` file that only another checkout holds, also when no commit
+  has it yet.
+- `memory migrate` with no `--yes` shows the plan of tracked notes, and it says to add `--untrack`.
+  The refusal with `--yes` names each folder once.
+- A short-term note or rule now ends after a squash when the base changed those lines later, when
+  the remote copy of the branch stays, when only `origin` has the squash, and when the work landed
+  in `dev` or `develop`. A branch deleted with work that did not land now reads as unknown and
+  keeps its note. It does not read as ended.
 
 - `evals/agents`: the cost table no longer counts the import check of the pre-commit hook as a memory
   command.

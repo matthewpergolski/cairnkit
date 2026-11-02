@@ -88,3 +88,25 @@ def test_native_memory_is_named_with_no_value_and_is_not_edited(
     assert (store / "key.md").read_bytes() == before
     (store / "key.md").write_text("plain\n")
     assert "key.md" not in run(capsys, "check")[1]
+
+
+def test_status_reports_the_native_store_and_changes_nothing(repo, mem, capsys):
+    store = _claude_store(repo)
+    store.mkdir(parents=True)
+    (store / "MEMORY.md").write_text("- index\n")
+    (store / "note.md").write_text("A native note.\n")
+    before = {path: path.read_bytes() for path in store.iterdir()}
+    facts = sorted(path.read_bytes() for path in (mem / "facts").glob("*"))
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert f"Claude Code's own memory: 1 note(s) in {store}" in out
+    assert "never edits it" in out
+    assert {path: path.read_bytes() for path in store.iterdir()} == before
+    assert sorted(path.read_bytes() for path in (mem / "facts").glob("*")) == facts
+
+
+def test_status_is_silent_with_no_native_store(repo, mem, capsys):
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    assert "own memory" not in capsys.readouterr().out

@@ -660,8 +660,8 @@ def run_migrate(
     ]
     if resume and project.is_git and _tracked(root, os.path.relpath(src, root)):
         tracked.append((src, root))
-    if tracked and real and not untrack:
-        names = ", ".join(os.path.relpath(p, c) for p, c in tracked)
+    if tracked and real and not untrack and not dry_run:
+        names = ", ".join(sorted({os.path.relpath(p, c) for p, c in tracked}))
         return _fail(
             f"git tracks files in {names}. Moving them would show as deleted files. "
             "Add --untrack: it takes them out of the index and commits nothing"
