@@ -129,13 +129,13 @@ src/cairnkit/
   followups.py   the agent task for similar pairs and other follow-ups
   hygiene.py     the load line that names facts whose source is gone
   legacy.py      ends what the 0.3.1 commit miner wrote, and removes its files
-  session.py     hook state per session; the stop reminder
-  signals.py     events and news that a session hears; stored traps for a commit
+  session.py     hook state per session; the capture check of a stop
+  signals.py     events and news that a session hears; what the owner states; stored traps for a commit
   native.py      names new notes in Claude Code's own memory
   loopbreak.py   counts repeated command failures; the nudge
   hookrun.py     memory hook EVENT --agent NAME (output per agent)
   adapters.py    agent hook configs and generated files, one per agent tool
-  discover.py    the short rules and the look-up line of the load and --help
+  discover.py    the short rules, the capture guide and the look-up line of the load and --help
   markers.py     the start and end markers of a block, new and old names
   githook.py     git pre-commit, post-checkout, pre-push, post-merge (tidy) and commit-msg guard
   install_source.py  where memory was installed from; the cached newer check

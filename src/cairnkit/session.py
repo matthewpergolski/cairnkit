@@ -157,7 +157,7 @@ def is_junk_path(path: str) -> bool:
 
 
 def durable_untracked(path: str) -> bool:
-    """True when an untracked path is source worth a stop reminder."""
+    """True when an untracked path is source worth a capture check."""
     if is_junk_path(path):
         return False
     name = PurePosixPath(path).name

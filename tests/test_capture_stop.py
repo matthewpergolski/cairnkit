@@ -28,6 +28,8 @@ MOMENTS = (
     "the reason and not only the change",
     "names the files",
     '`memory add "TEXT"`',
+    # A plain add prints a note about its basis, and real agents then wrote each fact twice.
+    "--basis told",
 )
 
 

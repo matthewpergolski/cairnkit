@@ -73,7 +73,7 @@ memory check --advisory | grep -v '^memory check'
 step "session hooks (generic): start, work, stop reminds once"
 echo '{}' | memory hook session-start | tail -3
 echo "x = 1" > work.py
-echo '{}' | memory hook stop && echo "stop: no reminder" || echo "stop: exit $? (reminder shown above)"
+echo '{}' | memory hook stop && echo "stop: nothing to say" || echo "stop: exit $? (message shown above)"
 echo '{}' | memory hook stop && echo "stop again: quiet (same work)"
 rm work.py
 
