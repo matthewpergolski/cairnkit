@@ -18,7 +18,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from cairnkit import adapters, skills
+from cairnkit import adapters, native, skills
 from cairnkit import install_source as src
 from cairnkit.install_source import Latest, SourceError
 from cairnkit.paths import resolve_memory_dir
@@ -452,6 +452,9 @@ def run_status(project, flag: str | None) -> int:
     atlas = docs_status_line(project)
     if atlas:
         print(atlas)
+    own_memory = native.status_line(health.memory) if health.memory else None
+    if own_memory:
+        print(own_memory)
     with contextlib.suppress(OSError, ValueError):
         line = skills.status_line(resolve_memory_dir(project, flag)[0])
         if line:
