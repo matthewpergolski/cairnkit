@@ -288,13 +288,11 @@ def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> None
 
 
 def _session_text(
-    project: Project, flag: str | None, session: str, fresh: bool, update_notice: bool = True
+    project: Project, flag: str | None, session: str, update_notice: bool = True
 ) -> str:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        run_load(
-            project, flag, None, 600, update_notice=update_notice, session=session, fresh=fresh
-        )
+        run_load(project, flag, None, 600, update_notice=update_notice, session=session)
     return buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
 
 
@@ -314,7 +312,7 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
             return 0
     key = session_key(payload)
     fresh = payload.get("source") not in SAME_SESSION
-    text = _optional_work(project, flag) + _session_text(project, flag, key, fresh)
+    text = _optional_work(project, flag) + _session_text(project, flag, key)
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
         if fresh:
@@ -629,7 +627,7 @@ def pre_compact(project: Project, flag: str | None, payload: dict) -> int:
     with contextlib.suppress(Exception):
         if has_memory(project, flag):
             memory, key = Memory.open(project, flag), session_key(payload)
-            text = _session_text(project, flag, key, False, update_notice=False)
+            text = _session_text(project, flag, key, update_notice=False)
             mark_loaded(memory, key, text)
             hold_load(memory, key, text)
     return 0

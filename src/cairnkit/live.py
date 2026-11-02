@@ -164,17 +164,18 @@ def _line(memory: Memory, checkout: Checkout) -> str:
     return mask(clean(f"- [live] {name(place)}{branch}: {'; '.join(parts)}."), memory.env)
 
 
-def add_lines(memory: Memory, lines: list[str], session: str | None, fresh: bool) -> list[str]:
+def add_lines(memory: Memory, lines: list[str], session: str | None) -> list[str]:
     """The load with its live work added, or as it was when there is none.
 
     With no session, a plain `memory load` cannot tell its own changes and marker from another's,
-    so it says nothing of its own checkout. A session that goes on after a reload knows its marker,
-    and its changes here are its own unless another session is at work here too.
+    so it says nothing of its own checkout. A session names its own checkout only when another
+    session is at work here. Old changes here with no session at work are most often the owner's,
+    and the order not to commit them would get in the way of a plain request to commit.
     """
     if not memory.project.is_git or FRAME_HEADER not in lines:
         return lines
     at_work = _others_at_work(memory, session)
-    here = session is not None and (fresh or str(memory.project.root) in at_work)
+    here = session is not None and str(memory.project.root) in at_work
     found, unread = _read_checkouts(memory, at_work, here)
     body = [_line(memory, checkout) for checkout in found[:MAX_LINES]]
     held = len(found) - MAX_LINES

@@ -157,10 +157,11 @@ def test_another_session_in_this_checkout_is_named(repo, mem, capsys, monkeypatc
     assert "this checkout" in line and "a session worked here" in line
 
 
-def test_a_new_session_hears_of_changes_it_did_not_make_here(repo, mem, capsys, monkeypatch):
+def test_a_new_session_does_not_name_leftovers_in_its_own_checkout(repo, mem, capsys, monkeypatch):
+    """Old changes here with no session at work are most often the owner's own, and theirs to
+    commit when they ask. The order would make a plain "commit this" a fight."""
     (repo / "README.md").write_text("left by someone\n")
-    line = live_lines(start(capsys, monkeypatch))[0]
-    assert "this checkout" in line and "README.md" in line
+    assert HEADING not in start(capsys, monkeypatch)
 
 
 def test_a_reload_does_not_name_changes_of_the_session_itself(repo, mem, capsys, monkeypatch):
@@ -236,4 +237,4 @@ def test_a_plain_folder_has_no_list(tmp_path, monkeypatch):
     monkeypatch.chdir(folder)
     memory = Memory.open(find_project(folder), str(folder / "memory"))
     lines = ["head", FRAME_HEADER]
-    assert live.add_lines(memory, lines, None, False) == lines
+    assert live.add_lines(memory, lines, None) == lines

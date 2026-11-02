@@ -539,9 +539,9 @@ line that tells the agent to leave that work alone. With nothing live, it adds n
 names up to 3 checkouts, with up to 5 changed files and the short note of the branch:
 
 - A checkout that holds uncommitted changes. Git says this, so no session has to record it. Logs,
-  caches and memory paths do not count. A new session also hears of changes in its own checkout,
-  because it did not make them. A reload in the same session, or a plain `memory load`, does not
-  name its own checkout.
+  caches and memory paths do not count. A session names its own checkout only while another
+  session is in a turn there. Old changes in its own checkout are most often the owner's, and the
+  owner can ask to commit them.
 - A checkout where a session is in a turn. Each prompt and tool hook touches a local marker in
   `.sessions/live/`, and a stop removes it. A session that died in a turn drops out after 30 minutes.
   A session that waits between turns is not named, but its uncommitted changes are.
