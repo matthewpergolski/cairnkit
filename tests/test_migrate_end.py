@@ -513,6 +513,62 @@ def test_the_check_names_a_file_outside_the_notes_and_does_not_fail(repo, capsys
     assert "memory-bank/status.md is outside notes/" in check_strict(capsys)
 
 
+def later_status_beside_a_note(repo: Path, capsys) -> Path:
+    """A finished migration, and then a status file at the old path that differs from the note."""
+    old_layout(repo)
+    migrate(capsys, "--yes")
+    fix_every_item(repo)
+    migrate(capsys, "--yes")
+    stray = repo / "memory-bank" / "status.md"
+    write(stray, "# Status\nA later status.\n")
+    return stray
+
+
+def test_the_note_says_what_the_run_moves_and_names_the_plan(repo, capsys):
+    later_status_beside_a_note(repo, capsys)
+    out = check_strict(capsys)
+    line = next(item for item in out.splitlines() if "memory-bank/status.md is outside" in item)
+    assert "memory-bank/notes/status.md" in line
+    assert "memory-bank/proposals/old-copies/status.md" in line
+    assert "stays" in line
+    assert "`memory migrate` prints the plan and changes nothing" in line
+    assert "settles it" not in line
+
+
+def test_the_plan_the_note_names_tells_the_truth_and_changes_nothing(repo, capsys):
+    stray = later_status_beside_a_note(repo, capsys)
+    note = memdir(repo) / "notes" / "status.md"
+    before = note.read_text()
+    plan = migrate(capsys)
+    assert stray.read_text() == "# Status\nA later status.\n"
+    assert note.read_text() == before
+    assert not (memdir(repo) / "proposals" / "old-copies").exists()
+    assert "old-copies/status.md" in plan
+    assert "would remove" in plan
+    assert "Migration finished" not in plan
+    assert "memory migrate --yes" in plan
+
+
+def test_the_run_keeps_the_text_of_both_files(repo, capsys):
+    stray = later_status_beside_a_note(repo, capsys)
+    note = memdir(repo) / "notes" / "status.md"
+    before = note.read_text()
+    migrate(capsys, "--yes")
+    assert not stray.exists()
+    assert note.read_text() == before
+    kept = memdir(repo) / "proposals" / "old-copies" / "status.md"
+    assert kept.read_text() == "# Status\nA later status.\n"
+
+
+def test_a_stray_replaces_only_the_empty_template(repo, capsys):
+    assert main(["init", "--preset", "none"]) == 0
+    stray = repo / "memory-bank" / "status.md"
+    write(stray, "# Status\nReal text.\n")
+    migrate(capsys, "--yes")
+    assert not stray.exists()
+    assert (memdir(repo) / "notes" / "status.md").read_text() == "# Status\nReal text.\n"
+
+
 def test_a_pointer_is_not_named_as_outside_the_notes(repo, capsys):
     old_layout(repo)
     migrate(capsys, "--yes")

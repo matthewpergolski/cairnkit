@@ -204,6 +204,7 @@ def _settle_strays(memdir: Path, dry_run: bool) -> None:
             print(f"{would}remove {path}: {note} has the same text")
         else:
             _keep_old_copy(memdir, rel, path, dry_run)
+            print(f"{would}remove {path}: that copy holds its text, and {note} stays as it is")
         if not dry_run:
             _remove(path, memdir)
 
@@ -571,6 +572,7 @@ def _say_install(project: Project, would: str) -> None:
 
 def _close(project: Project, path_flag: str | None, memdir: Path, source: Path, dry: bool) -> int:
     """A rerun after the steps are done. It reads the task again and does nothing else."""
+    strays = bool(stray_files(memdir))
     _settle_strays(memdir, dry)
     references, named = _references(project, memdir, source)
     _sync_stubs(memdir, named, dry)
@@ -582,6 +584,8 @@ def _close(project: Project, path_flag: str | None, memdir: Path, source: Path, 
     if items:
         print(f"Migration not finished: {len(items)} item(s) left in {memdir / TASK}.")
         print("Do them, then run `memory migrate --yes` again. That task says how it ends.")
+    elif dry and strays:
+        print("This was the plan. Nothing changed. Read it, then run `memory migrate --yes`.")
     else:
         print("Migration finished. Nothing to do.")
     return code

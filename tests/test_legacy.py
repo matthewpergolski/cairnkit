@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 
 import pytest
 from conftest import make_fact, write_facts
@@ -180,3 +181,29 @@ def test_clean_is_safe_to_repeat_and_needs_no_file(mem):
     memory = Memory.open(find_project(), None)
     assert legacy.clean(memory) == []
     assert legacy.clean(memory) == []
+
+
+def test_the_refresh_names_the_list_and_the_undo_and_the_undo_works(repo, mem, capsys):
+    fact_id = "f-20261001-0001"
+    write_facts(mem, [make_fact(fact_id, FRAGMENT, **GATE)])
+    _candidates(mem, fact_id)
+    capsys.readouterr()
+    assert main(["init", "--refresh"]) == 0
+    line = next(item for item in capsys.readouterr().out.splitlines() if "mined" in item)
+    assert line.startswith("end 1 fact(s)")
+    assert "memory-bank/auto-tidy.log" in line
+    assert "undo" in line
+    assert "memory show ID" in line
+
+    log = (repo / "memory-bank" / "auto-tidy.log").read_text(encoding="utf-8")
+    assert fact_id in log
+    assert Memory.open(find_project(), None).states[fact_id]["status"] == "expired"
+    assert main(["show", fact_id]) == 0
+    assert FRAGMENT in capsys.readouterr().out
+
+    command = shlex.split(log.split("Undo: ")[1])
+    assert command[0] == "memory"
+    assert main(command[1:]) == 0
+    assert Memory.open(find_project(), None).states[fact_id]["status"] == "active"
+    assert main(["init", "--refresh"]) == 0
+    assert Memory.open(find_project(), None).states[fact_id]["status"] == "active"

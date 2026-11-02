@@ -30,6 +30,13 @@ def plant_cairnkit_atlas_sources(repo) -> None:
         (folder / f"{name}.py").write_text(f"# {name}\n", encoding="utf-8")
 
 
+def edit_body(page) -> str:
+    """An edit that leaves the page's front matter as the tool wrote it."""
+    text = page.read_text(encoding="utf-8") + "an edit\n"
+    page.write_text(text, encoding="utf-8")
+    return text
+
+
 def test_stale_paths_are_a_sorted_unique_tuple():
     from cairnkit.docs_cmd import Stale
 
@@ -154,25 +161,25 @@ def test_check_lists_changed_and_orphan_pages(mem, repo, capsys):
     plant_cairnkit_atlas_sources(repo)
     assert main(["docs", "--force"]) == 0
     life = state_dir(repo) / "fact-lifecycle.md"
-    life.write_text("nope\n", encoding="utf-8")
+    edited = edit_body(life)
     orphan = state_dir(repo) / "services" / "orphan.md"
     orphan.parent.mkdir()
-    orphan.write_text("extra\n", encoding="utf-8")
+    orphan.write_text(edited, encoding="utf-8")
     capsys.readouterr()
     code = main(["docs", "--check"])
     out = capsys.readouterr()
     assert code == 1
     assert out.err == ""
     assert out.out == ("docs/state/fact-lifecycle.md\ndocs/state/services/orphan.md\n")
-    assert life.read_text(encoding="utf-8") == "nope\n"
-    assert orphan.read_text(encoding="utf-8") == "extra\n"
+    assert life.read_text(encoding="utf-8") == edited
+    assert orphan.read_text(encoding="utf-8") == edited
 
 
 def test_check_sorts_readme_before_lowercase_names(mem, repo, capsys):
     plant_cairnkit_atlas_sources(repo)
     assert main(["docs", "--force"]) == 0
     for name in ("README.md", "fact-lifecycle.md"):
-        (state_dir(repo) / name).write_text("nope\n", encoding="utf-8")
+        edit_body(state_dir(repo) / name)
     capsys.readouterr()
     code = main(["docs", "--check"])
     out = capsys.readouterr()
@@ -190,21 +197,6 @@ def test_check_ignores_non_markdown_beside_pages(mem, repo, capsys):
     assert code == 0
     assert out.out == ""
     assert note.read_text(encoding="utf-8") == "x\n"
-
-
-def test_check_treats_a_markdown_directory_as_stale(mem, repo, capsys):
-    plant_cairnkit_atlas_sources(repo)
-    assert main(["docs", "--force"]) == 0
-    page = state_dir(repo) / "agent-session.md"
-    page.unlink()
-    page.mkdir()
-    capsys.readouterr()
-    code = main(["docs", "--check"])
-    out = capsys.readouterr()
-    assert code == 1
-    assert out.err == ""
-    assert out.out == "docs/state/agent-session.md\n"
-    assert page.is_dir()
 
 
 @pytest.mark.parametrize("extra", [["--force"], ["--dry-run"], ["--force", "--dry-run"]])
@@ -330,12 +322,11 @@ def test_hung_post_merge_stays_quiet_and_finishes(repo, capsys, tmp_path):
 def _stale_atlas(repo):
     assert main(["docs"]) == 0
     readme = state_dir(repo) / "README.md"
-    readme.write_text("stale\n", encoding="utf-8")
-    return readme
+    return readme, edit_body(readme)
 
 
 def test_a_real_merge_says_nothing_about_a_stale_atlas(mem, repo, capsys):
-    readme = _stale_atlas(repo)
+    readme, edited = _stale_atlas(repo)
     _install_post_merge(repo, capsys)
     git(repo, "checkout", "-q", "-b", "topic")
     (repo / "topic.txt").write_text("t\n", encoding="utf-8")
@@ -352,11 +343,11 @@ def test_a_real_merge_says_nothing_about_a_stale_atlas(mem, repo, capsys):
     assert result.returncode == 0, result.stderr
     assert "docs/state" not in result.stdout + result.stderr
     assert "cairnkit" not in result.stdout + result.stderr
-    assert readme.read_text(encoding="utf-8") == "stale\n"
+    assert readme.read_text(encoding="utf-8") == edited
 
 
 def test_status_says_what_force_writes_when_the_atlas_is_stale(mem, repo, capsys):
-    readme = _stale_atlas(repo)
+    readme, edited = _stale_atlas(repo)
     capsys.readouterr()
     assert main(["status"]) == 0
     out = capsys.readouterr().out
@@ -365,7 +356,7 @@ def test_status_says_what_force_writes_when_the_atlas_is_stale(mem, repo, capsys
     assert "memory docs --force" in line
     assert "no model and no network" in line
     assert "tracked" in line
-    assert readme.read_text(encoding="utf-8") == "stale\n"
+    assert readme.read_text(encoding="utf-8") == edited
 
 
 def test_status_is_silent_about_a_current_or_absent_atlas(mem, repo, capsys):

@@ -7,6 +7,7 @@ to delete.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import re
 import time
@@ -23,6 +24,10 @@ from cairnkit.selection import areas_for_paths
 KEEP_DAYS = 7
 OTHERS_LIMIT = 2000
 KEY_LIMIT = 80
+# Reflog actions that make a new commit in this checkout. A merge, a pull or a switch brings
+# the commits of other people, so it is not here. Nor is a merge that a person finished by hand.
+OWN_COMMIT = re.compile(r"^(?!commit \(merge\))(commit|revert|cherry-pick)\b")
+REFLOG_LIMIT = "500"
 REMINDER = (
     "No fact was written for this work. If a later session needs something from it, record it: "
     '`memory add "TEXT" --kind lesson|trap|decision`. If not, carry on.'
@@ -210,15 +215,47 @@ def files_outside_git(root: Path, memory_dir: Path | None) -> list[str]:
     return found[:OTHERS_LIMIT]
 
 
+def _deleted(root: Path, *commits: str) -> set[str]:
+    args = ("diff", "--name-only", "--diff-filter=D", "-M", *commits)
+    return set((run_git(root, *args, timeout=2.0) or "").splitlines())
+
+
+def _deleted_here(root: Path, head: str) -> set[str]:
+    """What this checkout deleted since `head`: in the worktree, or in a commit that it made.
+
+    The HEAD reflog says which moves made a commit here. With no entry for `head`, the reflog is
+    off or too old to say, so only the worktree counts. A missed question costs less than a false
+    one.
+    """
+    found = _deleted(root, "HEAD")
+    log = run_git(root, "log", "-g", "-n", REFLOG_LIMIT, "--format=%H%x00%gs", "HEAD", timeout=2.0)
+    moves = [line.split("\0", 1) for line in (log or "").splitlines()]
+    if head not in (move[0] for move in moves):
+        return found
+    for (new, action), (old, _) in itertools.pairwise(moves):
+        if new == head:
+            break
+        if OWN_COMMIT.match(action):
+            found |= _deleted(root, old, new)
+    return found
+
+
 def tracked_files_gone(root: Path, memory_dir: Path | None, head: str) -> list[str]:
-    """Files that the start commit held and that are gone now. A rename is not a deletion."""
+    """Files that the start commit held and this session deleted. A rename is not a deletion.
+
+    A file removed by commits from elsewhere (pull, merge, rebase, switch) is not in the list.
+    """
     # After a switch or a rebase, a file can be missing only because its branch is not here.
     if run_git(root, "merge-base", "--is-ancestor", head, "HEAD", timeout=2.0) is None:
         return []
     specs = _pathspecs(root, memory_dir)
     args = ("diff", "--name-only", "--diff-filter=D", "-M", head, "--", *specs)
     listed = run_git(root, *args, timeout=2.0) or ""
-    return [path for path in listed.splitlines() if path and not is_junk_path(path)]
+    gone = [path for path in listed.splitlines() if path and not is_junk_path(path)]
+    if not gone:
+        return []
+    here = _deleted_here(root, head)
+    return [path for path in gone if path in here]
 
 
 def reminder_hint() -> str:

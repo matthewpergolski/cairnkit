@@ -94,6 +94,12 @@ refuses, merges, or adds a marked block.
       - An older copy in `proposals/old-copies/`. The agent compares it with the note,
         carries over what is still true, and deletes the copy.
 
+      `memory check` also names a text file that appears outside `notes/` later. A
+      rerun of `memory migrate --yes` moves it into `notes/`. If `notes/` already holds
+      other text at that path, the note stays and the file goes to
+      `proposals/old-copies/`, with a task item. No text is lost. `memory migrate`
+      prints the plan and changes nothing.
+
       The command does not delete the old checker. It says where the checker is still
       named. When the old checker and `memory check` disagree, believe `memory check`.
       Where a repo doc and `memory instructions` disagree about the memory,

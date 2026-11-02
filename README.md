@@ -774,7 +774,7 @@ level only. It writes nothing into a repo.
 | `memory load [--area AREA] [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]] [--instructions-file PATH]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. `shared` is refused. |
-| `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--force` rewrites the pages and removes other Markdown files in that folder. No hook runs it, because the folder may be tracked. `memory status` shows one line when the pages differ from the code. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder is missing or the pages match. Exit 1 and one repo-relative path per line when a page differs, is missing, or is extra. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
+| `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state` (system map, agent session flow, fact lifecycle; plus package architecture when `src/cairnkit` is present). No model and no network. Refuses an existing atlas unless `--force`. `--force` rewrites only the atlas pages, and it removes an atlas page that no longer has a source. An atlas page is a page with the exact front matter that this command writes. All other Markdown in that folder stays and never counts as stale, and a file at an atlas path stays too, with a `keep` line. A hand-written page with that same front matter, line for line, counts as an atlas page. An atlas page whose front matter was changed counts as hand-written. No hook runs it, because the folder may be tracked. `memory status` shows one line when the pages differ from the code. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder holds no atlas page or the pages match. Exit 1 and one repo-relative path per line when an atlas page differs, is missing, or has no source now. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
 | `memory repair` | an agent, when a stop or `memory check` names it | Settles a bad line with an appended record, and the bytes stay. It prints only plain words and masks. It does not settle a value that looks secret. Drops a bad setting from `config.toml`, masks each value, and keeps a copy in the next free `config.toml.bad` name. It deletes no fact. |
 | `memory purge ID --reason secret --yes` | an agent, after a clean replacement | Removes a secret for good. `ID` can be `line-HASH` for a damaged line. |
 
@@ -859,11 +859,13 @@ and the news wait for the next prompt or tool result, which adds text with no tu
 in the session ends the reminder. In 20 ordinary turns, an agent that never writes sees no block
 on a plain script and 2 on a mixed one. `tests/test_stop_replay.py` replays both on each adapter.
 
-**Corrections and lost files.** When the owner's prompt corrects the agent, or a file that was
-here at the session start is gone, stop names it once and asks if a trap belongs in memory. The
+**Corrections and lost files.** When the owner's prompt corrects the agent, or the session deleted
+a file that was here at its start, stop names it once and asks if a trap belongs in memory. The
 tool writes no fact. A fact written after the correction, or one that names the file, ends the
 question. So does a prompt that names the file or asks to remove it, because the owner knows
-about it.
+about it. A file that commits from elsewhere removed (a pull, a merge, a rebase, a branch switch)
+raises no question. The HEAD reflog tells them apart. With the reflog off, only a deletion in the
+worktree raises it.
 
 **One answer.** `memory status`, `memory check` and `memory load` print the same answer line, and
 stop blocks on what `--strict` fails. A healthy load prints no answer, so it spends no words.

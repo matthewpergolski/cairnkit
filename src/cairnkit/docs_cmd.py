@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +12,16 @@ from cairnkit.paths import Project
 from cairnkit.writing import fail
 
 STATE_DIR = Path("docs") / "state"
+_SCALAR = r'(?:[A-Za-z0-9_./-]+|"(?:[^"\\]|\\.)*")'
+# What render_page writes, line by line. A page with this front matter is the tool's own.
+_ATLAS_FRONT_MATTER = re.compile(
+    rf"---\nid: \S+\ntitle: {_SCALAR}\nkind: \S+\nstatus: \S+\n"
+    rf"summary: {_SCALAR}\nparent: {_SCALAR}\n"
+    r'(?:sourceRevision: "[^"\n]+"\n)?'
+    r"sources:\n(?:  \[\]\n|(?:  - .+\n)+)"
+    r"diagramLinks:(?: \{\}\n|\n(?:  .+\n)+)"
+    r"---\n\n"
+)
 
 
 @dataclass(frozen=True)
@@ -111,64 +122,62 @@ def write_atlas(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
     return written
 
 
-def _prune_orphan_markdown(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
+def _prune_old_pages(
+    root: Path, atlas: dict[Path, str], written: list[Path], *, dry_run: bool
+) -> list[Path]:
+    """Remove each atlas page that has no source now. All else in the folder stays."""
     state = root / STATE_DIR
-    if not state.is_dir():
-        return []
-    keep = {root / STATE_DIR / page.state_path for page in pages}
-    removed: list[Path] = []
-    for path in sorted(state.rglob("*.md"), reverse=True):
-        if path in keep:
-            continue
-        removed.append(path)
-        if not dry_run:
-            path.unlink(missing_ok=True)
-    if not dry_run:
-        for folder in sorted((p for p in state.rglob("*") if p.is_dir()), reverse=True):
-            try:
-                next(folder.iterdir())
-            except StopIteration:
-                folder.rmdir()
-            except OSError:
-                pass
+    removed = sorted((path for path in atlas if path not in written), reverse=True)
+    for path in [] if dry_run else removed:
+        path.unlink(missing_ok=True)
+        for folder in path.parents:
+            if folder == state or any(folder.iterdir()):
+                break
+            folder.rmdir()
     return removed
 
 
 _SOURCE_REVISION_LINE = re.compile(r"^sourceRevision:[^\n]*\n", re.MULTILINE)
-_UNREADABLE = object()
 
 
 def _strip_source_revision(text: str) -> str:
     return _SOURCE_REVISION_LINE.sub("", text)
 
 
-def _state_markdown(root: Path) -> dict[str, object] | None:
+def _atlas_pages(root: Path) -> dict[Path, str]:
+    """The pages under docs/state that render_page wrote, with no `sourceRevision` line."""
     state = root / STATE_DIR
-    if not state.is_dir():
-        return None
-    paths = sorted(state.rglob("*.md"))
-    if not paths:
-        return None
-    found: dict[str, object] = {}
-    for path in paths:
-        rel = path.relative_to(root).as_posix()
+    found: dict[Path, str] = {}
+    for path in sorted(state.rglob("*.md")) if state.is_dir() else []:
         try:
-            found[rel] = _strip_source_revision(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
-            found[rel] = _UNREADABLE
-    return found or None
+            continue
+        if _ATLAS_FRONT_MATTER.match(text):
+            found[path] = _strip_source_revision(text)
+    return found
+
+
+def _not_ours(path: Path, atlas: dict[Path, str]) -> bool:
+    """Something else holds this atlas path, such as a hand-written page. It stays."""
+    return path not in atlas and os.path.lexists(path)
 
 
 def atlas_freshness(project: Project) -> AtlasFreshness:
-    disk = _state_markdown(project.root)
-    if disk is None:
+    root = project.root
+    disk = _atlas_pages(root)
+    if not disk:
         return Absent()
     fresh = {
-        (STATE_DIR / page.state_path).as_posix(): _strip_source_revision(render_page(page))
+        root / STATE_DIR / page.state_path: _strip_source_revision(render_page(page))
         for page in build_atlas(project)
     }
     changed = tuple(
-        sorted(rel for rel in set(fresh) | set(disk) if fresh.get(rel) != disk.get(rel))
+        sorted(
+            path.relative_to(root).as_posix()
+            for path in {*fresh, *disk}
+            if fresh.get(path) != disk.get(path) and not _not_ours(path, disk)
+        )
     )
     if not changed:
         return Current()
@@ -185,8 +194,9 @@ def status_line(project: Project) -> str | None:
         return None
     return (
         f"Docs atlas: {len(result.changed)} page(s) in {STATE_DIR.as_posix()} differ from the "
-        "code. `memory docs --force` rewrites them with no model and no network, and removes "
-        "other Markdown files there. The folder may be tracked, so nothing runs it by itself."
+        "code. `memory docs --force` uses no model and no network. It rewrites only the atlas "
+        "pages, removes an atlas page that has no source now, and keeps all other Markdown. "
+        "The folder may be tracked, so nothing runs it by itself."
     )
 
 
@@ -205,30 +215,34 @@ def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> 
     except MemoryMissing as exc:
         return fail(str(exc))
 
-    out = project.root / STATE_DIR
-    existing = sorted(out.rglob("*.md")) if out.is_dir() else []
-    if existing and not force and not dry_run:
+    root = project.root
+    atlas = _atlas_pages(root)
+    if atlas and not force and not dry_run:
         return fail(
-            f"{STATE_DIR.as_posix()} already exists ({len(existing)} Markdown file(s)). "
-            "Re-run with --force to overwrite, or remove it first.\nNothing changed."
+            f"{STATE_DIR.as_posix()} already exists ({len(atlas)} atlas page(s)). "
+            "Re-run with --force to rewrite them, or remove them first.\nNothing changed."
         )
 
     pages = build_atlas(project)
-    paths = write_atlas(project.root, pages, dry_run=dry_run)
-    removed = _prune_orphan_markdown(project.root, pages, dry_run=dry_run) if force else []
-    rels = [p.relative_to(project.root).as_posix() for p in paths]
+    kept = [path for page in pages if _not_ours(path := root / STATE_DIR / page.state_path, atlas)]
+    mine = [page for page in pages if root / STATE_DIR / page.state_path not in kept]
+    paths = write_atlas(root, mine, dry_run=dry_run)
+    removed = _prune_old_pages(root, atlas, paths, dry_run=dry_run) if force else []
+    rels = [p.relative_to(root).as_posix() for p in paths]
     if dry_run:
         print(f"Would write {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
         for path in removed:
-            print(f"  remove {path.relative_to(project.root).as_posix()}")
+            print(f"  remove {path.relative_to(root).as_posix()}")
     else:
         print(f"Wrote {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
         for path in removed:
-            print(f"  removed {path.relative_to(project.root).as_posix()}")
+            print(f"  removed {path.relative_to(root).as_posix()}")
+    for path in kept:
+        print(f"  keep {path.relative_to(root).as_posix()}: it is not an atlas page")
     print(
         "Browse with Nessa Docs: https://github.com/nessalabs/nessa-docs "
         "(open this project folder in the app)."

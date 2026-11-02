@@ -58,24 +58,13 @@ def test_docs_refuses_existing_without_force(mem: Path, repo: Path, capsys):
     assert (state_dir(repo) / "README.md").read_text(encoding="utf-8") == before
 
 
-def test_docs_force_overwrites(mem: Path, repo: Path):
+def test_docs_force_rewrites_an_edited_atlas_page(mem: Path, repo: Path):
     assert main(["docs"]) == 0
     readme = state_dir(repo) / "README.md"
-    readme.write_text("stale\n", encoding="utf-8")
+    fresh = readme.read_text(encoding="utf-8")
+    readme.write_text(fresh + "an edit\n", encoding="utf-8")
     assert main(["docs", "--force"]) == 0
-    text = readme.read_text(encoding="utf-8")
-    assert text.startswith("---\n")
-    assert "kind: system" in text
-
-
-def test_docs_force_removes_orphan_markdown(mem: Path, repo: Path):
-    assert main(["docs"]) == 0
-    orphan = state_dir(repo) / "services" / "orphan.md"
-    orphan.parent.mkdir(parents=True)
-    orphan.write_text("stale orphan\n", encoding="utf-8")
-    assert main(["docs", "--force"]) == 0
-    assert not orphan.exists()
-    assert (state_dir(repo) / "README.md").is_file()
+    assert readme.read_text(encoding="utf-8") == fresh
 
 
 def test_docs_records_source_revision(mem: Path, repo: Path):
