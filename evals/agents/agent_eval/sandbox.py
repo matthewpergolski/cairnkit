@@ -1,4 +1,4 @@
-"""Two tool builds and the throwaway repos they run in. Nothing here touches a real memory."""
+"""The tool builds and the throwaway repos they run in. Nothing here touches a real memory."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_eval.agents import Agent
+from agent_eval.scoring import NO_MEMORY
 
 PROD_REF = "d523c01"
 MEMORY_LINK = "memory-bank"
@@ -42,7 +43,33 @@ STRIPPED_PREFIXES = ("CLAUDE_CODE_",)
 PROVIDER_ENV_PREFIXES = ("ANTHROPIC_", "OPENAI_", "XAI_", "CURSOR_", "OPENCODE_", "GEMINI_")
 
 TRACE_MODULE = """\
-import json, os, sys, time
+import atexit, json, os, sys, time
+
+def _append(row):
+    fd = os.open(__TRACE__, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, (json.dumps(row) + "\\n").encode())
+    finally:
+        os.close(fd)
+
+class _Tee:
+    def __init__(self, inner):
+        self.inner, self.seen = inner, []
+    def write(self, text):
+        self.seen.append(text)
+        return self.inner.write(text)
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+def _capture_hook(event, cwd):
+    # A git hook sends its output to /dev/null. No agent reads that text.
+    if os.path.samestat(os.fstat(1), os.stat(os.devnull)):
+        return
+    tee = sys.stdout = _Tee(sys.stdout)
+    def report():
+        text = "".join(tee.seen)
+        _append({"hook": event, "hook_stdout": text, "cwd": cwd, "at": time.time()})
+    atexit.register(report)
 
 def _trace():
     if os.environ.get("CAIRNKIT_EVAL_HARNESS"):
@@ -51,12 +78,10 @@ def _trace():
     text = " ".join(argv)
     if "cairnkit" not in text and "/memory" not in text:
         return
-    line = json.dumps({"argv": argv[1:], "cwd": os.getcwd(), "at": time.time()})
-    fd = os.open(__TRACE__, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-    try:
-        os.write(fd, (line + "\\n").encode())
-    finally:
-        os.close(fd)
+    cwd = os.getcwd()
+    _append({"argv": argv[1:], "cwd": cwd, "at": time.time()})
+    if "hook" in argv[:-1]:
+        _capture_hook(argv[argv.index("hook") + 1], cwd)
 
 try:
     _trace()
@@ -107,6 +132,7 @@ class Build:
     commit: str
     root: Path
     version: str
+    has_memory: bool = True
 
     @property
     def bin_dir(self) -> Path:
@@ -171,6 +197,12 @@ def make_build(label: str, ref: str, repo: Path, builds_dir: Path) -> Build:
     return Build(label=label, commit=commit, root=root, version=version)
 
 
+def no_memory_build(builds_dir: Path) -> Build:
+    """The arm with no tool: nothing to install, and a trace that stays empty."""
+    root = (builds_dir / NO_MEMORY).resolve()
+    return Build(label=NO_MEMORY, commit=NO_MEMORY, root=root, version="none", has_memory=False)
+
+
 def _install_trace(venv: Path, trace_path: Path) -> None:
     """Log each start of the tool, with no change to its source, in both builds alike."""
     sites = list((venv / "lib").glob("python*/site-packages"))
@@ -205,7 +237,7 @@ def seed_record(fact, now: datetime) -> dict:
 @dataclass
 class Sandbox:
     build: Build
-    agent: Agent
+    agents: tuple[Agent, ...]
     root: Path
     repo: Path
     memory_dir: Path
@@ -229,8 +261,43 @@ class Sandbox:
             check=False,
         )
 
+    def git_or_none(self, *args: str, cwd: Path | None = None) -> str | None:
+        """Git for a thing that an agent may have removed."""
+        if cwd and not cwd.is_dir():
+            return None
+        done = run(["git", *args], cwd=cwd or self.repo, env=self.setup_env, check=False)
+        return done.stdout if done.returncode == 0 else None
+
     def git_status(self) -> list[str]:
         return [line for line in self.git("status", "--porcelain").splitlines() if line]
+
+    def rules_words(self) -> int:
+        """Words of the untracked rules files, which a tool reads at the start of each session."""
+        listed = self.git("ls-files", "-o", "--exclude-standard").splitlines()
+        listed += self.git("ls-files", "-o", "-i", "--exclude-standard").splitlines()
+        paths = [self.repo / name for name in listed if name.endswith((".md", ".mdc"))]
+        return sum(len(_read(path).split()) for path in paths if path.is_file())
+
+    def load_text(self) -> str:
+        return self.memory_cmd("load").stdout if self.build.has_memory else ""
+
+    def carried_by(self, needle, new_facts: list[dict]) -> list[str]:
+        """Where a session left this text: new facts, new commits, or changed files.
+
+        Only what changed after the setup counts, so a repo file that holds the text from the
+        start counts for no channel.
+        """
+        channels = []
+        if any(needle.search(str(fact.get("text", ""))) for fact in new_facts):
+            channels.append("memory")
+        log = self.git("log", "--all", "-p", "--not", self.head_after_setup)
+        if needle.search(log):
+            channels.append("git")
+        status = self.git("status", "--porcelain", "-uall").splitlines()
+        paths = [self.repo / line[3:].split(" -> ")[-1] for line in status if line]
+        if any(path.is_file() and needle.search(_read(path)) for path in paths):
+            channels.append("file")
+        return channels
 
     def read_records(self) -> list[dict]:
         rows = []
@@ -245,15 +312,40 @@ class Sandbox:
         return rows
 
 
-def _setup_path(build: Build, agent: Agent, shim: Path) -> str:
-    """One agent on PATH, so that detection in the tool connects that agent and no other."""
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _setup_path(build: Build, agents: tuple[Agent, ...], shim: Path) -> str:
+    """Only these agents on PATH, so that detection in the tool connects them and no other."""
     shim.mkdir(parents=True, exist_ok=True)
-    found = shutil.which(agent.binary)
-    if found:
-        link = shim / agent.binary
-        if not link.exists():
-            link.symlink_to(found)
+    for agent in agents:
+        found = shutil.which(agent.binary)
+        if found:
+            link = shim / agent.binary
+            if not link.exists():
+                link.symlink_to(found)
     return os.pathsep.join([str(build.bin_dir), str(shim), "/usr/bin", "/bin"])
+
+
+def path_without_memory(path: str, shim: Path) -> str:
+    """PATH with no `memory` and no `cairnkit`. The other tools of such a folder stay in `shim`.
+
+    A real install often shares a folder with the agent tools, so the folder cannot just go.
+    """
+    hidden = ("memory", "cairnkit")
+    shim.mkdir(parents=True, exist_ok=True)
+    kept = []
+    for entry in path.split(os.pathsep):
+        folder = Path(entry)
+        if not any((folder / name).exists() for name in hidden):
+            kept.append(entry)
+            continue
+        for item in folder.iterdir():
+            link = shim / item.name
+            if item.name not in hidden and not link.exists():
+                link.symlink_to(item)
+    return os.pathsep.join([str(shim), *kept])
 
 
 def make_sandbox(
@@ -264,10 +356,12 @@ def make_sandbox(
     *,
     isolated_home: bool,
     now: datetime | None = None,
+    other_agent: Agent | None = None,
 ) -> Sandbox:
     """A new repo, connected as the docs of this build say, seeded with this scenario's facts."""
     now = now or datetime.now(UTC).astimezone()
     root = root.resolve()
+    agents = (agent, other_agent) if other_agent and other_agent != agent else (agent,)
     repo = root / "proj"
     repo.mkdir(parents=True)
     home = root / "home"
@@ -291,15 +385,18 @@ def make_sandbox(
         **common,
         "HOME": str(home),
         "CAIRNKIT_EVAL_HARNESS": "1",
-        "PATH": _setup_path(build, agent, root / "shim"),
+        "PATH": _setup_path(build, agents, root / "shim"),
     }
+    host_path = os.environ.get("PATH", "")
     agent_env = {
         **common,
-        "PATH": os.pathsep.join([str(build.bin_dir), os.environ.get("PATH", "")]),
+        "PATH": os.pathsep.join([str(build.bin_dir), host_path])
+        if build.has_memory
+        else path_without_memory(host_path, root / "tools"),
     }
     box = Sandbox(
         build=build,
-        agent=agent,
+        agents=agents,
         root=root,
         repo=repo,
         memory_dir=root / "proj.memory",
@@ -316,9 +413,11 @@ def make_sandbox(
         path.write_text(text, encoding="utf-8")
     box.git("add", "-A")
     box.git("commit", "-q", "-m", "start")
-    connect(box)
-    (box.memory_dir / "config.toml").open("a", encoding="utf-8").write("\nskills_check = false\n")
-    write_seed(box, scenario, now)
+    if build.has_memory:
+        connect(box)
+        config = box.memory_dir / "config.toml"
+        config.open("a", encoding="utf-8").write("\nskills_check = false\n")
+        write_seed(box, scenario, now)
     box.git_after_connect = box.git_status()
     if scenario.prepare:
         scenario.prepare(box)
@@ -331,8 +430,9 @@ def connect(box: Sandbox) -> None:
     """The steps a person runs from the docs. A step that the build lacks is recorded."""
     if _connect_step(box, "init") != 0:
         raise SetupError(f"memory init failed: {box.connect_steps[0]['output']}")
-    if _connect_step(box, "hooks", "install", "--agent", box.agent.hook_agent) != 0:
-        _connect_step(box, "instructions", "--write-instructions")
+    for agent in box.agents:
+        if _connect_step(box, "hooks", "install", "--agent", agent.hook_agent) != 0:
+            _connect_step(box, "instructions", "--write-instructions")
 
 
 def _connect_step(box: Sandbox, *step: str) -> int:

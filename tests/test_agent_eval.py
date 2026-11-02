@@ -377,6 +377,7 @@ def test_fake_provider_can_refuse_like_an_expired_token(tmp_path):
 class StubBuild:
     version = "memory 0.3.1"
     commit = "abc"
+    has_memory = True
 
 
 def options_for(tmp_path, agent="pi", scenarios=None, **kw):
@@ -492,7 +493,7 @@ def test_required_scenarios_exist_and_prompts_never_name_the_memory():
 
 def test_fact_questions_have_a_needle_that_the_repo_files_do_not_hold():
     for scenario in SCENARIOS.values():
-        if not scenario.needle or scenario.id == "i-other-branch":
+        if not scenario.needle or scenario.id == "i-other-branch" or scenario.pickup:
             continue
         assert any(scenario.needle.search(fact.text) for fact in scenario.facts), scenario.id
         assert not any(scenario.needle.search(text) for text in scenario.files.values())

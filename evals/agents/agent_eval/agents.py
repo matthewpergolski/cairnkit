@@ -36,6 +36,8 @@ FORBIDDEN_FLAGS = frozenset(
     }
 )
 FORBIDDEN_VALUES = frozenset({"bypassPermissions", "danger-full-access"})
+# Codex has it not: `-s workspace-write` keeps a session out of a folder beside the repo.
+WRITE_OUTSIDE = "write-outside-repo"
 
 
 @dataclass
@@ -55,7 +57,7 @@ class Parsed:
 class CallContext:
     prompt: str
     repo: Path
-    memory_dir: Path
+    memory_dir: Path | None
     model: str | None
     resume: bool = False
     budget_usd: float | None = None
@@ -244,6 +246,10 @@ CLAUDE_TOOLS = ",".join(
 )
 
 
+def _add_dir(call: CallContext) -> list[str]:
+    return ["--add-dir", str(call.memory_dir)] if call.memory_dir else []
+
+
 def claude_argv(call: CallContext) -> list[str]:
     argv = [
         "claude",
@@ -257,8 +263,7 @@ def claude_argv(call: CallContext) -> list[str]:
         "--strict-mcp-config",
         "--allowedTools",
         CLAUDE_TOOLS,
-        "--add-dir",
-        str(call.memory_dir),
+        *_add_dir(call),
     ]
     if call.model:
         argv += ["--model", call.model]
@@ -284,7 +289,7 @@ def codex_argv(call: CallContext) -> list[str]:
     if call.resume:
         argv += ["resume", "--last"]
     else:
-        argv += ["-s", "workspace-write", "--add-dir", str(call.memory_dir), "-C", str(call.repo)]
+        argv += ["-s", "workspace-write", *_add_dir(call), "-C", str(call.repo)]
     argv.append("--json")
     if call.model:
         argv += ["-m", call.model]
@@ -299,8 +304,7 @@ def cursor_argv(call: CallContext) -> list[str]:
         "stream-json",
         "--workspace",
         str(call.repo),
-        "--add-dir",
-        str(call.memory_dir),
+        *_add_dir(call),
     ]
     if call.model:
         argv += ["--model", call.model]
@@ -437,7 +441,7 @@ AGENTS: dict[str, Agent] = {
             argv=claude_argv,
             parse=parse_claude,
             hook_agent="claude",
-            capabilities=frozenset({"resume", "subagent", "compact"}),
+            capabilities=frozenset({"resume", "subagent", "compact", WRITE_OUTSIDE}),
             live_argv=claude_live_argv,
             fake=fake_claude,
         ),
@@ -459,7 +463,7 @@ AGENTS: dict[str, Agent] = {
             argv=cursor_argv,
             parse=parse_cursor,
             hook_agent="cursor",
-            capabilities=frozenset({"resume", "subagent"}),
+            capabilities=frozenset({"resume", "subagent", WRITE_OUTSIDE}),
             no_fake_reason="It uses a private protocol and an account key exchange.",
             connect_note="Headless mode needs a workspace trust step. The kit does not skip it.",
         ),
@@ -470,7 +474,7 @@ AGENTS: dict[str, Agent] = {
             argv=opencode_argv,
             parse=parse_opencode,
             hook_agent="opencode",
-            capabilities=frozenset({"resume", "subagent"}),
+            capabilities=frozenset({"resume", "subagent", WRITE_OUTSIDE}),
             fake=fake_opencode,
         ),
         Agent(
@@ -480,7 +484,7 @@ AGENTS: dict[str, Agent] = {
             argv=pi_argv,
             parse=parse_pi,
             hook_agent="pi",
-            capabilities=frozenset({"resume"}),
+            capabilities=frozenset({"resume", WRITE_OUTSIDE}),
             fake=fake_pi,
         ),
         Agent(
@@ -490,7 +494,7 @@ AGENTS: dict[str, Agent] = {
             argv=grok_argv,
             parse=parse_grok,
             hook_agent="grok",
-            capabilities=frozenset({"resume", "subagent"}),
+            capabilities=frozenset({"resume", "subagent", WRITE_OUTSIDE}),
             fake=fake_grok,
             connect_note="Project hooks need folder trust. The kit does not skip it.",
         ),
