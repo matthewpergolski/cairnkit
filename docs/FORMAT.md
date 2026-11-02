@@ -104,6 +104,7 @@ before the home folder and the file system root.
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
   .sessions/live/<session>-<checkout>  a session in a turn in that checkout: holds its path, and the file time is the last event (safe to delete)
+  .sessions/helpers/open.json   each helper with no recorded end: why it started, and where (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
   .auto-tidy-state.json         the state of `auto_tidy = "auto"` (safe to delete)
   .auto-tidy.lock               the lock for a retire
@@ -547,7 +548,24 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   for `cursor`, and TEXT on stdout for `pi` and `opencode`. A payload with no command, or
   a command and no outcome, is not counted. The hook always exits 0.
 - `subagent-start`: prints `{"hookSpecificOutput": {"hookEventName": "SubagentStart",
-  "additionalContext": TEXT}}`, where TEXT is a load of 300 words. It writes nothing.
+  "additionalContext": TEXT}}`, where TEXT is a load of 300 words with no helper of its own
+  session. It adds the `agent_id`, the checkout (`cwd`, when it is not the parent's) and that
+  checkout's HEAD to the record of the call: the record that a background launch named, else the
+  oldest call of the session for that `agent_type` with no helper yet.
+- `helper-call` (Claude Code `PreToolUse`, matcher `Agent|Task`) and `subagent-stop` (Claude Code
+  `SubagentStop`): print nothing and exit 0, so they never allow, deny or stop anything. They give
+  up after 2.5 seconds. `helper-call` adds a record to `.sessions/helpers/open.json`: a JSON list
+  of objects with `call` (the `tool_use_id`), `session`, `kind` (`subagent_type`), `about` (the
+  `description`, at most 12 words), `task` (the prompt, at most 60 words), `started_at` (Unix
+  seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base` and `told` (the sessions
+  whose load named it). Each text field is masked and made one line before it is written. The file
+  holds at most 50 records, under the lock `.sessions/helpers/.lock`. `subagent-stop` removes the
+  record of that `agent_id`. `after-shell` on the `Agent` tool removes the record of the call, or,
+  for `"status": "async_launched"`, adds its `agentId`. `stop` removes the calls of its turn with
+  no helper, and each record that its session's load named whose checkout is not there.
+- The load adds one `- [helper]` line under `## Live work` for each of the 3 oldest records (with
+  the count of the others). It is inside the frame of stored notes, because the text came from an
+  agent. A load for `compact` or `reload` leaves out the records of its own session.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
   checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before
   it removes them, it adds each other checkout that they name to `helpers` in

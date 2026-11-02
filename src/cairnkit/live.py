@@ -5,6 +5,9 @@ where a session is at work: `.sessions/live/<session>-<checkout>` holds the path
 is the last hook event there. A stop removes the markers of its session, so a session that ended
 costs no words. Time ends the marker of a session that died in a turn. Markers are one small file
 each because subagents share a session key, and a shared JSON file would lose their writes.
+
+A helper with no recorded end gets its own line, with its purpose (`helpers.py`) and the state of
+its own checkout, so a session killed in a turn leaves why it started the helper.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from cairnkit import deadline
+from cairnkit import deadline, helpers
 from cairnkit.load import note_head
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git, tree_env
@@ -33,6 +36,7 @@ GIT_TIMEOUT = BUDGET * 2
 MAX_CHECKOUTS = 12
 MAX_LINES = 3
 MAX_FILES = 5
+MAX_HELPERS = 3
 NOTE_WORDS = 20
 ORDER = (
     "Live work that this session did not start is listed under `## Live work`. Do not commit, "
@@ -107,33 +111,100 @@ def _holds_a_checkout(path: Path, entry: str, checkouts: list[Path]) -> bool:
     return any(c != path and (c == full or full in c.parents) for c in checkouts)
 
 
-def _read_checkouts(memory: Memory, at_work: dict[str, float], here_counts: bool):
-    """The checkouts with live work, and how many could not be read."""
+def _read_checkouts(memory: Memory, at_work: dict[str, float], here_counts: bool, skip: set[Path]):
+    """The checkouts with live work, and how many could not be read. A helper line holds `skip`."""
     project = memory.project
     root = project.root
-    wanted = [path for path in project.checkouts if path != root or here_counts]
+    wanted = [
+        path
+        for path in project.checkouts
+        if (path != root or here_counts) and path.resolve() not in skip
+    ]
     wanted.sort(key=lambda path: (path != root, str(path) not in at_work))
     found = []
     unread = max(len(wanted) - MAX_CHECKOUTS, 0)
-    with deadline.within(BUDGET):
-        for path in wanted[:MAX_CHECKOUTS]:
-            cuts = deadline.git_cuts()
-            status = _read_status(path)
-            if status is None:
-                unread += deadline.git_cuts() > cuts
-                continue
-            branch, entries = status
-            files = [
-                entry
-                for entry in entries
-                if not is_junk_path(entry)
-                and not is_memory_path(entry, path, memory.dir)
-                and not _holds_a_checkout(path, entry, project.checkouts)
-            ]
-            seen_at = at_work.get(str(path))
-            if files or seen_at:
-                found.append(Checkout(path, branch, files, seen_at))
+    for path in wanted[:MAX_CHECKOUTS]:
+        cuts = deadline.git_cuts()
+        status = _read_status(path)
+        if status is None:
+            unread += deadline.git_cuts() > cuts
+            continue
+        branch, files = _work_in(memory, path, status)
+        seen_at = at_work.get(str(path))
+        if files or seen_at:
+            found.append(Checkout(path, branch, files, seen_at))
     return found, unread
+
+
+def _work_in(memory: Memory, path: Path, status: tuple[str | None, list[str]]):
+    """The branch and the changed files that count, from a status of the checkout at `path`."""
+    branch, entries = status
+    files = [
+        entry
+        for entry in entries
+        if not is_junk_path(entry)
+        and not is_memory_path(entry, path, memory.dir)
+        and not _holds_a_checkout(path, entry, memory.project.checkouts)
+    ]
+    return branch, files
+
+
+def _ago(at: float) -> str:
+    minutes = max(int((time.time() - at) // 60), 1)
+    if minutes < 120:
+        return f"{minutes}m"
+    hours = minutes // 60
+    return f"{hours}h" if hours < 48 else f"{hours // 24}d"
+
+
+def _place(memory: Memory, path: str) -> str:
+    root = memory.project.root.resolve()
+    if not path or Path(path).resolve() == root:
+        return "this checkout"
+    return name(os.path.relpath(Path(path).resolve(), root))
+
+
+def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
+    """The branch of the helper's checkout, and what that checkout holds now."""
+    path = Path(helper.checkout or "")
+    status = _read_status(path)
+    if status is None:
+        return "", "its checkout could not be read in time"
+    branch, files = _work_in(memory, path, status)
+    commits = 0
+    if helper.base:
+        count = run_git(path, "rev-list", "--count", f"{helper.base}..HEAD", timeout=GIT_TIMEOUT)
+        commits = int(count) if count and count.strip().isdigit() else 0
+    parts = []
+    if commits:
+        parts.append(f"{commits} commit(s) since it started")
+    if files:
+        shown = ", ".join(name(entry) for entry in files[:MAX_FILES])
+        more = len(files) - MAX_FILES
+        parts.append(f"uncommitted {shown}" + (f" and {more} more" if more > 0 else ""))
+    held = ", ".join(parts) or "no uncommitted change and no commit there"
+    return (f", branch {name(branch)}" if branch else ""), held
+
+
+def _helper_line(memory: Memory, helper: helpers.Helper) -> str:
+    about = '"' + helper.about.replace('"', "'") + '"'
+    kind = f" ({name(helper.kind)})" if helper.kind else ""
+    ago = _ago(helper.started_at)
+    if not helper.launched:
+        head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
+        state = ["not started, no end recorded"]
+    elif helper.has_checkout:
+        branch, held = _helper_work(memory, helper)
+        head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}{branch}"
+        state = ["no end recorded", held]
+    elif helper.checkout:
+        head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}"
+        state = ["no end recorded", "that checkout is gone now"]
+    else:
+        head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.parent)}"
+        state = ["no end recorded"]
+    task = [f"task: {helper.task}"] if helper.task else []
+    return mask(clean(f"- [helper] {head}: {'; '.join([*task, *state])}."), memory.env)
 
 
 def _branch_note(memory: Memory, branch: str | None) -> str | None:
@@ -170,20 +241,36 @@ def _line(memory: Memory, checkout: Checkout) -> str:
     return mask(clean(f"- [live] {name(place)}{branch}: {'; '.join(parts)}."), memory.env)
 
 
-def add_lines(memory: Memory, lines: list[str], session: str | None) -> list[str]:
+def add_lines(
+    memory: Memory, lines: list[str], session: str | None, hide_helpers_of: str | None = None
+) -> list[str]:
     """The load with its live work added, or as it was when there is none.
 
     With no session, a plain `memory load` cannot tell its own changes and marker from another's,
     so it says nothing of its own checkout. A session names its own checkout only when another
     session is at work here. Old changes here with no session at work are most often the owner's,
     and the order not to commit them would get in the way of a plain request to commit.
+    The helpers of `hide_helpers_of` can still run, so they are not named.
     """
-    if not memory.project.is_git or FRAME_HEADER not in lines:
+    if FRAME_HEADER not in lines:
         return lines
-    at_work = _others_at_work(memory, session)
-    here = session is not None and str(memory.project.root) in at_work
-    found, unread = _read_checkouts(memory, at_work, here)
-    body = [_line(memory, checkout) for checkout in found[:MAX_LINES]]
+    records = helpers.shown(memory, hide_helpers_of)
+    named = records[:MAX_HELPERS]
+    body: list[str] = []
+    found: list[Checkout] = []
+    unread = 0
+    with deadline.within(BUDGET):
+        body = [_helper_line(memory, helper) for helper in named]
+        if len(records) > MAX_HELPERS:
+            body.append(f"- [helper] {len(records) - MAX_HELPERS} more helper(s) with no end.")
+        if memory.project.is_git:
+            at_work = _others_at_work(memory, session)
+            here = session is not None and str(memory.project.root) in at_work
+            skip = {Path(h.checkout or "").resolve() for h in named if h.has_checkout}
+            found, unread = _read_checkouts(memory, at_work, here, skip)
+    if session is not None:
+        helpers.note_told(memory, [helper.call for helper in named], session)
+    body += [_line(memory, checkout) for checkout in found[:MAX_LINES]]
     held = len(found) - MAX_LINES
     if held > 0:
         body.append(f"- [live] {held} more checkout(s) hold live work.")

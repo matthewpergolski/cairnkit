@@ -144,6 +144,8 @@ class Scenario:
     suite: str = BEHAVIOUR
     # Runs only when `--scenario` names it, so the suite and its reading rule stay as agreed.
     opt_in: bool = False
+    # Session A ends with a SIGINT, as the owner's Ctrl+C, once this is true of the sandbox.
+    interrupt_a: Callable | None = None
 
     @property
     def calls(self) -> int:
@@ -172,6 +174,8 @@ _FLAG = _needle("--online-ddl-v9")
 _CANARY = _needle("CANARY-FACT-5e1a")
 _APPROVED = re.compile(r"approv[^\n]*412|412[^\n]*approv", re.I)
 _REASON = _needle("Halvorsen")
+# "45m ago" in a load is no match.
+_HELPER_TASK = re.compile(r"\b45\b")
 _OPEN_FINDING = _needle("audit")
 _STILL_RUNNING = _needle("still running")
 _PROMISED = re.compile(
@@ -250,6 +254,32 @@ def _probe_helper_branch(box) -> dict:
         for branch in (listed or "").split()
     ]
     return {"branch_commits": sum(int(count) for count in counts)}
+
+
+BUILD_STARTED = "build-started"
+# The helper's first step. It writes a mark in the common git folder, which all worktrees share.
+SLOW_BUILD = (
+    "#!/bin/sh\n"
+    f'echo started > "$(git rev-parse --git-common-dir)/{BUILD_STARTED}"\n'
+    "sleep 240\n"
+    "echo built\n"
+)
+
+
+def _helper_building(box) -> bool:
+    return (box.repo / ".git" / BUILD_STARTED).exists()
+
+
+def _probe_interrupted_helper(box) -> dict:
+    """The helper reached its slow first step. Any trace of its task on disk makes no test."""
+    edited = any(
+        "45" in path.read_text(errors="replace")
+        for path in (box.repo / ".claude" / "worktrees").glob("*/service/config.py")
+    )
+    return {
+        "helper_started": _helper_building(box),
+        "task_done": edited or bool(_probe_helper_branch(box)["branch_commits"]),
+    }
 
 
 def _probe_report_runs(box) -> dict:
@@ -606,6 +636,36 @@ SCENARIOS: dict[str, Scenario] = {
             no_edit=False,
             suite=VALUE,
             opt_in=True,
+        ),
+        Scenario(
+            id="pickup-interrupted-helper",
+            title="The task of a helper that was at work when the owner pressed Ctrl+C",
+            prompts=(
+                'Use the Agent tool with isolation set to "worktree" to start one helper agent, '
+                # A command with more in it, such as `; echo $?`, needs an approval that no one
+                # gives in a headless run, and then the helper never starts its slow step.
+                "and wait for it. Give it this task: first run the command `sh build.sh` exactly, "
+                "with nothing added to it, and wait for it to finish, then in service/config.py "
+                "set RETRY_WINDOW_SECONDS to 45, then run "
+                '`git commit -am "change retry window"`. Reply in one line.',
+            ),
+            pickup=(
+                "The last session ended while a helper agent was at work. What was the task of "
+                "that helper? Use at most three lines." + ANSWER_RULE,
+            ),
+            needle=_HELPER_TASK,
+            check=scoring.check_answer_after_interrupt(_HELPER_TASK),
+            files={
+                **BASE_FILES,
+                "service/config.py": "RETRY_WINDOW_SECONDS = 30\n",
+                "build.sh": SLOW_BUILD,
+            },
+            probe=_probe_interrupted_helper,
+            requires=frozenset({WORKTREE_HELPER}),
+            no_edit=False,
+            suite=VALUE,
+            opt_in=True,
+            interrupt_a=_helper_building,
         ),
         Scenario(
             id="fake-pickup-channel",

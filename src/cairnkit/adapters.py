@@ -8,6 +8,8 @@ breaker events rechecked 2026-10-30):
   the context. A Stop hook that prints `{"decision": "block", "reason": ...}` makes the agent
   continue. `PreToolUse` (matcher `Bash`) denies with `permissionDecisionReason`, which the model
   reads. Its `additionalContext` arrives with the tool result, after the command ran.
+  `PreToolUse` on `Agent|Task` gets the helper's `description` and `prompt` before it starts, and
+  `SubagentStop` its end (checked 2026-11-02, and in a real run of 2.1.316). Both print nothing.
 - Codex: `.codex/hooks.json`, the same shape with no `PostToolUseFailure`. Stop must print JSON
   on exit 0. Project hooks run only in a trusted project, after review in `/hooks`. `PreToolUse`
   denies as in Claude Code.
@@ -99,11 +101,13 @@ class NestedAdapter(Adapter):
         shared: tuple[str, ...] = (),
         failure_events: tuple[str, ...] = (),
         before_shell: bool = False,
+        helper_calls: bool = False,
     ):
         super().__init__(name, rel, shared)
         self.start_matcher = start_matcher
         self.failure_events = failure_events
         self.before_shell = before_shell
+        self.helper_calls = helper_calls
 
     def _groups(self) -> dict[str, dict]:
         start = {"type": "command", "command": hook_command("session-start", self.name)}
@@ -138,16 +142,23 @@ class NestedAdapter(Adapter):
                 ]
             },
             **{event: {"hooks": [after]} for event in self.failure_events},
-            **self._before_shell_group(),
         }
 
-    def _before_shell_group(self) -> dict[str, dict]:
-        """A stored fact with a longer form of a shell command stops that call once."""
-        if not self.before_shell:
-            return {}
-        command = hook_command("before-shell", self.name)
-        handler = {"type": "command", "command": command, "timeout": 5}
-        return {"PreToolUse": {"matcher": "Bash", "hooks": [handler]}}
+    def _tool_groups(self) -> dict[str, list[dict]]:
+        """The `PreToolUse` groups, and the end of a helper. Only `before-shell` can deny."""
+        found: dict[str, list[dict]] = {}
+
+        def handler(event: str) -> dict:
+            return {"type": "command", "command": hook_command(event, self.name), "timeout": 5}
+
+        if self.before_shell:  # a stored fact with a longer form of a command stops that call once
+            found["PreToolUse"] = [{"matcher": "Bash", "hooks": [handler("before-shell")]}]
+        if self.helper_calls:  # why a helper starts, while no stop can run yet
+            found.setdefault("PreToolUse", []).append(
+                {"matcher": "Agent|Task", "hooks": [handler("helper-call")]}
+            )
+            found["SubagentStop"] = [{"hooks": [handler("subagent-stop")]}]
+        return found
 
     def remove(self, data: dict) -> dict:
         hooks = data.get("hooks")
@@ -172,6 +183,8 @@ class NestedAdapter(Adapter):
         hooks = data.setdefault("hooks", {})
         for event, group in self._groups().items():
             hooks.setdefault(event, []).append(group)
+        for event, groups in self._tool_groups().items():
+            hooks.setdefault(event, []).extend(groups)
         return data
 
 
@@ -430,6 +443,7 @@ ADAPTERS: dict[str, Adapter] = {
         shared=(".claude/settings.json",),
         failure_events=("PostToolUseFailure",),
         before_shell=True,
+        helper_calls=True,
     ),
     "codex": NestedAdapter(
         "codex", ".codex/hooks.json", "startup|resume|clear|compact", before_shell=True

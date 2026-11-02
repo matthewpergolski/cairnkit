@@ -545,6 +545,16 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
 - A checkout where a session is in a turn. Each prompt and tool hook touches a local marker in
   `.sessions/live/`, and a stop removes it. A session that died in a turn drops out after 30 minutes.
   A session that waits between turns is not named, but its uncommitted changes are.
+- A Claude Code helper (the `Agent` tool) with no recorded end: its description, the start of its
+  prompt, its checkout, and what that checkout holds now, also when it holds no change. A Ctrl+C
+  ends the process in a turn, so no stop runs and the conversation is the only other place that
+  holds the aim. So the hooks record it while the helper starts: `PreToolUse` on `Agent|Task` keeps
+  the description and at most 60 words of the prompt, masked, in `.sessions/helpers/open.json`, and
+  `SubagentStart` adds the helper's id and worktree. An event ends the record, never a clock: the
+  helper's `SubagentStop`, the result of its call, the stop of its own turn for a call that started
+  no helper, or the stop of a session whose load named it. A record whose worktree is still there
+  stays while the worktree does. A compaction does not name the helpers of its own session, and a
+  helper's load does not name its siblings, because they can still run. The tool writes no fact.
 
 This does not use the word budget. It reads each checkout with `git status`, with no optional lock,
 and with 1.5 seconds in total. A checkout that it could not read is counted in the list. It never
@@ -911,8 +921,9 @@ active fact already names that setting and the command: the session had the fix 
 each adapter, and "format the code" never blocks. An agent that writes a fact at each block sees at
 most 3. A subagent gets no capture check, because it never saw the conversation. Its stop has an
 `agent_id` or, on OpenCode, a session with a `parentID`. The files that it changes reach the check of
-its parent, which knows why it asked for them. Claude Code, Codex, Cursor and Grok Build have a
-separate subagent stop, which the tool does not connect. A Claude Code subagent with
+its parent, which knows why it asked for them. Codex, Cursor and Grok Build have a separate
+subagent stop, which the tool does not connect. In Claude Code, `SubagentStop` only ends the record
+of why the helper started (see **Live work**), and it prints nothing. A Claude Code subagent with
 `isolation: "worktree"` works in `.claude/worktrees/agent-*`, and its hooks run there with the
 session key of its parent. They mark that checkout in `.sessions/live/`. The next stop of the parent
 keeps each checkout that the markers of its own session name, and its check also reads those

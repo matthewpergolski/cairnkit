@@ -263,6 +263,7 @@ def run_load(
     explain: bool = False,
     update_notice: bool = True,
     session: str | None = None,
+    hide_helpers_of: str | None = None,
 ) -> int:
     from cairnkit import live  # it reads session state, and session.py imports this module
 
@@ -274,7 +275,7 @@ def run_load(
         memory = health.memory or Memory.open(project, flag)
         lines = build_output(memory, area, budget, explain)
         with contextlib.suppress(Exception):  # after the build, so that a slow git cuts only this
-            lines = live.add_lines(memory, lines, session)
+            lines = live.add_lines(memory, lines, session, hide_helpers_of)
         # Right under the header, so the agent sees them first. No detail from a stored record
         # goes here: this text is outside the frame that marks stored text as data.
         notice = install_source.notice_once() if update_notice else None

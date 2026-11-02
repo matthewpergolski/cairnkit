@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The memory keeps why each Claude Code helper started, from the moment that it starts. Before, a
+  Ctrl+C while a helper worked left nothing of its aim, because no stop runs in a killed process.
+  Now `PreToolUse` on the `Agent` tool records the description and the start of the prompt, masked,
+  and `SubagentStart` adds the helper's worktree. The next session start (new or resumed) names each
+  helper with no recorded end under `## Live work`, with what its worktree holds, also "no
+  uncommitted change and no commit". An event ends a record, never a clock. These hooks print
+  nothing, so they never allow or deny a call. The tool writes no fact. Only Claude Code gets them.
 - The capture check at a stop also reads the worktree of each Claude Code subagent of this session
   that ran with `isolation: "worktree"`. Before, its changes and its commits in
   `.claude/worktrees/agent-*` did not block, and in a first real use 5 subagents left no fact. Work

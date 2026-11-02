@@ -65,6 +65,8 @@ class Turn:
     parsed: Parsed
     timed_out: bool = False
     duration_s: float = 0.0
+    # The scenario ended this turn with a SIGINT, as the owner's Ctrl+C. It is no error.
+    interrupted: bool = False
 
 
 @dataclass
@@ -254,7 +256,11 @@ def _unconnected(obs: Observation, needle: re.Pattern | None) -> str | None:
 
 
 def _failed_turns(obs: Observation) -> list[Turn]:
-    return [turn for turn in obs.turns if turn.exit_code != 0 or turn.parsed.is_error]
+    return [
+        turn
+        for turn in obs.turns
+        if not turn.interrupted and (turn.exit_code != 0 or turn.parsed.is_error)
+    ]
 
 
 def _error_blob(turn: Turn) -> str:
@@ -449,6 +455,23 @@ def check_answer_after_work(needle: re.Pattern) -> Callable[[Observation], Outco
         if needle.search(obs.final_text):
             return Outcome(PASS, "session B states what only the conversation of session A held")
         return Outcome(FAIL, "session B does not state what session A was told")
+
+    return check
+
+
+def check_answer_after_interrupt(needle: re.Pattern) -> Callable[[Observation], Outcome]:
+    """Session B states the task of a helper that was at work when session A was killed."""
+
+    def check(obs: Observation) -> Outcome:
+        before = _probes(obs)[0]
+        turns = obs.sessions[0].turns if obs.sessions else []
+        if not before.get("helper_started") or not (turns and turns[-1].interrupted):
+            return Outcome(INCONCLUSIVE, "no helper was at work when session A ended")
+        if before.get("task_done"):
+            return Outcome(INCONCLUSIVE, "the helper did its task before the interrupt")
+        if needle.search(obs.final_text):
+            return Outcome(PASS, "session B states the task of the interrupted helper")
+        return Outcome(FAIL, "session B does not state the task of the interrupted helper")
 
     return check
 

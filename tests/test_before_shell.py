@@ -25,7 +25,9 @@ def installed(repo, agent: str, event: str) -> list[str]:
     """The command that the agent tool runs for this event, as `memory hooks install` wrote it."""
     rel = {"claude": ".claude/settings.local.json", "codex": ".codex/hooks.json"}[agent]
     groups = json.loads((repo / rel).read_text())["hooks"][event]
-    commands = [h["command"] for g in groups for h in g["hooks"] if "cairnkit" in h["command"]]
+    # Claude Code also has a `PreToolUse` group for the Agent tool, which decides nothing.
+    shell = [g for g in groups if g.get("matcher") in (None, "Bash")]
+    commands = [h["command"] for g in shell for h in g["hooks"] if "cairnkit" in h["command"]]
     assert len(commands) == 1
     return shlex.split(commands[0])
 

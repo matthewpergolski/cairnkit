@@ -322,6 +322,8 @@ def build_parser() -> argparse.ArgumentParser:
             "prompt",
             "pre-compact",
             "subagent-start",
+            "helper-call",
+            "subagent-stop",
         ),
     )
     p.add_argument("--agent", default="generic", choices=AGENTS)

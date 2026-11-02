@@ -7,6 +7,83 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: the task of a helper that a Ctrl+C killed, on Haiku
+
+This change records why each Claude Code helper started, from the moment that it starts. Before, a
+Ctrl+C while a helper worked left nothing of its aim, because no stop runs in a killed process. In a real
+project, the next session found an empty worktree and had to guess. The new scenario
+`pickup-interrupted-helper` runs only by name, so the reading rule of the six scenarios does not
+apply to it.
+
+- Commits: `dev` is `c6ea65c`. `base` is `aa0d548`. No `prod` arm.
+- Model: `claude-haiku-5-5` for session A and session B, 5 repeats. A first run of 3 repeats at
+  `760b31e` found two faults of the setup and one of the change (see below).
+- Sessions: 30. Reported cost: 0.07 USD (the first run: 0.06 USD). The cap was 0.20 USD for each
+  session.
+- Local results: `evals/agents/results/20261102T214208Z-claude` (and `20261102T213639Z-claude`),
+  in the worktree of the change.
+
+### Before the run: probes of real Claude Code 2.1.316
+
+- A payload probe with two parallel helpers: `PreToolUse` on `Agent` has `tool_use_id` and
+  `tool_input` with `description`, `prompt`, `subagent_type` and `isolation`. `SubagentStart` has
+  `agent_id`, `agent_type` and `cwd`, which is `.claude/worktrees/agent-<agent_id>`. In `-p` mode
+  both helpers ran in the background: `PostToolUse` came at once with `"status": "async_launched"`
+  and `agentId`. `SubagentStop` came at each end.
+- A kill probe: `claude -p` started a helper whose first step sleeps. A SIGINT to the process group
+  ended the task with `"status": "killed"`. No `SubagentStop`, `PostToolUse` or `Stop` ran. The
+  record stayed. Claude Code removed the worktree of the killed helper, because it held no change.
+  With the first build, a gone worktree ended the record, so session B said UNKNOWN. With the fix,
+  session B stated the task from the load.
+
+### Results
+
+| Scenario | dev | base | none |
+|---|---|---|---|
+| `pickup-interrupted-helper` | 5 of 5 | 0 of 5 | 2 of 5 |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 10 | 0 | 0 | 0 | 210 |
+| base | 10 | 0 | 0 | 0 | 161 |
+| none | 10 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The helper was in its slow first step in all 15 runs, and the SIGINT came then.** No run is
+  `inconclusive`. No edit and no commit of the task was on disk.
+- **In `dev`, the load of session B held the helper line in 5 of 5 runs**, with the task and "no
+  uncommitted change and no commit there". Each session B stated the task and said that no end was
+  recorded. Here the empty worktree stayed, as in the real project. In the kill probe, Claude Code
+  removed it.
+- **In `base`, session B said UNKNOWN in 5 of 5 runs.** Its load said only that a session worked in
+  this checkout a minute ago. Once it searched `~/.claude/projects` and found nothing; once it said
+  that the folder was outside the folders it may read.
+- **The 2 passes in `none` came from Claude Code's own transcript of the helper**, under
+  `~/.claude/projects/<project>/<session>/subagents/`. Session B found it with `ls` and `cat`. The
+  same happened in 1 `base` run of the first run. So an agent can find the task without memory,
+  but it did so in 2 of 5 runs here, and in the real project it did not.
+- **The 40-word cut lost the value in 1 of 3 `dev` runs of the first run.** Haiku's brief put
+  `45` at word 41, after a preamble and a first step. The cut is now 60 words.
+- **The first run had 3 `inconclusive` runs of 3 in `none`.** In the 2 that I read, the helper ran
+  `sh build.sh; echo ...`, which needs an approval that a headless run never gives, and it stopped.
+  The prompt now asks for the exact command.
+
+### Limits
+
+- One run of 5 repeats, on Haiku only, with one kind of helper prompt.
+- The kit runs with the real home folder, so session B can read Claude Code's transcripts and also
+  saw two real sessions of this machine in its agent list.
+- Foreground helpers of one type join their calls in the order sent. Only a test covers that. The
+  real probe with two parallel calls ran them in the background, where the launch result names
+  each helper.
+- Other agent tools did not run. Only Claude Code gets the new hooks.
+
+### Decisions
+
+- Keep the change: 5 of 5 against 0 of 5 and 2 of 5, for about 50 hook words in the session that
+  starts after the kill.
+
 ## 2026-11-02: first real OpenCode run, on a free model
 
 This run checks whether the kit can drive OpenCode for real. It is no comparison.
