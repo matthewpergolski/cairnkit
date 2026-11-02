@@ -25,6 +25,7 @@ from cairnkit import (
     githook,
     hooks_cmd,
     legacy,
+    live,
     loopbreak,
     native,
     signals,
@@ -277,10 +278,14 @@ def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> None
         run_init(project, None, verbose=False)
 
 
-def _session_text(project: Project, flag: str | None, update_notice: bool = True) -> str:
+def _session_text(
+    project: Project, flag: str | None, session: str, fresh: bool, update_notice: bool = True
+) -> str:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, 600, update_notice=update_notice)
+        run_load(
+            project, flag, None, 600, update_notice=update_notice, session=session, fresh=fresh
+        )
     return buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
 
 
@@ -298,11 +303,12 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
                 _context(agent, event, f"memory: not loaded: {lost_note(lost)}")
         if not has_memory(project, flag):
             return 0
-    text = _optional_work(project, flag) + _session_text(project, flag)
+    key = session_key(payload)
+    fresh = payload.get("source") not in SAME_SESSION
+    text = _optional_work(project, flag) + _session_text(project, flag, key, fresh)
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
-        key = session_key(payload)
-        if payload.get("source") not in SAME_SESSION:
+        if fresh:
             start_session(memory, key)
         mark_loaded(memory, key, text)
     if agent == "cursor":
@@ -430,6 +436,9 @@ def stop_message(project: Project, flag: str | None, agent: str, payload: dict) 
 def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not has_memory(project, flag):
         return 0
+    if not payload.get("agent_id"):  # the stop of a subagent ends no turn of its parent
+        with contextlib.suppress(Exception):
+            live.clear_working(Memory.open(project, flag), session_key(payload))
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
     # A long session still retires clear cases when the tidy state is old.
     if not continued:
@@ -552,6 +561,8 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
     with contextlib.suppress(Exception):
         memory = Memory.open(project, flag)
         key = session_key(payload)
+        with contextlib.suppress(Exception):
+            live.note_working(memory, key)
         held = take_load(memory, key)
         if held:
             parts.append(held)
@@ -583,6 +594,8 @@ def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int
     with contextlib.suppress(Exception):
         memory = Memory.open(project, flag)
         key = session_key(payload)
+        with contextlib.suppress(Exception):
+            live.note_working(memory, key)
         signals.note_prompt(memory, key, str(payload.get("prompt") or ""))
         lines = [] if agent in DROPS_PROMPT_OUTPUT else _quiet_lines(memory, key)
         if lines:
@@ -606,8 +619,8 @@ def pre_compact(project: Project, flag: str | None, payload: dict) -> int:
     """Cursor has no reload after a compaction, so its next tool result or stop carries the load."""
     with contextlib.suppress(Exception):
         if has_memory(project, flag):
-            text = _session_text(project, flag, update_notice=False)
             memory, key = Memory.open(project, flag), session_key(payload)
+            text = _session_text(project, flag, key, False, update_notice=False)
             mark_loaded(memory, key, text)
             hold_load(memory, key, text)
     return 0

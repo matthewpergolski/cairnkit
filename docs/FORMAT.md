@@ -103,6 +103,7 @@ before the home folder and the file system root.
   auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
+  .sessions/live/<session>-<checkout>  a session in a turn in that checkout: holds its path, and the file time is the last event (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
   .auto-tidy-state.json         the state of `auto_tidy = "auto"` (safe to delete)
   .auto-tidy.lock               the lock for a retire
@@ -524,6 +525,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   a command and no outcome, is not counted. The hook always exits 0.
 - `subagent-start`: prints `{"hookSpecificOutput": {"hookEventName": "SubagentStart",
   "additionalContext": TEXT}}`, where TEXT is a load of 300 words. It writes nothing.
+- `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
+  checkout. `stop` removes the markers of its session, except for the stop of a subagent.
 - `pre-compact`: holds a load for the next tool result or stop. Only Cursor needs this.
 - `pre-commit`: exits 1 only when a staged path is `memory-bank`, `.memory-path`
   or inside the memory folder. Else it prints each stored trap (up to 3) that matches

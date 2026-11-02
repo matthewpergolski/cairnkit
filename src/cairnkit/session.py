@@ -123,7 +123,7 @@ def _pathspecs(root: Path, memory_dir: Path | None) -> list[str]:
     return specs
 
 
-def _memory_path(path: str, root: Path, memory_dir: Path | None) -> bool:
+def is_memory_path(path: str, root: Path, memory_dir: Path | None) -> bool:
     norm = path.replace("\\", "/")
     if norm in ("memory-bank", ".memory-path") or norm.startswith(
         ("memory-bank/", ".memory-path/")
@@ -172,7 +172,7 @@ def _durable_tracked_paths(root: Path, memory_dir: Path | None) -> list[str]:
     listed = run_git(root, "diff", "--name-only", "HEAD", "--", *specs, timeout=2.0) or ""
     paths = []
     for path in listed.splitlines():
-        if not path or _memory_path(path, root, memory_dir) or is_junk_path(path):
+        if not path or is_memory_path(path, root, memory_dir) or is_junk_path(path):
             continue
         if path not in paths:
             paths.append(path)
@@ -185,7 +185,7 @@ def fingerprint(root: Path, memory_dir: Path | None = None) -> str:
     untracked = sorted(
         path
         for path in _untracked_paths(root)
-        if durable_untracked(path) and not _memory_path(path, root, memory_dir)
+        if durable_untracked(path) and not is_memory_path(path, root, memory_dir)
     )
     blob = "\0".join(
         (
@@ -211,7 +211,7 @@ def files_outside_git(root: Path, memory_dir: Path | None) -> list[str]:
         if path
         and not path.endswith("/")
         and not is_junk_path(path)
-        and not _memory_path(path, root, memory_dir)
+        and not is_memory_path(path, root, memory_dir)
     ]
     return found[:OTHERS_LIMIT]
 

@@ -1,0 +1,188 @@
+"""What other work is live in this project, for the load.
+
+Git says which checkouts hold uncommitted changes. One marker for each session and checkout says
+where a session is at work: `.sessions/live/<session>-<checkout>` holds the path, and its file time
+is the last hook event there. A stop removes the markers of its session, so a session that ended
+costs no words. Time ends the marker of a session that died in a turn. Markers are one small file
+each because subagents share a session key, and a shared JSON file would lose their writes.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+from cairnkit import deadline
+from cairnkit.load import note_head
+from cairnkit.memory import Memory
+from cairnkit.paths import run_git, tree_env
+from cairnkit.secretscan import mask
+from cairnkit.selection import FRAME_HEADER, clean, load_text, name
+from cairnkit.session import is_junk_path, is_memory_path
+from cairnkit.state import effective_status
+
+WORKING_SECONDS = 1800
+# Of the load's budget, for all checkouts together. A slow checkout must not delay the session.
+BUDGET = 1.5
+# Past BUDGET, so that a slow checkout is a cut and not a stuck git for the steps after the load.
+GIT_TIMEOUT = BUDGET * 2
+MAX_CHECKOUTS = 12
+MAX_LINES = 3
+MAX_FILES = 5
+NOTE_WORDS = 20
+ORDER = (
+    "Live work that this session did not start is listed under `## Live work`. Do not commit, "
+    "discard or remove it, also in a general tidy-up, unless the owner names that checkout or "
+    "file. Leave it, and report that you left it."
+)
+
+
+@dataclass(frozen=True)
+class Checkout:
+    path: Path
+    branch: str | None
+    files: list[str]
+    seen_at: float | None
+
+
+def _key(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def _folder(memory: Memory) -> Path:
+    return memory.dir / ".sessions" / "live"
+
+
+def note_working(memory: Memory, session: str) -> None:
+    root = str(memory.project.root)
+    folder = _folder(memory)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{_key(session)}-{_key(root)}").write_text(root, encoding="utf-8")
+
+
+def clear_working(memory: Memory, session: str) -> None:
+    for marker in _folder(memory).glob(f"{_key(session)}-*"):
+        marker.unlink(missing_ok=True)
+
+
+def _others_at_work(memory: Memory, session: str | None) -> dict[str, float]:
+    """The last event of each checkout where another session is at work. Drops old markers."""
+    mine = f"{_key(session)}-" if session else None
+    limit = time.time() - WORKING_SECONDS
+    found: dict[str, float] = {}
+    folder = _folder(memory)
+    for marker in folder.iterdir() if folder.is_dir() else ():
+        seen_at = marker.stat().st_mtime
+        if seen_at < limit:
+            marker.unlink(missing_ok=True)
+        elif not (mine and marker.name.startswith(mine)):
+            path = marker.read_text(encoding="utf-8")
+            found[path] = max(seen_at, found.get(path, 0.0))
+    return found
+
+
+def _read_status(path: Path) -> tuple[str | None, list[str]] | None:
+    """The branch and the changed paths. No optional lock, because another session works here."""
+    args = ("status", "--porcelain", "-z", "--branch", "--no-renames", "--untracked-files=normal")
+    out = run_git(path, "--no-optional-locks", *args, timeout=GIT_TIMEOUT, env=tree_env())
+    if out is None:
+        return None
+    head, *rows = out.split("\0")
+    branch = head.removeprefix("## ").removeprefix("No commits yet on ").split("...")[0]
+    return (None if branch.startswith("HEAD ") else branch), [row[3:] for row in rows if row]
+
+
+def _holds_a_checkout(path: Path, entry: str, checkouts: list[Path]) -> bool:
+    """A worktree inside this checkout shows as an untracked folder. It is no change here."""
+    full = path / entry.rstrip("/")
+    return any(c != path and (c == full or full in c.parents) for c in checkouts)
+
+
+def _read_checkouts(memory: Memory, at_work: dict[str, float], here_counts: bool):
+    """The checkouts with live work, and how many could not be read."""
+    project = memory.project
+    root = project.root
+    wanted = [path for path in project.checkouts if path != root or here_counts]
+    wanted.sort(key=lambda path: (path != root, str(path) not in at_work))
+    found = []
+    unread = max(len(wanted) - MAX_CHECKOUTS, 0)
+    with deadline.within(BUDGET):
+        for path in wanted[:MAX_CHECKOUTS]:
+            cuts = deadline.git_cuts()
+            status = _read_status(path)
+            if status is None:
+                unread += deadline.git_cuts() > cuts
+                continue
+            branch, entries = status
+            files = [
+                entry
+                for entry in entries
+                if not is_junk_path(entry)
+                and not is_memory_path(entry, path, memory.dir)
+                and not _holds_a_checkout(path, entry, project.checkouts)
+            ]
+            seen_at = at_work.get(str(path))
+            if files or seen_at:
+                found.append(Checkout(path, branch, files, seen_at))
+    return found, unread
+
+
+def _branch_note(memory: Memory, branch: str | None) -> str | None:
+    if not branch:
+        return None
+    notes = [
+        state
+        for state in memory.states.values()
+        if state.get("scope") == "short"
+        and state.get("until_branch_merged") == branch
+        and effective_status(state)[0] == "active"
+    ]
+    if notes:
+        return load_text(max(notes, key=lambda state: state.get("learned_at") or ""))
+    head = note_head(memory.dir / "branches" / f"{branch}.md")
+    return head[0] if head else None
+
+
+def _line(memory: Memory, checkout: Checkout) -> str:
+    root = memory.project.root
+    place = "this checkout" if checkout.path == root else os.path.relpath(checkout.path, root)
+    parts = []
+    if checkout.seen_at:
+        minutes = max(int((time.time() - checkout.seen_at) // 60), 1)
+        parts.append(f"a session worked here {minutes}m ago")
+    if checkout.files:
+        shown = ", ".join(name(entry) for entry in checkout.files[:MAX_FILES])
+        more = len(checkout.files) - MAX_FILES
+        parts.append(f"uncommitted {shown}" + (f" and {more} more" if more > 0 else ""))
+    note = _branch_note(memory, checkout.branch)
+    if note:
+        parts.append(f"note: {' '.join(note.split()[:NOTE_WORDS])}")
+    branch = f", branch {name(checkout.branch)}" if checkout.branch else ""
+    return mask(clean(f"- [live] {name(place)}{branch}: {'; '.join(parts)}."), memory.env)
+
+
+def add_lines(memory: Memory, lines: list[str], session: str | None, fresh: bool) -> list[str]:
+    """The load with its live work added, or as it was when there is none.
+
+    With no session, a plain `memory load` cannot tell its own changes and marker from another's,
+    so it says nothing of its own checkout. A session that goes on after a reload knows its marker,
+    and its changes here are its own unless another session is at work here too.
+    """
+    if not memory.project.is_git or FRAME_HEADER not in lines:
+        return lines
+    at_work = _others_at_work(memory, session)
+    here = session is not None and (fresh or str(memory.project.root) in at_work)
+    found, unread = _read_checkouts(memory, at_work, here)
+    body = [_line(memory, checkout) for checkout in found[:MAX_LINES]]
+    held = len(found) - MAX_LINES
+    if held > 0:
+        body.append(f"- [live] {held} more checkout(s) hold live work.")
+    if unread:
+        body.append(f"- [live] {unread} more checkout(s) not read, so this list can miss work.")
+    if not body:
+        return lines
+    frame = lines.index(FRAME_HEADER)
+    return [*lines[:frame], ORDER, FRAME_HEADER, "## Live work", *body, *lines[frame + 1 :]]
