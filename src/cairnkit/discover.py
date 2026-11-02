@@ -1,4 +1,4 @@
-"""The look-up line of the load footer, the short rules of a session start, and the capture guide."""
+"""The look-up line of the load, the short rules of a session start, and the capture guide."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ DISCOVER = (
 )
 
 ADD_LINE = (
-    '`memory add "TEXT"`. Add `--basis told` for what the owner said, or `--basis seen` for what you '
-    "saw. If nothing is worth a fact, say so and finish."
+    '`memory add "TEXT"`. Add `--basis told` for what the owner said, or `--basis seen` for what '
+    "you saw. If nothing is worth a fact, say so and finish."
 )
 
 CAPTURE_GUIDE = f"""\

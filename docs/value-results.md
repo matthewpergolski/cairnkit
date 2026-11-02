@@ -7,6 +7,51 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: the capture check on Claude Code
+
+This is a small run of 3 scenarios for one change. It is no comparison with `prod`, and it does not
+replace a run of the whole suite.
+
+- Commit: `7e83f11` for `dev`, and no memory for `none`. The guide changed after two earlier runs of
+  the same size, at `a9481bc` and `9b6bcf7`.
+- Model: `claude-haiku-5-5`, 2 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 24 for each run. The 3 runs report 0.20 USD in total.
+- Local results: `evals/agents/results/20261102T051625Z-claude`.
+
+| Scenario | dev | none | Reading |
+|---|---|---|---|
+| `pickup-purpose` | 2 of 2 | 0 of 2 | The block gave the reason as a fact, and session B answered from it |
+| `promise-at-file` | 0 of 0, 2 inconclusive | 0 of 2 | Both session As wrote the promise. Both session Bs replaced the backoff number with a list, so the check cannot read the file. Their facts say 5 attempts. `a9481bc` gave 2 of 2 |
+| `lesson-carry` | 0 of 1, 1 inconclusive | 0 of 2 | One session A wrote the fix. Session B loaded it and still ran the command that its prompt names, and failed first. The other session A read the script first, so it had no failure |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 12 | 13 | 11 | 8 | 229 |
+| none | 12 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The check gets the facts.** Session A of each `pickup-purpose` and `promise-at-file` run wrote the
+  reason or the promise in all 12 runs of `dev`. The baseline `dev` wrote 0.
+- **Lesson-carry needed its own signal.** Session A failed once and passed with a setting, and it
+  changed no file. No check fired at `a9481bc`. The new event for a command that passes behind a
+  prefix fires.
+- **The first guide let a decline through.** An agent said that a doc holds the fix, and the guide
+  said that a doc is enough. The next session failed the same way. The guide now says that a doc
+  that the next agent reads only after it fails is no record.
+- **A plain `memory add` gave each fact twice.** It prints a note about its basis, and agents wrote
+  the fact again with `--basis told`. The guide now names the flag. Memory commands fell from 19 to
+  13, and 3 runs are too few to be sure of this.
+- **Capture is not the limit in `lesson-carry`.** Session B had the fact and failed first, because
+  its prompt names the command. The block then costs it one more turn, because the event does not
+  look at the stored facts.
+
+### Limits
+
+- The hook words per session are above the 182 of 0.3.1 in the baseline, on other scenarios. The
+  guide has 140 words.
+- Some facts are weak. Example: `Commit has no body by owner request.` A later full run must count these.
+
 ## 2026-11-02: baseline on Claude Code
 
 - Commit: `9e9b04c` for `dev`, `d523c01` (0.3.1) for `prod`, and no memory for `none`.
