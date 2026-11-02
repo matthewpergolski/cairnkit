@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cairnkit import markers
+from cairnkit.discover import CAPTURE_GUIDE
 from cairnkit.rules import DEFAULT_RULES
 from cairnkit.schema import BASES, KINDS
 
@@ -20,14 +21,18 @@ This project has a private memory outside the repo, linked as `memory-bank`.
 `memory load` prints the facts for this session. A connected agent tool runs it by
 itself. If its output is not in your context, run it. Read it before you work.
 
-- **Write a fact** when you learn something a later session needs and the code,
-  git and docs do not hold it: a decision and its reason, a trap, a lesson, a
-  preference of the owner. Example:
-  `memory add "TEXT" --kind trap --area deploy --basis seen --source commit:HASH`
-  Kinds: {kinds}. Basis: {bases}.
-  Only the text is required. Basis defaults to `guess`.
-  Source: commit:HASH, file:PATH, pr:N, session:DATE, person:ROLE. It defaults to
-  `session:` and today's date.
+### Write a fact
+
+{guide}
+
+Only the text is required. A stop blocks once to ask this when the work changed or the owner stated
+something and no fact followed. Options: `--kind`, `--area NAME`, `--basis` (default `guess`),
+`--source` (default `session:` and today's date).
+Kinds: {kinds}. Basis: {bases}.
+Source: commit:HASH, file:PATH, pr:N, session:DATE, person:ROLE.
+
+### The rest
+
 - **Look before you add.** Run `memory search WORDS` first. If a fact already says
   it, use `--supersedes ID`. `memory add` refuses text that looks like a secret. It
   does not refuse a repeat: it supersedes the same text by itself. It writes a near
@@ -57,7 +62,8 @@ itself. If its output is not in your context, run it. Read it before you work.
   rest of that doc still stands.
 - **Subagents.** Some agent tools give a subagent no memory. Put "run `memory load`"
   in each brief.
-- **Before you finish**, run `memory check --strict` and fix what it reports.
+- **Before you finish**, run `memory check --strict`. Each line says what to do. When a line says
+  that it can stay, it stays.
 
 ### Rules
 
@@ -71,6 +77,7 @@ these rules:
 
 def text() -> str:
     return TEXT.format(
+        guide=CAPTURE_GUIDE,
         rules="\n".join(f"- {rule}" for rule in DEFAULT_RULES),
         kinds=", ".join(KINDS),
         bases=", ".join(BASES),

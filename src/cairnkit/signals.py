@@ -277,6 +277,10 @@ def note_prompt(memory: Memory, key: str, prompt: str) -> None:
     named = {word for word in named if "." in word or "/" in word}
     state["named"] = sorted({*state.get("named", []), *named})[:NAMED_LIMIT]
     state["asked"] = sorted({*state.get("asked", []), *removal_words(prompt)})[:NAMED_LIMIT]
+    if not NOT_THE_OWNER.search(prompt):
+        state["prompts"] = state.get("prompts", 0) + 1
+    if is_statement(prompt):
+        state["said"] = agent_writes(memory)
     if is_correction(prompt):
         flat = clean(prompt)
         text = "" if find_secrets(flat, memory.env) else flat[:PROMPT_WIDTH]

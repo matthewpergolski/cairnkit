@@ -113,13 +113,14 @@ complete. Remove a row in the change that fixes it.
 | Any agent | A tool with no adapter gets the memory only when someone connects it by hand with the commands of `memory hooks install --agent generic`, or tells the agent to run `memory load`. |
 | Any agent | Real-agent behavior is not tested beyond this: a real Claude Code run answered from memory, and its failure hook fired. Pi and OpenCode ran `session-start` in the real tools, but no model reply was possible because of account errors. Codex and Grok Build had no verified real run, because of the trust step and account errors. This record holds no real run for Cursor. See [Supported agents](#supported-agents). |
 | Each agent gets the same result | Grok Build reads only `systemMessage` from `SessionStart`, so a hook cannot add the memory to the context there. The memory reaches the model at the first tool result. A reply before the first tool has no memory. |
-| Each agent gets the same result | Cursor adds no text at a prompt. News and the one reminder wait for its next `Shell`, `Write` or `Delete` tool result. The load after a compaction waits for that result or its next stop. This comes from its public docs. No real Cursor run tested it. |
+| Each agent gets the same result | Cursor adds no text at a prompt. News waits for its next `Shell`, `Write` or `Delete` tool result. The load after a compaction waits for that result or its next stop. This comes from its public docs. No real Cursor run tested it. |
 | Each agent gets the same result | A subagent gets a load at its start on Claude Code and Codex. The hook is also written for Grok Build, but nobody tested it. These stay unwired, so a subagent misses the memory unless its brief says to run `memory load`: Cursor, because its docs let `subagentStart` only allow or deny; Pi, because it has no built-in subagents; OpenCode, because its docs name child sessions and no plugin event for them. |
-| Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news and the one reminder after a `bash` tool. |
+| Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news after a `bash` tool. |
 | Stored text is data | The tool knows that an agent wrote a rule only from the agent tool's environment markers. An agent tool with no marker, or an agent that claims basis `told`, still writes a rule that prints as an instruction. A `told` rule from an agent names that agent. An agent can end or replace a rule that binds, because the tool cannot prove what the owner said in the session. The tool prints a line at once and names the rule once in the next load, and the agent must tell the owner. A hand-edited fact file can claim anything. |
-| Capture | A fact that the agent never writes is lost. The tool names events at stop and reminds the agent once at its next prompt or tool result. A session that ends first, such as one run of `claude -p`, hears no reminder. It cannot make the agent write. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). |
-| Hands-off | A stop that carries no event can still block once, to give the load to Grok Build when no tool ran, or to Cursor after a compaction when no tool ran. These tools have no other way to add it. The generic adapter has only stop, so its news and its one reminder also arrive there. A health warning blocks like a health error, once, because `--strict` fails on it. A secret warning about a file that the session did not write does not block. The file time says which file the session wrote, so a file copied with its old time counts as old. A secret in a stored fact blocks once, also an old one, because a new shape can catch it. |
-| Capture | Stop names a correction only when a hook sees the prompt: Claude Code, Codex, Cursor and Pi. The OpenCode plugin docs name no prompt hook, and the Grok Build hook docs name no prompt field, so these two hear only about a lost file, and a file that the owner asked to remove costs them one block. The test reads English words in the prompt. It reads a request to remove a file from one clause, and the words must match the path: `remove scratch files` covers `scratch.txt` and not `.env.local`. A request in other words, such as `remove temp files` for `tmp.txt`, costs one block. A lost file is found by comparing the disk with the session start, so each agent hears it. A file inside a folder that git does not know at all is not seen, and neither is that whole folder, because it is most often build output. |
+| Capture | A fact that the agent never writes is lost. A stop can make the agent answer, and it cannot make the agent write: "nothing is worth a fact" ends the check. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). Pi in print mode has no later turn, so its check waits for the next run of that session. A Grok Build stop may not reach the model: its hook docs call `Stop` passive and no real run has tested it. So the check also waits for its next tool result. A session that ends first never hears it. |
+| Capture | The check for what the owner stated reads English words in a prompt: Claude Code, Codex, Cursor, Pi and OpenCode. On a labelled set of 182 ordinary prompts and 60 statements, it gave 2 false fires and 1 miss. One author wrote the set. Grok Build and the generic adapter give no prompt, so they get only the check for changed work, once in a session. A statement after 600 characters of a prompt is not read. |
+| Hands-off | A stop that carries no event can still block once, to give the load to Grok Build when no tool ran, or to Cursor after a compaction when no tool ran. These tools have no other way to add it. The generic adapter has only stop, so its news also arrives there. A health warning blocks like a health error, once, because `--strict` fails on it. A secret warning about a file that the session did not write does not block. The file time says which file the session wrote, so a file copied with its old time counts as old. A secret in a stored fact blocks once, also an old one, because a new shape can catch it. |
+| Capture | Stop names a correction only when a hook sees the prompt: Claude Code, Codex, Cursor, Pi and OpenCode. The Grok Build hook docs name no prompt field, so it hears only about a lost file, and a file that the owner asked to remove costs it one block. The test reads English words in the prompt. It reads a request to remove a file from one clause, and the words must match the path: `remove scratch files` covers `scratch.txt` and not `.env.local`. A request in other words, such as `remove temp files` for `tmp.txt`, costs one block. A lost file is found by comparing the disk with the session start, so each agent hears it. A file inside a folder that git does not know at all is not seen, and neither is that whole folder, because it is most often build output. |
 | Forget correctly | A wrong trap that nobody corrects keeps loading. An old trap with no signal can stay out of the load. Both are accepted risks in [the test record](docs/forgetting-tests.md#accepted-risks). |
 | Forget correctly | A rebase-merged or fetched branch with a local copy reads as open until that copy is deleted. A merged branch with no local copy and a remote copy reads as open until the remote copy is gone. A branch that came after its note and left before tidy saw it reads as unknown, and tidy names the note. So does an old fact whose branch is already gone. A stale note on such a branch stays. A false end would be worse. One false end remains: a memory moved to a new clone reads a branch as ended when that branch was never pushed and had no commit of its own when the note was written. |
 | No clock in another form | `auto_tidy = "auto"` only reports for the first 3 session starts and 7 days, the later of the two. This is a time gate on tidy. It does not read the age of a fact. A short-term note past its end date, or with a merged branch, leaves the load at once, because a reader computes that. A repeat of the same text and a short-term note whose source file is gone keep loading until the gate opens, because only tidy ends them. |
@@ -365,8 +366,9 @@ After that, **agents do the rest**:
 - At session end, a hook runs the checks of `memory check --strict`. When a check
   finds a problem, the agent must fix it before it finishes (in tools that support
   it). The hook also names events: a command that failed and then passed, a command
-  that still fails, and a revert. When the agent changed the work and wrote no fact,
-  the hook reminds it once. The agent may say that nothing is worth a fact.
+  that still fails, and a revert. When the work changed or the owner stated something
+  and no fact followed, the hook blocks once and gives the guide for a good fact. The
+  agent may say that nothing is worth a fact.
 - A git pre-commit hook refuses a commit only when it stages a private memory path:
   `memory-bank`, `.memory-path` or a path inside the memory folder. A problem in the
   memory does not stop a commit. The hook also prints a stored trap that names a staged
@@ -844,21 +846,39 @@ That file is local, and it covers every worktree. Nothing in the repo changes.
 | Cursor | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | `beforeSubmitPrompt` reads the prompt. `postToolUse` for `Shell`, `Write` and `Delete` adds `additional_context`, and `postToolUseFailure` counts failures. | `preCompact` holds a load for the next of those tool results, or for stop | None |
 | Grok Build | `SessionStart`: reads only `systemMessage`, so the load waits for the first tool result | `Stop`: `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact`; the load waits for the next tool result | `SubagentStart` hook is written, not tested |
 | Pi | `session_start`; the load goes out at `before_agent_start` | `agent_end`: a follow-up that starts a turn, once | `before_agent_start`, `tool_result` for `bash` | `session_compact`; the load goes out at the next `before_agent_start` | None |
-| OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `tool.execute.after` for `bash` | `session.compacted` reloads | None |
+| OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `chat.message` reads the prompt. `tool.execute.after` for `bash` | `session.compacted` reloads | None |
 | Generic | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | None | None | None |
 
 **Long sessions.** News covers facts from other branches, auto-tidy changes, and
 stored facts that match files changed after the load. Traps come first, and each
 item is named once.
 
-**A stop blocks only for a new event.** A block costs the owner a turn. The events are a health
+**A stop blocks for a new event or a capture check.** A block costs the owner a turn. The events are a health
 problem, a command that failed at least twice and then passed, a revert, a correction, a lost
-file, and a loop nudge that no tool result carried. Each is named once in a session. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. Plain work,
-such as an edit or a commit, gets one short reminder per session, and no block. No adapter can add
-text at stop without a turn (Claude Code, Codex and Cursor say so in their docs), so the reminder
-and the news wait for the next prompt or tool result, which adds text with no turn. A fact written
-in the session ends the reminder. In 20 ordinary turns, an agent that never writes sees no block
-on a plain script and 2 on a mixed one. `tests/test_stop_replay.py` replays both on each adapter.
+file, and a loop nudge that no tool result carried. Each is named once in a session. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
+text at stop without a turn (Claude Code, Codex and Cursor say so in their docs), so the news
+waits for the next prompt or tool result, which adds text with no turn.
+
+**The capture check.** The real runs in [the value results](docs/value-results.md) show that an agent
+writes when a stop asks, and not when a later reminder asks. So a stop blocks once in two cases, when
+no fact followed:
+
+- The work changed, such as an edit or a commit. Only the first batch blocks. If the agent answers
+  that nothing is worth a fact, no later work blocks, until the agent writes a fact. Then work blocks
+  again after 6 more owner prompts.
+- The owner stated something that only the conversation holds: a decision, an approval, a promise, a
+  limit, a preference, a reason or a review. Each new statement blocks once, also after an answer of
+  "nothing". The detector is in `signals.py`.
+
+The block gives the test, the moments and the `memory add` line. `memory instructions` holds the
+same guide. In 20 ordinary turns, an agent that never writes sees 1 block on a plain script, on
+each adapter, and "format the code" never blocks. An agent that writes a fact at each block sees at
+most 3. A subagent gets no capture check, because it never saw the conversation. Its stop has an
+`agent_id` or, on OpenCode, a session with a `parentID`. The files that it changes reach the check of
+its parent, which knows why it asked for them. Claude Code, Codex, Cursor and Grok Build have a
+separate subagent stop, which the tool does not connect. A subagent that works in its own worktree
+therefore gets no check. Its parent gets one only if the owner stated something or its own checkout
+changed. `tests/test_stop_replay.py` and `tests/test_capture_stop.py` replay these.
 
 **Corrections and lost files.** When the owner's prompt corrects the agent, or the session deleted
 a file that was here at its start, stop names it once and asks if a trap belongs in memory. The
