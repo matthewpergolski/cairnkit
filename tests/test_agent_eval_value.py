@@ -119,6 +119,7 @@ def options_with_arms(tmp_path, *labels, **kw):
         version = "v"
         commit = "abc"
         has_memory = True
+        git_settings = ()
 
     class StubNone(Stub):
         has_memory = False
@@ -176,6 +177,18 @@ def test_cli_refuses_a_bad_arm(capsys, bad):
     assert "--arm" in capsys.readouterr().err
 
 
+def test_cli_takes_a_git_setting_for_one_arm_and_refuses_a_bad_one(capsys):
+    cli = load_cli()
+    args = cli.parse_args(["--arm", "gate=HEAD", "--arm-git", "gate:cairnkit.x=true"])
+    assert cli.arm_settings(args, cli.arm_refs(args)) == {"gate": (("cairnkit.x", "true"),)}
+    assert cli.same_arms({"dev": "c", "gate": "c"}, {"gate": (("cairnkit.x", "true"),)}) is False
+    assert cli.same_arms({"dev": "c", "gate": "c"}, {}) is True
+    for bad in ("nope:cairnkit.x=true", "none:cairnkit.x=true", "gate:cairnkit.x"):
+        argv = ["--dry-run", "--arm", "gate=HEAD", "--arm-git", bad]
+        assert cli.main(argv) == 2
+        assert "--arm-git" in capsys.readouterr().err
+
+
 def test_cli_refuses_two_arms_on_one_commit(capsys):
     argv = ["--agent", "pi", "--arm", "dev-copy=HEAD", "--load-only"]
     assert load_cli().main(argv) == 2
@@ -217,7 +230,7 @@ elif args[0] == "load":
 """
 
 AGENT_STUB = """#!__PYTHON__
-import os, re, shutil, subprocess, sys
+import os, re, shlex, shutil, subprocess, sys
 from pathlib import Path
 
 prompt = sys.argv[1]
@@ -233,7 +246,7 @@ with (Path(sh("git", "rev-parse", "--git-dir").stdout.strip()) / "stub-pids").op
 
 
 def keep(text):
-    if has_memory:
+    if has_memory and not os.environ.get("STUB_KEEPS_NOTHING"):
         sh("memory", "add", text, "--kind", "decision", "--basis", "told", "--area", "work",
            "--source", "session:stub")
 
@@ -242,12 +255,19 @@ def recall():
     return sh("memory", "load").stdout if has_memory else ""
 
 
-def commit_on(branch, path, old, new, subject):
+def commit_on(branch, path, old, new, subject, why):
     sh("git", "checkout", "-q", "-b", branch)
     file = Path(path)
     file.write_text(file.read_text().replace(old, new))
     sh("git", "add", path)
-    sh("git", "commit", "-q", "-m", subject)
+    done = sh("git", "commit", "-q", "-m", subject)
+    if done.returncode:
+        line = next(ln for ln in done.stderr.splitlines() if ln.startswith("  memory add "))
+        argv = shlex.split(line)
+        sh(argv[0], argv[1], why, *argv[3:])
+        sh("git", "commit", "-q", "-m", subject)
+    if os.environ.get("STUB_KEEPS_NOTHING"):
+        recall()
 
 
 if "ask me the one" in prompt:
@@ -265,15 +285,17 @@ elif "wait on me" in prompt:
     else:
         print("I cannot list the pull requests without gh.")
 elif "tune-retry-window from main" in prompt:
-    commit_on("tune-retry-window", "service/config.py", "= 30", "= 45", "change retry window")
-    keep("Branch tune-retry-window exists for the Halvorsen gateway restart.")
+    why = "Branch tune-retry-window exists for the Halvorsen gateway restart."
+    commit_on("tune-retry-window", "service/config.py", "= 30", "= 45", "change retry window", why)
+    keep(why)
     print("Done.")
 elif "branch tune-retry-window" in prompt:
     print("It is for the Halvorsen gateway." if "Halvorsen" in recall() else "UNKNOWN")
 elif "checkout-review from main" in prompt:
+    why = "Review finding left open on checkout-review: refund must write an audit line."
     commit_on("checkout-review", "shop/checkout.py", "return total - coupon",
-              "return max(0, total - coupon)", "fix coupon total")
-    keep("Review finding left open on checkout-review: refund must write an audit line.")
+              "return max(0, total - coupon)", "fix coupon total", why)
+    keep(why)
     print("Done.")
 elif "from the review on branch checkout-review" in prompt:
     print("refund must write an audit line." if "audit" in recall() else "NOTHING")
@@ -399,6 +421,32 @@ def test_each_scenario_can_pass_with_the_real_tool_when_session_a_captures(
     assert row["result"] == PASS, row["reason"]
     assert "memory" in row["carried"]
     assert row["needle_in_load"] is True
+
+
+@pytest.mark.parametrize("scenario_id", ["pickup-purpose", "pickup-findings"])
+def test_a_setting_on_one_arm_turns_the_gate_on_and_only_there(tmp_path, scripted, scenario_id):
+    """A session that keeps nothing by itself: the printed command is its only reason to write."""
+    silent = replace(
+        scripted,
+        argv=lambda call: [
+            "/usr/bin/env",
+            "STUB_KEEPS_NOTHING=1",
+            "CLAUDECODE=1",
+            *scripted.argv(call),
+        ],
+    )
+    options = scripted_options(tmp_path, silent, [SCENARIOS[scenario_id]])
+    base = real_tool_build(tmp_path)
+    setting = (("cairnkit.branchnotegate", "true"),)
+    options.builds = {"off": base, "gate": replace(base, label="gate", git_settings=setting)}
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    assert rows["off"]["result"] == FAIL, rows["off"]["reason"]
+    assert rows["gate"]["result"] == PASS, rows["gate"]["reason"]
+    assert rows["gate"]["git_settings"] == setting
+    assert rows["gate"]["carried"] == ["memory"]
+    assert rows["gate"]["sessions"][0]["facts_written"] == 1
+    assert rows["off"]["sessions"][0]["facts_written"] == 0
+    assert "branchnotegate=true" in scoring.render_report(list(rows.values()), [scenario_id])
 
 
 def test_session_b_is_a_new_process_and_gets_no_resume(tmp_path, scripted):
@@ -656,6 +704,13 @@ def test_the_trace_records_what_a_hook_printed_and_the_tool_still_gets_it(tmp_pa
     outputs = [row for row in rows if "hook_stdout" in row]
     assert outputs[0]["hook_stdout"] == "load text\n"
     assert outputs[0]["hook"] == "session-start"
+
+
+def test_a_git_hook_refusal_on_stderr_counts_as_words(tmp_path):
+    script = "import sys; print('commit refused for this branch', file=sys.stderr)"
+    rows = run_traced(tmp_path, script, "cairnkit", "hook", "pre-commit")
+    assert scoring.injected_words(rows) == 5
+    assert scoring.blocked_stops(rows) == 0
 
 
 def test_the_trace_counts_no_text_that_a_git_hook_sends_to_dev_null(tmp_path):

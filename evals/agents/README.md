@@ -35,6 +35,7 @@ The agents are `claude`, `codex`, `cursor-agent`, `opencode`, `pi` and `grok`.
 | `--agent-b NAME` | The tool for session B of a two-session scenario. The default is `--agent`. |
 | `--model-b NAME` | The model for session B. The default is the model of session A, or the small model of `--agent-b`. |
 | `--arm LABEL=REF` | One more memory arm from a git ref. You can use it more than once. |
+| `--arm-git LABEL:KEY=VALUE` | A local git setting in each repo of that arm. Two arms on one commit can differ by this. |
 | `--skip-arm LABEL` | Leave out one arm, for example `prod` or `none`. |
 | `--model NAME` | The model. Each agent has one small model as the default. |
 | `--budget-usd N` | Claude only: the limit for one session. The default is 0.25. |
@@ -139,6 +140,15 @@ uv run python evals/agents/run.py --agent claude --suite value \
   --arm dev-instructions=my-instructions-branch --arm dev-enforcement=my-enforcement-branch
 ```
 
+To test a switch that is off by default, use one commit twice. `dev` has the gate off and `gate` has
+it on, so that the switch is the only difference:
+
+```sh
+uv run python evals/agents/run.py --agent claude --dev-ref HEAD \
+  --arm gate=HEAD --arm-git gate:cairnkit.branchnotegate=true \
+  --scenario pickup-purpose --scenario pickup-findings --repeats 2
+```
+
 A scenario that asks about a planted fact has no run in `none`, because it says nothing there.
 
 ### The scenarios
@@ -192,7 +202,7 @@ The table covers only the scenarios that every arm ran, so that the arms compare
 | Memory commands | Each start of the installed command in the trace. Hooks and the tool's own wiring are left out. |
 | Facts written | New fact records in the memory folder, per session. |
 | Blocked stops | A `stop` hook whose output takes another turn, for each tool's format. |
-| Hook words per session | The words of what each hook printed, without the JSON around them. Output that a git hook sends to `/dev/null` does not count. |
+| Hook words per session | The words of what each hook printed on stdout, without the JSON around them, and on stderr, where a git hook talks to the agent. Output that a git hook sends to `/dev/null` does not count. |
 | Rules file words per session | Untracked `.md` and `.mdc` files after setup, which a tool reads at the start of each session. |
 
 The trace reads hook output with no change to the tool's source, in all builds alike. Whether a

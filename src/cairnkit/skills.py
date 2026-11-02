@@ -339,7 +339,22 @@ MARKERS = {
     "pi": ("PI_CODING_AGENT",),
     "grok": ("GROK_SESSION_ID", "GROK_HOOK_EVENT", "GROK_WORKSPACE_ROOT"),
 }
+# What each tool sets for its shell tool. CURSOR_TRACE_ID and the hook-time Grok names stay out,
+# because a person's terminal can hold them or a shell tool does not get them. Each name was seen in
+# a real shell tool, except CURSOR_AGENT, which was read in Cursor's shipped code.
+AGENT_SHELL_MARKERS = (
+    "CLAUDECODE",
+    "CODEX_THREAD_ID",
+    "CURSOR_AGENT",
+    "OPENCODE",
+    "PI_CODING_AGENT",
+    "GROK_SESSION_ID",
+)
 STATE_NAME = ".skills-advisory.json"
+
+
+def in_agent_shell() -> bool:
+    return any(os.environ.get(name) for name in AGENT_SHELL_MARKERS)
 
 
 def running_tool(agent: str | None = None) -> str | None:

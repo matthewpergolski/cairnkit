@@ -185,7 +185,9 @@ def _hook_text(stdout: str) -> str:
 
 
 def injected_words(trace: Iterable[dict]) -> int:
-    return sum(len(_hook_text(stdout).split()) for _, stdout in _hook_outputs(trace))
+    """What each hook printed for the agent: its text on stdout, and all that it said on stderr."""
+    printed = sum(len(_hook_text(stdout).split()) for _, stdout in _hook_outputs(trace))
+    return printed + sum(len(str(row.get("hook_stderr", "")).split()) for row in trace)
 
 
 def blocked_stops(trace: Iterable[dict]) -> int:
@@ -705,5 +707,7 @@ def _build_label(rows: list[dict], build: str) -> str:
         return "no memory, no hooks, no rules"
     for row in rows:
         if row["build"] == build:
-            return f"{row.get('build_version') or '?'} at {str(row.get('commit') or '?')[:7]}"
+            settings = "".join(f", {k}={v}" for k, v in row.get("git_settings") or ())
+            commit = str(row.get("commit") or "?")[:7]
+            return f"{row.get('build_version') or '?'} at {commit}{settings}"
     return "not run"

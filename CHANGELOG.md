@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing planted, a cost table per arm and a reading rule that is agreed before the run.
 - `evals/agents`: a test runs each value scenario with the real tool and a scripted session, so a
   scenario that cannot pass in a build that captures fails a test.
+- The branch-note gate, a test arm that is off by default. With the local git setting
+  `cairnkit.branchnotegate = true`, in an agent's shell only, the first commit of a branch refuses
+  until the branch has a short note, and a push refuses until that note changed. The refusal prints
+  the `memory add ... --short` command. It checks only that a note exists and changed.
+- `evals/agents`: `--arm-git LABEL:KEY=VALUE` sets a local git setting in one arm, so that two arms
+  on one commit can differ by a switch. The hook words of the cost table now count what a hook says
+  on stderr.
 - `evals/agents`: a kit that runs real agents on `dev` against production.
 - The attribution guard refuses a commit whose author or committer is an AI tool, and a
   `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped

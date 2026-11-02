@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -436,6 +436,7 @@ def base_row(options: Options, build_label: str, scenario: Scenario, repeat: int
         "build": build_label,
         "build_version": build.version,
         "commit": build.commit,
+        "git_settings": build.git_settings,
         "scenario": scenario.id,
         "repeat": repeat,
         "mode": "fake-provider" if options.fake else "real",
@@ -757,8 +758,19 @@ def stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def build_arms(repo: Path, refs: dict[str, str | None], builds_dir: Path) -> dict[str, Build]:
+def build_arms(
+    repo: Path,
+    refs: dict[str, str | None],
+    builds_dir: Path,
+    settings: dict[str, tuple[tuple[str, str], ...]] | None = None,
+) -> dict[str, Build]:
+    """Settings live only in each throwaway repo, so an arm needs no build of its own for them."""
+    settings = settings or {}
     return {
-        label: make_build(label, ref, repo, builds_dir) if ref else no_memory_build(builds_dir)
+        label: replace(
+            make_build(label, ref, repo, builds_dir), git_settings=settings.get(label, ())
+        )
+        if ref
+        else no_memory_build(builds_dir)
         for label, ref in refs.items()
     }

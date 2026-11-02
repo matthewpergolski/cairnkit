@@ -378,6 +378,7 @@ class StubBuild:
     version = "memory 0.3.1"
     commit = "abc"
     has_memory = True
+    git_settings = ()
 
 
 def options_for(tmp_path, agent="pi", scenarios=None, **kw):

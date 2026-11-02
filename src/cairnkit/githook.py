@@ -465,8 +465,27 @@ def _push_check(patterns: GuardPatterns) -> str:
     )
 
 
+def _note_gate() -> str:
+    """Off, this costs one git call. It gives the ref list back, as `_push_check` does."""
+    py = shlex.quote(sys.executable)
+    return (
+        'if [ "$(git config --local --type=bool --get cairnkit.branchnotegate 2>/dev/null)" '
+        f"= true ] && [ -x {py} ]; then\n"
+        "  cairnkit_gate=\n"
+        "  if [ ! -t 0 ]; then cairnkit_gate=$(cat); fi\n"
+        '  if [ -n "$cairnkit_gate" ]; then\n'
+        "    exec <<CAIRNKIT_REFS\n"
+        "$cairnkit_gate\n"
+        "CAIRNKIT_REFS\n"
+        "  fi\n"
+        f"  printf '%s\\n' \"$cairnkit_gate\" | {py} -m cairnkit hook pre-push-note\n"
+        "  [ $? -ne 3 ] || exit 1\n"
+        "fi\n"
+    )
+
+
 def pre_push_body(check: GuardPatterns | None = None) -> str:
-    return (_push_check(check) if check else "") + quiet_body("pre-push")
+    return _note_gate() + (_push_check(check) if check else "") + quiet_body("pre-push")
 
 
 def post_merge_body() -> str:

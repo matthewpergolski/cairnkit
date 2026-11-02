@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-from cairnkit import adapters, githook, instructions, markers, refresh, rules
+from cairnkit import adapters, branchgate, githook, instructions, markers, refresh, rules
 from cairnkit.ignore import drop_lines, is_tracked
 from cairnkit.init import can_link, ensure_all_linked, is_linked
 from cairnkit.memory import Memory, MemoryMissing
@@ -364,6 +364,7 @@ def run_uninstall(project: Project, dry_run: bool) -> int:
             steps += githook.uninstall(project, hook, dry_run)
         if not dry_run:
             _remember_guard(project, False)
+        steps += branchgate.forget(project, dry_run)
         steps += _sync_rules(project, None, dry_run)
     if not dry_run:
         steps += _take_back_exclude(project)

@@ -201,6 +201,11 @@ agent with no adapter.
 `memory hooks install --agent pi` writes the Pi adapter when the tool does not find
 Pi by itself.
 
+One more git check is off by default, because it is a test arm that a measure has not yet decided:
+the branch-note gate. With `git config --local cairnkit.branchnotegate true`, a commit or a push from
+an agent's shell can refuse until the branch has a short note that changed. A person's commit passes,
+and `--no-verify` skips it, as it skips each hook. See `docs/FORMAT.md`.
+
 ## What it is, and what it is not
 
 It is:
