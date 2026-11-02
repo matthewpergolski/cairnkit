@@ -188,6 +188,14 @@ main checkout, must state the purpose. The control is a commit on a `worktree-*`
 does not hold. Only `claude` has the capability `worktree-helper`, so other tools read
 `unsupported`.
 
+`pickup-interrupted-helper` also runs only by name. Session A starts a Claude Code helper with its
+own worktree. Its first step, `sh build.sh`, writes a mark and then waits 240 seconds. When the mark
+is there, the kit waits 2 seconds and sends SIGINT to the process group of session A, as a terminal
+does on Ctrl+C. Then it kills what is left after 20 seconds. So no stop runs, and the helper never
+sets `RETRY_WINDOW_SECONDS` to 45. Session B must state that task (`45`). The result is
+`inconclusive` when the helper did not reach its first step, or when its edit or commit is on disk.
+An interrupted turn is no error.
+
 In a memory arm, each session must show a hook or a `memory` command. If not, the result is
 `not-connected`, and it names the session. An answer does not count as a sign of a connection,
 because git can carry an answer. The `none` arm needs no connection, but it can still give `error`.

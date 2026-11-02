@@ -736,6 +736,52 @@ def test_the_value_suite_is_chosen_by_name_and_the_default_stays_as_it_was():
     assert [s.id for s in selected(None, fake=True)] == ["fake-connect", "fake-auth-error"]
 
 
+INTERRUPTED_ID = "pickup-interrupted-helper"
+
+
+def test_the_interrupted_helper_scenario_runs_only_by_name_and_needs_a_worktree_helper():
+    scenario = SCENARIOS[INTERRUPTED_ID]
+    assert [s.id for s in selected([INTERRUPTED_ID], fake=False)] == [INTERRUPTED_ID]
+    assert INTERRUPTED_ID not in [s.id for s in selected(None, fake=False, suite="value")]
+    assert WORKTREE_HELPER in scenario.requires and scenario.interrupt_a is not None
+
+
+def test_the_interrupted_helper_check_needs_a_killed_session_and_an_undone_task():
+    check = SCENARIOS[INTERRUPTED_ID].check
+
+    def run(answer, *, started=True, done=False, interrupted=True):
+        pair = two_sessions({"helper_started": started, "task_done": done})
+        pair[0].turns = [Turn(0, "", "", Parsed(text=""), interrupted=interrupted)]
+        return check(answered(answer, sessions=pair)).result
+
+    assert run("Set RETRY_WINDOW_SECONDS to 45 in service/config.py.") == PASS
+    assert run("It worked 45m ago on the config.") == FAIL
+    assert run("UNKNOWN") == FAIL
+    assert run("45", started=False) == scoring.INCONCLUSIVE
+    assert run("45", interrupted=False) == scoring.INCONCLUSIVE
+    assert run("45", done=True) == scoring.INCONCLUSIVE
+
+
+def test_an_interrupted_turn_ends_on_a_sigint_and_reads_as_no_error(tmp_path):
+    mark = tmp_path / "mark"
+    script = f"trap 'echo got-int; exit 130' INT; touch {mark}; sleep 30 & wait"
+    turn = runner.call_one(
+        ["sh", "-c", script],
+        tmp_path,
+        dict(os.environ),
+        60,
+        lambda out: Parsed(text=out),
+        None,
+        interrupt_when=mark.exists,
+    )
+    assert turn.interrupted and not turn.timed_out
+    assert turn.duration_s < 15
+    assert "got-int" in turn.stdout
+    assert not runner._turn_failed(turn)
+    obs = Observation(turns=[turn, Turn(0, "", "", Parsed(text="answer"))])
+    assert scoring.detect_error(obs) is None
+
+
 def test_the_fake_channel_proof_differs_by_arm():
     check = SCENARIOS["fake-pickup-channel"].check
 

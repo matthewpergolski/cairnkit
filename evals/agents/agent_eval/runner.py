@@ -91,9 +91,34 @@ def options_unsupported(options: Options, scenario: Scenario) -> str | None:
     return unsupported_reason(options.session_b_agent, scenario, fake=options.fake, needs=needs)
 
 
+INTERRUPT_GRACE = 2.0
+INTERRUPT_WAIT = 20.0
+
+
+def _interrupt(process: subprocess.Popen) -> tuple[str, str]:
+    """A SIGINT to the whole group, as a terminal sends on Ctrl+C. Then a kill of what is left."""
+    time.sleep(INTERRUPT_GRACE)  # the hook of the step that the condition saw can finish
+    os.killpg(process.pid, signal.SIGINT)
+    end = time.monotonic() + INTERRUPT_WAIT
+    # A child in the background ignores SIGINT and holds the pipes, so wait for the tool only.
+    while process.poll() is None and time.monotonic() < end:
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            return process.communicate(timeout=0.5)
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGKILL)
+    return process.communicate()
+
+
 def call_one(
-    argv: list[str], cwd: Path, env: dict, timeout: float, parse, raw_prefix: Path | None
+    argv: list[str],
+    cwd: Path,
+    env: dict,
+    timeout: float,
+    parse,
+    raw_prefix: Path | None,
+    interrupt_when=None,
 ) -> scoring.Turn:
+    """One turn. With `interrupt_when`, the turn ends with a SIGINT once it returns true."""
     started = time.monotonic()
     try:
         process = subprocess.Popen(
@@ -109,13 +134,23 @@ def call_one(
         )
     except OSError as exc:
         return scoring.Turn(127, "", str(exc), Parsed(is_error=True, error_text=str(exc)))
-    timed_out = False
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        os.killpg(process.pid, signal.SIGKILL)
-        stdout, stderr = process.communicate()
+    timed_out = interrupted = False
+    end = started + timeout
+    while True:
+        step = min(1.0, max(end - time.monotonic(), 0)) if interrupt_when else timeout
+        try:
+            stdout, stderr = process.communicate(timeout=step)
+            break
+        except subprocess.TimeoutExpired:
+            if time.monotonic() >= end:
+                timed_out = True
+                os.killpg(process.pid, signal.SIGKILL)
+                stdout, stderr = process.communicate()
+                break
+            if interrupt_when and interrupt_when():
+                interrupted = True
+                stdout, stderr = _interrupt(process)
+                break
     if raw_prefix:
         raw_prefix.parent.mkdir(parents=True, exist_ok=True)
         raw_prefix.with_suffix(".stdout").write_text(stdout, encoding="utf-8")
@@ -127,6 +162,7 @@ def call_one(
         parsed=parse(stdout),
         timed_out=timed_out,
         duration_s=round(time.monotonic() - started, 1),
+        interrupted=interrupted,
     )
 
 
@@ -278,7 +314,9 @@ def run_turns(
     env: dict,
     options: Options,
     raw_prefix: Path,
+    interrupt_when=None,
 ) -> list[scoring.Turn]:
+    """The turns of one session. `interrupt_when` ends its last turn (see `call_one`)."""
     turns: list[scoring.Turn] = []
 
     def context(prompt: str, resume: bool = False) -> CallContext:
@@ -291,7 +329,7 @@ def run_turns(
             budget_usd=None if options.fake else options.budget_usd,
         )
 
-    if agent.live_argv and len(prompts) > 1:
+    if agent.live_argv and len(prompts) > 1 and not interrupt_when:
         return live_turns(
             agent.live_argv(context("")),
             prompts,
@@ -304,7 +342,8 @@ def run_turns(
         )
 
     for index, prompt in enumerate(prompts):
-        if index == len(prompts) - 1:
+        last = index == len(prompts) - 1
+        if last:
             before_last()
         turn = call_one(
             agent.argv(context(prompt, index > 0)),
@@ -313,6 +352,7 @@ def run_turns(
             options.timeout,
             agent.parse,
             raw_prefix.with_name(f"{raw_prefix.name}-turn{index}"),
+            interrupt_when if last else None,
         )
         turns.append(turn)
         if _turn_failed(turn):
@@ -321,6 +361,8 @@ def run_turns(
 
 
 def _turn_failed(turn: scoring.Turn) -> bool:
+    if turn.interrupted:
+        return False
     return turn.exit_code != 0 or turn.parsed.is_error or turn.timed_out
 
 
@@ -365,7 +407,18 @@ def run_sessions(
             setup = fakes[plan.agent.name]
             env, model = {**box.env, **setup.env}, setup.model
         prefix = raw_prefix.with_name(f"{raw_prefix.name}-{plan.label}")
-        turns = run_turns(box, plan.agent, plan.prompts, before_last, model, env, options, prefix)
+        stop_a = scenario.interrupt_a if position == 0 and scenario.pickup else None
+        turns = run_turns(
+            box,
+            plan.agent,
+            plan.prompts,
+            before_last,
+            model,
+            env,
+            options,
+            prefix,
+            functools.partial(stop_a, box) if stop_a else None,
+        )
         request_text = None
         if provider:
             sent = model_requests(provider.requests())[requests_mark:]
@@ -515,6 +568,7 @@ def scored_row(
             {
                 "exit_code": turn.exit_code,
                 "timed_out": turn.timed_out,
+                "interrupted": turn.interrupted,
                 "duration_s": turn.duration_s,
                 "text": turn.parsed.text[:EXCERPT],
                 "error_text": turn.parsed.error_text[:EXCERPT],
