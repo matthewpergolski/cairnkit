@@ -152,8 +152,15 @@ def agent_commands(trace: Iterable[dict]) -> list[str]:
 
 
 def memory_commands(trace: Iterable[dict]) -> int:
-    """Each start of the installed command. The wiring of the tool itself uses `-m cairnkit`."""
-    return sum(1 for argv in _commands(trace) if argv and "hook" not in argv and argv[0] != "-m")
+    """Each start of the installed command. The wiring of the tool uses `-m cairnkit`.
+
+    The pre-commit hook runs `-c 'import cairnkit'` for each commit, and no agent asked for that.
+    """
+    return sum(
+        1
+        for argv in _commands(trace)
+        if argv and "hook" not in argv and argv[0] != "-m" and argv != ["-c", "import cairnkit"]
+    )
 
 
 def _hook_outputs(trace: Iterable[dict]) -> list[tuple[str, str]]:

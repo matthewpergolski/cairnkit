@@ -776,6 +776,7 @@ def test_memory_commands_leave_out_the_hooks():
         {"argv": ["/x/bin/memory", "add", "a fact"]},
         {"argv": ["/x/bin/memory", "tidy"]},
         {"argv": ["-m", "cairnkit", "commit-guard"]},
+        {"argv": ["-c", "import cairnkit"]},
     ]
     assert scoring.memory_commands(trace) == 2
 

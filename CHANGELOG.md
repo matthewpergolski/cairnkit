@@ -125,6 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `evals/agents`: the cost table no longer counts the import check of the pre-commit hook as a memory
+  command.
 - `evals/agents`: `pickup-decision` can now be answered from local files. Its prompts say that GitHub
   is not reachable and name the queue file, which still lists #412. Before, each arm read
   `inconclusive`, because session B tried `gh` and never answered.

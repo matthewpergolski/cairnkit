@@ -199,7 +199,7 @@ The table covers only the scenarios that every arm ran, so that the arms compare
 
 | Column | Where it comes from |
 |---|---|
-| Memory commands | Each start of the installed command in the trace. Hooks and the tool's own wiring are left out. |
+| Memory commands | Each start of the installed command in the trace. Hooks and the tool's own wiring, such as the import check of the pre-commit hook, are left out. |
 | Facts written | New fact records in the memory folder, per session. |
 | Blocked stops | A `stop` hook whose output takes another turn, for each tool's format. |
 | Hook words per session | The words of what each hook printed on stdout, without the JSON around them, and on stderr, where a git hook talks to the agent. Output that a git hook sends to `/dev/null` does not count. |
