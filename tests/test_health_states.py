@@ -131,9 +131,23 @@ ROWS = [
     Row(moved_beside, f"{NOT_LOADED} This project's memory was at", "memory init --path", 1, 1),
     Row(moved_away, f"{NOT_LOADED} This project's memory was at", "memory init --path", 1, 1),
     Row(migration_open, "memory check: 1 to do", "2 item(s)", 0, 0),
-    Row(stale_atlas, "memory check: 1 to do", "Docs atlas:", 0, 0),
+    Row(stale_atlas, OK, "", 0, 0),
     Row(rename_break, "memory check: 1 error(s)", "which is gone", 1, 1, False, True),
 ]
+
+
+def test_a_stale_atlas_prints_only_in_status_and_says_what_the_command_writes(
+    repo, tmp_path, monkeypatch, capsys
+):
+    stale_atlas(repo, tmp_path, monkeypatch)
+    _, status = run(capsys, "status")
+    line = next(item for item in status if item.startswith("Docs atlas:"))
+    assert "`memory docs --force`" in line and "rewrites only the atlas pages" in line
+    assert "keeps all other Markdown" in line
+    for command in ("check", "load"):
+        _, lines = run(capsys, command)
+        assert not any("Docs atlas" in item or "docs --force" in item for item in lines), command
+    assert run(capsys, "docs", "--check")[0] == 1
 
 
 def run(capsys, *argv: str) -> tuple[int, list[str]]:
