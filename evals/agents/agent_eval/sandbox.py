@@ -43,7 +43,33 @@ STRIPPED_PREFIXES = ("CLAUDE_CODE_",)
 PROVIDER_ENV_PREFIXES = ("ANTHROPIC_", "OPENAI_", "XAI_", "CURSOR_", "OPENCODE_", "GEMINI_")
 
 TRACE_MODULE = """\
-import json, os, sys, time
+import atexit, json, os, sys, time
+
+def _append(row):
+    fd = os.open(__TRACE__, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, (json.dumps(row) + "\\n").encode())
+    finally:
+        os.close(fd)
+
+class _Tee:
+    def __init__(self, inner):
+        self.inner, self.seen = inner, []
+    def write(self, text):
+        self.seen.append(text)
+        return self.inner.write(text)
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+def _capture_hook(event, cwd):
+    # A git hook sends its output to /dev/null. No agent reads that text.
+    if os.path.samestat(os.fstat(1), os.stat(os.devnull)):
+        return
+    tee = sys.stdout = _Tee(sys.stdout)
+    def report():
+        text = "".join(tee.seen)
+        _append({"hook": event, "hook_stdout": text, "cwd": cwd, "at": time.time()})
+    atexit.register(report)
 
 def _trace():
     if os.environ.get("CAIRNKIT_EVAL_HARNESS"):
@@ -52,12 +78,10 @@ def _trace():
     text = " ".join(argv)
     if "cairnkit" not in text and "/memory" not in text:
         return
-    line = json.dumps({"argv": argv[1:], "cwd": os.getcwd(), "at": time.time()})
-    fd = os.open(__TRACE__, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-    try:
-        os.write(fd, (line + "\\n").encode())
-    finally:
-        os.close(fd)
+    cwd = os.getcwd()
+    _append({"argv": argv[1:], "cwd": cwd, "at": time.time()})
+    if "hook" in argv[:-1]:
+        _capture_hook(argv[argv.index("hook") + 1], cwd)
 
 try:
     _trace()
@@ -246,6 +270,13 @@ class Sandbox:
 
     def git_status(self) -> list[str]:
         return [line for line in self.git("status", "--porcelain").splitlines() if line]
+
+    def rules_words(self) -> int:
+        """Words of the untracked rules files, which a tool reads at the start of each session."""
+        listed = self.git("ls-files", "-o", "--exclude-standard").splitlines()
+        listed += self.git("ls-files", "-o", "-i", "--exclude-standard").splitlines()
+        paths = [self.repo / name for name in listed if name.endswith((".md", ".mdc"))]
+        return sum(len(_read(path).split()) for path in paths if path.is_file())
 
     def load_text(self) -> str:
         return self.memory_cmd("load").stdout if self.build.has_memory else ""

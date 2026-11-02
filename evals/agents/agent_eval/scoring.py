@@ -6,6 +6,7 @@ command. The report table holds only counts, so agent text cannot reach it.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -48,6 +49,7 @@ _RULES_TEXT = re.compile(r"\bmemory (?:add|search|load)\b")
 _LOOKUP_COMMANDS = {"load", "search", "show"}
 _WRITE_COMMANDS = {"add", "change", "keep"}
 _HOOK_START = "session-start"
+_HOOK_STOP = "stop"
 
 
 @dataclass
@@ -71,6 +73,7 @@ class SessionRecord:
     facts_written: int = 0
     probe: dict = field(default_factory=dict)
     request_text: str | None = None
+    rules_words: int = 0
 
 
 @dataclass
@@ -141,6 +144,50 @@ def agent_commands(trace: Iterable[dict]) -> list[str]:
         if words:
             found.append(words[0])
     return found
+
+
+def memory_commands(trace: Iterable[dict]) -> int:
+    """Each `memory` start that no hook made. An agent, or a script of an agent, ran it."""
+    return sum(1 for argv in _commands(trace) if argv and "hook" not in argv)
+
+
+def _hook_outputs(trace: Iterable[dict]) -> list[tuple[str, str]]:
+    return [
+        (str(row.get("hook")), str(row["hook_stdout"])) for row in trace if "hook_stdout" in row
+    ]
+
+
+_WRAPPER_KEYS = frozenset({"decision", "hookEventName", "continue", "suppressOutput"})
+
+
+def _strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        kept = [v for k, v in value.items() if k not in _WRAPPER_KEYS]
+        return [text for item in kept for text in _strings(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _strings(item)]
+    return []
+
+
+def _hook_text(stdout: str) -> str:
+    """The text that a tool gives to the model, without the JSON around it."""
+    try:
+        return " ".join(_strings(json.loads(stdout)))
+    except ValueError:
+        return stdout
+
+
+def injected_words(trace: Iterable[dict]) -> int:
+    return sum(len(_hook_text(stdout).split()) for _, stdout in _hook_outputs(trace))
+
+
+def blocked_stops(trace: Iterable[dict]) -> int:
+    """Stops that took another turn. A tool with no block format gets the text as a turn."""
+    return sum(
+        1 for event, out in _hook_outputs(trace) if event == _HOOK_STOP and _hook_text(out).strip()
+    )
 
 
 def connection_evidence(obs: Observation, needle: re.Pattern | None) -> list[str]:
@@ -566,7 +613,8 @@ def render_report(rows: list[dict], order: list[str] | None = None) -> str:
     git_row = _git_row(rows, arms)
     if git_row:
         lines.append(git_row)
-    return "\n".join(lines + _carried_table(rows, scenarios, arms)) + "\n"
+    tables = _carried_table(rows, scenarios, arms) + _cost_table(rows, scenarios, arms)
+    return "\n".join(lines + tables) + "\n"
 
 
 def _tools_cell(rows: list[dict], scenario: str) -> str:
@@ -598,6 +646,49 @@ def _carried_table(rows: list[dict], scenarios: list[str], arms: list[str]) -> l
             cells.append(", ".join(f"{k} {v}" for k, v in counts.items()) + f" of {len(runs)}")
         if any(row["scenario"] == scenario for row in mine):
             lines.append(f"| {scenario} | {' | '.join(cells)} |")
+    return lines
+
+
+def _total(sessions: list[dict], key: str) -> int:
+    return sum(session.get(key, 0) for session in sessions)
+
+
+def _cost_table(rows: list[dict], scenarios: list[str], arms: list[str]) -> list[str]:
+    """Per arm, over the scenarios that every arm ran, so that the arms compare like with like."""
+    ran = [row for row in rows if row.get("sessions")]
+    shared = [
+        scenario
+        for scenario in scenarios
+        if all(any(r["scenario"] == scenario and r["build"] == arm for r in ran) for arm in arms)
+    ]
+    if not shared:
+        return []
+    lines = [
+        "",
+        f"Cost per arm, over {len(shared)} scenario(s) that every arm ran:",
+        "",
+        "| Arm | Runs | Sessions | Memory commands | Facts written | Blocked stops "
+        "| Hook words per session | Rules file words per session |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for arm in arms:
+        mine = [r for r in ran if r["build"] == arm and r["scenario"] in shared]
+        sessions = [session for r in mine for session in r["sessions"]]
+        count = len(sessions)
+        cells = [
+            arm,
+            len(mine),
+            count,
+            _total(sessions, "memory_commands"),
+            _total(sessions, "facts_written"),
+            _total(sessions, "blocked_stops"),
+            round(_total(sessions, "hook_words") / count) if count else 0,
+            round(_total(sessions, "rules_words") / count) if count else 0,
+        ]
+        lines.append("| " + " | ".join(str(cell) for cell in cells) + " |")
+    left_out = [s for s in scenarios if s not in shared and any(r["scenario"] == s for r in ran)]
+    if left_out:
+        lines += ["", f"Not every arm ran these, so they are left out: {', '.join(left_out)}."]
     return lines
 
 

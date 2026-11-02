@@ -378,6 +378,7 @@ def run_sessions(
                 facts_written=len(_fact_ids(box) - facts_mark),
                 probe=scenario.probe(box) if scenario.probe else {},
                 request_text=request_text,
+                rules_words=box.rules_words(),
             )
         )
         if any(_turn_failed(turn) for turn in turns):
@@ -485,6 +486,11 @@ def scored_row(
                 ),
                 "connection": scoring.session_evidence(session),
                 "probe": session.probe,
+                "memory_commands": scoring.memory_commands(session.trace),
+                "facts_written": session.facts_written,
+                "blocked_stops": scoring.blocked_stops(session.trace),
+                "hook_words": scoring.injected_words(session.trace),
+                "rules_words": session.rules_words,
             }
             for session in obs.sessions
         ],
