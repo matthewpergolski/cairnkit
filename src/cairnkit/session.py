@@ -289,6 +289,8 @@ def start_session(memory: Memory, session_id: str) -> None:
         memory,
         session_id,
         {
+            # The real clock, to compare with a file time. `started_at` follows MEMORY_NOW.
+            "clock": time.time(),
             "started_at": stamp(now()),
             "start": fingerprint(memory.project.root, memory.dir),
             "start_head": head,
@@ -332,6 +334,22 @@ def take_reminder(memory: Memory, session_id: str) -> str | None:
     state["reminder"] = "ended"
     save_state(memory, session_id, state)
     return None if agent_writes(memory) > state.get("writes", 0) else REMINDER
+
+
+def hold_heard(memory: Memory, session_id: str, line: str) -> None:
+    """Keep a line for the next hook that adds text with no turn."""
+    state = load_state(memory, session_id) or {}
+    state["heard_next"] = line
+    save_state(memory, session_id, state)
+
+
+def take_heard(memory: Memory, session_id: str) -> str | None:
+    state = load_state(memory, session_id)
+    if not state or not state.get("heard_next"):
+        return None
+    line = state.pop("heard_next")
+    save_state(memory, session_id, state)
+    return line
 
 
 def note_failure(memory: Memory, session_id: str, command: str) -> str | None:

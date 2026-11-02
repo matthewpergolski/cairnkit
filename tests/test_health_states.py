@@ -121,7 +121,7 @@ ROWS = [
     Row(healthy, OK, "", 0, 0),
     Row(bad_line, "memory check: 1 error(s)", "not valid JSON", 1, 1, False, True),
     Row(stored_secret, "memory check: 1 error(s)", "looks secret", 1, 1, True, True),
-    Row(notes_secret, "memory check: 1 warning(s)", "notes/old.md:2", 0, 1, False, True),
+    Row(notes_secret, "memory check: 1 warning(s)", "notes/old.md:2", 0, 1, False),
     Row(old_hook_block, "memory check: 1 to do", "an old post-commit block", 0, 0),
     Row(hooks_hidden, "memory check: 1 to do", "core.hooksPath is .githooks", 0, 0),
     Row(python_gone, "memory check: 1 to do", "/nonexistent/python, which is gone", 0, 0),
@@ -169,7 +169,9 @@ def test_every_command_gives_the_one_answer(row, repo, tmp_path, monkeypatch, ca
 
 
 @pytest.mark.parametrize("row", ROWS, ids=lambda row: row.setup.__name__)
-def test_stop_blocks_only_on_what_strict_fails(row, repo, tmp_path, monkeypatch, capsys):
+def test_stop_blocks_only_on_what_strict_fails_for_this_session(
+    row, repo, tmp_path, monkeypatch, capsys
+):
     row.setup(repo, tmp_path, monkeypatch)
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"session_id": "s"})))
     code, out = run(capsys, "hook", "stop", "--agent", "claude")

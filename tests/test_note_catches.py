@@ -122,7 +122,7 @@ def test_a_plain_word_from_env_in_a_note_does_not_fail_strict(repo, mem, capsys)
 
 @pytest.mark.parametrize(
     "line",
-    ["password: hunter2", "password: Hunter", "password: hun-ter", 'password: "two words"'],
+    ["password: hunter2", "password: HunTer", "password: hun-ter", 'password: "two words"'],
 )
 def test_a_value_with_a_mark_in_a_note_fails_strict(mem, capsys, line):
     (mem / "notes" / "brief.md").write_text(f"{line}\n")
