@@ -549,7 +549,7 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   prompt, its checkout, and what that checkout holds now, also when it holds no change. A Ctrl+C
   ends the process in a turn, so no stop runs and the conversation is the only other place that
   holds the aim. So the hooks record it while the helper starts: `PreToolUse` on `Agent|Task` keeps
-  the description and at most 40 words of the prompt, masked, in `.sessions/helpers/open.json`, and
+  the description and at most 60 words of the prompt, masked, in `.sessions/helpers/open.json`, and
   `SubagentStart` adds the helper's id and worktree. An event ends the record, never a clock: the
   helper's `SubagentStop`, the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there

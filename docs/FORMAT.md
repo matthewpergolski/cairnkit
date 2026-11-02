@@ -556,7 +556,7 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   `SubagentStop`): print nothing and exit 0, so they never allow, deny or stop anything. They give
   up after 2.5 seconds. `helper-call` adds a record to `.sessions/helpers/open.json`: a JSON list
   of objects with `call` (the `tool_use_id`), `session`, `kind` (`subagent_type`), `about` (the
-  `description`, at most 12 words), `task` (the prompt, at most 40 words), `started_at` (Unix
+  `description`, at most 12 words), `task` (the prompt, at most 60 words), `started_at` (Unix
   seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base` and `told` (the sessions
   whose load named it). Each text field is masked and made one line before it is written. The file
   holds at most 50 records, under the lock `.sessions/helpers/.lock`. `subagent-stop` removes the

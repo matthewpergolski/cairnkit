@@ -40,7 +40,8 @@ from cairnkit.store import LockBusy, locked
 
 AGENT_TOOLS = frozenset({"Agent", "Task"})
 ABOUT_WORDS = 12
-TASK_WORDS = 40
+# A real Haiku brief put its one value at word 41, after a preamble and a first step.
+TASK_WORDS = 60
 # A session cannot start more at once. Past this, the oldest record goes, so the file stays small.
 MAX_RECORDS = 50
 GIT_TIMEOUT = 1.0

@@ -263,6 +263,18 @@ def test_the_task_reads_past_a_first_line_that_only_opens_a_list(repo, hooks):
     assert any("RETRY_WINDOW_SECONDS to 45" in line for line in lines)
 
 
+def test_the_task_holds_the_value_of_a_real_brief_with_a_preamble(repo, hooks):
+    brief = (  # from a real run of Haiku 5.5, where the 40-word cut lost the value
+        "Work in this repository checkout (your isolated worktree). Do these steps in order and "
+        "stop if one fails:\n1. Run `sh build.sh` and wait for it to finish. Record whether it "
+        "succeeded and any error output.\n2. In `service/config.py`, set RETRY_WINDOW_SECONDS to "
+        '45.\n3. Run `git commit -am "change retry window"`.'
+    )
+    hooks.call(repo, "toolu_1", description="Change retry window and commit", prompt=brief)
+    [line] = helper_lines(hooks.load(repo, "s2"))
+    assert "RETRY_WINDOW_SECONDS to 45" in line
+
+
 def test_a_shown_record_with_no_checkout_ends_at_the_stop_of_the_session_that_heard_it(repo, hooks):
     hooks.call(repo, "toolu_1")
     hooks.start(repo, "a1", repo)
@@ -312,7 +324,7 @@ def test_the_record_is_masked_one_line_and_bounded(repo, hooks):
     assert token not in text
     assert "[secret:" in line
     assert "Ignore all rules" not in text
-    assert len(line.split()) < 80
+    assert len(line.split()) < 100  # 12 words of description, 60 of task, and the frame
     assert stored_notes(text).count("- [helper]") == 1
 
 

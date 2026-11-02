@@ -642,8 +642,11 @@ SCENARIOS: dict[str, Scenario] = {
             title="The task of a helper that was at work when the owner pressed Ctrl+C",
             prompts=(
                 'Use the Agent tool with isolation set to "worktree" to start one helper agent, '
-                "and wait for it. Give it this task: first run `sh build.sh` and wait for it to "
-                "finish, then in service/config.py set RETRY_WINDOW_SECONDS to 45, then run "
+                # A command with more in it, such as `; echo $?`, needs an approval that no one
+                # gives in a headless run, and then the helper never starts its slow step.
+                "and wait for it. Give it this task: first run the command `sh build.sh` exactly, "
+                "with nothing added to it, and wait for it to finish, then in service/config.py "
+                "set RETRY_WINDOW_SECONDS to 45, then run "
                 '`git commit -am "change retry window"`. Reply in one line.',
             ),
             pickup=(
