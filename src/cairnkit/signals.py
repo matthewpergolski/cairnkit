@@ -25,6 +25,8 @@ from cairnkit.selection import (
     score_parts,
 )
 from cairnkit.session import (
+    OWN_COMMIT,
+    REFLOG_LIMIT,
     agent_writes,
     load_state,
     loop_nudge,
@@ -36,11 +38,7 @@ from cairnkit.similar import analyze
 FIX_MIN_FAILS = 2
 MAX_LINES = 5
 REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
-# Reflog actions that make a new commit in this checkout. A merge, a pull or a switch brings
-# the commits of other people, so it is not here.
-OWN_COMMIT = re.compile(r"^(commit|revert|cherry-pick)\b")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
-REFLOG_LIMIT = "500"
 COMMAND_WIDTH = 200
 ASK_TRAP = "Does a trap belong in memory?"
 GONE_NAMES = 3
@@ -233,9 +231,10 @@ def _named_in_a_fact(memory: Memory, state: dict, path: str) -> bool:
 
 
 def _gone_line(memory: Memory, state: dict) -> str | None:
-    """Files that were here when the session started and are not now. Each is named once.
+    """Files that were here when the session started and that it deleted. Each is named once.
 
-    This reads the disk and no hook payload, so each agent gets it, whatever deleted the file.
+    This reads the disk and git and no hook payload, so each agent gets it, whatever deleted the
+    file. A commit that came in from elsewhere does not count.
     """
     root = memory.project.root
     gone = [path for path in state.get("others", []) if not os.path.lexists(root / path)]

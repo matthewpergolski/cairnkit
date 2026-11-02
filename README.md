@@ -859,11 +859,13 @@ and the news wait for the next prompt or tool result, which adds text with no tu
 in the session ends the reminder. In 20 ordinary turns, an agent that never writes sees no block
 on a plain script and 2 on a mixed one. `tests/test_stop_replay.py` replays both on each adapter.
 
-**Corrections and lost files.** When the owner's prompt corrects the agent, or a file that was
-here at the session start is gone, stop names it once and asks if a trap belongs in memory. The
+**Corrections and lost files.** When the owner's prompt corrects the agent, or the session deleted
+a file that was here at its start, stop names it once and asks if a trap belongs in memory. The
 tool writes no fact. A fact written after the correction, or one that names the file, ends the
 question. So does a prompt that names the file or asks to remove it, because the owner knows
-about it.
+about it. A file that commits from elsewhere removed (a pull, a merge, a rebase, a branch switch)
+raises no question. The HEAD reflog tells them apart. With the reflog off, only a deletion in the
+worktree raises it.
 
 **One answer.** `memory status`, `memory check` and `memory load` print the same answer line, and
 stop blocks on what `--strict` fails. A healthy load prints no answer, so it spends no words.
