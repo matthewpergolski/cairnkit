@@ -36,6 +36,7 @@ sources:
   - src/cairnkit/instruction_files.py
   - src/cairnkit/instructions.py
   - src/cairnkit/legacy.py
+  - src/cairnkit/live.py
   - src/cairnkit/load.py
   - src/cairnkit/loopbreak.py
   - src/cairnkit/markers.py
@@ -116,6 +117,7 @@ flowchart TB
     Library --> install_source[install_source]
     Library --> instruction_files[instruction_files]
     Library --> legacy[legacy]
+    Library --> live[live]
     Library --> loopbreak[loopbreak]
     Library --> markers[markers]
     Library --> memory[memory]
