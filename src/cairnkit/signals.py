@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import PurePosixPath
 
 from cairnkit import loopbreak
 from cairnkit.clock import now, parse_time
@@ -41,6 +42,7 @@ REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
 COMMAND_WIDTH = 200
 ASK_TRAP = "Does a trap belong in memory?"
+PATH_WORD = re.compile(r"[\w./-]*[/.][\w./-]*\w")
 GONE_NAMES = 3
 PROMPT_WIDTH = 120
 # A correction opens a prompt. Deep in a long paste, these words belong to the paste.
@@ -179,11 +181,16 @@ def is_correction(prompt: str) -> bool:
     return bool(CORRECTION.search(QUOTED.sub(" ", prompt[:PROMPT_HEAD])))
 
 
+def _file_stem(path: str) -> str:
+    return PurePosixPath(path).stem
+
+
 def removal_words(prompt: str) -> set[str]:
     """The words of what the owner asked to remove: `remove scratch files` gives `scratch`.
 
     A false word would hide a real loss, and a missed word costs one question. So this reads one
-    clause, and it skips a question, a refusal and a correction.
+    clause, and it skips a question, a refusal and a correction. A path gives only its file name:
+    its folder and its extension would match every file that shares them.
     """
     if NOT_THE_OWNER.search(prompt) or is_correction(prompt):
         return set()
@@ -191,7 +198,8 @@ def removal_words(prompt: str) -> set[str]:
     for clause in CLAUSE_END.split(prompt[:PROMPT_HEAD]):
         ask = REMOVAL.search(clause)
         if ask and not clause.rstrip().endswith("?") and not NEGATED.search(clause[: ask.start()]):
-            found |= analyze(clause[ask.end() :]) - NOT_A_NAME
+            target = PATH_WORD.sub(lambda match: _file_stem(match[0]), clause[ask.end() :])
+            found |= analyze(target) - NOT_A_NAME
     return found
 
 
@@ -248,7 +256,9 @@ def _gone_line(memory: Memory, state: dict) -> str | None:
         if token in told:
             continue
         told.append(token)
-        known = path in named or os.path.basename(path) in named or asked & analyze(path)
+        known = (
+            path in named or os.path.basename(path) in named or asked & analyze(_file_stem(path))
+        )
         if not known and not _named_in_a_fact(memory, state, path):
             fresh.append(path)
     if not fresh:
@@ -385,19 +395,19 @@ def news(memory: Memory, key: str) -> str | None:
     return "\n\n".join(parts) or None
 
 
+def _names_a_file(fact: dict, paths: list[str]) -> bool:
+    """True when the fact or its source names one of the files. An area alone is too broad."""
+    text = f"{load_text(fact)} {fact.get('source', '')}"
+    names = {name for path in paths for name in (path, os.path.basename(path))}
+    return any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", text) for name in names)
+
+
 def traps_for(memory: Memory, paths: list[str], limit: int = 3) -> list[str]:
-    """Stored traps that match the files about to be committed. A warning, never a refusal."""
-    areas = areas_for_paths(paths, memory.config["areas"])
-    if not areas:
-        return []
-    moment = now()
+    """Stored traps that name a file about to be committed. A warning, never a refusal."""
     visible = _for_this_branch(memory)
     found = []
     for fact in active_states(memory):
-        if fact.get("kind") != "trap" or not visible(fact):
-            continue
-        parts = score_parts(fact, moment, areas, set())
-        if parts["trap"]:
+        if fact.get("kind") == "trap" and visible(fact) and _names_a_file(fact, paths):
             found.append(
                 f"memory: a stored trap matches this commit ({DATA_LABEL}): "
                 f"{clean(load_text(fact))}"

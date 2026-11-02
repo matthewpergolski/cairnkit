@@ -253,6 +253,7 @@ def test_a_failure_that_has_not_passed_is_no_event(session):
         "please get rid of scratch files.",
         "clean up the scratch files and add a config key",
         "rm scratch.txt",
+        "remove ./scratch.txt",
         "what is in scratch.txt",
     ],
 )
@@ -270,6 +271,7 @@ def test_a_lost_file_the_owner_asked_about_is_no_event(session, prompt):
         "clean up the scratch logic",
         "remove the retry helper, then add a scratch pad",
         "delete the unused files",
+        "remove the duplicate code in lib/notes.txt",
     ],
 )
 def test_a_lost_file_the_owner_did_not_ask_to_remove_is_an_event(session, prompt):

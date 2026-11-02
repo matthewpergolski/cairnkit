@@ -114,6 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The pre-commit hook prints a stored trap only when the trap or its source names a staged file. An area match warned about a migration on a commit that changed a colour.
+- A request to remove one path no longer hides the loss of each file that shares its folder or extension. Only the file name of that path counts.
 - A pull, a merge, a rebase or a branch switch no longer reads as lost files at stop. Stop asks
   about a tracked file only when this session deleted it, in the worktree or in a commit it made
   here. With the HEAD reflog off, only a worktree deletion counts.

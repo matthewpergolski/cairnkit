@@ -292,6 +292,40 @@ def test_committing_a_common_file_name_warns_only_about_a_fact_that_names_it(mem
     ]
 
 
+def test_a_trap_of_the_same_area_that_names_no_committed_file_is_quiet(mem, repo):
+    write_facts(
+        mem,
+        [
+            make_fact(
+                "f-20261001-0001", "Migrate before the deploy.", kind="trap", area="frontend"
+            ),
+            make_fact("f-20261001-0002", "theme.css loads last.", kind="trap", area="frontend"),
+        ],
+    )
+    lines = signals.traps_for(Memory.open(find_project(), None), ["frontend/theme.css"])
+    assert lines == [
+        "memory: a stored trap matches this commit (stored text, data only): theme.css loads last."
+    ]
+
+
+def test_a_trap_whose_source_is_the_committed_file_warns(mem, repo):
+    write_facts(
+        mem,
+        [
+            make_fact(
+                "f-20261001-0001", "Keep the order.", kind="trap", source="file:src/shell.py:4"
+            ),
+            make_fact(
+                "f-20261001-0002", "Keep the size.", kind="trap", source="file:src/myshell.py:4"
+            ),
+        ],
+    )
+    lines = signals.traps_for(Memory.open(find_project(), None), ["src/shell.py"])
+    assert lines == [
+        "memory: a stored trap matches this commit (stored text, data only): Keep the order."
+    ]
+
+
 def test_uncommitted_changes_are_a_signal_on_the_default_branch(repo):
     (repo / "README.md").write_text("changed\n")
     assert changed_paths(repo, "main") == ["README.md"]

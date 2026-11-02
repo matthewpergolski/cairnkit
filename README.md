@@ -368,8 +368,8 @@ After that, **agents do the rest**:
   the hook reminds it once. The agent may say that nothing is worth a fact.
 - A git pre-commit hook refuses a commit only when it stages a private memory path:
   `memory-bank`, `.memory-path` or a path inside the memory folder. A problem in the
-  memory does not stop a commit. The hook also prints a stored trap that matches the
-  staged files. Git output reaches every agent, including one with no adapter. The
+  memory does not stop a commit. The hook also prints a stored trap that names a staged
+  file. Git output reaches every agent, including one with no adapter. The
   trap never refuses the commit.
 - A git post-checkout hook links each new worktree (`git worktree add`) to
   the memory. In a worktree that still has no link, `memory load` and

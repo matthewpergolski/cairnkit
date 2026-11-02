@@ -93,7 +93,7 @@ agent.
 | `.grok/hooks/cairnkit.json` | No | Grok Build found, and neither Claude Code nor Cursor found. Added to `.git/info/exclude`. |
 | `.pi/extensions/cairnkit.ts` | No | Pi found. A generated extension. Added to `.git/info/exclude`. |
 | `.opencode/plugins/cairnkit.js` | No | OpenCode found. A generated plugin. Added to `.git/info/exclude`. |
-| `.git/hooks/pre-commit` | No: it is inside `.git` | Refuses a commit that stages a private memory path. Prints a stored trap that matches the staged files. A problem in the memory does not stop the commit. `--no-hooks` skips it. |
+| `.git/hooks/pre-commit` | No: it is inside `.git` | Refuses a commit that stages a private memory path. Prints a stored trap that names a staged file. A problem in the memory does not stop the commit. `--no-hooks` skips it. |
 | `.git/hooks/post-checkout` | No | Links the memory into a new worktree made with `git worktree add`, and writes the adapter files that the main checkout has. |
 | `.git/hooks/pre-push` | No: it is inside `.git`. Not shared. | Runs auto-tidy before a push. Tidy never blocks the push; only the attribution guard can. `git push --no-verify` skips it, as git does for every pre-push hook. A held tidy lock can add up to about three seconds. |
 | `.git/hooks/post-merge` | No: it is inside `.git`. Not shared. | Runs auto-tidy after a merge. It prints nothing. It never blocks the merge. A held tidy lock can add up to about three seconds. |
