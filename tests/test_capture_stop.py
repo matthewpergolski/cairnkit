@@ -18,19 +18,24 @@ from cairnkit.session import WORK_GAP
 AGENTS = ("claude", "codex", "cursor", "pi", "opencode")
 STATEMENT = "We decided to keep the old API, because our partners rely on it."
 MOMENTS = (
-    "if this session ended now, what would the next agent get wrong?",
-    "decided or approved",
+    "what would the next agent get wrong if this session ended now?",
+    "decision or approval",
     "promise or a limit",
-    "review found",
-    "purpose and its next step",
+    "review finding",
+    "purpose and next step",
     "failure and its fix",
-    "no longer true",
-    "the reason and not only the change",
-    "names the files",
-    '`memory add "TEXT"`',
+    "the reason",
+    "the files",
+    # About 9 of 33 facts in a real run restated git, such as "Branch X holds one commit".
+    "A commit, a branch or the diff is no fact",
+    '`memory add "TEXT"',
     # A plain add prints a note about its basis, and real agents then wrote each fact twice.
     "--basis told",
 )
+# Each block costs a turn, and its words cost the context. The guide was 157 words before.
+BLOCK_WORDS = 105
+EVENT_BLOCK_WORDS = 70
+DOC_IS_NO_RECORD = "A doc that the next agent reads only after it fails is no record."
 
 
 @pytest.fixture
@@ -53,7 +58,14 @@ def test_a_statement_with_no_change_blocks_once_on_each_tool_with_a_prompt_hook(
     said = session.turn(1, STATEMENT, [], [])
     assert said
     assert all(moment in said for moment in MOMENTS)
+    assert len(said.split()) <= BLOCK_WORDS
     assert session.turn(2, "what does the config loader read", [], []) is None
+
+
+def test_a_block_for_a_statement_and_changed_work_stays_short(session):
+    said = session.turn(1, STATEMENT, edit(session), [])
+    assert all(moment in said for moment in MOMENTS)
+    assert len(said.split()) <= BLOCK_WORDS
 
 
 @pytest.mark.parametrize("session", [*AGENTS, "grok"], indirect=True)
@@ -61,6 +73,10 @@ def test_changed_work_blocks_the_first_stop_on_each_tool(session):
     said = session.turn(1, "format the code", edit(session), [])
     assert said
     assert all(moment in said for moment in MOMENTS)
+
+
+def test_each_session_start_says_how_to_replace_a_fact_so_the_block_need_not(session):
+    assert "--supersedes ID" in session.heard[0]
 
 
 def test_an_ordinary_prompt_with_no_change_does_not_block(session):
@@ -135,8 +151,8 @@ def test_a_subagent_still_hears_its_own_event_without_the_guide(session):
     session.tool("pytest", True)
     said = session.stop_text(session.hook("stop", agent_id="sub-1"))
     assert "`pytest` failed 2 times, then passed" in said
-    assert '`memory add "TEXT"`' in said
-    assert "next agent" not in said
+    assert '`memory add "TEXT"' in said
+    assert "next agent get wrong" not in said
 
 
 @pytest.mark.parametrize(
@@ -153,8 +169,34 @@ def test_a_failure_fixed_by_how_the_command_runs_is_named_once(session, failed, 
     said = session.stop_text(session.hook("stop"))
     assert passed in said
     assert "What fixed it?" in said
-    assert "next agent" in said
+    # An agent once declined because a doc held the fix, and the next session failed the same way.
+    assert DOC_IS_NO_RECORD in said
+    assert '`memory add "TEXT"' in said
+    assert "next agent get wrong" not in said
+    assert len(said.split()) <= EVENT_BLOCK_WORDS
     assert session.turn(2, "thanks", [], []) is None
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "report.sh exits 3 unless REPORT_LOCALE=C is set. Run it as REPORT_LOCALE=C sh report.sh.",
+        "For report.sh, set REPORT_LOCALE=C on the command line instead of changing a file.",
+    ],
+)
+def test_a_fix_that_a_stored_fact_names_is_no_event(session, stored):
+    assert main(["add", stored, "--basis", "seen"]) == 0
+    session.tool("sh report.sh", False)
+    session.tool("REPORT_LOCALE=C sh report.sh", True)
+    assert session.stop_text(session.hook("stop")) is None
+
+
+def test_a_fact_on_the_same_script_without_the_fix_keeps_the_event(session):
+    assert main(["add", "report.sh writes the weekly totals.", "--basis", "seen"]) == 0
+    session.tool("sh report.sh", False)
+    session.tool("REPORT_LOCALE=C sh report.sh", True)
+    said = session.stop_text(session.hook("stop"))
+    assert said and "What fixed it?" in said
 
 
 @pytest.mark.parametrize(
@@ -179,7 +221,8 @@ def test_the_block_comes_with_a_real_event_only_once(session):
     session.shell(edit(session)[0])
     said = session.stop_text(session.hook("stop"))
     assert "then passed" in said
-    assert said.count("what would the next agent get wrong?") == 1
+    assert said.count("what would the next agent get wrong") == 1
+    assert all(moment in said for moment in MOMENTS)
     assert session.turn(2, "thanks", [], []) is None
 
 

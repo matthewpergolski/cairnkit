@@ -10,7 +10,7 @@ from conftest import git
 from cairnkit.cli import main
 
 AGENTS = ("claude", "codex", "cursor", "grok", "pi", "opencode")
-CAPTURE = "what would the next agent get wrong?"
+CAPTURE = "what would the next agent get wrong"
 LOST = "was here when this session started"
 
 
