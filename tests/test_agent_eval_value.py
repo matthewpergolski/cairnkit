@@ -119,6 +119,7 @@ def options_with_arms(tmp_path, *labels, **kw):
         version = "v"
         commit = "abc"
         has_memory = True
+        git_settings = ()
 
     class StubNone(Stub):
         has_memory = False
@@ -176,6 +177,18 @@ def test_cli_refuses_a_bad_arm(capsys, bad):
     assert "--arm" in capsys.readouterr().err
 
 
+def test_cli_takes_a_git_setting_for_one_arm_and_refuses_a_bad_one(capsys):
+    cli = load_cli()
+    args = cli.parse_args(["--arm", "gate=HEAD", "--arm-git", "gate:cairnkit.x=true"])
+    assert cli.arm_settings(args, cli.arm_refs(args)) == {"gate": (("cairnkit.x", "true"),)}
+    assert cli.same_arms({"dev": "c", "gate": "c"}, {"gate": (("cairnkit.x", "true"),)}) is False
+    assert cli.same_arms({"dev": "c", "gate": "c"}, {}) is True
+    for bad in ("nope:cairnkit.x=true", "none:cairnkit.x=true", "gate:cairnkit.x"):
+        argv = ["--dry-run", "--arm", "gate=HEAD", "--arm-git", bad]
+        assert cli.main(argv) == 2
+        assert "--arm-git" in capsys.readouterr().err
+
+
 def test_cli_refuses_two_arms_on_one_commit(capsys):
     argv = ["--agent", "pi", "--arm", "dev-copy=HEAD", "--load-only"]
     assert load_cli().main(argv) == 2
@@ -217,7 +230,7 @@ elif args[0] == "load":
 """
 
 AGENT_STUB = """#!__PYTHON__
-import os, shutil, subprocess, sys
+import os, re, shlex, shutil, subprocess, sys
 from pathlib import Path
 
 prompt = sys.argv[1]
@@ -233,7 +246,7 @@ with (Path(sh("git", "rev-parse", "--git-dir").stdout.strip()) / "stub-pids").op
 
 
 def keep(text):
-    if has_memory:
+    if has_memory and not os.environ.get("STUB_KEEPS_NOTHING"):
         sh("memory", "add", text, "--kind", "decision", "--basis", "told", "--area", "work",
            "--source", "session:stub")
 
@@ -242,12 +255,19 @@ def recall():
     return sh("memory", "load").stdout if has_memory else ""
 
 
-def commit_on(branch, path, old, new, subject):
+def commit_on(branch, path, old, new, subject, why):
     sh("git", "checkout", "-q", "-b", branch)
     file = Path(path)
     file.write_text(file.read_text().replace(old, new))
     sh("git", "add", path)
-    sh("git", "commit", "-q", "-m", subject)
+    done = sh("git", "commit", "-q", "-m", subject)
+    if done.returncode:
+        line = next(ln for ln in done.stderr.splitlines() if ln.startswith("  memory add "))
+        argv = shlex.split(line)
+        sh(argv[0], argv[1], why, *argv[3:])
+        sh("git", "commit", "-q", "-m", subject)
+    if os.environ.get("STUB_KEEPS_NOTHING"):
+        recall()
 
 
 if "ask me the one" in prompt:
@@ -256,17 +276,26 @@ elif "I approve the merge of #412" in prompt:
     keep("The owner approved the merge of PR 412.")
     print("Understood.")
 elif "wait on me" in prompt:
-    print("WAITING: 377" if "412" in recall() else "WAITING: 377, 412")
+    # Only a file that the prompt names can answer: a real session has no GitHub here.
+    queue = re.search(r"docs/[\\w-]+\\.md", prompt)
+    if queue:
+        waiting = re.findall(r"#(\\d+) .*Waiting", Path(queue[0]).read_text())
+        settled = recall()
+        print("WAITING: " + ", ".join(n for n in waiting if f"PR {n}" not in settled))
+    else:
+        print("I cannot list the pull requests without gh.")
 elif "tune-retry-window from main" in prompt:
-    commit_on("tune-retry-window", "service/config.py", "= 30", "= 45", "change retry window")
-    keep("Branch tune-retry-window exists for the Halvorsen gateway restart.")
+    why = "Branch tune-retry-window exists for the Halvorsen gateway restart."
+    commit_on("tune-retry-window", "service/config.py", "= 30", "= 45", "change retry window", why)
+    keep(why)
     print("Done.")
 elif "branch tune-retry-window" in prompt:
     print("It is for the Halvorsen gateway." if "Halvorsen" in recall() else "UNKNOWN")
 elif "checkout-review from main" in prompt:
+    why = "Review finding left open on checkout-review: refund must write an audit line."
     commit_on("checkout-review", "shop/checkout.py", "return total - coupon",
-              "return max(0, total - coupon)", "fix coupon total")
-    keep("Review finding left open on checkout-review: refund must write an audit line.")
+              "return max(0, total - coupon)", "fix coupon total", why)
+    keep(why)
     print("Done.")
 elif "from the review on branch checkout-review" in prompt:
     print("refund must write an audit line." if "audit" in recall() else "NOTHING")
@@ -333,6 +362,29 @@ def stub_memory_build(tmp_path) -> sandbox.Build:
     return sandbox.Build(label="dev", commit="c0", root=root, version="stub")
 
 
+REAL_TOOL = """#!__PYTHON__
+import json, os, sys
+
+if not os.environ.get("CAIRNKIT_EVAL_HARNESS"):
+    row = {"argv": ["memory", *sys.argv[1:]], "cwd": os.getcwd(), "at": 0}
+    with open(__TRACE__, "a") as handle:
+        handle.write(json.dumps(row) + "\\n")
+os.execv(sys.executable, [sys.executable, "-m", "cairnkit", *sys.argv[1:]])
+"""
+
+
+def real_tool_build(tmp_path) -> sandbox.Build:
+    """This checkout's tool, not a stub: its hooks, its `memory add` and its `memory load`."""
+    root = tmp_path / "real-build"
+    bin_dir = root / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    path = bin_dir / "memory"
+    text = REAL_TOOL.replace("__PYTHON__", sys.executable)
+    path.write_text(text.replace("__TRACE__", repr(str(root / "trace.jsonl"))))
+    path.chmod(0o755)
+    return sandbox.Build(label="dev", commit="c0", root=root, version="this checkout")
+
+
 def scripted_options(tmp_path, agent, scenarios, **kw):
     return runner.Options(
         agent=agent,
@@ -356,6 +408,45 @@ def test_each_scenario_separates_a_carried_note_from_no_memory(tmp_path, scripte
         assert row["agent_a"] == row["agent_b"] == "scripted"
     assert "memory" in rows["dev"]["carried"]
     assert rows["none"]["carried"] == []
+
+
+@pytest.mark.parametrize("scenario_id", VALUE_IDS)
+def test_each_scenario_can_pass_with_the_real_tool_when_session_a_captures(
+    tmp_path, scripted, scenario_id
+):
+    """The stub above cannot show this: here the real hooks and the real load run."""
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[scenario_id]])
+    options.builds = {"dev": real_tool_build(tmp_path)}
+    row = runner.run_all(options)[0]
+    assert row["result"] == PASS, row["reason"]
+    assert "memory" in row["carried"]
+    assert row["needle_in_load"] is True
+
+
+@pytest.mark.parametrize("scenario_id", ["pickup-purpose", "pickup-findings"])
+def test_a_setting_on_one_arm_turns_the_gate_on_and_only_there(tmp_path, scripted, scenario_id):
+    """A session that keeps nothing by itself: the printed command is its only reason to write."""
+    silent = replace(
+        scripted,
+        argv=lambda call: [
+            "/usr/bin/env",
+            "STUB_KEEPS_NOTHING=1",
+            "CLAUDECODE=1",
+            *scripted.argv(call),
+        ],
+    )
+    options = scripted_options(tmp_path, silent, [SCENARIOS[scenario_id]])
+    base = real_tool_build(tmp_path)
+    setting = (("cairnkit.branchnotegate", "true"),)
+    options.builds = {"off": base, "gate": replace(base, label="gate", git_settings=setting)}
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    assert rows["off"]["result"] == FAIL, rows["off"]["reason"]
+    assert rows["gate"]["result"] == PASS, rows["gate"]["reason"]
+    assert rows["gate"]["git_settings"] == setting
+    assert rows["gate"]["carried"] == ["memory"]
+    assert rows["gate"]["sessions"][0]["facts_written"] == 1
+    assert rows["off"]["sessions"][0]["facts_written"] == 0
+    assert "branchnotegate=true" in scoring.render_report(list(rows.values()), [scenario_id])
 
 
 def test_session_b_is_a_new_process_and_gets_no_resume(tmp_path, scripted):
@@ -452,6 +543,20 @@ def two_sessions(probe_a=None, probe_b=None):
 def test_the_waiting_line_decides_and_an_empty_answer_never_passes(answer, result):
     check = SCENARIOS["pickup-decision"].check
     assert check(answered(answer)).result == result
+
+
+def test_the_pending_question_can_be_answered_from_local_files_with_no_answer_in_the_prompt():
+    scenario = SCENARIOS["pickup-decision"]
+    queue = scenario.files["docs/pr-queue.md"]
+    assert "Waiting on the owner" in queue.split("#412")[1].splitlines()[0]
+    assert "Waiting on the owner" in queue.split("#377")[1].splitlines()[0]
+    for prompt in scenario.pickup:
+        assert "docs/pr-queue.md" in prompt
+        assert "412" not in prompt and "377" not in prompt
+        assert "approv" not in prompt.lower()
+    for prompt in (*scenario.prompts, *scenario.pickup):
+        assert "look at" not in prompt.lower(), "an open request sends the model to GitHub"
+    assert "not reachable" in scenario.prompts[0] and "not reachable" in scenario.pickup[0]
 
 
 def test_a_word_check_on_session_b_needs_the_work_of_session_a():
@@ -601,6 +706,13 @@ def test_the_trace_records_what_a_hook_printed_and_the_tool_still_gets_it(tmp_pa
     assert outputs[0]["hook"] == "session-start"
 
 
+def test_a_git_hook_refusal_on_stderr_counts_as_words(tmp_path):
+    script = "import sys; print('commit refused for this branch', file=sys.stderr)"
+    rows = run_traced(tmp_path, script, "cairnkit", "hook", "pre-commit")
+    assert scoring.injected_words(rows) == 5
+    assert scoring.blocked_stops(rows) == 0
+
+
 def test_the_trace_counts_no_text_that_a_git_hook_sends_to_dev_null(tmp_path):
     rows = run_traced(
         tmp_path,
@@ -664,6 +776,7 @@ def test_memory_commands_leave_out_the_hooks():
         {"argv": ["/x/bin/memory", "add", "a fact"]},
         {"argv": ["/x/bin/memory", "tidy"]},
         {"argv": ["-m", "cairnkit", "commit-guard"]},
+        {"argv": ["-c", "import cairnkit"]},
     ]
     assert scoring.memory_commands(trace) == 2
 

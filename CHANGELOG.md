@@ -38,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer retires a `seen` fact in auto-tidy.
 - `evals/agents`: a value measure. A no-memory arm, extra arms from a ref, two-session scenarios with
   nothing planted, a cost table per arm and a reading rule that is agreed before the run.
+- `evals/agents`: a test runs each value scenario with the real tool and a scripted session, so a
+  scenario that cannot pass in a build that captures fails a test.
+- The branch-note gate, a test arm that is off by default. With the local git setting
+  `cairnkit.branchnotegate = true`, in an agent's shell only, the first commit of a branch refuses
+  until the branch has a short note, and a push refuses until that note changed. The refusal prints
+  the `memory add ... --short` command. It checks only that a note exists and changed.
+- `evals/agents`: `--arm-git LABEL:KEY=VALUE` sets a local git setting in one arm, so that two arms
+  on one commit can differ by a switch. The hook words of the cost table now count what a hook says
+  on stderr.
 - `evals/agents`: a kit that runs real agents on `dev` against production.
 - The attribution guard refuses a commit whose author or committer is an AI tool, and a
   `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
@@ -126,6 +135,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `evals/agents`: the cost table no longer counts the import check of the pre-commit hook as a memory
+  command.
+- `evals/agents`: `pickup-decision` can now be answered from local files. Its prompts say that GitHub
+  is not reachable and name the queue file, which still lists #412. Before, each arm read
+  `inconclusive`, because session B tried `gh` and never answered.
 - The pre-commit hook prints a stored trap only when the trap or its source names a staged file. An area match warned about a migration on a commit that changed a colour.
 - A request to remove one path no longer hides the loss of each file that shares its folder or extension. Only the file name of that path counts.
 - A pull, a merge, a rebase or a branch switch no longer reads as lost files at stop. Stop asks

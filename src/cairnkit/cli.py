@@ -313,6 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
             "pre-commit",
             "post-checkout",
             "pre-push",
+            "pre-push-note",
             "post-merge",
             "post-commit",
             "after-shell",

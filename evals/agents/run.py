@@ -56,6 +56,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="one more memory arm from a git ref, repeatable",
     )
     parser.add_argument(
+        "--arm-git",
+        action="append",
+        default=[],
+        metavar="LABEL:KEY=VALUE",
+        help="a local git setting in each repo of one arm, repeatable",
+    )
+    parser.add_argument(
         "--skip-arm", action="append", default=[], metavar="LABEL", help="leave out one arm"
     )
     parser.add_argument("--out", type=Path, help="default: evals/agents/results/<time>-<agent>")
@@ -93,6 +100,26 @@ def arm_refs(args: argparse.Namespace) -> dict[str, str | None]:
     return {label: ref for label, ref in refs.items() if label not in args.skip_arm}
 
 
+def arm_settings(
+    args: argparse.Namespace, refs: dict[str, str | None]
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    """The local git settings of each arm that runs."""
+    settings: dict[str, tuple[tuple[str, str], ...]] = {}
+    for item in args.arm_git:
+        label, _, pair = item.partition(":")
+        key, _, value = pair.partition("=")
+        if not refs.get(label) or not key or not value:
+            raise ValueError(f"--arm-git needs a memory arm and KEY=VALUE, not {item!r}")
+        settings[label] = (*settings.get(label, ()), (key, value))
+    return settings
+
+
+def same_arms(commits: dict[str, str], settings: dict[str, tuple]) -> bool:
+    """Two arms that differ only by a setting are a real comparison, on one commit."""
+    arms = [(commit, settings.get(label, ())) for label, commit in commits.items()]
+    return len(set(arms)) < len(arms)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.report:
@@ -109,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = args.out or HERE / "results" / f"{runner.stamp()}-{tools}"
     try:
         refs = arm_refs(args)
+        settings = arm_settings(args, refs)
         scenarios = selected(args.scenario, fake=args.fake_provider, suite=args.suite)
     except ValueError as exc:
         print(f"run.py: {exc}", file=sys.stderr)
@@ -132,16 +160,16 @@ def main(argv: list[str] | None = None) -> int:
 
     repo = repo_root()
     commits = {label: sandbox.resolve_commit(repo, ref) for label, ref in refs.items() if ref}
-    if len(set(commits.values())) < len(commits):
+    if same_arms(commits, settings):
         print(
             f"run.py: two arms are the same commit ({', '.join(commits)}), so a comparison means "
-            "nothing. Run from a dev checkout, or pass --dev-ref.",
+            "nothing. Run from a dev checkout, pass --dev-ref, or set --arm-git on one arm.",
             file=sys.stderr,
         )
         return 2
     builds_dir = args.builds_dir or Path(tempfile.gettempdir()) / "cairnkit-agent-eval-builds"
     try:
-        options.builds = runner.build_arms(repo, refs, builds_dir)
+        options.builds = runner.build_arms(repo, refs, builds_dir, settings)
     except sandbox.SetupError as exc:
         print(f"run.py: could not build: {exc}", file=sys.stderr)
         return 2

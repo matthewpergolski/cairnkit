@@ -138,6 +138,7 @@ src/cairnkit/
   discover.py    the short rules, the capture guide and the look-up line of the load and --help
   markers.py     the start and end markers of a block, new and old names
   githook.py     git pre-commit, post-checkout, pre-push, post-merge (tidy) and commit-msg guard
+  branchgate.py  the branch-note gate: a test arm, off by default (see docs/FORMAT.md)
   install_source.py  where memory was installed from; the cached newer check
   update.py      memory update and memory status
   progress.py    the step display of memory update

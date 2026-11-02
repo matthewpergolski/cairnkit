@@ -19,6 +19,7 @@ import sys
 from cairnkit import (
     adapters,
     autotidy,
+    branchgate,
     deadline,
     followups,
     githook,
@@ -458,6 +459,22 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     return 1
 
 
+def _branch_gate(gate, project: Project, flag: str | None, *args: str) -> str | None:
+    """The gate's refusal. Any failure and any slow git let git go on."""
+    with contextlib.suppress(Exception), deadline.within(GIT_HOOK_BUDGET):
+        return gate(project, flag, *args)
+    return None
+
+
+def pre_push_note(project: Project, flag: str | None) -> int:
+    """Only the exit code `REFUSED` stops the push, so a crash or an old build lets it go."""
+    refusal = _branch_gate(branchgate.on_push, project, flag, sys.stdin.read())
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return branchgate.REFUSED
+    return 0
+
+
 def pre_commit(project: Project, flag: str | None) -> int:
     # A staged deletion takes private content out of git, which is what this check wants.
     staged = (
@@ -481,6 +498,10 @@ def pre_commit(project: Project, flag: str | None) -> int:
             f"committed: {', '.join(bad)}\nUnstage them: git reset -q -- {' '.join(bad)}",
             file=sys.stderr,
         )
+        return 1
+    refusal = _branch_gate(branchgate.on_commit, project, flag)
+    if refusal:
+        print(refusal, file=sys.stderr)
         return 1
     # A problem in the memory goes to the agent at stop. It never stops unrelated work.
     with contextlib.suppress(Exception):
@@ -597,6 +618,8 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
         agent = "grok"  # Grok also runs the hooks that a project keeps for other tools.
     if event in ("pre-push", "post-merge", "post-commit"):  # post-commit: a hook from 0.3.1
         return git_event(project, flag)
+    if event == "pre-push-note":
+        return pre_push_note(project, flag)
     if event == "pre-commit":
         return pre_commit(project, flag)
     if event == "post-checkout":

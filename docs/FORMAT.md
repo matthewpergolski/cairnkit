@@ -411,6 +411,19 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
 - `.git/cairnkit-fix-commit`: written with the check, gone with it, and never a hook. It amends
   HEAD to drop such lines and an AI author, and leaves a commit that a remote holds. The printed
   rebase runs it on each commit.
+- The branch-note gate, a test arm that is off by default. The local git setting
+  `cairnkit.branchnotegate = true` turns it on. It acts only in the shell of an agent tool, which is
+  a process with `CLAUDECODE`, `CODEX_THREAD_ID`, `CURSOR_AGENT`, `OPENCODE`, `PI_CODING_AGENT` or
+  `GROK_SESSION_ID`. Off, it costs one `git config` read per push. `pre-commit` refuses the first
+  commit of a branch that is not the default branch and has no open short note with
+  `until_branch_merged` set to that branch. `pre-push` starts with a block that runs
+  `PY -m cairnkit hook pre-push-note` on the ref list and gives the list back. It refuses a branch
+  with new patches and no such note, and a branch whose notes are the same as at its last push.
+  Each refusal prints a `memory add ... --short` command. Only exit code 3 of that command stops the
+  push. `.git/cairnkit-branch-notes.json` holds the state. These states pass: a merge, a rebase, a
+  pick, a revert or a bisect in progress, an amend, a detached HEAD, a repo with no default branch,
+  a tag, a delete, a push with no new patch, and any failure or slow git. It looks only at whether a
+  note exists and changed. `memory hooks uninstall` removes the setting and the state.
 - `post-merge`: that same quiet tidy block. It never fails the merge.
 - `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of

@@ -152,8 +152,15 @@ def agent_commands(trace: Iterable[dict]) -> list[str]:
 
 
 def memory_commands(trace: Iterable[dict]) -> int:
-    """Each start of the installed command. The wiring of the tool itself uses `-m cairnkit`."""
-    return sum(1 for argv in _commands(trace) if argv and "hook" not in argv and argv[0] != "-m")
+    """Each start of the installed command. The wiring of the tool uses `-m cairnkit`.
+
+    The pre-commit hook runs `-c 'import cairnkit'` for each commit, and no agent asked for that.
+    """
+    return sum(
+        1
+        for argv in _commands(trace)
+        if argv and "hook" not in argv and argv[0] != "-m" and argv != ["-c", "import cairnkit"]
+    )
 
 
 def _hook_outputs(trace: Iterable[dict]) -> list[tuple[str, str]]:
@@ -185,7 +192,9 @@ def _hook_text(stdout: str) -> str:
 
 
 def injected_words(trace: Iterable[dict]) -> int:
-    return sum(len(_hook_text(stdout).split()) for _, stdout in _hook_outputs(trace))
+    """What each hook printed for the agent: its text on stdout, and all that it said on stderr."""
+    printed = sum(len(_hook_text(stdout).split()) for _, stdout in _hook_outputs(trace))
+    return printed + sum(len(str(row.get("hook_stderr", "")).split()) for row in trace)
 
 
 def blocked_stops(trace: Iterable[dict]) -> int:
@@ -705,5 +714,7 @@ def _build_label(rows: list[dict], build: str) -> str:
         return "no memory, no hooks, no rules"
     for row in rows:
         if row["build"] == build:
-            return f"{row.get('build_version') or '?'} at {str(row.get('commit') or '?')[:7]}"
+            settings = "".join(f", {k}={v}" for k, v in row.get("git_settings") or ())
+            commit = str(row.get("commit") or "?")[:7]
+            return f"{row.get('build_version') or '?'} at {commit}{settings}"
     return "not run"

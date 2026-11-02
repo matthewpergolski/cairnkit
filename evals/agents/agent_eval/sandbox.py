@@ -66,9 +66,12 @@ def _capture_hook(event, cwd):
     if os.path.samestat(os.fstat(1), os.stat(os.devnull)):
         return
     tee = sys.stdout = _Tee(sys.stdout)
+    # A git hook talks to the agent on stderr, and a refusal costs words too.
+    errors = sys.stderr = _Tee(sys.stderr)
     def report():
         text = "".join(tee.seen)
-        _append({"hook": event, "hook_stdout": text, "cwd": cwd, "at": time.time()})
+        row = {"hook": event, "hook_stdout": text, "cwd": cwd, "at": time.time()}
+        _append({**row, "hook_stderr": "".join(errors.seen)})
     atexit.register(report)
 
 def _trace():
@@ -133,6 +136,7 @@ class Build:
     root: Path
     version: str
     has_memory: bool = True
+    git_settings: tuple[tuple[str, str], ...] = ()
 
     @property
     def bin_dir(self) -> Path:
@@ -417,6 +421,8 @@ def make_sandbox(
         connect(box)
         config = box.memory_dir / "config.toml"
         config.open("a", encoding="utf-8").write("\nskills_check = false\n")
+        for key, value in build.git_settings:
+            box.git("config", "--local", key, value)
         write_seed(box, scenario, now)
     box.git_after_connect = box.git_status()
     if scenario.prepare:
