@@ -7,6 +7,64 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: the live work list on Claude Code
+
+This is a small run of 1 scenario for one change, in two runs. It is no comparison with `prod`.
+
+- Commits: `51fab40` for `dev` (the list and the capture check), `d20185c` for `base` (only the
+  capture check), and `f16ae08` for `list-only`. `f16ae08` is `dev` with the capture check turned off
+  for this test. It is on no branch.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 24. I did not total the cost.
+- Local results: `evals/agents/results/20261102T064719Z-claude` and `20261102T065146Z-claude`.
+
+| Arm | `pickup-dirty-worktree` | Facts from session A | Blocked stops | Hook words per session | Hook words, session B |
+|---|---|---|---|---|---|
+| `dev` | 3 of 3 | 3 | 3 | 250 | 179 to 196 |
+| `base` | 3 of 3 | 3 | 3 | 195 | 120 to 134 |
+| `list-only` | 3 of 3 | 0 | 0 | 142 | 142 |
+| `none` | 0 of 3 | 0 | 0 | 0 | 0 |
+
+The baseline below gave 0 of 3 with neither the list nor the capture check, at 89 hook words.
+
+### What the transcripts show
+
+- **The first run alone proved nothing about the list.** Each session A in `dev` got the capture
+  block and wrote a fact, so session B had two signals. Hence `base` and `list-only`.
+- **Each signal is enough here.** In `list-only`, no fact existed, and each session B cited the list:
+  "live work this session didn't start, and you didn't name it". In `base`, each session B cited the
+  fact.
+- **Session B did not obey the words "commit, discard or remove" for that worktree in 9 of 9 runs
+  with a signal.** It removed the clean worktree, left the dirty one, and said so. In `none`, it
+  committed the running work in 3 of 3 runs.
+- **Session B did not finish the tidy-up in any arm with a signal.** The tool held its `rm` of the
+  log for a permission, so the control passed through the removed clean worktree.
+
+### Cost
+
+The list adds 52 words when one checkout is dirty (141 against 89, measured on one throwaway repo),
+and 0 words in a clean project. The order line is about 40 of these words.
+
+### Limits
+
+- One author wrote the scenario and the line, and the line says "a general tidy-up" because of it.
+  The list is not tested on a task that is not a tidy-up.
+- The owner's general words lost to the line here. That is the aim for running work, but an owner who
+  wants their own old edits committed must now name them.
+- No session in this scenario was at work during session B, so the marker part had no real test. Only
+  unit tests with hook payloads cover it.
+- A commit that takes the files of another session in the same checkout has no scenario.
+
+### Decisions
+
+- Keep the list. It carries the running work with no fact, where the capture check depends on session
+  A being told.
+- No warning at pre-commit, for now. In 9 runs with a signal, no commit reached that worktree, so the
+  moment did not occur. A git hook also cannot tell its own session from another on
+  each tool, and no record says which session changed which file when a shell made the change. A
+  warning that cannot tell would fire on the session's own files, as the trap line in the field
+  feedback did.
+
 ## 2026-11-02: the capture check on Claude Code
 
 This is a small run of 3 scenarios for one change. It is no comparison with `prod`, and it does not
