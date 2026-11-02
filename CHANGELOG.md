@@ -173,6 +173,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A new Claude Code hook line (`before-shell`, `helper-call`, `subagent-stop`) ends in `|| true`.
+  An older build does not know these events and exits 2, and an exit 2 of a `PreToolUse` hook
+  blocks the tool call. So a roll back of the tool would have blocked every shell command until the
+  next `memory init --refresh`.
+
 - A stop no longer asks "What fixed it?" for two commands that only share a tail. In a real
   project, a subagent's `... && echo ok` failed, and later an unrelated note that ended in
   `echo ok` passed, so the stop named them as a failure and its fix. Now a pass counts as the fix

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import time
@@ -53,7 +52,7 @@ class Hooks:
                 if "cairnkit" in h["command"]
             ]
             assert len(found) == 1, (name, found)
-            self.argv[name] = shlex.split(found[0])
+            self.argv[name] = ["sh", "-c", found[0]]
         self.env = env
 
     def run(self, name, where, session="s1", **payload):

@@ -102,12 +102,14 @@ class NestedAdapter(Adapter):
         failure_events: tuple[str, ...] = (),
         before_shell: bool = False,
         helper_calls: bool = False,
+        shell_lines: bool = False,
     ):
         super().__init__(name, rel, shared)
         self.start_matcher = start_matcher
         self.failure_events = failure_events
         self.before_shell = before_shell
         self.helper_calls = helper_calls
+        self.shell_lines = shell_lines
 
     def _groups(self) -> dict[str, dict]:
         start = {"type": "command", "command": hook_command("session-start", self.name)}
@@ -149,7 +151,12 @@ class NestedAdapter(Adapter):
         found: dict[str, list[dict]] = {}
 
         def handler(event: str) -> dict:
-            return {"type": "command", "command": hook_command(event, self.name), "timeout": 5}
+            command = hook_command(event, self.name)
+            # An older build does not know these events and exits 2, which blocks the tool call.
+            # Claude Code runs the line in a shell. The Codex docs do not say that, so not Codex.
+            if self.shell_lines:
+                command += " || true"
+            return {"type": "command", "command": command, "timeout": 5}
 
         if self.before_shell:  # a stored fact with a longer form of a command stops that call once
             found["PreToolUse"] = [{"matcher": "Bash", "hooks": [handler("before-shell")]}]
@@ -444,6 +451,7 @@ ADAPTERS: dict[str, Adapter] = {
         failure_events=("PostToolUseFailure",),
         before_shell=True,
         helper_calls=True,
+        shell_lines=True,
     ),
     "codex": NestedAdapter(
         "codex", ".codex/hooks.json", "startup|resume|clear|compact", before_shell=True

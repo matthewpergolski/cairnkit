@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import time
@@ -35,14 +34,16 @@ class Hooks:
     def __init__(self, repo, env=None):
         groups = json.loads((repo / ".claude/settings.local.json").read_text())["hooks"]
         self.argv = {
-            name: shlex.split(
+            name: [
+                "sh",
+                "-c",
                 next(
                     h["command"]
                     for g in groups[event]
                     for h in g["hooks"]
                     if "cairnkit" in h["command"]
-                )
-            )
+                ),
+            ]
             for name, event in EVENTS.items()
         }
         self.env = env

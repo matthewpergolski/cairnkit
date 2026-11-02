@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import subprocess
 import sys
 
@@ -29,7 +28,7 @@ def installed(repo, agent: str, event: str) -> list[str]:
     shell = [g for g in groups if g.get("matcher") in (None, "Bash")]
     commands = [h["command"] for g in shell for h in g["hooks"] if "cairnkit" in h["command"]]
     assert len(commands) == 1
-    return shlex.split(commands[0])
+    return ["sh", "-c", commands[0]]
 
 
 def run(argv: list[str], repo, command: str, session: str = "s1") -> str:
@@ -186,4 +185,27 @@ def test_install_stops_no_tool_with_an_allow(repo, mem):
     assert main(["hooks", "install", "--agent", "claude"]) == 0
     group = json.loads((repo / ".claude/settings.local.json").read_text())["hooks"]["PreToolUse"]
     assert group[0]["matcher"] == "Bash"
-    assert re.search(r"hook before-shell --agent claude$", group[0]["hooks"][0]["command"])
+    assert re.search(r"hook before-shell --agent claude", group[0]["hooks"][0]["command"])
+
+
+def test_a_new_hook_line_never_stops_a_tool_under_an_older_build(repo, mem):
+    """An older build does not know a new event and exits 2, and an exit 2 blocks the tool call.
+
+    The line runs as Claude Code runs it, in a shell, with an event that this build does not know.
+    """
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    hooks = json.loads((repo / ".claude/settings.local.json").read_text())["hooks"]
+    lines = [
+        h["command"]
+        for event in ("PreToolUse", "SubagentStop")
+        for g in hooks[event]
+        for h in g["hooks"]
+        if "cairnkit" in h["command"]
+    ]
+    assert len(lines) == 3
+    for line in lines:
+        old = re.sub(r"hook \S+ --agent", "hook no-such-event --agent", line)
+        done = subprocess.run(
+            ["sh", "-c", old], cwd=repo, input="{}", capture_output=True, text=True
+        )
+        assert done.returncode == 0, (line, done.stderr)
