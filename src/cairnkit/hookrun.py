@@ -30,11 +30,11 @@ from cairnkit import (
     skills,
     usage,
 )
-from cairnkit.check import read_health
+from cairnkit.check import Health, read_health
 from cairnkit.discover import RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked, run_init
 from cairnkit.load import run_load
-from cairnkit.memory import Memory
+from cairnkit.memory import Memory, listed
 from cairnkit.paths import (
     LINK_NAME,
     PATH_FILE,
@@ -47,11 +47,14 @@ from cairnkit.paths import (
 )
 from cairnkit.selection import clean
 from cairnkit.session import (
+    hold_heard,
     hold_load,
+    load_state,
     mark_loaded,
     mark_reminder,
     reminder_hint,
     start_session,
+    take_heard,
     take_load,
     take_reminder,
 )
@@ -336,7 +339,30 @@ def _new_problems(project: Project, flag: str | None, problems: list[str]) -> li
 
 def _quiet_lines(memory: Memory, key: str) -> list[str]:
     """What the agent hears with no turn: news, and the one reminder."""
-    return [line for line in (signals.news(memory, key), take_reminder(memory, key)) if line]
+    lines = (signals.news(memory, key), take_reminder(memory, key), take_heard(memory, key))
+    return [line for line in lines if line]
+
+
+def _old_catches(health: Health, key: str) -> dict[str, str]:
+    """Each problem of a line in a file that this session did not write, and its first place.
+
+    A new version can catch a line that no one touched, so that catch is no new event. A session
+    with no clock started before this rule, so nothing here can name what it wrote.
+    """
+    clock = (load_state(health.memory, key) or {}).get("clock") if health.memory else None
+    return {
+        catch.problem: catch.places[0]
+        for catch in health.note_catches
+        if not (clock and catch.written_since(clock))
+    }
+
+
+def _old_catch_line(places: list[str]) -> str:
+    return (
+        f"{len(places)} line(s) in older notes look like a secret: {listed(places)}. This session "
+        "did not write them, so nothing is needed for this work. `memory check` lists each one, "
+        "with what to do if a value is real."
+    )
 
 
 def stop_message(project: Project, flag: str | None, agent: str, payload: dict) -> str | None:
@@ -345,13 +371,18 @@ def stop_message(project: Project, flag: str | None, agent: str, payload: dict) 
     News and the reminder wait for the next hook that adds text with no turn.
     """
     parts = []
+    key = session_key(payload)
+    quiet: list[str] = []
     with contextlib.suppress(Exception):
         health = read_health(project, flag)
         problems = _new_problems(project, flag, health.errors + health.warnings)
+        old = _old_catches(health, key)
+        quiet = [old[problem] for problem in problems if problem in old]
+        problems = [problem for problem in problems if problem not in old]
         if problems:
             shown = "\n".join(f"- {clean(p)}" for p in problems[:20])
             parts.append(
-                f"`memory check --strict` found problems. Run the command on each line:\n{shown}\n"
+                f"`memory check --strict` found problems. Act on each line:\n{shown}\n"
                 "This stop names each problem once. `memory check --strict` lists what is open."
             )
     try:
@@ -359,7 +390,6 @@ def stop_message(project: Project, flag: str | None, agent: str, payload: dict) 
     except Exception:
         memory = None
     if memory is not None:
-        key = session_key(payload)
         with contextlib.suppress(Exception):
             held = take_load(memory, key)
             if held:
@@ -379,6 +409,9 @@ def stop_message(project: Project, flag: str | None, agent: str, payload: dict) 
             )
         with contextlib.suppress(Exception):
             mark_reminder(memory, key)
+        if quiet:
+            with contextlib.suppress(Exception):
+                hold_heard(memory, key, _old_catch_line(quiet))
         if agent in ONLY_STOP:
             with contextlib.suppress(Exception):
                 parts += _quiet_lines(memory, key)

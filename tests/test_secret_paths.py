@@ -79,12 +79,17 @@ def test_their_ordinary_neighbours_pass(text):
     assert find_secrets(text) == []
 
 
-def test_a_note_secret_stays_out_of_the_session_and_stop_names_it(mem, capsys, monkeypatch):
+def test_a_note_secret_stays_out_of_the_session_and_the_next_tool_result_names_it(
+    mem, capsys, monkeypatch
+):
     (mem / "notes" / "status.md").write_text(f"Working on it.\n{NOTE_SECRET}\n")
     out = hook(capsys, monkeypatch, "session-start", {"session_id": "s", "source": "startup"})
     assert "q1w2e3r4t5y6" not in out
     assert "Working on it." in out and "[secret: " in out
     out = hook(capsys, monkeypatch, "stop", {"session_id": "s"})
+    assert "q1w2e3r4t5y6" not in out and "notes/status.md:2" not in out
+    payload = {"session_id": "s", "hook_event_name": "PostToolUse"}
+    out = hook(capsys, monkeypatch, "post-tool", payload)
     assert "q1w2e3r4t5y6" not in out
     assert "notes/status.md:2" in out
 
@@ -145,7 +150,7 @@ def test_migrate_leaves_a_secret_out_of_the_worklist(repo, capsys):
     (old / "log.md").write_text(f"## Log\n\n- Deploy keys live in the vault.\n- {NOTE_SECRET}\n")
     assert main(["migrate", "--yes"]) == 0
     out = capsys.readouterr().out
-    assert "1 candidate(s) hold a secret" in out and "log.md:4" in out
+    assert "1 candidate(s) look like a secret" in out and "log.md:4" in out
     assert "q1w2e3r4t5y6" not in out
     work = repo.parent / f"{repo.name}.memory" / "proposals" / "migrate-candidates.jsonl"
     text = work.read_text()

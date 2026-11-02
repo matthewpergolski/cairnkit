@@ -486,7 +486,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
 - `stop`: when `stop_hook_active` is true or `loop_count` is above 0, it says
   nothing more. Else it runs auto-tidy when the last tidy is more than one day old.
   Then it builds a message from these parts: problems from `memory check --strict`,
-  the loop nudge, the load that a tool holds, and the events of this session. The events
+  except a line that looks secret in a file that this session did not write (the next
+  prompt or tool result names those lines once), the loop nudge, the load that a tool holds, and the events of this session. The events
   are a command that failed at least twice and then passed, a revert since the session
   started, a correction, and a lost file that no prompt named or asked to remove. Each
   event is named once. When the work changed and no fact was written, it marks the one
@@ -628,8 +629,9 @@ User-level skill markers (not in the memory folder; under
 
 A writer name that differs from the file name is a warning, not an error.
 So is an active rule fact that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md`
-already says in the same words. So is a `*.md` file in `notes/` or `branches/` that
-holds a secret shape, a line of the `.memory-old` copy with one, and a fact that holds a plain
-word from a `.env` file. `--strict` makes each warning an error. A value in git history or in
+already says in the same words. So is a line with a secret shape in `notes/`, `branches/`, the `.memory-old` copy or `proposals/`,
+and a fact that holds a plain word from a `.env` file. One distinct line is one warning, at the note,
+and the warning names its copies. In these files, one plain word under a label or from a `.env` file
+is a `note:` line, with no exit code. A worklist row is read by its strings, not its JSON. `--strict` makes each warning an error. A value in git history or in
 Claude Code's own memory is a note and sets no exit code, because this tool does not change
 either one.

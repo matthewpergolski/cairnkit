@@ -718,8 +718,9 @@ def run_migrate(
     held = drop_secrets(found, counts, read_env_values(project))
     if held:
         print(
-            f"{len(held)} candidate(s) hold a secret and stay out of the worklist: "
-            f"{', '.join(held)}. Remove these lines from the notes."
+            f"{len(held)} candidate(s) look like a secret and stay out of the worklist: "
+            f"{', '.join(held)}. This may be a false catch, and then the line can stay. If the "
+            "value is real, change it where it is used, then replace the value in the note."
         )
     stored = {}
     if not dry_run and (memdir / "facts").is_dir():

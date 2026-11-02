@@ -130,6 +130,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a page with the exact front matter of `render_page` is an atlas page. A hand-written page in
   `docs/state` stays and does not make the atlas stale, so `memory status` stops asking for
   `--force`. An atlas page that no longer has a source is still removed.
+- A placeholder in a URL with a quote or punctuation after it, such as `` `/?k=<code>`. ``, is no
+  longer a catch, and `memory add` takes it. A real token in the same place is still caught and
+  masked.
+- A plain word under a secret label in a note, an old copy or a worklist is one `note:` line and
+  does not fail `--strict`. A fact still refuses it. Prose such as `**A bad secret:** Dahl's name`
+  is no assignment.
+- `memory check` reports one problem per distinct line, at the note, and names its copies in the
+  `.memory-old` folder and the worklist. A value in a worklist row is judged with no JSON around it.
+- The advice for a note no longer says to remove a line. It says that this may be a false catch, and
+  that a real value changes where it is used and then in the file. `memory migrate` says the same.
+- A stop no longer blocks for a secret warning about a file that the session did not write. The
+  next prompt or tool result names these lines once, and `memory check` and `memory status` keep
+  them. A secret that the session wrote into a note is still named at stop.
 - `docs/update.md` and the README give the tested way from stable back to dev, by a git URL or a
   local folder. An update to a version with no `--channel` says so and prints the way back.
 - A rule-change notice in a load holds no stored text above the frame. It names the id and the
