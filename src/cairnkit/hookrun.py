@@ -24,6 +24,7 @@ from cairnkit import (
     deadline,
     followups,
     githook,
+    helpers,
     hooks_cmd,
     instruction_files,
     legacy,
@@ -74,6 +75,8 @@ JSON_NEUTRAL = frozenset({"codex", "cursor"})
 TEXT_AGENTS = frozenset({"pi", "opencode"})
 # A load for these sources continues the session, so its events stay.
 SAME_SESSION = frozenset({"compact", "resume", "reload"})
+# A load for these sources runs in the same process, where a helper of the session can still run.
+SAME_PROCESS = frozenset({"compact", "reload"})
 # These tools add no text from a prompt hook, so what it would say waits for a later event.
 DROPS_PROMPT_OUTPUT = frozenset({"grok", "cursor", "opencode"})
 # Each other tool has a later prompt or tool hook that adds text with no turn. No stop can do that.
@@ -290,11 +293,20 @@ def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> None
 
 
 def _session_text(
-    project: Project, flag: str | None, session: str, update_notice: bool = True
+    project: Project, flag: str | None, session: str, update_notice: bool = True, same_process=True
 ) -> str:
     buffer = io.StringIO()
+    hide = session if same_process else None
     with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, 600, update_notice=update_notice, session=session)
+        run_load(
+            project,
+            flag,
+            None,
+            600,
+            update_notice=update_notice,
+            session=session,
+            hide_helpers_of=hide,
+        )
     return buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
 
 
@@ -314,7 +326,10 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
             return 0
     key = session_key(payload)
     fresh = payload.get("source") not in SAME_SESSION
-    text = _optional_work(project, flag) + _session_text(project, flag, key)
+    same_process = payload.get("source") in SAME_PROCESS
+    text = _optional_work(project, flag) + _session_text(
+        project, flag, key, same_process=same_process
+    )
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
         if fresh:
@@ -452,6 +467,7 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
         with contextlib.suppress(Exception):
             memory, key = Memory.open(project, flag), session_key(payload)
             note_helpers(memory, key, live.clear_working(memory, key))
+            helpers.on_main_stop(memory, key)
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
     # A long session still retires clear cases when the tidy state is old.
     if not continued:
@@ -576,6 +592,8 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
         key = session_key(payload)
         with contextlib.suppress(Exception):
             live.note_working(memory, key)
+        with contextlib.suppress(Exception):
+            helpers.on_result(memory, payload)
         held = take_load(memory, key)
         if held:
             parts.append(held)
@@ -645,15 +663,40 @@ def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int
     return 0
 
 
-def subagent_start(project: Project, flag: str | None) -> int:
-    """A subagent starts with no memory. Give it the load. Read only."""
+def subagent_start(project: Project, flag: str | None, payload: dict) -> int:
+    """A subagent starts with no memory. Give it the load, and join it to the call that made it.
+
+    Its siblings can still run, so its load does not name them.
+    """
     if not has_memory(project, flag):
         return 0
+    key = session_key(payload)
+    with contextlib.suppress(Exception):
+        helpers.on_start(Memory.open(project, flag), key, payload)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, SUBAGENT_BUDGET, update_notice=False)
+        run_load(project, flag, None, SUBAGENT_BUDGET, update_notice=False, hide_helpers_of=key)
     event = {"hookEventName": "SubagentStart", "additionalContext": buffer.getvalue().rstrip()}
     print(json.dumps({"hookSpecificOutput": event}))
+    return 0
+
+
+# The tools here can wait for no helper hook: past this, the record is not written.
+HELPER_BUDGET = 2.5
+
+
+def helper_event(project: Project, flag: str | None, event: str, payload: dict) -> int:
+    """A helper call (`PreToolUse` on the Agent tool) or a helper's end (`SubagentStop`).
+
+    It records and prints nothing, so it never allows, denies or stops anything. Exits 0.
+    """
+    with contextlib.suppress(Exception), _time_budget(HELPER_BUDGET):
+        if has_memory(project, flag):
+            memory = Memory.open(project, flag)
+            if event == "helper-call":
+                helpers.on_call(memory, session_key(payload), payload)
+            else:
+                helpers.on_end(memory, payload)
     return 0
 
 
@@ -689,7 +732,9 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     if event == "prompt":
         return prompt(project, flag, agent, payload)
     if event == "subagent-start":
-        return subagent_start(project, flag)
+        return subagent_start(project, flag, payload)
+    if event in ("helper-call", "subagent-stop"):
+        return helper_event(project, flag, event, payload)
     if event == "pre-compact":
         return pre_compact(project, flag, payload)
     return stop(project, flag, agent, payload)

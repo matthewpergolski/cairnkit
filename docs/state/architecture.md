@@ -28,6 +28,7 @@ sources:
   - src/cairnkit/followups.py
   - src/cairnkit/githook.py
   - src/cairnkit/harness_local.py
+  - src/cairnkit/helpers.py
   - src/cairnkit/hookrun.py
   - src/cairnkit/hooks_cmd.py
   - src/cairnkit/hygiene.py
@@ -114,6 +115,7 @@ flowchart TB
     Library --> envsecrets[envsecrets]
     Library --> githook[githook]
     Library --> harness_local[harness_local]
+    Library --> helpers[helpers]
     Library --> hygiene[hygiene]
     Library --> ignore[ignore]
     Library --> install_source[install_source]
