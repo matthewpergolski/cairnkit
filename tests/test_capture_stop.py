@@ -137,6 +137,39 @@ def test_a_subagent_still_hears_its_own_event_without_the_guide(session):
     assert "next agent" not in said
 
 
+@pytest.mark.parametrize(
+    ("failed", "passed"),
+    [
+        ("sh report.sh", "REPORT_LOCALE=C sh report.sh"),
+        ("cd /tmp/x && sh report.sh", "cd /tmp/x && REPORT_LOCALE=C sh report.sh"),
+        ("pytest", "uv run pytest"),
+    ],
+)
+def test_a_failure_fixed_by_how_the_command_runs_is_named_once(session, failed, passed):
+    session.tool(failed, False)
+    session.tool(passed, True)
+    said = session.stop_text(session.hook("stop"))
+    assert passed in said
+    assert "What fixed it?" in said
+    assert "next agent" in said
+    assert session.turn(2, "thanks", [], []) is None
+
+
+@pytest.mark.parametrize(
+    ("failed", "passed"),
+    [
+        ("pytest", "pytest"),
+        ("pytest", "pytest -x"),
+        ("git commit -m x", "git add . && git commit -m x"),
+        ("sh report.sh", "cat docs/report.md"),
+    ],
+)
+def test_red_then_green_or_another_command_is_no_event(session, failed, passed):
+    session.tool(failed, False)
+    session.tool(passed, True)
+    assert session.stop_text(session.hook("stop")) is None
+
+
 def test_the_block_comes_with_a_real_event_only_once(session):
     session.tool("pytest", False)
     session.tool("pytest", False)
