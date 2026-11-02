@@ -7,6 +7,41 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: first real OpenCode run, on a free model
+
+This run checks whether the kit can drive OpenCode for real. It is no comparison.
+
+- Commits: `dev` is `2106353`. No `prod` arm.
+- Tool: OpenCode 1.18.32. Model: `opencode/deepseek-v4.1-flash-free`, 1 repeat, `pickup-purpose` and
+  `lesson-carry`. No cost. The ChatGPT login on this machine refuses the kit default
+  `openai/gpt-5.4-mini`.
+- Local results: `evals/agents/results/20261102T171441Z-opencode`.
+
+| Scenario | dev | none |
+|---|---|---|
+| `pickup-purpose` | 0 of 1 | 0 of 1 |
+| `lesson-carry` | 1 of 1 | 1 inconclusive |
+
+`dev`: 4 sessions, 0 memory commands, 0 facts, 2 blocked stops, 157 hook words per session.
+
+### What the transcripts show
+
+- The load, the hooks and the stop check fire in OpenCode.
+- After each block, session A gave no further turn and wrote no fact. The plugin sends the stop text
+  as a turn (`noReply: false`). One-shot `opencode run` seems to exit at the first idle, before that
+  turn runs. This is inferred and not tested.
+- The `lesson-carry` pass in `dev` had no fact in the load, so it shows nothing about memory.
+- The older OpenCode rows with 0 sessions are fake-provider runs in record schema 1. They are not
+  failed real runs.
+
+### Next
+
+1. Drive one session through `opencode serve`, and see if the stop text gets a turn while the
+   process stays alive, as in the TUI.
+2. If it does, give the kit a live mode for OpenCode: send the prompt and wait for idle twice.
+3. If one-shot `opencode run` matters, keep the stop text for the next `--continue` run of that
+   session, as for Grok.
+
 ## 2026-11-02: work of a helper in its own worktree, on Haiku
 
 This change makes the capture check at the stop also read the worktree of each Claude Code helper
