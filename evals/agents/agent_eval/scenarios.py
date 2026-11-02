@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from agent_eval import scoring
-from agent_eval.agents import WRITE_OUTSIDE
+from agent_eval.agents import WORKTREE_HELPER, WRITE_OUTSIDE
 
 OLD_DAYS = 150
 _SUBJECTS = (
@@ -142,6 +142,8 @@ class Scenario:
     after_session_a: Callable | None = None
     requires_b: frozenset[str] = frozenset()
     suite: str = BEHAVIOUR
+    # Runs only when `--scenario` names it, so the suite and its reading rule stay as agreed.
+    opt_in: bool = False
 
     @property
     def calls(self) -> int:
@@ -238,6 +240,16 @@ def _probe_branch(branch: str) -> Callable:
         return {"branch_commits": int(count) if count else 0}
 
     return probe
+
+
+def _probe_helper_branch(box) -> dict:
+    """Commits that a worktree helper of Claude Code left on its own branch, not merged to main."""
+    listed = box.git_or_none("for-each-ref", "--format=%(refname:short)", "refs/heads/worktree-*")
+    counts = [
+        box.git_or_none("rev-list", "--count", f"main..{branch}") or "0"
+        for branch in (listed or "").split()
+    ]
+    return {"branch_commits": sum(int(count) for count in counts)}
 
 
 def _probe_report_runs(box) -> dict:
@@ -571,6 +583,31 @@ SCENARIOS: dict[str, Scenario] = {
             suite=VALUE,
         ),
         Scenario(
+            id="pickup-helper-worktree",
+            title="The purpose of work that a helper did in its own worktree, for session B",
+            prompts=(
+                'Use the Agent tool with isolation set to "worktree" to start one helper agent, '
+                "and wait for it. Give it this task: in service/config.py, set "
+                'RETRY_WINDOW_SECONDS to 45, then run `git commit -am "change retry window"`. We '
+                "need this so that our retries outlast the 40-second restart of the Halvorsen "
+                "gateway each night. Do not merge the helper's branch: I will review it "
+                "tomorrow. Reply in one line.",
+            ),
+            pickup=(
+                "A helper agent left work on a branch in a worktree under .claude/worktrees. "
+                "What is that work for, and what is its next step? Use at most three lines."
+                + ANSWER_RULE,
+            ),
+            needle=_REASON,
+            check=scoring.check_answer_after_work(_REASON),
+            files={**BASE_FILES, "service/config.py": "RETRY_WINDOW_SECONDS = 30\n"},
+            probe=_probe_helper_branch,
+            requires=frozenset({WORKTREE_HELPER}),
+            no_edit=False,
+            suite=VALUE,
+            opt_in=True,
+        ),
+        Scenario(
             id="fake-pickup-channel",
             title="Fake provider: what session A left reaches session B, and only in a memory arm",
             prompts=("Reply with the one word READY.",),
@@ -594,7 +631,7 @@ def selected(names: list[str] | None, *, fake: bool, suite: str = BEHAVIOUR) -> 
     on an answer that says nothing.
     """
     if not names:
-        chosen = [s for s in SCENARIOS.values() if s.suite == suite]
+        chosen = [s for s in SCENARIOS.values() if s.suite == suite and not s.opt_in]
         if suite == BEHAVIOUR:
             return [s for s in chosen if s.fake_only == fake]
         return [s for s in chosen if fake or not s.fake_only]

@@ -38,6 +38,8 @@ FORBIDDEN_FLAGS = frozenset(
 FORBIDDEN_VALUES = frozenset({"bypassPermissions", "danger-full-access"})
 # Codex has it not: `-s workspace-write` keeps a session out of a folder beside the repo.
 WRITE_OUTSIDE = "write-outside-repo"
+# Only Claude Code has a helper that works in its own worktree (`isolation: "worktree"`).
+WORKTREE_HELPER = "worktree-helper"
 
 
 @dataclass
@@ -441,7 +443,9 @@ AGENTS: dict[str, Agent] = {
             argv=claude_argv,
             parse=parse_claude,
             hook_agent="claude",
-            capabilities=frozenset({"resume", "subagent", "compact", WRITE_OUTSIDE}),
+            capabilities=frozenset(
+                {"resume", "subagent", "compact", WRITE_OUTSIDE, WORKTREE_HELPER}
+            ),
             live_argv=claude_live_argv,
             fake=fake_claude,
         ),
