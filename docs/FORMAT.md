@@ -283,9 +283,15 @@ A reader computes the status of a fact; it does not only read it:
   default branch and one of these is true: the tip is an ancestor of the default
   branch, or `git merge-tree --write-tree BASE TIP` gives the tree of the default
   branch (a squash merge; git 2.38 or later).
+- A base is the default branch, `dev` or `develop`, local or on `origin`. Each test for
+  merged runs against each base. A squash also counts when one of the last 30 commits of
+  the base on those files adds and removes the same lines as the whole branch.
+- A branch with only a remote copy reads as open, unless a squash or a merge commit in a
+  base took the tip of that copy.
 - A branch in no ref in `refs/heads` or `refs/remotes` reads as merged or deleted only
-  when `branch_tip` names a commit in this clone, or when a reflog shows that the branch
-  was renamed and the new name is in no ref. Otherwise it reads as unknown: the fact stays
+  when `branch_tip` names a commit in this clone that landed in a base, or when a reflog
+  shows that the branch was renamed and the new name is in no ref. Otherwise it reads as
+  unknown: the fact stays
   active, and `memory tidy` names it. A fact from before `branch_tip` has none, so it
   stays until auto-tidy sees its branch, or until an agent ends it.
 

@@ -232,7 +232,7 @@ def print_unknown(memory: Memory) -> None:
         return
     print(
         f"Kept {len(found)} short-term fact(s). Merged is unknown: the branch is in no ref here, "
-        "and no record says that this clone held it."
+        "and nothing here shows that its work landed."
     )
     for fact_id, branch in found:
         print(clean(f"- {fact_id} until {branch}"))

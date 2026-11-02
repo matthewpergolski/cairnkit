@@ -11,7 +11,7 @@ from cairnkit.cli import main
 def _commit(path, name, text="one\n"):
     (path / name).write_text(text)
     git(path, "add", name)
-    git(path, "commit", "-qm", f"change {name}")
+    git(path, "commit", "-qm", f"change {name} to {text.strip()}")
 
 
 def _note(capsys, *args) -> str:

@@ -107,7 +107,6 @@ def test_squash_merged_and_deleted_on_both_sides_ends_the_note(mem, repo, capsys
     _commit(repo, "a")
     git(repo, "push", "-q", "-u", "origin", "work")
     _merge_and_delete(repo, "work", "--squash")
-    assert _retired() == []
     git(repo, "push", "-q", "origin", "main", ":work")
     git(repo, "fetch", "-q", "--prune")
     assert _retired() == [fact]

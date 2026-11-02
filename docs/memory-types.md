@@ -26,15 +26,19 @@ The README has the short table. This page has the detail.
 on that date and has no branch. Outside git, or on a detached HEAD, `--short` alone
 has no end. An agent ends that note. `--expires` without `--short` has no effect.
 
-A branch reads as merged in these cases. The default branch is `origin/HEAD`, else
-`main`, else `master`.
+A branch reads as merged in these cases. A base is the default branch, `dev` or
+`develop`, local or on `origin`. The default branch is `origin/HEAD`, else `main`,
+else `master`.
 
-- Its tip is in the default branch, and its tip is not the tip of the default branch.
-- A merge of its tip into the default branch changes nothing, which shows a squash
-  merge. This needs git 2.38 or later.
-- The branch is in no ref, and a record says that this clone held it: its recorded
-  tip is here. A remote copy counts as a ref, so a branch with only a remote copy is
-  open work. With no record, merged is unknown and the note stays.
+- Its tip is in a base, and the reflog shows a commit of its own there.
+- A merge of its tip into a base changes nothing, which shows a squash merge. This
+  needs git 2.38 or later.
+- One of the last 30 commits of a base on those files adds and removes the same lines
+  as the whole branch, which shows a squash that the base changed later.
+- It has only a remote copy, and a squash or a merge commit took the tip of that copy.
+  Any other branch with only a remote copy is open work.
+- The branch is in no ref, and its recorded tip is here and landed. If not, merged is
+  unknown and the note stays.
 
 The default branch itself never reads as merged. A repo with no default branch reads
 no branch as merged.

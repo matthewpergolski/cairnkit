@@ -135,6 +135,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A short-term note or rule now ends after a squash when the base changed those lines later, when
+  the remote copy of the branch stays, when only `origin` has the squash, and when the work landed
+  in `dev` or `develop`. A branch deleted with work that did not land now reads as unknown and
+  keeps its note. It does not read as ended.
+
 - `evals/agents`: the cost table no longer counts the import check of the pre-commit hook as a memory
   command.
 - `evals/agents`: `pickup-decision` can now be answered from local files. Its prompts say that GitHub

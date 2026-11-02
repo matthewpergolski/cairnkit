@@ -683,6 +683,10 @@ def default_branch(root: Path) -> str | None:
 
 
 OPEN, DONE, UNKNOWN = "open", "done", "unknown"
+# Work can land here first. A branch that merges only into another branch has not landed.
+INTEGRATION_BRANCHES = ("dev", "develop")
+_SAME_CHANGE_CHECKS = 30
+_SAME_CHANGE_FILES = 100
 
 
 def branch_reader(root: Path):
@@ -690,14 +694,15 @@ def branch_reader(root: Path):
 
     A false end is worse than a stale note, so each read needs evidence.
 
-    Open: a branch checked out in a worktree, a remote copy with no local branch,
-    and a branch whose reflog shows no commit of its own in the default branch.
-    Done: a branch that is not checked out and whose own commits landed by a merge or
-    a squash, and a branch in no ref that this clone is known to have held: its recorded
-    tip is here, or a reflog shows that it was renamed.
-    Unknown: a branch in no ref with no such record. It can be a typo, a branch that
-    comes later, a branch that is not fetched, or a branch in another clone.
-    A renamed branch reads as its new name.
+    Work lands in the default branch or an integration branch, local or on `origin`.
+    Open: a branch checked out in a worktree, a remote copy whose work did not land,
+    and a branch whose reflog shows no commit of its own in a base.
+    Done: a branch that is not checked out and whose own commits landed by a merge or a squash,
+    a remote copy with no local branch whose tip a squash or a merge commit took, and a branch in
+    no ref whose recorded tip landed, or that a reflog shows was renamed.
+    Unknown: a branch in no ref with no such record. It can be a typo, a branch that comes later,
+    a branch that is not fetched, a branch in another clone, or a branch deleted with work that
+    did not land. A renamed branch reads as its new name.
     """
     base = functools.cache(lambda: default_branch(root))
     cache: dict[tuple[str, str | None], str] = {}
@@ -744,9 +749,17 @@ def _branch_refs(root: Path) -> list[str] | None:
     return None if out is None else out.splitlines()
 
 
+def _remote_copies(refs: list[str], name: str) -> list[str]:
+    remote = [r for r in refs if r.startswith("refs/remotes/")]
+    return [
+        ref
+        for ref in remote
+        if name in ((short := ref.removeprefix("refs/remotes/")), short.partition("/")[2])
+    ]
+
+
 def _has_remote_copy(refs: list[str], name: str) -> bool:
-    remote = [r.removeprefix("refs/remotes/") for r in refs if r.startswith("refs/remotes/")]
-    return any(name in (ref, ref.partition("/")[2]) for ref in remote)
+    return bool(_remote_copies(refs, name))
 
 
 def _renamed_to(root: Path, name: str) -> str | None:
@@ -777,17 +790,31 @@ def _checked_out(root: Path, branch: str) -> bool:
     )
 
 
+def _bases(root: Path, branch: str, default: str) -> list[str]:
+    """The refs where work lands, one for each commit: local and `origin` copies, not `branch`."""
+    names = {name for name in (default, *INTEGRATION_BRANCHES) if name != branch}
+    wanted = [f"refs/heads/{n}" for n in names] + [f"refs/remotes/origin/{n}" for n in names]
+    out = run_git(root, "for-each-ref", "--format=%(objectname) %(refname)", *wanted) or ""
+    by_commit = dict(line.split(" ", 1) for line in out.splitlines())
+    return sorted(by_commit.values())
+
+
 def _read_branch(root: Path, branch: str, base: str, recorded: str | None) -> str:
     refs = _branch_refs(root)
     if refs is None:
         return OPEN
     seen = {branch}
     while f"refs/heads/{branch}" not in refs:
-        if _has_remote_copy(refs, branch):
-            return OPEN
+        copies = _remote_copies(refs, branch)
+        if copies:
+            bases = _bases(root, branch, base)
+            landed = all(any(_copy_landed(root, c, b) for b in bases) for c in copies)
+            return DONE if landed else OPEN
         renamed = _renamed_to(root, branch)
         if renamed == "":
-            return DONE if len(seen) > 1 or _commit_here(root, recorded) else UNKNOWN
+            if len(seen) > 1:
+                return DONE
+            return DONE if _recorded_landed(root, recorded, _bases(root, branch, base)) else UNKNOWN
         if renamed is None or renamed in seen:
             return OPEN
         seen.add(renamed)
@@ -795,12 +822,29 @@ def _read_branch(root: Path, branch: str, base: str, recorded: str | None) -> st
     if branch == base or _checked_out(root, branch):
         return OPEN
     tip = run_git(root, "rev-parse", f"refs/heads/{branch}") or ""
-    landed = (
-        _made_commit_landed(root, branch, base)
-        if _in_base(root, tip, base)
-        else _squashed(root, tip, base)
-    )
-    return DONE if landed else OPEN
+    return DONE if any(_landed(root, branch, tip, b) for b in _bases(root, branch, base)) else OPEN
+
+
+def _landed(root: Path, branch: str, tip: str, base: str) -> bool:
+    if _in_base(root, tip, base):
+        return _made_commit_landed(root, branch, base)
+    return _squashed(root, tip, base)
+
+
+def _copy_landed(root: Path, ref: str, base: str) -> bool:
+    """A remote copy has no reflog of its work, so a tip in the base needs a merge that names it."""
+    tip = run_git(root, "rev-parse", ref) or ""
+    if not _in_base(root, tip, base):
+        return _squashed(root, tip, base)
+    merges = run_git(root, "log", "--merges", "--format=%P", f"{tip}..{base}") or ""
+    return any(tip in line.split()[1:] for line in merges.splitlines())
+
+
+def _recorded_landed(root: Path, recorded: str | None, bases: list[str]) -> bool:
+    """A gone branch ended if its recorded commit landed. A commit that did not is live work."""
+    if not recorded or not _commit_here(root, recorded):
+        return False
+    return any(_in_base(root, recorded, b) or _squashed(root, recorded, b) for b in bases)
 
 
 def _commit_here(root: Path, commit: str | None) -> bool:
@@ -839,15 +883,12 @@ def _made_commit_landed(root: Path, branch: str, base: str) -> bool:
 
 
 def _squashed(root: Path, tip: str, base: str) -> bool:
-    """True when the branch changes something and a merge of it into the base changes nothing.
+    """True when the branch changes something and the base holds that change.
 
-    Needs git 2.38. A commit copied with its author date and subject is a cherry-pick, not a
-    squash, so that branch stays open.
+    The base holds it when a merge of the branch changes nothing (needs git 2.38), or when one
+    commit there makes the same change, for a base that changed those lines later. A commit copied
+    with its author date and subject is a cherry-pick, not a squash, so that branch stays open.
     """
-    merged = run_git(root, "merge-tree", "--write-tree", base, tip)
-    tree = run_git(root, "rev-parse", f"{base}^{{tree}}")
-    if not merged or merged.splitlines()[0] != tree:
-        return False
     fork = run_git(root, "merge-base", base, tip)
     if not fork or run_git(root, "rev-parse", f"{tip}^{{tree}}") == run_git(
         root, "rev-parse", f"{fork}^{{tree}}"
@@ -856,6 +897,36 @@ def _squashed(root: Path, tip: str, base: str) -> bool:
     stamp = "--format=%ae %at %s"
     ours = run_git(root, "log", stamp, f"{fork}..{tip}")
     theirs = run_git(root, "log", stamp, f"{fork}..{base}")
-    if ours is None or theirs is None:
+    if ours is None or theirs is None or set(ours.splitlines()) & set(theirs.splitlines()):
         return False
-    return not set(ours.splitlines()) & set(theirs.splitlines())
+    merged = run_git(root, "merge-tree", "--write-tree", base, tip)
+    if merged and merged.splitlines()[0] == run_git(root, "rev-parse", f"{base}^{{tree}}"):
+        return True
+    return _same_change(root, fork, tip, base)
+
+
+def _changed_lines(diff: str) -> list[str]:
+    """The added and removed lines. Context and line numbers move when the base moves."""
+    return [line for line in diff.splitlines() if line[:1] in ("+", "-")]
+
+
+def _same_change(root: Path, fork: str, tip: str, base: str) -> bool:
+    """True when one recent commit of the base makes the whole change of the branch."""
+    want = _changed_lines(run_git(root, "diff", "--no-ext-diff", "--no-color", fork, tip) or "")
+    files = (run_git(root, "diff", "--name-only", fork, tip) or "").splitlines()
+    if not want or not files:
+        return False
+    log = run_git(
+        root,
+        "log",
+        "-p",
+        "--full-diff",
+        "--no-ext-diff",
+        "--no-color",
+        "--format=%x00",
+        f"-{_SAME_CHANGE_CHECKS}",
+        f"{fork}..{base}",
+        "--",
+        *files[:_SAME_CHANGE_FILES],
+    )
+    return any(_changed_lines(commit) == want for commit in (log or "").split("\0"))
