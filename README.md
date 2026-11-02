@@ -892,7 +892,7 @@ no fact followed:
   limit, a preference, a reason or a review. Each new statement blocks once, also after an answer of
   "nothing". The detector is in `signals.py`.
 
-The block gives the test, the moments and the `memory add` line, in about 95 words. It says that a
+The block gives the test, the moments and the `memory add` line, in 87 words. It says that a
 commit, a branch or the diff is no fact, because git holds them. `memory instructions` holds the
 same guide. A stop that only names an event gives the `memory add` line and no guide, because the
 event asks its own question. A command that passes with a setting in front of it is no event when an

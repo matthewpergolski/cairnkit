@@ -12,12 +12,12 @@ ADD_LINE = (
 )
 
 # Each block prints this. The 157 words before this guide were 43 percent of all hook words.
+# `--supersedes ID` is in RULES_SHORT, which each session reads at its start.
 CAPTURE_GUIDE = (
     "Ask: what would the next agent get wrong if this session ended now? Write a fact for each "
     "moment it had: an owner decision or approval, a promise or a limit, a review finding, the "
-    "purpose and next step of started work, a failure and its fix, or an old fact no longer true "
-    "(`--supersedes ID`). Give the reason and the files. A commit, a branch or the diff is no "
-    f"fact.\n{ADD_LINE}"
+    "purpose and next step of started work, or a failure and its fix. Give the reason and the "
+    f"files. A commit, a branch or the diff is no fact.\n{ADD_LINE}"
 )
 
 RULES_SHORT = """\

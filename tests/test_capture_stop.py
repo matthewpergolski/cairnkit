@@ -24,7 +24,6 @@ MOMENTS = (
     "review finding",
     "purpose and next step",
     "failure and its fix",
-    "no longer true",
     "the reason",
     "the files",
     # About 9 of 33 facts in a real run restated git, such as "Branch X holds one commit".
@@ -34,7 +33,7 @@ MOMENTS = (
     "--basis told",
 )
 # Each block costs a turn, and its words cost the context. The guide was 157 words before.
-BLOCK_WORDS = 115
+BLOCK_WORDS = 105
 EVENT_BLOCK_WORDS = 70
 DOC_IS_NO_RECORD = "A doc that the next agent reads only after it fails is no record."
 
@@ -74,6 +73,10 @@ def test_changed_work_blocks_the_first_stop_on_each_tool(session):
     said = session.turn(1, "format the code", edit(session), [])
     assert said
     assert all(moment in said for moment in MOMENTS)
+
+
+def test_each_session_start_says_how_to_replace_a_fact_so_the_block_need_not(session):
+    assert "--supersedes ID" in session.heard[0]
 
 
 def test_an_ordinary_prompt_with_no_change_does_not_block(session):
