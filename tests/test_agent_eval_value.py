@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
+import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -568,3 +570,151 @@ def test_cli_plan_for_the_value_suite_names_both_tools_and_counts_sessions(capsy
     assert "Session B: pi" in out
     assert "pickup-decision: 3 x 3 = 9 in dev, prod, none" in out
     assert "Cost shape: 117 agent sessions (dev 39, prod 39, none 39)" in out
+
+
+def run_traced(tmp_path, script: str, *argv: str, stdout=subprocess.PIPE) -> list[dict]:
+    """A Python start with the trace module loaded, as the `.pth` file of a build loads it."""
+    trace = tmp_path / "trace.jsonl"
+    module = sandbox.TRACE_MODULE.replace("__TRACE__", json.dumps(str(trace)))
+    (tmp_path / "cairnkit_eval_trace.py").write_text(module)
+    env = {k: v for k, v in os.environ.items() if k != "CAIRNKIT_EVAL_HARNESS"}
+    env["PYTHONPATH"] = str(tmp_path)
+    code = f"import cairnkit_eval_trace; {script}"
+    subprocess.run([sys.executable, "-c", code, *argv], env=env, stdout=stdout, check=True)
+    return [json.loads(line) for line in trace.read_text().splitlines()]
+
+
+def test_the_trace_records_what_a_hook_printed_and_the_tool_still_gets_it(tmp_path):
+    rows = run_traced(tmp_path, "print('load text')", "cairnkit", "hook", "session-start")
+    assert scoring.hook_events(rows) == ["session-start"]
+    outputs = [row for row in rows if "hook_stdout" in row]
+    assert outputs[0]["hook_stdout"] == "load text\n"
+    assert outputs[0]["hook"] == "session-start"
+
+
+def test_the_trace_counts_no_text_that_a_git_hook_sends_to_dev_null(tmp_path):
+    rows = run_traced(
+        tmp_path,
+        "print('quiet')",
+        "cairnkit",
+        "hook",
+        "post-checkout",
+        stdout=subprocess.DEVNULL,
+    )
+    assert [row for row in rows if row.get("hook_stdout")] == []
+
+
+def test_the_trace_keeps_no_output_of_a_plain_memory_command(tmp_path):
+    rows = run_traced(tmp_path, "print('a fact')", "/x/memory", "search", "port")
+    assert scoring.memory_commands(rows) == 1
+    assert [row for row in rows if "hook_stdout" in row] == []
+
+
+@pytest.mark.parametrize(
+    "stdout,words",
+    [
+        ("three plain words\n", 3),
+        ('{"decision": "block", "reason": "write a fact"}', 3),
+        ('{"followup_message": "write a fact now"}', 4),
+        ('{"additional_context": "one two"}', 2),
+        ('{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "a b"}}', 2),
+        ("{}", 0),
+        ("", 0),
+    ],
+)
+def test_injected_words_count_the_text_and_not_the_wrapper(stdout, words):
+    assert scoring.injected_words([{"hook": "stop", "hook_stdout": stdout}]) == words
+
+
+@pytest.mark.parametrize(
+    "stdout,blocked",
+    [
+        ('{"decision": "block", "reason": "write a fact"}', 1),
+        ('{"followup_message": "write a fact"}', 1),
+        ("write a fact\n", 1),
+        ("{}", 0),
+        ("", 0),
+    ],
+)
+def test_a_stop_that_takes_a_turn_counts_for_each_tool_format(stdout, blocked):
+    assert scoring.blocked_stops([{"hook": "stop", "hook_stdout": stdout}]) == blocked
+
+
+def test_only_a_stop_can_be_a_blocked_stop():
+    row = {"hook": "post-tool-use", "hook_stdout": '{"decision": "block", "reason": "x"}'}
+    assert scoring.blocked_stops([row]) == 0
+
+
+def test_memory_commands_leave_out_the_hooks():
+    trace = [
+        {"argv": ["-m", "cairnkit", "hook", "session-start"]},
+        {"hook": "session-start", "hook_stdout": "text"},
+        {"argv": ["/x/bin/memory", "add", "a fact"]},
+        {"argv": ["/x/bin/memory", "tidy"]},
+    ]
+    assert scoring.memory_commands(trace) == 2
+
+
+def cost_row(build, scenario="s1", commands=0, facts=0, stops=0, hook_words=0, rules_words=0):
+    session = {
+        "label": "A",
+        "agent": "x",
+        "memory_commands": commands,
+        "facts_written": facts,
+        "blocked_stops": stops,
+        "hook_words": hook_words,
+        "rules_words": rules_words,
+    }
+    return row(build, PASS, scenario, sessions=[session, {**session, "label": "B"}])
+
+
+def test_cost_table_shows_each_arm_on_the_same_scenarios():
+    rows = [
+        cost_row("dev", commands=2, facts=1, stops=1, hook_words=100, rules_words=10),
+        cost_row("dev", "only-memory", commands=50, facts=50, stops=50, hook_words=9000),
+        cost_row("prod", commands=1, hook_words=300),
+        cost_row("prod", "only-memory", commands=50, facts=50, stops=50, hook_words=9000),
+        cost_row("none"),
+    ]
+    lines = scoring.render_report(rows, ["s1", "only-memory"]).splitlines()
+    table = {line.split("|")[1].strip(): line for line in lines if line.startswith("| ")}
+    cells = [cell.strip() for cell in table["dev"].split("|")[1:-1]]
+    assert cells == ["dev", "1", "2", "4", "2", "2", "100", "10"]
+    cells = [cell.strip() for cell in table["none"].split("|")[1:-1]]
+    assert cells == ["none", "1", "2", "0", "0", "0", "0", "0"]
+    assert any("only-memory" in line and "left out" in line for line in lines)
+
+
+def test_rows_with_no_session_do_not_reach_the_cost_table():
+    rows = [row("dev", scoring.UNSUPPORTED)]
+    assert "Blocked stops" not in scoring.render_report(rows, ["s1"])
+
+
+def test_a_scripted_run_fills_the_cost_of_each_session(tmp_path, scripted):
+    options = scripted_options(tmp_path, scripted, [SCENARIOS["pickup-purpose"]])
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    first, second = rows["dev"]["sessions"]
+    assert (first["memory_commands"], first["facts_written"]) == (1, 1)
+    assert (second["memory_commands"], second["facts_written"]) == (1, 0)
+    for session in rows["none"]["sessions"]:
+        assert (session["memory_commands"], session["facts_written"]) == (0, 0)
+        assert (session["blocked_stops"], session["hook_words"], session["rules_words"]) == (0, 0, 0)
+
+
+def test_rules_words_count_only_an_untracked_rules_file(tmp_path, monkeypatch):
+    box = sandbox.make_sandbox(
+        sandbox.no_memory_build(tmp_path / "builds"),
+        AGENTS["claude"],
+        SCENARIOS["a-fact-at-start"],
+        tmp_path / "run",
+        isolated_home=True,
+    )
+    assert box.rules_words() == 0
+    (box.repo / "CLAUDE.local.md").write_text("one two three\n")
+    (box.repo / "notes.txt").write_text("not a rules file\n")
+    assert box.rules_words() == 3
+    (box.repo / "CLAUDE.local.md").unlink()
+    (box.repo / "AGENTS.md").write_text("one two\n")
+    box.git("add", "AGENTS.md")
+    box.git("commit", "-q", "-m", "tracked")
+    assert box.rules_words() == 0
