@@ -16,6 +16,7 @@ COMMAND_BUDGET = {
     "session-start": 7.0,  # timeout 10
     "subagent-start": 7.0,  # timeout 10
     "load": 7.0,
+    "before-shell": 3.0,  # timeout 5
     "after-shell": 3.0,  # timeout 5
     "post-tool": 3.0,  # timeout 5
     "prompt": 3.0,  # timeout 5

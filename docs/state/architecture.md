@@ -8,6 +8,7 @@ parent: cairnkit
 sources:
   - src/cairnkit/adapters.py
   - src/cairnkit/autotidy.py
+  - src/cairnkit/beforeshell.py
   - src/cairnkit/branchgate.py
   - src/cairnkit/candidates.py
   - src/cairnkit/check.py
@@ -97,6 +98,7 @@ flowchart TB
     Commands --> update[update]
     Commands --> writing[writing]
     Library --> adapters[adapters]
+    Library --> beforeshell[beforeshell]
     Library --> branchgate[branchgate]
     Library --> candidates[candidates]
     Library --> clock[clock]

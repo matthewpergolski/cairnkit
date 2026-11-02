@@ -7,6 +7,62 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: a stored fact stops the short command once, on Haiku
+
+This is a small run of 3 scenarios for one change. It is no comparison with `prod`, and it does not
+replace a run of the whole suite.
+
+- Commit: `6b89226` for `dev`, and no memory for `none`. The change: before a shell command runs,
+  a fact that holds the same command behind a setting or a wrapper stops that call once
+  (`PreToolUse` deny), with the fact as the reason.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 36. The session results report 0.10 USD in total.
+- Local results: `evals/agents/results/20261102T081417Z-claude` in the worktree of the change.
+
+| Scenario | dev | none |
+|---|---|---|
+| `lesson-carry` | 3 of 3 | 0 of 2, 1 inconclusive |
+| `promise-at-file` | 3 of 3 | 0 of 3 |
+| `pickup-purpose` | 3 of 3 | 0 of 3 |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 18 | 19 | 19 | 10 | 226 |
+| none | 18 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The deny changes the first run.** In each `lesson-carry` session B, the agent ran
+  `sh report.sh; echo "exit=$?"` first, as in all 6 runs of the last full run. The hook stopped
+  that call. The agent then ran `REPORT_LOCALE=C sh report.sh`, which passed, and its answer named
+  the memory hook. The script log shows `pass` as the first run of session B in 3 of 3.
+- **It fired only where it should.** The hook ran before 51 shell calls in `dev`. It denied 3, one in
+  each `lesson-carry` session B, and each was right. The other denials in the transcripts come from
+  the tool list of the eval, which refuses a command with `echo` in a chain.
+- **One block fewer.** A session B of `lesson-carry` no longer fails first, so its stop has no event
+  to ask about. Session B had 0 blocked stops and 190 to 228 hook words, against 1 block and 291 to
+  332 words in each of the 6 runs of the last full run. The deny text is about 35 words with the
+  fact line.
+- **Claude Code shows the reason as a hook error.** The tool result reads `PreToolUse:Bash hook
+  error:` and then the reason. Haiku acted on it in 3 of 3.
+- **The other two scenarios saw no deny.** No stored fact there holds a command, so the result is the
+  same as without the change, which the 3 of 3 in each shows.
+
+### False fires on real data
+
+Read-only, before the run: the active facts of two real memories (61 facts) and 19617 shell
+commands from the real Claude Code transcripts on this machine. The match fired 0 times, also over
+all 227 facts that are not purged and over the commands of other projects. A first build split a
+command at a `|` inside quotes, and fired 8 times on a grep pattern that held `manage.py`, each one
+wrong. The steps now split outside quotes only. A wider match, a fact that names the file that the
+command runs, fired 33 times in 12934 commands of the same projects. I read 25 of them, and none was right.
+No real fact holds a longer form of a command yet, so this measures false fires and not recall.
+
+### Limits
+
+- One scenario has a fact that the hook can match, and its author also wrote the hook.
+- Cursor and Grok Build have no such hook. Codex, Pi and OpenCode have it, with no real run.
+
 ## 2026-11-02: the live work list on Claude Code
 
 This is a small run of 1 scenario for one change, in two runs. It is no comparison with `prod`.
