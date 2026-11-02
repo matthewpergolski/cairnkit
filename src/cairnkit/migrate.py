@@ -660,14 +660,19 @@ def run_migrate(
     ]
     if resume and project.is_git and _tracked(root, os.path.relpath(src, root)):
         tracked.append((src, root))
+    needs_untrack = None
     if tracked and real and not untrack:
-        names = ", ".join(os.path.relpath(p, c) for p, c in tracked)
-        return _fail(
+        names = ", ".join(sorted({os.path.relpath(p, c) for p, c in tracked}))
+        needs_untrack = (
             f"git tracks files in {names}. Moving them would show as deleted files. "
             "Add --untrack: it takes them out of the index and commits nothing"
         )
+        if not dry_run:
+            return _fail(needs_untrack)
 
     _say_where(project, dry_run)
+    if needs_untrack:
+        print(f"`memory migrate --yes` alone refuses this: {needs_untrack}.")
     work = memdir / CANDIDATES
     if not moves and not tracked and work.is_file():
         return _close(project, path_flag, memdir, source_dir, dry_run)
