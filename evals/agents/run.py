@@ -1,8 +1,9 @@
-"""Run real agents against dev and prod builds of cairnkit. See README.md in this folder."""
+"""Run real agents against arms of cairnkit, and no memory. See README.md in this folder."""
 
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,8 @@ sys.path.insert(0, str(HERE))
 from agent_eval import runner, sandbox, scoring  # noqa: E402
 from agent_eval.agents import AGENTS  # noqa: E402
 from agent_eval.scenarios import SCENARIOS, selected  # noqa: E402
+
+ARM_LABEL = re.compile(r"[a-z0-9][a-z0-9._+-]*\Z")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -33,6 +36,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--prod-ref", default=sandbox.PROD_REF)
     parser.add_argument("--dev-ref", default="HEAD", help="default: the current checkout")
+    parser.add_argument(
+        "--arm",
+        action="append",
+        default=[],
+        metavar="LABEL=REF",
+        help="one more memory arm from a git ref, repeatable",
+    )
+    parser.add_argument(
+        "--skip-arm", action="append", default=[], metavar="LABEL", help="leave out one arm"
+    )
     parser.add_argument("--out", type=Path, help="default: evals/agents/results/<time>-<agent>")
     parser.add_argument("--builds-dir", type=Path, help="default: a folder in the system temp dir")
     parser.add_argument("--timeout", type=float, default=300, help="seconds per agent session")
@@ -53,6 +66,21 @@ def repo_root() -> Path:
     return Path(done.stdout.strip())
 
 
+def arm_refs(args: argparse.Namespace) -> dict[str, str | None]:
+    """Label to git ref, in table order. A ref of None is the arm with no memory."""
+    refs: dict[str, str | None] = {"dev": args.dev_ref, "prod": args.prod_ref}
+    for item in args.arm:
+        label, _, ref = item.partition("=")
+        if not ref or not ARM_LABEL.match(label) or label in (*refs, scoring.NO_MEMORY):
+            raise ValueError(f"--arm needs a new LABEL=REF, not {item!r}")
+        refs[label] = ref
+    refs[scoring.NO_MEMORY] = None
+    unknown = set(args.skip_arm) - set(refs)
+    if unknown:
+        raise ValueError(f"--skip-arm names no arm: {', '.join(sorted(unknown))}")
+    return {label: ref for label, ref in refs.items() if label not in args.skip_arm}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.report:
@@ -62,10 +90,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     agent = AGENTS[args.agent]
-    refs = {"dev": args.dev_ref, "prod": args.prod_ref}
     model = args.model or agent.default_model
     out_dir = args.out or HERE / "results" / f"{runner.stamp()}-{agent.name}"
     try:
+        refs = arm_refs(args)
         scenarios = selected(args.scenario, fake=args.fake_provider)
     except ValueError as exc:
         print(f"run.py: {exc}", file=sys.stderr)
@@ -86,17 +114,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     repo = repo_root()
-    commits = {label: sandbox.resolve_commit(repo, ref) for label, ref in refs.items()}
-    if commits["dev"] == commits["prod"]:
+    commits = {label: sandbox.resolve_commit(repo, ref) for label, ref in refs.items() if ref}
+    if len(set(commits.values())) < len(commits):
         print(
-            f"run.py: dev and prod are the same commit ({commits['dev'][:7]}), so a comparison "
-            "means nothing. Run from a dev checkout, or pass --dev-ref.",
+            f"run.py: two arms are the same commit ({', '.join(commits)}), so a comparison means "
+            "nothing. Run from a dev checkout, or pass --dev-ref.",
             file=sys.stderr,
         )
         return 2
     builds_dir = args.builds_dir or Path(tempfile.gettempdir()) / "cairnkit-agent-eval-builds"
     try:
-        options.builds = runner.build_both(repo, refs, builds_dir)
+        options.builds = runner.build_arms(repo, refs, builds_dir)
     except sandbox.SetupError as exc:
         print(f"run.py: could not build: {exc}", file=sys.stderr)
         return 2

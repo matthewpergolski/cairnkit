@@ -19,6 +19,7 @@ ERROR = "error"
 UNSUPPORTED = "unsupported"
 INCONCLUSIVE = "inconclusive"
 RESULT_CLASSES = (PASS, FAIL, NOT_CONNECTED, ERROR, UNSUPPORTED, INCONCLUSIVE)
+NO_MEMORY = "none"
 
 ACCOUNT_ERROR_KINDS = frozenset({"auth", "quota"})
 
@@ -213,6 +214,7 @@ def classify(
     needle: re.Pattern | None,
     *,
     expects_error: bool = False,
+    expects_connection: bool = True,
 ) -> Verdict:
     """The one place that orders the classes. A trust stop and an account error come first."""
     trust = detect_trust_block(obs)
@@ -224,7 +226,7 @@ def classify(
         return Verdict(ERROR, reason, kind)
     if expects_error:
         return Verdict(FAIL, "a provider refusal did not read as an error")
-    if not connection_evidence(obs, needle):
+    if expects_connection and not connection_evidence(obs, needle):
         return Verdict(NOT_CONNECTED, "no hook ran, no memory command ran, and no fact showed")
     outcome = check(obs)
     return Verdict(outcome.result, outcome.reason)
@@ -359,35 +361,45 @@ def _load(cell: dict[str, int] | None) -> str:
     return f"{cell['in_load']}/{cell['load_known']}"
 
 
-def _git_row(rows: list[dict]) -> str | None:
+def arm_order(rows: list[dict]) -> list[str]:
+    """The first arms first, the arms added later next, and the no-memory arm as the last."""
+    found = {row["build"] for row in rows}
+    first = [arm for arm in ("dev", "prod") if arm in found]
+    last = [NO_MEMORY] if NO_MEMORY in found else []
+    return first + sorted(found - {"dev", "prod", NO_MEMORY}) + last
+
+
+def _git_row(rows: list[dict], arms: list[str]) -> str | None:
     counted = [row for row in rows if row.get("git_clean") is not None]
     if not counted:
         return None
     cells = []
-    for build in ("dev", "prod"):
+    for build in arms:
         mine = [row for row in counted if row["build"] == build]
         clean = sum(1 for row in mine if row["git_clean"])
         dirty = len(mine) - clean
         cells.append(f"{clean} pass, {dirty} fail, n={len(mine)}" if mine else "-")
-    return f"| k git-clean (all runs) | {cells[0]} | {cells[1]} | - | - | - |"
+    blanks = " | ".join("-" for _ in arms)
+    return f"| k git-clean (all runs) | {' | '.join(cells)} | {blanks} | - |"
 
 
 def render_report(rows: list[dict], order: list[str] | None = None) -> str:
-    """A short Markdown table: dev against prod per scenario, with plain counts."""
+    """A short Markdown table: the arms side by side per scenario, with plain counts."""
     if not rows:
         return "No results.\n"
     head = rows[0]
     table = summarize(rows)
+    arms = arm_order(rows)
     scenarios = order or sorted({row["scenario"] for row in rows})
     seen = sorted({row["model_reported"] for row in rows if row.get("model_reported")})
     lines = [
-        f"# {head['agent']}: dev against prod",
+        f"# {head['agent']}: {' against '.join(arms)}",
         "",
         f"- Tool version: {head.get('tool_version') or 'unknown'}",
         f"- Model asked: {head.get('model_requested') or 'default'}. "
         f"Model seen: {', '.join(seen) or 'unknown'}.",
         f"- Mode: {head.get('mode')}",
-        f"- dev: {_build_label(rows, 'dev')}. prod: {_build_label(rows, 'prod')}.",
+        "- " + " ".join(f"{arm}: {_build_label(rows, arm)}." for arm in arms),
     ]
     if head.get("connect_note"):
         lines.append(f"- Connection: {head['connect_note']}")
@@ -397,26 +409,27 @@ def render_report(rows: list[dict], order: list[str] | None = None) -> str:
         "rates. `In load` counts the runs where `memory load` showed the fact before the agent "
         "started, so it separates 'could not see it' from 'saw it and did not act'.",
         "",
-        "| Scenario | dev | prod | dev other | prod other | In load dev, prod |",
-        "|---|---|---|---|---|---|",
+        "| Scenario | "
+        + " | ".join(arms + [f"{arm} other" for arm in arms])
+        + f" | In load {', '.join(arms)} |",
+        "|---|" + "---|" * (2 * len(arms) + 1),
     ]
     for scenario in scenarios:
-        dev = table.get((scenario, "dev"))
-        prod = table.get((scenario, "prod"))
-        if dev is None and prod is None:
+        cells = [table.get((scenario, arm)) for arm in arms]
+        if not any(cells):
             continue
-        load = f"{_load(dev)}, {_load(prod)}"
-        lines.append(
-            f"| {scenario} | {_score(dev)} | {_score(prod)} | {_other(dev)} | {_other(prod)} "
-            f"| {load} |"
-        )
-    git_row = _git_row(rows)
+        shown = [_score(cell) for cell in cells] + [_other(cell) for cell in cells]
+        load = ", ".join(_load(cell) for cell in cells)
+        lines.append(f"| {scenario} | {' | '.join(shown)} | {load} |")
+    git_row = _git_row(rows, arms)
     if git_row:
         lines.append(git_row)
     return "\n".join(lines) + "\n"
 
 
 def _build_label(rows: list[dict], build: str) -> str:
+    if build == NO_MEMORY:
+        return "no memory, no hooks, no rules"
     for row in rows:
         if row["build"] == build:
             return f"{row.get('build_version') or '?'} at {str(row.get('commit') or '?')[:7]}"

@@ -1,4 +1,4 @@
-"""Two tool builds and the throwaway repos they run in. Nothing here touches a real memory."""
+"""The tool builds and the throwaway repos they run in. Nothing here touches a real memory."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_eval.agents import Agent
+from agent_eval.scoring import NO_MEMORY
 
 PROD_REF = "d523c01"
 MEMORY_LINK = "memory-bank"
@@ -107,6 +108,7 @@ class Build:
     commit: str
     root: Path
     version: str
+    has_memory: bool = True
 
     @property
     def bin_dir(self) -> Path:
@@ -169,6 +171,12 @@ def make_build(label: str, ref: str, repo: Path, builds_dir: Path) -> Build:
         marker.write_text(json.dumps({"commit": commit, "version": version.strip()}))
     version = json.loads(marker.read_text())["version"]
     return Build(label=label, commit=commit, root=root, version=version)
+
+
+def no_memory_build(builds_dir: Path) -> Build:
+    """The arm with no tool: nothing to install, and a trace that stays empty."""
+    root = (builds_dir / NO_MEMORY).resolve()
+    return Build(label=NO_MEMORY, commit=NO_MEMORY, root=root, version="none", has_memory=False)
 
 
 def _install_trace(venv: Path, trace_path: Path) -> None:
@@ -256,6 +264,26 @@ def _setup_path(build: Build, agent: Agent, shim: Path) -> str:
     return os.pathsep.join([str(build.bin_dir), str(shim), "/usr/bin", "/bin"])
 
 
+def path_without_memory(path: str, shim: Path) -> str:
+    """PATH with no `memory` and no `cairnkit`. The other tools of such a folder stay in `shim`.
+
+    A real install often shares a folder with the agent tools, so the folder cannot just go.
+    """
+    hidden = ("memory", "cairnkit")
+    shim.mkdir(parents=True, exist_ok=True)
+    kept = []
+    for entry in path.split(os.pathsep):
+        folder = Path(entry)
+        if not any((folder / name).exists() for name in hidden):
+            kept.append(entry)
+            continue
+        for item in folder.iterdir():
+            link = shim / item.name
+            if item.name not in hidden and not link.exists():
+                link.symlink_to(item)
+    return os.pathsep.join([str(shim), *kept])
+
+
 def make_sandbox(
     build: Build,
     agent: Agent,
@@ -293,9 +321,12 @@ def make_sandbox(
         "CAIRNKIT_EVAL_HARNESS": "1",
         "PATH": _setup_path(build, agent, root / "shim"),
     }
+    host_path = os.environ.get("PATH", "")
     agent_env = {
         **common,
-        "PATH": os.pathsep.join([str(build.bin_dir), os.environ.get("PATH", "")]),
+        "PATH": os.pathsep.join([str(build.bin_dir), host_path])
+        if build.has_memory
+        else path_without_memory(host_path, root / "tools"),
     }
     box = Sandbox(
         build=build,
@@ -316,9 +347,11 @@ def make_sandbox(
         path.write_text(text, encoding="utf-8")
     box.git("add", "-A")
     box.git("commit", "-q", "-m", "start")
-    connect(box)
-    (box.memory_dir / "config.toml").open("a", encoding="utf-8").write("\nskills_check = false\n")
-    write_seed(box, scenario, now)
+    if build.has_memory:
+        connect(box)
+        config = box.memory_dir / "config.toml"
+        config.open("a", encoding="utf-8").write("\nskills_check = false\n")
+        write_seed(box, scenario, now)
     box.git_after_connect = box.git_status()
     if scenario.prepare:
         scenario.prepare(box)

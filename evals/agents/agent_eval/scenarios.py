@@ -135,6 +135,10 @@ class Scenario:
     def calls(self) -> int:
         return len(self.prompts)
 
+    @property
+    def runs_without_memory(self) -> bool:
+        return False
+
 
 def _needle(text: str) -> re.Pattern:
     return re.compile(re.escape(text), re.I)

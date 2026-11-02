@@ -20,11 +20,19 @@ from pathlib import Path
 from agent_eval import scoring
 from agent_eval.agents import Agent, CallContext, Parsed, live_message, version_of
 from agent_eval.fake_provider import FakeProvider, model_requests
-from agent_eval.sandbox import Build, Sandbox, SetupError, make_build, make_sandbox
+from agent_eval.sandbox import (
+    Build,
+    Sandbox,
+    SetupError,
+    make_build,
+    make_sandbox,
+    no_memory_build,
+)
 from agent_eval.scenarios import DERIVED_NOTE, Scenario
 
-SCHEMA = 1
+SCHEMA = 2
 EXCERPT = 4000
+WORK_PREFIX = "work-"
 
 
 @dataclass
@@ -243,7 +251,7 @@ def run_turns(
         return CallContext(
             prompt=prompt,
             repo=box.repo,
-            memory_dir=box.memory_dir,
+            memory_dir=box.memory_dir if box.build.has_memory else None,
             model=model,
             resume=resume,
             budget_usd=None if options.fake else options.budget_usd,
@@ -332,9 +340,15 @@ def base_row(options: Options, build_label: str, scenario: Scenario, repeat: int
     }
 
 
-def scored_row(row: dict, scenario: Scenario, obs: scoring.Observation) -> dict:
+def scored_row(
+    row: dict, scenario: Scenario, obs: scoring.Observation, *, has_memory: bool = True
+) -> dict:
     verdict = scoring.classify(
-        obs, scenario.check, scenario.needle, expects_error=scenario.fake_status is not None
+        obs,
+        scenario.check,
+        scenario.needle,
+        expects_error=scenario.fake_status is not None,
+        expects_connection=has_memory,
     )
     ran = verdict.result not in (scoring.ERROR, scoring.UNSUPPORTED)
     models = [turn.parsed.model for turn in obs.turns if turn.parsed.model]
@@ -392,7 +406,7 @@ def run_trial(options: Options, build_label: str, scenario: Scenario, repeat: in
             "error_kind": "missing-binary",
         }
 
-    temp = Path(tempfile.mkdtemp(prefix="cairnkit-eval-")).resolve()
+    temp = Path(tempfile.mkdtemp(prefix=WORK_PREFIX)).resolve()
     stem = f"{build_label}-{scenario.id}-{repeat}"
     try:
         box = make_sandbox(
@@ -403,16 +417,16 @@ def run_trial(options: Options, build_label: str, scenario: Scenario, repeat: in
             isolated_home=options.fake,
         )
         row["connect_steps"] = box.connect_steps
-        load = box.memory_cmd("load")
-        needle_in_load = bool(scenario.needle and scenario.needle.search(load.stdout))
+        load = box.memory_cmd("load").stdout if box.build.has_memory else ""
+        needle_in_load = bool(scenario.needle and scenario.needle.search(load))
         raw_prefix = options.out_dir / "raw" / stem
         if options.fake:
             return _run_with_fake(options, box, scenario, row, needle_in_load, temp, raw_prefix)
         turns, known = run_turns(box, agent, scenario, options.model, options, raw_prefix)
         obs = read_observed(box, scenario, known)
         obs.turns = turns
-        obs.needle_in_load = needle_in_load if scenario.needle else None
-        return scored_row(row, scenario, obs)
+        obs.needle_in_load = needle_in_load if scenario.needle and box.build.has_memory else None
+        return scored_row(row, scenario, obs, has_memory=box.build.has_memory)
     except (SetupError, RuntimeError, OSError) as exc:
         return {
             **row,
@@ -447,10 +461,10 @@ def _run_with_fake(
         requests = model_requests(provider.requests())
     obs = read_observed(box, scenario, known)
     obs.turns = turns
-    obs.needle_in_load = needle_in_load if scenario.needle else None
+    obs.needle_in_load = needle_in_load if scenario.needle and box.build.has_memory else None
     obs.model_requests = len(requests)
     obs.request_text = json.dumps(requests, ensure_ascii=False)
-    return scored_row(row, scenario, obs)
+    return scored_row(row, scenario, obs, has_memory=box.build.has_memory)
 
 
 def write_row(row: dict, out_dir: Path) -> Path:
@@ -469,12 +483,19 @@ def read_rows(out_dir: Path) -> list[dict]:
     return rows
 
 
+def arm_runs(scenario: Scenario, has_memory: bool) -> bool:
+    """A scenario that asks about a planted fact says nothing in an arm with no memory."""
+    return has_memory or scenario.runs_without_memory
+
+
 def run_all(options: Options) -> list[dict]:
     """All trials. After an account error the tool gets no more calls: a retry only costs."""
     rows = []
     stopped: str | None = None
     for scenario in options.scenarios:
         for build_label in options.builds:
+            if not arm_runs(scenario, options.builds[build_label].has_memory):
+                continue
             for repeat in range(options.repeats):
                 if stopped and not unsupported_reason(options.agent, scenario, fake=options.fake):
                     row = {
@@ -508,31 +529,38 @@ def plan_text(options: Options, refs: dict[str, str]) -> str:
         f"Agent: {agent.name} ({agent.binary})",
         f"Mode: {'fake provider, no account, no cost' if options.fake else 'real model'}",
         f"Model: {'fake-small' if options.fake else options.model}",
-        f"Builds: {', '.join(f'{label} = {ref}' for label, ref in refs.items())}",
+        "Arms: " + ", ".join(f"{label} = {ref or 'no memory'}" for label, ref in refs.items()),
         f"Repeats: {options.repeats}",
     ]
     if agent.connect_note:
         lines.append(f"Note: {agent.connect_note}")
     if options.fake and agent.fake is None:
         lines.append(f"Fake provider: not possible. {agent.no_fake_reason}")
-    lines += ["", "Scenario, agent sessions per build"]
-    total = 0
+    lines += ["", "Scenario, agent sessions per arm"]
+    per_arm = dict.fromkeys(refs, 0)
     for scenario in options.scenarios:
         reason = unsupported_reason(agent, scenario, fake=options.fake)
         if reason:
             lines.append(f"  {scenario.id}: skipped ({reason})")
             continue
         count = scenario.calls * options.repeats
-        total += count
-        lines.append(f"  {scenario.id}: {scenario.calls} x {options.repeats} = {count}")
-    calls = total * len(refs)
+        arms = [label for label, ref in refs.items() if arm_runs(scenario, ref is not None)]
+        for label in arms:
+            per_arm[label] += count
+        shown = ", ".join(arms)
+        lines.append(f"  {scenario.id}: {scenario.calls} x {options.repeats} = {count} in {shown}")
+    calls = sum(per_arm.values())
     lines += [
         "",
-        f"Cost shape: {calls} agent sessions ({total} per build, {len(refs)} builds).",
+        f"Cost shape: {calls} agent sessions "
+        f"({', '.join(f'{label} {count}' for label, count in per_arm.items())}).",
         "One agent session makes one or more model requests. The count depends on its tool use.",
     ]
     if not options.fake and agent.name == "claude" and options.budget_usd is not None:
-        lines.append(f"Claude cap: {options.budget_usd:.2f} USD per session.")
+        lines.append(
+            f"Claude cap: {options.budget_usd:.2f} USD per session, "
+            f"so at most {options.budget_usd * calls:.2f} USD."
+        )
     lines += [
         "An account error stops the calls for this agent. The rest read as error.",
         DERIVED_NOTE,
@@ -542,13 +570,17 @@ def plan_text(options: Options, refs: dict[str, str]) -> str:
 
 def load_only(options: Options) -> str:
     """What `memory load` shows for each scenario in each build. No agent runs."""
-    lines = ["| Scenario | dev | prod |", "|---|---|---|"]
+    labels = list(options.builds)
+    lines = [f"| Scenario | {' | '.join(labels)} |", "|---|" + "---|" * len(labels)]
     for scenario in options.scenarios:
         if not scenario.needle:
             continue
         cells = []
-        for label in ("dev", "prod"):
-            temp = Path(tempfile.mkdtemp(prefix="cairnkit-eval-")).resolve()
+        for label in labels:
+            if not options.builds[label].has_memory:
+                cells.append("no memory")
+                continue
+            temp = Path(tempfile.mkdtemp(prefix=WORK_PREFIX)).resolve()
             try:
                 box = make_sandbox(
                     options.builds[label],
@@ -561,7 +593,7 @@ def load_only(options: Options) -> str:
                 cells.append("shown" if shown else "not shown")
             finally:
                 shutil.rmtree(temp, ignore_errors=True)
-        lines.append(f"| {scenario.id} | {cells[0]} | {cells[1]} |")
+        lines.append(f"| {scenario.id} | {' | '.join(cells)} |")
     return "\n".join(lines) + "\n"
 
 
@@ -569,5 +601,8 @@ def stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def build_both(repo: Path, refs: dict[str, str], builds_dir: Path) -> dict[str, Build]:
-    return {label: make_build(label, ref, repo, builds_dir) for label, ref in refs.items()}
+def build_arms(repo: Path, refs: dict[str, str | None], builds_dir: Path) -> dict[str, Build]:
+    return {
+        label: make_build(label, ref, repo, builds_dir) if ref else no_memory_build(builds_dir)
+        for label, ref in refs.items()
+    }

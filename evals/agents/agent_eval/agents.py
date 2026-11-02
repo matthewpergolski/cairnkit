@@ -55,7 +55,7 @@ class Parsed:
 class CallContext:
     prompt: str
     repo: Path
-    memory_dir: Path
+    memory_dir: Path | None
     model: str | None
     resume: bool = False
     budget_usd: float | None = None
@@ -244,6 +244,10 @@ CLAUDE_TOOLS = ",".join(
 )
 
 
+def _add_dir(call: CallContext) -> list[str]:
+    return ["--add-dir", str(call.memory_dir)] if call.memory_dir else []
+
+
 def claude_argv(call: CallContext) -> list[str]:
     argv = [
         "claude",
@@ -257,8 +261,7 @@ def claude_argv(call: CallContext) -> list[str]:
         "--strict-mcp-config",
         "--allowedTools",
         CLAUDE_TOOLS,
-        "--add-dir",
-        str(call.memory_dir),
+        *_add_dir(call),
     ]
     if call.model:
         argv += ["--model", call.model]
@@ -284,7 +287,7 @@ def codex_argv(call: CallContext) -> list[str]:
     if call.resume:
         argv += ["resume", "--last"]
     else:
-        argv += ["-s", "workspace-write", "--add-dir", str(call.memory_dir), "-C", str(call.repo)]
+        argv += ["-s", "workspace-write", *_add_dir(call), "-C", str(call.repo)]
     argv.append("--json")
     if call.model:
         argv += ["-m", call.model]
@@ -299,8 +302,7 @@ def cursor_argv(call: CallContext) -> list[str]:
         "stream-json",
         "--workspace",
         str(call.repo),
-        "--add-dir",
-        str(call.memory_dir),
+        *_add_dir(call),
     ]
     if call.model:
         argv += ["--model", call.model]

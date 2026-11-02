@@ -377,6 +377,7 @@ def test_fake_provider_can_refuse_like_an_expired_token(tmp_path):
 class StubBuild:
     version = "memory 0.3.1"
     commit = "abc"
+    has_memory = True
 
 
 def options_for(tmp_path, agent="pi", scenarios=None, **kw):
