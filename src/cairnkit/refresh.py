@@ -238,9 +238,9 @@ def _end_mined_facts(project: Project, flag: str | None) -> list[str]:
         if ended:
             log = f"{LINK_NAME}/{LOG_NAME}"
             return [
-                f"end {len(ended)} fact(s) that 0.3.1 mined from commits. They stay in the archive. "
-                f"`grep mined {log}` lists each id with its undo command. "
-                "`memory show ID` prints one."
+                f"end {len(ended)} fact(s) that 0.3.1 mined from commits. "
+                f"They stay in the archive. `grep mined {log}` lists each id with its undo "
+                "command. `memory show ID` prints one."
             ]
     return []
 
