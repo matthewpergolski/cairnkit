@@ -113,8 +113,15 @@ This rule is agreed before any run. A change stays only if it clearly beats the 
 the earlier arms on pickup and lesson-carry, without a worse cost table. Otherwise it is cut or
 rethought.
 
-Write down what "clearly" means for your run before you read the results. With 3 repeats, a gap of
-one run is noise.
+"Clearly" means this, for one agent at 3 repeats (18 runs per arm, not counting `inconclusive`):
+
+- at least 5 more passes than the other arm over the six scenarios,
+- better in at least 3 scenarios, and
+- worse in none.
+
+A smaller gap reads as no proof either way. It does not show that the change fails. Change this
+rule only before a run. A pass on `haiku` is not a pass on a larger model, so run the larger model
+before a keep or cut decision.
 
 ### The arms
 
