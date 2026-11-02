@@ -617,7 +617,10 @@ def test_the_trace_keeps_no_output_of_a_plain_memory_command(tmp_path):
         ('{"decision": "block", "reason": "write a fact"}', 3),
         ('{"followup_message": "write a fact now"}', 4),
         ('{"additional_context": "one two"}', 2),
-        ('{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "a b"}}', 2),
+        (
+            '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "a b"}}',
+            2,
+        ),
         ("{}", 0),
         ("", 0),
     ],
@@ -651,6 +654,7 @@ def test_memory_commands_leave_out_the_hooks():
         {"hook": "session-start", "hook_stdout": "text"},
         {"argv": ["/x/bin/memory", "add", "a fact"]},
         {"argv": ["/x/bin/memory", "tidy"]},
+        {"argv": ["-m", "cairnkit", "commit-guard"]},
     ]
     assert scoring.memory_commands(trace) == 2
 
@@ -698,10 +702,26 @@ def test_a_scripted_run_fills_the_cost_of_each_session(tmp_path, scripted):
     assert (second["memory_commands"], second["facts_written"]) == (1, 0)
     for session in rows["none"]["sessions"]:
         assert (session["memory_commands"], session["facts_written"]) == (0, 0)
-        assert (session["blocked_stops"], session["hook_words"], session["rules_words"]) == (0, 0, 0)
+        assert (session["blocked_stops"], session["hook_words"], session["rules_words"]) == (
+            0,
+            0,
+            0,
+        )
 
 
-def test_rules_words_count_only_an_untracked_rules_file(tmp_path, monkeypatch):
+def test_a_note_or_a_package_that_a_session_writes_is_not_a_rules_file(tmp_path, scripted):
+    def argv(call):
+        return ["/bin/sh", "-c", "echo a b c > NOTES.md; echo ok"]
+
+    options = scripted_options(
+        tmp_path, replace(scripted, argv=argv), [SCENARIOS["pickup-purpose"]]
+    )
+    options.builds.pop("dev")
+    row = runner.run_all(options)[0]
+    assert [session["rules_words"] for session in row["sessions"]] == [0, 0]
+
+
+def test_rules_words_count_only_an_untracked_rules_file(tmp_path):
     box = sandbox.make_sandbox(
         sandbox.no_memory_build(tmp_path / "builds"),
         AGENTS["claude"],

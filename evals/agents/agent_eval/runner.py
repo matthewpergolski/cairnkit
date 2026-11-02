@@ -338,6 +338,7 @@ def run_sessions(
     session, and where session A left the text.
     """
     known = _fact_ids(box)
+    rules_words = box.rules_words()
     plans = session_plans(options, scenario)
     records: list[scoring.SessionRecord] = []
     fakes: dict[str, FakeSetup] = {}
@@ -378,7 +379,7 @@ def run_sessions(
                 facts_written=len(_fact_ids(box) - facts_mark),
                 probe=scenario.probe(box) if scenario.probe else {},
                 request_text=request_text,
-                rules_words=box.rules_words(),
+                rules_words=rules_words,
             )
         )
         if any(_turn_failed(turn) for turn in turns):
@@ -491,6 +492,7 @@ def scored_row(
                 "blocked_stops": scoring.blocked_stops(session.trace),
                 "hook_words": scoring.injected_words(session.trace),
                 "rules_words": session.rules_words,
+                "request_chars": len(session.request_text or ""),
             }
             for session in obs.sessions
         ],

@@ -21,6 +21,11 @@ UNSUPPORTED = "unsupported"
 INCONCLUSIVE = "inconclusive"
 RESULT_CLASSES = (PASS, FAIL, NOT_CONNECTED, ERROR, UNSUPPORTED, INCONCLUSIVE)
 NO_MEMORY = "none"
+READING_RULE = (
+    "Reading rule, agreed before the run: a change stays only if it clearly beats the no-memory "
+    "arm and the earlier arms on pickup and lesson-carry, with no worse cost table. Otherwise it "
+    "is cut or rethought."
+)
 
 ACCOUNT_ERROR_KINDS = frozenset({"auth", "quota"})
 
@@ -147,8 +152,8 @@ def agent_commands(trace: Iterable[dict]) -> list[str]:
 
 
 def memory_commands(trace: Iterable[dict]) -> int:
-    """Each `memory` start that no hook made. An agent, or a script of an agent, ran it."""
-    return sum(1 for argv in _commands(trace) if argv and "hook" not in argv)
+    """Each start of the installed command. The wiring of the tool itself uses `-m cairnkit`."""
+    return sum(1 for argv in _commands(trace) if argv and "hook" not in argv and argv[0] != "-m")
 
 
 def _hook_outputs(trace: Iterable[dict]) -> list[tuple[str, str]]:
@@ -595,7 +600,8 @@ def render_report(rows: list[dict], order: list[str] | None = None) -> str:
         "",
         "`n` counts the runs. With a small `n`, one run moves a rate far, so read counts, not "
         "rates. `In load` counts the runs where `memory load` showed the fact before the agent "
-        "started, so it separates 'could not see it' from 'saw it and did not act'.",
+        "started (for two sessions, before session B), so it separates 'could not see it' from "
+        "'saw it and did not act'.",
         "",
         "| Scenario | "
         + " | ".join(arms + [f"{arm} other" for arm in arms])
@@ -614,6 +620,8 @@ def render_report(rows: list[dict], order: list[str] | None = None) -> str:
     if git_row:
         lines.append(git_row)
     tables = _carried_table(rows, scenarios, arms) + _cost_table(rows, scenarios, arms)
+    if any(row.get("carried") is not None for row in rows):
+        tables += ["", READING_RULE]
     return "\n".join(lines + tables) + "\n"
 
 
