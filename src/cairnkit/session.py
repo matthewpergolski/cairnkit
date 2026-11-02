@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import os
 import re
+import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
@@ -300,7 +302,11 @@ def load_state(memory: Memory, session_id: str) -> dict | None:
 def save_state(memory: Memory, session_id: str, state: dict) -> None:
     path = _path(memory, session_id)
     path.parent.mkdir(exist_ok=True)
-    path.write_text(json.dumps(state))
+    # Another hook of the same session may read it now. A rename gives it all or nothing.
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".state-", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(state))
+    os.replace(tmp, path)
     _prune(path.parent)
 
 
