@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
+import re
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,7 +26,7 @@ from cairnkit.config import config_problems, secrets_in_config
 from cairnkit.docs_cmd import status_line
 from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
-from cairnkit.memory import Memory, MemoryMissing
+from cairnkit.memory import Memory, MemoryMissing, listed
 from cairnkit.migrate_refs import OLD_SUFFIX
 from cairnkit.paths import (
     ENV_DIR,
@@ -40,7 +43,14 @@ from cairnkit.paths import (
 )
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
-from cairnkit.secretscan import find_in_record, find_secrets, mask, real_secrets
+from cairnkit.secretscan import (
+    find_in_record,
+    find_secrets,
+    mask,
+    only_plain_words,
+    real_secrets,
+    strings_of,
+)
 from cairnkit.selection import RULE_WORD_LIMIT, clean
 from cairnkit.state import effective_status
 from cairnkit.store import Located, fact_files, read_located, repaired_lines
@@ -80,6 +90,8 @@ def check_links(project: Project, memdir) -> list[str]:
 REPAIR = "; run `memory repair`"
 MAX_OLD_FILES = 500
 MAX_OLD_BYTES = 256 * 1024
+# What a list item adds to a line. A worklist row holds the line without it.
+LINE_MARKS = re.compile(r"^[\s>*#-]+")
 
 
 @dataclass
@@ -187,28 +199,14 @@ def _old_copy_files(project: Project) -> list[Path]:
     for folder in sorted(root.parent.glob(f"{glob.escape(root.name)}{OLD_SUFFIX}*")):
         for dirpath, _, names in os.walk(folder):
             found += [Path(dirpath) / name for name in sorted(names)]
-    return found[:MAX_OLD_FILES]
+    return [path for path in found[:MAX_OLD_FILES] if _small(path)]
 
 
-def secrets_in_old_copy(memory: Memory) -> list[str]:
-    root = memory.project.main_root
-    warnings = []
-    for path in _old_copy_files(memory.project):
-        try:
-            if path.stat().st_size > MAX_OLD_BYTES:
-                continue
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError):
-            continue
-        for number, line in enumerate(lines, start=1):
-            found = real_secrets(line, memory.env)
-            if found:
-                warnings.append(
-                    f"{path.relative_to(root.parent)}:{number}: looks like a secret "
-                    f"({', '.join(found)}). A migration moved this copy aside, and it stays on "
-                    "disk. Remove that line, or the file if nothing in it is needed."
-                )
-    return warnings
+def _small(path: Path) -> bool:
+    try:
+        return path.stat().st_size <= MAX_OLD_BYTES
+    except OSError:
+        return False
 
 
 def history_note(memory: Memory) -> str | None:
@@ -230,24 +228,73 @@ def history_note(memory: Memory) -> str | None:
     return None
 
 
-def secrets_in_notes(memory: Memory) -> list[str]:
-    """Warnings for note lines that hold a secret. Notes are not checked at write time."""
-    warnings = secrets_in_old_copy(memory)
-    proposals = sorted((memory.dir / "proposals").glob("*.*"))
-    files = [*note_files(memory.dir / "notes"), *note_files(memory.dir / "branches"), *proposals]
-    for path in files:
+@dataclass
+class NoteCatch:
+    """One distinct line that looks secret. The first place is the one that the agent can edit."""
+
+    key: str
+    names: list[str]
+    plain: bool
+    places: list[str] = field(default_factory=list)
+    paths: list[Path] = field(default_factory=list)
+
+    @property
+    def problem(self) -> str:
+        same = f" The same line is in {', '.join(self.places[1:])}." if self.places[1:] else ""
+        return (
+            f"{self.places[0]}: looks like a secret ({', '.join(self.names)}). This may be a false "
+            "catch, and then the line can stay. If the value is real, change it where it is used, "
+            f"then replace the value in this file.{same}"
+        )
+
+    def written_since(self, moment: float) -> bool:
+        return any(path.stat().st_mtime >= moment for path in self.paths if path.exists())
+
+
+def _lines_of(path: Path) -> Iterator[tuple[int, str]]:
+    """The text of a file by line. A worklist row gives its strings, not its JSON punctuation."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return
+    for number, line in enumerate(lines, start=1):
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError):
-            continue
-        rel = path.relative_to(memory.dir).as_posix()
-        for number, line in enumerate(lines, start=1):
+            row = json.loads(line) if path.suffix == ".jsonl" else None
+        except ValueError:
+            row = None
+        if isinstance(row, dict):
+            yield from ((number, text) for text in strings_of(row))
+        else:
+            yield number, line
+
+
+def note_catches(memory: Memory) -> list[NoteCatch]:
+    """Each distinct line that looks secret, at the note first and then at its copies.
+
+    A worklist row can join a note line and the line under it, so a row matches by what it holds.
+    """
+    folder, parent = memory.dir, memory.project.main_root.parent
+    sources = [
+        *((path, folder) for path in note_files(folder / "notes")),
+        *((path, folder) for path in note_files(folder / "branches")),
+        *((path, parent) for path in _old_copy_files(memory.project)),
+        *((path, folder) for path in sorted((folder / "proposals").glob("*.*"))),
+    ]
+    catches: list[NoteCatch] = []
+    for path, base in sources:
+        for number, line in _lines_of(path):
             found = find_secrets(line, memory.env)
-            if found:
-                warnings.append(
-                    f"{rel}:{number}: looks like a secret ({', '.join(found)}); remove that line"
-                )
-    return warnings
+            if not found:
+                continue
+            key = LINE_MARKS.sub("", " ".join(line.split()))
+            in_row = path.suffix == ".jsonl"
+            same = next((c for c in catches if c.key == key or (in_row and c.key in key)), None)
+            if not same:
+                same = NoteCatch(key, found, only_plain_words(line, memory.env))
+                catches.append(same)
+            same.places.append(f"{path.relative_to(base).as_posix()}:{number}")
+            same.paths.append(path)
+    return catches
 
 
 DUPLICATES_DOC = (
@@ -375,6 +422,8 @@ class Health:
     todo: list[str] = field(default_factory=list)
     info: list[str] = field(default_factory=list)
     linked: list[str] = field(default_factory=list)
+    # The warnings that come from a line in a note. A stop must know which file holds each one.
+    note_catches: list[NoteCatch] = field(default_factory=list)
 
     def answer(self, strict: bool = False) -> str:
         if self.missing:
@@ -410,6 +459,17 @@ class Health:
         return 1 if self.errors or (strict and self.warnings) else 0
 
 
+def plain_word_note(catches: list[NoteCatch]) -> list[str]:
+    if not catches:
+        return []
+    places = [f"{catch.places[0]} ({', '.join(catch.names)})" for catch in catches]
+    return [
+        f"note: {len(catches)} note line(s) hold one plain word that a secret label or a `.env` "
+        f"file names: {listed(places)}. Most often this is no secret. If one is real, change it "
+        "where it is used, then replace the value in the note."
+    ]
+
+
 def _hook_lines(state: githook.HookState, health: Health) -> None:
     if state.dead:
         health.errors.append(state.line)
@@ -442,7 +502,10 @@ def _read_health(project: Project, flag: str | None) -> Health:
     health.errors += record_errors
     hooks = githook.hook_state(project)
     health.warnings += warnings + duplicate_rules(memory) + false_enforcement(memory, hooks)
-    health.warnings += secrets_in_notes(memory)
+    catches = note_catches(memory)
+    health.note_catches = [catch for catch in catches if not catch.plain]
+    health.warnings += [catch.problem for catch in health.note_catches]
+    health.info += plain_word_note([catch for catch in catches if catch.plain])
     # The load tells the agent that a plain word can stay, so --strict must not fail on it.
     health.info += [
         f"note: {memory.secret_problem(fact_id)}"
