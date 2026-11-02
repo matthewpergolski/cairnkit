@@ -14,14 +14,25 @@ sys.path.insert(0, str(HERE))
 
 from agent_eval import runner, sandbox, scoring  # noqa: E402
 from agent_eval.agents import AGENTS  # noqa: E402
-from agent_eval.scenarios import SCENARIOS, selected  # noqa: E402
+from agent_eval.scenarios import BEHAVIOUR, SCENARIOS, VALUE, selected  # noqa: E402
 
 ARM_LABEL = re.compile(r"[a-z0-9][a-z0-9._+-]*\Z")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--agent", choices=sorted(AGENTS), default="claude")
+    parser.add_argument(
+        "--agent", choices=sorted(AGENTS), default="claude", help="the tool that runs session A"
+    )
+    parser.add_argument(
+        "--agent-b", choices=sorted(AGENTS), help="the tool that runs session B. Default: --agent"
+    )
+    parser.add_argument(
+        "--suite",
+        choices=(BEHAVIOUR, VALUE),
+        default=BEHAVIOUR,
+        help="value: the two-session scenarios. Ignored with --scenario",
+    )
     parser.add_argument("--repeats", type=int, default=3, help="runs per scenario per build")
     parser.add_argument(
         "--scenario",
@@ -29,6 +40,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"one id or letter, repeatable. Ids: {', '.join(SCENARIOS)}",
     )
     parser.add_argument("--model", help="the model for the agent. Default: its small model")
+    parser.add_argument("--model-b", help="the model for session B. Default: the small model")
     parser.add_argument("--fake-provider", action="store_true", help="no account and no cost")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and the cost shape")
     parser.add_argument(
@@ -90,11 +102,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     agent = AGENTS[args.agent]
+    agent_b = AGENTS[args.agent_b or args.agent]
     model = args.model or agent.default_model
-    out_dir = args.out or HERE / "results" / f"{runner.stamp()}-{agent.name}"
+    model_b = args.model_b or (model if agent_b == agent else agent_b.default_model)
+    tools = agent.name if agent_b == agent else f"{agent.name}-{agent_b.name}"
+    out_dir = args.out or HERE / "results" / f"{runner.stamp()}-{tools}"
     try:
         refs = arm_refs(args)
-        scenarios = selected(args.scenario, fake=args.fake_provider)
+        scenarios = selected(args.scenario, fake=args.fake_provider, suite=args.suite)
     except ValueError as exc:
         print(f"run.py: {exc}", file=sys.stderr)
         return 2
@@ -108,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
         timeout=args.timeout,
         budget_usd=args.budget_usd,
         keep=args.keep,
+        agent_b=agent_b,
+        model_b=model_b,
     )
     if args.dry_run:
         print(runner.plan_text(options, refs), end="")

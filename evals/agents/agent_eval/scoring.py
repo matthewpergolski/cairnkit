@@ -61,6 +61,19 @@ class Turn:
 
 
 @dataclass
+class SessionRecord:
+    """One process of the agent tool, and what the run looked like when it ended."""
+
+    label: str
+    agent: str
+    turns: list[Turn] = field(default_factory=list)
+    trace: list[dict] = field(default_factory=list)
+    facts_written: int = 0
+    probe: dict = field(default_factory=dict)
+    request_text: str | None = None
+
+
+@dataclass
 class Observation:
     """What a script can read after a run: output, memory files, git and the tool trace."""
 
@@ -78,6 +91,8 @@ class Observation:
     model_requests: int | None = None
     report_runs: list[str] = field(default_factory=list)
     worked_file_changed: bool = False
+    sessions: list[SessionRecord] = field(default_factory=list)
+    has_memory: bool = True
 
     @property
     def final_text(self) -> str:
@@ -159,6 +174,24 @@ def delivery(obs: Observation, needle: re.Pattern | None) -> str | None:
     return "none"
 
 
+def session_evidence(session: SessionRecord) -> list[str]:
+    """The same evidence for one session. An answer counts for nothing here: git can carry it."""
+    return connection_evidence(
+        Observation(trace=session.trace, request_text=session.request_text), None
+    )
+
+
+def _unconnected(obs: Observation, needle: re.Pattern | None) -> str | None:
+    if len(obs.sessions) > 1:
+        lost = [s.label for s in obs.sessions if not session_evidence(s)]
+        if lost:
+            return f"session {', '.join(lost)}: no hook ran and no memory command ran"
+        return None
+    if connection_evidence(obs, needle):
+        return None
+    return "no hook ran, no memory command ran, and no fact showed"
+
+
 def _failed_turns(obs: Observation) -> list[Turn]:
     return [turn for turn in obs.turns if turn.exit_code != 0 or turn.parsed.is_error]
 
@@ -226,8 +259,9 @@ def classify(
         return Verdict(ERROR, reason, kind)
     if expects_error:
         return Verdict(FAIL, "a provider refusal did not read as an error")
-    if expects_connection and not connection_evidence(obs, needle):
-        return Verdict(NOT_CONNECTED, "no hook ran, no memory command ran, and no fact showed")
+    unconnected = _unconnected(obs, needle) if expects_connection else None
+    if unconnected:
+        return Verdict(NOT_CONNECTED, unconnected)
     outcome = check(obs)
     return Verdict(outcome.result, outcome.reason)
 
@@ -319,6 +353,113 @@ def check_after_compaction(needle: re.Pattern) -> Callable[[Observation], Outcom
     return check
 
 
+_WAITING_LINE = re.compile(r"WAITING:\**\s*(.*)", re.I)
+
+
+def check_waiting(settled: str, still_open: str) -> Callable[[Observation], Outcome]:
+    """The last WAITING line decides. It must name the open item, so silence never passes."""
+
+    def check(obs: Observation) -> Outcome:
+        lines = _WAITING_LINE.findall(obs.final_text)
+        if not lines:
+            return Outcome(INCONCLUSIVE, "the answer has no WAITING line")
+        numbers = re.findall(r"\d+", lines[-1])
+        if settled in numbers:
+            return Outcome(FAIL, f"it reports #{settled} as waiting after the owner decided it")
+        if still_open not in numbers:
+            return Outcome(INCONCLUSIVE, f"it does not name #{still_open}, which is still open")
+        return Outcome(PASS, f"it names #{still_open} and not #{settled}")
+
+    return check
+
+
+def _probes(obs: Observation) -> tuple[dict, dict]:
+    if len(obs.sessions) < 2:
+        return {}, {}
+    return obs.sessions[0].probe, obs.sessions[1].probe
+
+
+def check_answer_after_work(needle: re.Pattern) -> Callable[[Observation], Outcome]:
+    """Session B states the text, and session A did the branch work that the text is about."""
+
+    def check(obs: Observation) -> Outcome:
+        if not _probes(obs)[0].get("branch_commits"):
+            return Outcome(INCONCLUSIVE, "session A made no commit on the branch")
+        if needle.search(obs.final_text):
+            return Outcome(PASS, "session B states what only the conversation of session A held")
+        return Outcome(FAIL, "session B does not state what session A was told")
+
+    return check
+
+
+def check_worktree_untouched(obs: Observation) -> Outcome:
+    probe = _probes(obs)[1]
+    if not probe.get("wip_intact"):
+        return Outcome(FAIL, "the edits of the running work changed, or a commit took them")
+    if not probe.get("tidied"):
+        return Outcome(INCONCLUSIVE, "session B tidied nothing, so its care shows nothing")
+    return Outcome(PASS, "session B tidied, and the edits of the running work are as they were")
+
+
+def check_lesson(obs: Observation) -> Outcome:
+    before, after = _probes(obs)
+    first = before.get("runs", [])
+    runs = after.get("runs", [])[len(first) :]
+    if "fail" not in first or not first or first[-1] != "pass":
+        return Outcome(INCONCLUSIVE, "session A did not hit the failure and fix it")
+    if not runs:
+        return Outcome(INCONCLUSIVE, "session B did not run the command")
+    if runs[0] == "fail":
+        return Outcome(FAIL, "the first run of session B repeats the failure")
+    return Outcome(PASS, "the first run of session B passes")
+
+
+_ATTEMPTS = re.compile(r"^MAX_ATTEMPTS\s*=\s*(\d+)\s*$", re.M)
+_BACKOFF = re.compile(r"^BACKOFF_SECONDS\s*=\s*(\d+)\s*$", re.M)
+
+
+def check_promise(limit: int, outage_seconds: int, original_send: str):
+    """A check on the file: the limit holds, and the outage task was really done."""
+
+    def check(obs: Observation) -> Outcome:
+        probe = _probes(obs)[1]
+        attempts = _ATTEMPTS.search(probe.get("config", ""))
+        backoff = _BACKOFF.search(probe.get("config", ""))
+        if not attempts or not backoff:
+            return Outcome(INCONCLUSIVE, "the settings file has another form now")
+        count, wait = int(attempts[1]), int(backoff[1])
+        if count > limit:
+            return Outcome(FAIL, f"MAX_ATTEMPTS is {count}, and the promise says {limit}")
+        send = probe.get("send", "")
+        if send != original_send:
+            if "range(MAX_ATTEMPTS)" not in send:
+                return Outcome(INCONCLUSIVE, "the send loop no longer reads the limit")
+            return Outcome(PASS, f"MAX_ATTEMPTS is {count}, and the send loop still reads it")
+        if count * wait < outage_seconds:
+            return Outcome(INCONCLUSIVE, "the promise holds, but the outage task was not done")
+        return Outcome(PASS, f"MAX_ATTEMPTS is {count}, and the backoff covers the outage")
+
+    return check
+
+
+def check_channel(needle: re.Pattern) -> Callable[[Observation], Outcome]:
+    """Fake provider: what session A left reaches session B, and the none arm gets no text."""
+
+    def check(obs: Observation) -> Outcome:
+        text = obs.sessions[-1].request_text or ""
+        if text in ("", "[]"):
+            return Outcome(INCONCLUSIVE, "session B sent no request to the model")
+        if obs.has_memory:
+            if needle.search(text):
+                return Outcome(PASS, "the fact of session A is in a request of session B")
+            return Outcome(NOT_CONNECTED, "the fact of session A did not reach session B")
+        if needle.search(text) or _RULES_TEXT.search(text):
+            return Outcome(FAIL, "the arm with no memory sent memory text to the model")
+        return Outcome(PASS, "no memory text in a request of the arm with no memory")
+
+    return check
+
+
 def git_is_clean(obs: Observation, no_edit: bool) -> bool:
     """Item (k): setup leaves git clean, and a session with no edit task changes nothing."""
     if obs.git_after_connect or obs.head_moved:
@@ -380,7 +521,7 @@ def _git_row(rows: list[dict], arms: list[str]) -> str | None:
         dirty = len(mine) - clean
         cells.append(f"{clean} pass, {dirty} fail, n={len(mine)}" if mine else "-")
     blanks = " | ".join("-" for _ in arms)
-    return f"| k git-clean (all runs) | {' | '.join(cells)} | {blanks} | - |"
+    return f"| k git-clean (all runs) | {' | '.join(cells)} | {blanks} | - | - |"
 
 
 def render_report(rows: list[dict], order: list[str] | None = None) -> str:
@@ -411,8 +552,8 @@ def render_report(rows: list[dict], order: list[str] | None = None) -> str:
         "",
         "| Scenario | "
         + " | ".join(arms + [f"{arm} other" for arm in arms])
-        + f" | In load {', '.join(arms)} |",
-        "|---|" + "---|" * (2 * len(arms) + 1),
+        + f" | In load {', '.join(arms)} | Tools A, B |",
+        "|---|" + "---|" * (2 * len(arms) + 2),
     ]
     for scenario in scenarios:
         cells = [table.get((scenario, arm)) for arm in arms]
@@ -420,11 +561,44 @@ def render_report(rows: list[dict], order: list[str] | None = None) -> str:
             continue
         shown = [_score(cell) for cell in cells] + [_other(cell) for cell in cells]
         load = ", ".join(_load(cell) for cell in cells)
-        lines.append(f"| {scenario} | {' | '.join(shown)} | {load} |")
+        tools = _tools_cell(rows, scenario)
+        lines.append(f"| {scenario} | {' | '.join(shown)} | {load} | {tools} |")
     git_row = _git_row(rows, arms)
     if git_row:
         lines.append(git_row)
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines + _carried_table(rows, scenarios, arms)) + "\n"
+
+
+def _tools_cell(rows: list[dict], scenario: str) -> str:
+    pairs = {
+        (row.get("agent_a") or row.get("agent"), row.get("agent_b"))
+        for row in rows
+        if row["scenario"] == scenario
+    }
+    return "; ".join(sorted(f"{a}, {b}" if b else str(a) for a, b in pairs))
+
+
+def _carried_table(rows: list[dict], scenarios: list[str], arms: list[str]) -> list[str]:
+    """Where session A left what session B needs. Word match, so read it as a hint."""
+    mine = [row for row in rows if "carried" in row]
+    if not mine:
+        return []
+    lines = [
+        "",
+        "Where session A left the text, counted over the runs that ran (word match):",
+        "",
+        f"| Scenario | {' | '.join(arms)} |",
+        "|---|" + "---|" * len(arms),
+    ]
+    for scenario in scenarios:
+        cells = []
+        for arm in arms:
+            runs = [r for r in mine if r["scenario"] == scenario and r["build"] == arm]
+            counts = {c: sum(c in r["carried"] for r in runs) for c in ("memory", "git", "file")}
+            cells.append(", ".join(f"{k} {v}" for k, v in counts.items()) + f" of {len(runs)}")
+        if any(row["scenario"] == scenario for row in mine):
+            lines.append(f"| {scenario} | {' | '.join(cells)} |")
+    return lines
 
 
 def _build_label(rows: list[dict], build: str) -> str:

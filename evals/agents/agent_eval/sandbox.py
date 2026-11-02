@@ -213,7 +213,7 @@ def seed_record(fact, now: datetime) -> dict:
 @dataclass
 class Sandbox:
     build: Build
-    agent: Agent
+    agents: tuple[Agent, ...]
     root: Path
     repo: Path
     memory_dir: Path
@@ -237,8 +237,36 @@ class Sandbox:
             check=False,
         )
 
+    def git_or_none(self, *args: str, cwd: Path | None = None) -> str | None:
+        """Git for a thing that an agent may have removed."""
+        if cwd and not cwd.is_dir():
+            return None
+        done = run(["git", *args], cwd=cwd or self.repo, env=self.setup_env, check=False)
+        return done.stdout if done.returncode == 0 else None
+
     def git_status(self) -> list[str]:
         return [line for line in self.git("status", "--porcelain").splitlines() if line]
+
+    def load_text(self) -> str:
+        return self.memory_cmd("load").stdout if self.build.has_memory else ""
+
+    def carried_by(self, needle, new_facts: list[dict]) -> list[str]:
+        """Where a session left this text: new facts, new commits, or changed files.
+
+        Only what changed after the setup counts, so a repo file that holds the text from the
+        start counts for no channel.
+        """
+        channels = []
+        if any(needle.search(str(fact.get("text", ""))) for fact in new_facts):
+            channels.append("memory")
+        log = self.git("log", "--all", "-p", "--not", self.head_after_setup)
+        if needle.search(log):
+            channels.append("git")
+        status = self.git("status", "--porcelain", "-uall").splitlines()
+        paths = [self.repo / line[3:].split(" -> ")[-1] for line in status if line]
+        if any(path.is_file() and needle.search(_read(path)) for path in paths):
+            channels.append("file")
+        return channels
 
     def read_records(self) -> list[dict]:
         rows = []
@@ -253,14 +281,19 @@ class Sandbox:
         return rows
 
 
-def _setup_path(build: Build, agent: Agent, shim: Path) -> str:
-    """One agent on PATH, so that detection in the tool connects that agent and no other."""
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _setup_path(build: Build, agents: tuple[Agent, ...], shim: Path) -> str:
+    """Only these agents on PATH, so that detection in the tool connects them and no other."""
     shim.mkdir(parents=True, exist_ok=True)
-    found = shutil.which(agent.binary)
-    if found:
-        link = shim / agent.binary
-        if not link.exists():
-            link.symlink_to(found)
+    for agent in agents:
+        found = shutil.which(agent.binary)
+        if found:
+            link = shim / agent.binary
+            if not link.exists():
+                link.symlink_to(found)
     return os.pathsep.join([str(build.bin_dir), str(shim), "/usr/bin", "/bin"])
 
 
@@ -292,10 +325,12 @@ def make_sandbox(
     *,
     isolated_home: bool,
     now: datetime | None = None,
+    other_agent: Agent | None = None,
 ) -> Sandbox:
     """A new repo, connected as the docs of this build say, seeded with this scenario's facts."""
     now = now or datetime.now(UTC).astimezone()
     root = root.resolve()
+    agents = (agent, other_agent) if other_agent and other_agent != agent else (agent,)
     repo = root / "proj"
     repo.mkdir(parents=True)
     home = root / "home"
@@ -319,7 +354,7 @@ def make_sandbox(
         **common,
         "HOME": str(home),
         "CAIRNKIT_EVAL_HARNESS": "1",
-        "PATH": _setup_path(build, agent, root / "shim"),
+        "PATH": _setup_path(build, agents, root / "shim"),
     }
     host_path = os.environ.get("PATH", "")
     agent_env = {
@@ -330,7 +365,7 @@ def make_sandbox(
     }
     box = Sandbox(
         build=build,
-        agent=agent,
+        agents=agents,
         root=root,
         repo=repo,
         memory_dir=root / "proj.memory",
@@ -364,8 +399,9 @@ def connect(box: Sandbox) -> None:
     """The steps a person runs from the docs. A step that the build lacks is recorded."""
     if _connect_step(box, "init") != 0:
         raise SetupError(f"memory init failed: {box.connect_steps[0]['output']}")
-    if _connect_step(box, "hooks", "install", "--agent", box.agent.hook_agent) != 0:
-        _connect_step(box, "instructions", "--write-instructions")
+    for agent in box.agents:
+        if _connect_step(box, "hooks", "install", "--agent", agent.hook_agent) != 0:
+            _connect_step(box, "instructions", "--write-instructions")
 
 
 def _connect_step(box: Sandbox, *step: str) -> int:

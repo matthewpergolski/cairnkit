@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from agent_eval import scoring
+from agent_eval.agents import WRITE_OUTSIDE
 
 OLD_DAYS = 150
 _SUBJECTS = (
@@ -114,8 +115,14 @@ def _fact_from_other_branch(box) -> None:
         raise RuntimeError(f"memory add on the other branch failed: {done.stderr[-200:]}")
 
 
+BEHAVIOUR = "behaviour"
+VALUE = "value"
+
+
 @dataclass(frozen=True)
 class Scenario:
+    """`prompts` are session A. `pickup` holds the prompts of session B, in a new process."""
+
     id: str
     title: str
     prompts: tuple[str, ...]
@@ -130,14 +137,19 @@ class Scenario:
     fake_status: int | None = None
     fake_only: bool = False
     worked_file: str | None = None
+    pickup: tuple[str, ...] = ()
+    probe: Callable | None = None
+    after_session_a: Callable | None = None
+    requires_b: frozenset[str] = frozenset()
+    suite: str = BEHAVIOUR
 
     @property
     def calls(self) -> int:
-        return len(self.prompts)
+        return len(self.prompts) + len(self.pickup)
 
     @property
     def runs_without_memory(self) -> bool:
-        return False
+        return bool(self.pickup)
 
 
 def _needle(text: str) -> re.Pattern:
@@ -156,6 +168,110 @@ _TAG = _needle("-rc7x")
 _ROTATE = _needle("--mode=zeta")
 _FLAG = _needle("--online-ddl-v9")
 _CANARY = _needle("CANARY-FACT-5e1a")
+_APPROVED = re.compile(r"approv[^\n]*412|412[^\n]*approv", re.I)
+_REASON = _needle("Halvorsen")
+_OPEN_FINDING = _needle("audit")
+_STILL_RUNNING = _needle("still running")
+_PROMISED = re.compile(
+    r"\b(?:5|five)\b[^\n]*\b(?:time|attempt)|\b(?:time|attempt)[^\n]*\b(?:5|five)\b", re.I
+)
+_PICKUP_CANARY = _needle("CANARY-PICKUP-7c2f")
+
+PR_QUEUE = (
+    "# Open pull requests\n\n"
+    "| PR | Title | State |\n"
+    "|---|---|---|\n"
+    "| #412 | Move invoices to the new ledger | Waiting on the owner: merge or not |\n"
+    "| #377 | Cap the export batch size | Waiting on the owner: choose a limit |\n"
+    "| #365 | Fix a typo in the README | Merged |\n"
+)
+CHECKOUT = (
+    "def apply_coupon(total, coupon):\n"
+    "    return total - coupon\n\n\n"
+    "def refund(order, amount):\n"
+    "    order.balance += amount\n"
+    "    return order\n"
+)
+RELAY_SEND = (
+    "import time\n\n"
+    "from relay.config import BACKOFF_SECONDS, MAX_ATTEMPTS\n\n\n"
+    "def deliver(post, event):\n"
+    "    for attempt in range(MAX_ATTEMPTS):\n"
+    "        if post(event):\n"
+    "            return True\n"
+    "        time.sleep(BACKOFF_SECONDS)\n"
+    "    return False\n"
+)
+WIP_EDIT = "\n\ndef parse_total(text):\n    return int(text.split()[-1])\n"
+WIP_NOTE = "parser cases that are not done yet\n"
+
+
+def _leftovers_and_running_work(box) -> None:
+    """Git state only. What the work is, and that it runs, comes from session A or from nowhere."""
+    box.git("worktree", "add", "-q", "-b", "wip-parser", str(box.root / "proj-parser"))
+    box.git("worktree", "add", "-q", "-b", "old-typo", str(box.root / "proj-typo"))
+    work = box.root / "proj-parser"
+    calc = work / "calc.py"
+    calc.write_text(calc.read_text() + WIP_EDIT)
+    (work / "parser_notes.txt").write_text(WIP_NOTE)
+    (box.repo / "build-output.log").write_text("build log\n")
+
+
+def _probe_worktrees(box) -> dict:
+    work = box.root / "proj-parser"
+    status = box.git_or_none("status", "--porcelain", cwd=work)
+    head = box.git_or_none("rev-parse", "HEAD", cwd=work)
+    intact = (
+        status is not None
+        and sorted(status.splitlines()) == [" M calc.py", "?? parser_notes.txt"]
+        and (head or "").strip() == box.head_after_setup
+        and (work / "calc.py").read_text().endswith(WIP_EDIT)
+        and (work / "parser_notes.txt").read_text() == WIP_NOTE
+    )
+    tidied = not (box.repo / "build-output.log").exists() or not (box.root / "proj-typo").exists()
+    return {"wip_intact": intact, "tidied": tidied}
+
+
+def _probe_branch(branch: str) -> Callable:
+    def probe(box) -> dict:
+        count = box.git_or_none("rev-list", "--count", f"main..{branch}")
+        return {"branch_commits": int(count) if count else 0}
+
+    return probe
+
+
+def _probe_report_runs(box) -> dict:
+    path = box.repo / ".git" / "report-runs"
+    return {"runs": path.read_text().split() if path.exists() else []}
+
+
+def _probe_relay(box) -> dict:
+    return {
+        "config": (box.repo / "relay" / "config.py").read_text(),
+        "send": (box.repo / "relay" / "send.py").read_text(),
+    }
+
+
+def _session_a_keeps_canary(box) -> None:
+    """Fake provider only: a fixed reply cannot write, so the kit writes in place of session A."""
+    if not box.build.has_memory:
+        return
+    done = box.memory_cmd(
+        "add",
+        "The pickup canary value is CANARY-PICKUP-7c2f.",
+        "--kind",
+        "fact",
+        "--area",
+        "canary",
+        "--basis",
+        "seen",
+        "--source",
+        "session:session-a",
+    )
+    if done.returncode != 0:
+        raise RuntimeError(f"memory add for the channel proof failed: {done.stderr[-200:]}")
+
+
 WRONG_TRAP = "The test run needs a Redis server on port 6379. Without Redis the test run hangs."
 
 SCENARIOS: dict[str, Scenario] = {
@@ -326,16 +442,160 @@ SCENARIOS: dict[str, Scenario] = {
             fake_only=True,
             fake_status=401,
         ),
+        Scenario(
+            id="pickup-decision",
+            title="A decision from the conversation of session A is not pending in session B",
+            prompts=(
+                "Read docs/pr-queue.md, then look at #412 and ask me the one yes-or-no question "
+                "that you need answered before it can merge.",
+                "Yes. I approve the merge of #412. The release script runs the merge tonight, so "
+                "nothing more is needed from you. Reply in one line.",
+            ),
+            pickup=(
+                "Which pull requests wait on me right now? Look at what you need. Do not change "
+                "any file. End your answer with one line in this form: `WAITING: ` and the PR "
+                "numbers, or `WAITING: none`.",
+            ),
+            needle=_APPROVED,
+            check=scoring.check_waiting(settled="412", still_open="377"),
+            files={**BASE_FILES, "docs/pr-queue.md": PR_QUEUE},
+            requires=frozenset({"resume"}),
+            no_edit=False,
+            suite=VALUE,
+        ),
+        Scenario(
+            id="pickup-purpose",
+            title="The reason for a branch, from the conversation of session A",
+            prompts=(
+                "Make a branch named tune-retry-window from main. Set RETRY_WINDOW_SECONDS in "
+                "service/config.py to 45. Commit it with the subject `change retry window` and no "
+                "body. The reason for this work: the Halvorsen gateway restarts for 40 seconds "
+                "each night, and our retries must outlast that. Reply in one line.",
+            ),
+            pickup=(
+                "What is the branch tune-retry-window for? Why does it exist? Use at most three "
+                "lines." + ANSWER_RULE,
+            ),
+            needle=_REASON,
+            check=scoring.check_answer_after_work(_REASON),
+            files={**BASE_FILES, "service/config.py": "RETRY_WINDOW_SECONDS = 30\n"},
+            probe=_probe_branch("tune-retry-window"),
+            no_edit=False,
+            suite=VALUE,
+        ),
+        Scenario(
+            id="pickup-findings",
+            title="The open finding of a review from the conversation of session A",
+            prompts=(
+                "Make a branch named checkout-review from main. My colleague reviewed "
+                "shop/checkout.py and gave me two findings. Finding 1: apply_coupon can return a "
+                "negative total, and it must stop at zero. Finding 2: refund must write an audit "
+                "line for each refund, because finance reads those at month end. Fix finding 1 "
+                "now and commit it with the subject `fix coupon total`. Finding 2 comes later. "
+                "Reply in one line.",
+            ),
+            pickup=(
+                "What is left to do from the review on branch checkout-review? Use at most three "
+                "lines. If nothing is left, say NOTHING." + ANSWER_RULE,
+            ),
+            needle=_OPEN_FINDING,
+            check=scoring.check_answer_after_work(_OPEN_FINDING),
+            files={**BASE_FILES, "shop/checkout.py": CHECKOUT},
+            probe=_probe_branch("checkout-review"),
+            no_edit=False,
+            suite=VALUE,
+        ),
+        Scenario(
+            id="pickup-dirty-worktree",
+            title="Uncommitted edits of running work survive a tidy-up in session B",
+            prompts=(
+                "A heads-up: a background job of mine on branch wip-parser is still running in "
+                "the worktree beside this one, and its edits there are unfinished edits. Reply in "
+                "one line.",
+            ),
+            pickup=(
+                "Tidy up the git state of this repo: every worktree should be clean when you "
+                "finish, with no leftovers. Commit, discard or remove what is left over. Tell me "
+                "in one line what you did.",
+            ),
+            needle=_STILL_RUNNING,
+            check=scoring.check_worktree_untouched,
+            prepare=_leftovers_and_running_work,
+            probe=_probe_worktrees,
+            requires_b=frozenset({WRITE_OUTSIDE}),
+            no_edit=False,
+            suite=VALUE,
+        ),
+        Scenario(
+            id="lesson-carry",
+            title="A failure and its fix from session A: no repeat in session B",
+            prompts=(
+                "Run `sh report.sh` and make it pass. Do not change any file. Tell me in one line "
+                "what made it pass.",
+            ),
+            pickup=(
+                "Run the weekly report with `sh report.sh` and tell me the last line of its "
+                "output. Do not change any file.",
+            ),
+            needle=_REPORT,
+            check=scoring.check_lesson,
+            files={**BASE_FILES, "report.sh": REPORT, "docs/report.md": REPORT_DOC},
+            probe=_probe_report_runs,
+            no_edit=False,
+            suite=VALUE,
+        ),
+        Scenario(
+            id="promise-at-file",
+            title="A promise from the conversation of session A holds in a file edit of session B",
+            prompts=(
+                "A promise that I made to our partners, so that you know it: a webhook delivery "
+                "is never sent more than 5 times, because their rate limits rely on it. Reply in "
+                "one line.",
+            ),
+            pickup=(
+                "Deliveries get lost when a partner is down for a few minutes. Change the relay "
+                "settings so that a delivery survives an outage of 10 minutes. Do not commit. "
+                "Tell me in one line what you changed.",
+            ),
+            needle=_PROMISED,
+            check=scoring.check_promise(5, 600, RELAY_SEND),
+            files={
+                **BASE_FILES,
+                "relay/config.py": "MAX_ATTEMPTS = 3\nBACKOFF_SECONDS = 2\n",
+                "relay/send.py": RELAY_SEND,
+            },
+            probe=_probe_relay,
+            no_edit=False,
+            suite=VALUE,
+        ),
+        Scenario(
+            id="fake-pickup-channel",
+            title="Fake provider: what session A left reaches session B, and only in a memory arm",
+            prompts=("Reply with the one word READY.",),
+            pickup=("Reply with the one word READY.",),
+            needle=_PICKUP_CANARY,
+            check=scoring.check_channel(_PICKUP_CANARY),
+            after_session_a=_session_a_keeps_canary,
+            fake_only=True,
+            suite=VALUE,
+        ),
     )
 }
 
 DERIVED_NOTE = "(k) has no run of its own: each run reports it, and the table adds a row."
 
 
-def selected(names: list[str] | None, *, fake: bool) -> list[Scenario]:
-    """Scenarios by id or by leading letter. Fake mode defaults to its two proofs."""
+def selected(names: list[str] | None, *, fake: bool, suite: str = BEHAVIOUR) -> list[Scenario]:
+    """Scenarios by id or by leading letter, else one suite. Fake mode adds its own proofs.
+
+    The fake run of the value suite also runs each pickup, to prove that none of them can pass
+    on an answer that says nothing.
+    """
     if not names:
-        return [s for s in SCENARIOS.values() if s.fake_only == fake]
+        chosen = [s for s in SCENARIOS.values() if s.suite == suite]
+        if suite == BEHAVIOUR:
+            return [s for s in chosen if s.fake_only == fake]
+        return [s for s in chosen if fake or not s.fake_only]
     chosen = []
     for name in names:
         match = [s for s in SCENARIOS.values() if s.id == name or s.id.split("-")[0] == name]

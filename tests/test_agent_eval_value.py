@@ -81,7 +81,8 @@ def test_the_no_memory_arm_is_scored_with_no_connection_evidence():
 def test_an_account_error_is_still_an_error_in_the_no_memory_arm():
     refused = Parsed(is_error=True, error_text="401 invalid api key")
     obs = Observation(turns=[Turn(1, "", "", refused)])
-    verdict = scoring.classify(obs, lambda _obs: Outcome(PASS, "stub"), None, expects_connection=False)
+    stub = lambda _obs: Outcome(PASS, "stub")  # noqa: E731
+    verdict = scoring.classify(obs, stub, None, expects_connection=False)
     assert (verdict.result, verdict.error_kind) == (scoring.ERROR, "auth")
 
 
@@ -149,9 +150,7 @@ def test_a_planted_fact_scenario_gets_no_run_in_the_no_memory_arm(tmp_path, monk
 
 
 def test_plan_counts_each_arm_and_names_the_extra_arm(tmp_path):
-    options = options_with_arms(
-        tmp_path, "dev", "none", scenarios=selected(["a"], fake=False)
-    )
+    options = options_with_arms(tmp_path, "dev", "none", scenarios=selected(["a"], fake=False))
     refs = {"dev": "HEAD", "dev-enforce": "abc123", "none": None}
     plan = runner.plan_text(options, refs)
     assert "dev-enforce = abc123" in plan
@@ -554,6 +553,7 @@ def test_the_fake_channel_proof_differs_by_arm():
     assert check(obs("note CANARY-PICKUP-7c2f", True)).result == PASS
     assert check(obs("nothing", True)).result == NOT_CONNECTED
     assert check(obs("nothing", False)).result == PASS
+    assert check(obs("[]", False)).result == scoring.INCONCLUSIVE
     assert check(obs("note CANARY-PICKUP-7c2f", False)).result == FAIL
     assert check(obs("run `memory load` first", False)).result == FAIL
 
