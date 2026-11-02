@@ -155,7 +155,7 @@ def test_news_of_a_file_match_is_framed(mem, repo, capsys, monkeypatch):
 
 
 def test_pre_commit_trap_is_one_labelled_line(mem, repo, capsys):
-    add(HOSTILE, "--kind", "trap", "--area", "README.md")
+    add(f"README.md {HOSTILE}", "--kind", "trap", "--area", "README.md")
     (repo / "README.md").write_text("changed\n")
     git(repo, "add", "README.md")
     err = run(capsys, "hook", "pre-commit", "--agent", "claude")[1]

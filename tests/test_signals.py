@@ -198,7 +198,7 @@ def test_install_wires_the_failure_and_prompt_events(repo, mem):
 
 def test_a_stored_trap_for_a_staged_file_reaches_git_output(repo, mem, capsys):
     write_facts(
-        mem, [make_fact("f-20261001-0001", "Retries double bill.", kind="trap", area="pay")]
+        mem, [make_fact("f-20261001-0001", "x.py: Retries double bill.", kind="trap", area="pay")]
     )
     folder = repo / "pay"
     folder.mkdir()
@@ -206,7 +206,7 @@ def test_a_stored_trap_for_a_staged_file_reaches_git_output(repo, mem, capsys):
     git(repo, "add", "pay/x.py")
     capsys.readouterr()
     assert main(["hook", "pre-commit"]) == 0
-    assert "Retries double bill." in capsys.readouterr().err
+    assert "x.py: Retries double bill." in capsys.readouterr().err
 
 
 def test_a_trap_in_another_area_says_nothing_at_commit(repo, mem, capsys):
