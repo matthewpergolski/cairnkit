@@ -854,8 +854,8 @@ stored facts that match files changed after the load. Traps come first, and each
 item is named once.
 
 **A stop blocks for a new event or a capture check.** A block costs the owner a turn. The events are a health
-problem, a command that failed at least twice and then passed, a revert, a correction, a lost
-file, and a loop nudge that no tool result carried. Each is named once in a session. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
+problem, a command that failed at least twice and then passed, a command that failed once and then
+passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Each is named once in a session. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
 text at stop without a turn (Claude Code, Codex and Cursor say so in their docs), so the news
 waits for the next prompt or tool result, which adds text with no turn.
 

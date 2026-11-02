@@ -37,6 +37,7 @@ from cairnkit.session import (
 from cairnkit.similar import analyze
 
 FIX_MIN_FAILS = 2
+SHELL_STEP = re.compile(r"&&|\|\||;")
 MAX_LINES = 5
 REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
@@ -158,8 +159,17 @@ def _loop_token(command: str) -> str:
     return f"loop:{command}"
 
 
+def _last_step(command: str) -> str:
+    return SHELL_STEP.split(command)[-1].strip()
+
+
 def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
-    """Count a failure. A pass after repeated failures is a fix worth a fact."""
+    """Count a failure. A pass after repeated failures is a fix worth a fact.
+
+    So is one failure that passes with something in front of the same command, such as a setting
+    or a wrapper. That is how to run it, which no file change shows. A flag after the command
+    often only narrows a test run, so it does not count.
+    """
     state = load_state(memory, key)
     if state is None:
         return
@@ -171,6 +181,9 @@ def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
             state.setdefault("fixed", []).append([command, fails[command]])
         fails.pop(command, None)
         state["told"] = [t for t in state.get("told", []) if t != _loop_token(command)]
+        step = _last_step(command)
+        for failed in [failed for failed in fails if step.endswith(f" {_last_step(failed)}")]:
+            state.setdefault("fixed", []).append([failed, fails.pop(failed), command])
     save_state(memory, key, state)
 
 
@@ -345,9 +358,12 @@ def session_events(memory: Memory, key: str) -> list[str]:
         return []
     told = state.setdefault("told", [])
     found = []
-    for command, count in state.get("fixed", []):
+    for command, count, *by in state.get("fixed", []):
         shown = _quoted(loopbreak.without_secret(command, memory.env))
         line = f"{shown} failed {count} times, then passed. What fixed it?"
+        if by:
+            passed = _quoted(loopbreak.without_secret(by[0], memory.env))
+            line = f"{shown} failed, then {passed} passed. What fixed it?"
         found.append((f"fixed:{command}", line))
     for line in _reverts(memory.project.root, state):
         found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))

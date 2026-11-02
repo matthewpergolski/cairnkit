@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a good fact is and the `memory add "TEXT"` line.
 - The OpenCode plugin reads the prompt with `chat.message`, so it hears corrections and statements.
 - A subagent gets no capture check. An OpenCode child session counts as a subagent.
+- Stop names one failed command that then passes with a setting or a wrapper in front of it, such
+  as `REPORT_LOCALE=C sh report.sh`. No other signal saw this lesson.
 - Stop names a correction from the owner, or a file that was here at the session start and is gone,
   once, and asks if a trap belongs in memory. The tool writes no fact. On a labelled set of 40
   ordinary prompts and 30 corrections, 0 false nudges and 1 miss.

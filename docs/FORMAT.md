@@ -488,7 +488,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   Then it builds a message from these parts: problems from `memory check --strict`,
   except a line that looks secret in a file that this session did not write (the next
   prompt or tool result names those lines once), the loop nudge, the load that a tool holds, and the events of this session. The events
-  are a command that failed at least twice and then passed, a revert since the session
+  are a command that failed at least twice and then passed, a command that failed and then
+  passed with a setting or a wrapper in front of it, a revert since the session
   started, a correction, and a lost file that no prompt named or asked to remove. Each
   event is named once. It adds the capture check when no fact followed new work or a statement
   of the owner, and the guide. A payload with `agent_id` gets no capture check. It adds no text
