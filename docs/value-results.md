@@ -7,6 +7,70 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: full run with the capture check and the gate, on Haiku
+
+- Commit: `d20185c` for `dev` (capture check, gate off) and `gate` (capture check, gate on),
+  `d523c01` (0.3.1) for `prod`, and no memory for `none`.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 156. The session results report 0.46 USD in total.
+- Local results: `evals/agents/results/20261102T062630Z-claude`.
+- The scenarios changed after the baseline. `pickup-decision` now has an answer in local files, and
+  `promise-at-file` also reads a backoff list. Both changes apply to each arm. The second came from
+  `dev` runs that kept the limit and scored inconclusive.
+
+| Scenario | dev | gate | prod | none |
+|---|---|---|---|---|
+| `pickup-decision` | 1 of 3 | 2 of 3 | 0 of 3 | 0 of 3 |
+| `pickup-purpose` | 3 of 3 | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-findings` | 3 of 3 | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-dirty-worktree` | 3 of 3 | 2 of 2, 1 inconclusive | 1 of 3 | 0 of 3 |
+| `lesson-carry` | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| `promise-at-file` | 3 of 3 | 3 of 3 | 0 of 3 | 0 of 3 |
+| **Total** | **13 of 18** | **13 of 17** | **7 of 18** | **0 of 18** |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 36 | 33 | 33 | 23 | 231 |
+| gate | 36 | 24 | 24 | 18 | 201 |
+| prod | 36 | 29 | 9 | 9 | 183 |
+| none | 36 | 0 | 0 | 0 | 0 |
+
+### Against the pass line
+
+- `dev` beats `none` by 13 passes in 5 scenarios, and is worse in none. It clears the line.
+- `dev` beats `prod` by 6 passes in 3 scenarios (`pickup-decision`, `pickup-dirty-worktree`,
+  `promise-at-file`), and is worse in none. It clears the line on Haiku, by the smallest margin that
+  can. One changed run moves it.
+- `gate` against `dev` is 13 of 17 against 13 of 18. That gives no proof either way. It costs fewer
+  blocks (18 against 23) and fewer words (201 against 231). No scenario tests its push refusal.
+- The reading rule also asks for no worse cost table. `dev` does not meet this: 231 hook words and
+  23 blocks against 183 and 9 for `prod`. The guide is the largest part, at 157 words.
+- The keep or cut decision needs a run on a larger model.
+
+### What the transcripts show
+
+- **Capture now works.** Facts written rose from 9 in `prod` to 33 in `dev`. The fact in session A now
+  changes the file in session B: every `dev` and `gate` run of `promise-at-file` kept the limit at 5.
+  Every `prod` and `none` run broke it, with values from 21 to 300.
+- **A loaded fact does not make the agent act on it.** In all 6 `lesson-carry` runs of `dev` and `gate`,
+  session A stored the fix and session B had it in its load. Session B still ran the plain command
+  first and failed. This is now the largest open gap, and it is on the read side.
+- **Two fails of `pickup-decision` read as fair answers.** Each session B listed #412 from the queue
+  file, and then said that a stored note says the owner approved it. The check fails any answer that
+  reports #412 as waiting. I did not change it, because that would help the build under test.
+- **The word match undercounts.** The table of where text was left shows `memory 1 of 3` for
+  `pickup-dirty-worktree` in `dev`, but all 3 runs wrote a fact about the running work in other words.
+- **Some facts are weak.** I read the first 230 characters of each `dev` fact. About 9 of 33 restate
+  what git or the diff shows, for example `Branch tune-retry-window holds one commit`. This count is
+  one reader's judgement.
+
+### Limits
+
+- One author wrote the scenarios, and these results also led to the changes that they measure.
+- `claude -p` runs one prompt in a session, so this does not measure a long session. Blocks per turn
+  there come only from tests, not from real use.
+- This is one tool and one small model.
+
 ## 2026-11-02: the capture check on Claude Code
 
 This is a small run of 3 scenarios for one change. It is no comparison with `prod`, and it does not
