@@ -11,6 +11,7 @@ import re
 from pathlib import PurePosixPath
 
 from cairnkit import loopbreak
+from cairnkit.beforeshell import added_in_front
 from cairnkit.clock import now, parse_time
 from cairnkit.load import active_states, changed_paths
 from cairnkit.memory import Memory
@@ -37,7 +38,6 @@ from cairnkit.session import (
 from cairnkit.similar import analyze
 
 FIX_MIN_FAILS = 2
-SHELL_STEP = re.compile(r"&&|\|\||;")
 MAX_LINES = 5
 REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
@@ -161,10 +161,6 @@ def _loop_token(command: str) -> str:
     return f"loop:{command}"
 
 
-def _last_step(command: str) -> str:
-    return SHELL_STEP.split(command)[-1].strip()
-
-
 def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
     """Count a failure. A pass after repeated failures is a fix worth a fact.
 
@@ -183,8 +179,7 @@ def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
             state.setdefault("fixed", []).append([command, fails[command]])
         fails.pop(command, None)
         state["told"] = [t for t in state.get("told", []) if t != _loop_token(command)]
-        step = _last_step(command)
-        for failed in [failed for failed in fails if step.endswith(f" {_last_step(failed)}")]:
+        for failed in [failed for failed in fails if added_in_front(failed, command)]:
             state.setdefault("fixed", []).append([failed, fails.pop(failed), command])
     save_state(memory, key, state)
 
@@ -359,10 +354,10 @@ def _fix_is_stored(memory: Memory, failed: str, passed: str) -> bool:
     A session that loaded the fix can still run the plain command first. Its question costs a turn
     and gets no new fact.
     """
-    step, plain = _last_step(passed), _last_step(failed)
-    fix, name = step.removesuffix(plain).strip(), plain.split()[-1] if plain.split() else ""
-    if not fix or not name:
+    found = added_in_front(failed, passed)
+    if not found:
         return False
+    fix, name = found[0], found[1].split()[-1]
     for fact in active_states(memory):
         text = f"{fact.get('text', '')} {fact.get('summary', '')}"
         if fix in text and name in text:

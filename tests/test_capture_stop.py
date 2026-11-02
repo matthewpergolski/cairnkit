@@ -206,6 +206,13 @@ def test_a_fact_on_the_same_script_without_the_fix_keeps_the_event(session):
         ("pytest", "pytest -x"),
         ("git commit -m x", "git add . && git commit -m x"),
         ("sh report.sh", "cat docs/report.md"),
+        # Field cases: a shared tail such as `echo ok` is no fix of an unrelated command.
+        (
+            "cd shots && ls && ffmpeg -v error -y -i a.png -i b.png cmp.png && echo ok",
+            "cd /p; cat >> ../notes.md <<'EOF'\n- it was doing; the lead found it\nEOF\necho ok",
+        ),
+        ("ls build | head -5", "cat <<EOF > a.txt\nnotes\nEOF\nls build | head -5"),
+        ("make lint; echo ok", "git stash && echo ok"),
     ],
 )
 def test_red_then_green_or_another_command_is_no_event(session, failed, passed):

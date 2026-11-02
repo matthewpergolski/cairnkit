@@ -142,7 +142,8 @@ def _plain_core(core: list[str]) -> bool:
     return len(core) > 1 or any(mark in core[0] for mark in "./")
 
 
-def steps(command: str) -> list[Step]:
+def all_steps(command: str) -> list[Step]:
+    """Each step of the command, one plain word too."""
     found = []
     for part in _parts(command):
         words = _words(part.strip())
@@ -150,9 +151,32 @@ def steps(command: str) -> list[Step]:
         while words and SETTING.fullmatch(words[0]):
             settings.append(words.pop(0))
         core = _core_words(words)
-        if core and _plain_core(core):
+        if core:
             found.append(Step(frozenset(settings), " ".join(core)))
     return found
+
+
+def steps(command: str) -> list[Step]:
+    return [step for step in all_steps(command) if _plain_core(step.core.split())]
+
+
+def added_in_front(failed: str, passed: str) -> tuple[str, str] | None:
+    """What `passed` puts in front of a step of `failed`, and that step's core, or None.
+
+    That is a setting or a wrapper on the same command, which is how to run it. Steps that only
+    share a tail, such as `echo ok`, are not the same command.
+    """
+    before = all_steps(failed)
+    for step in all_steps(passed):
+        for old in before:
+            added = sorted(step.settings - old.settings)
+            if step.core == old.core and added:
+                return " ".join(added), old.core
+            for wrapper in WRAPPERS:
+                lead = " ".join(wrapper)
+                if step.core == f"{lead} {old.core}" and step.settings >= old.settings:
+                    return lead, old.core
+    return None
 
 
 def _wrapper_at_end(words: list[str]) -> tuple[str, ...] | None:

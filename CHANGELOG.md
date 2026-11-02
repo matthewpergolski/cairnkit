@@ -166,6 +166,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A stop no longer asks "What fixed it?" for two commands that only share a tail. In a real
+  project, a subagent's `... && echo ok` failed, and later an unrelated note that ended in
+  `echo ok` passed, so the stop named them as a failure and its fix. Now a pass counts as the fix
+  only when one of its steps is the same command as a failed step, with a setting or a wrapper in
+  front. A heredoc body is no step.
+
 - `memory check` knows a `held_by` file that only another checkout holds, also when no commit
   has it yet.
 - `memory migrate` with no `--yes` shows the plan of tracked notes, and it says to add `--untrack`.
