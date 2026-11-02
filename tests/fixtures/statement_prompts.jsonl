@@ -1,0 +1,242 @@
+{"split": "tune", "statement": true, "prompt": "We decided to keep the old API until the mobile app ships"}
+{"split": "tune", "statement": true, "prompt": "I've decided we will not support Python 3.9"}
+{"split": "tune", "statement": true, "prompt": "we chose Postgres over MySQL because ops already runs it"}
+{"split": "tune", "statement": true, "prompt": "Let's go with option B"}
+{"split": "tune", "statement": true, "prompt": "I approve the schema change"}
+{"split": "tune", "statement": true, "prompt": "The migration plan is approved"}
+{"split": "tune", "statement": true, "prompt": "Legal signed off on the new retention period"}
+{"split": "tune", "statement": true, "prompt": "I promised the client the export will be ready by Friday"}
+{"split": "tune", "statement": true, "prompt": "A promise that I made to our partners: a webhook is never sent more than 5 times"}
+{"split": "tune", "statement": true, "prompt": "We committed to a 99.9 percent uptime for this quarter"}
+{"split": "tune", "statement": true, "prompt": "never commit directly to main"}
+{"split": "tune", "statement": true, "prompt": "always use uv for Python here"}
+{"split": "tune", "statement": true, "prompt": "from now on, write the tests first"}
+{"split": "tune", "statement": true, "prompt": "going forward please keep PRs under 300 lines"}
+{"split": "tune", "statement": true, "prompt": "I prefer small commits with one change each"}
+{"split": "tune", "statement": true, "prompt": "I don't like mocks in the integration tests"}
+{"split": "tune", "statement": true, "prompt": "The reason for this work: the gateway restarts for 40 seconds each night"}
+{"split": "tune", "statement": true, "prompt": "The reason we pin this version is a bug in 2.4"}
+{"split": "tune", "statement": true, "prompt": "we can't use Redis here because the security team blocked it"}
+{"split": "tune", "statement": true, "prompt": "We cannot touch the billing tables before the audit ends"}
+{"split": "tune", "statement": true, "prompt": "The API must never return more than 100 rows, the client breaks otherwise"}
+{"split": "tune", "statement": true, "prompt": "Heads up: the staging database is shared with the data team, so it must stay read only"}
+{"split": "tune", "statement": true, "prompt": "A heads-up: a job of mine on branch wip-parser is still running in the worktree beside this one"}
+{"split": "tune", "statement": true, "prompt": "the deadline for this is March 3, it cannot move"}
+{"split": "tune", "statement": true, "prompt": "Make a branch named tune. Set the window to 45. The reason for this work: retries must outlast the restart. Reply in one line."}
+{"split": "tune", "statement": true, "prompt": "Set the limit to 50 because our vendor bills us per call above that"}
+{"split": "tune", "statement": true, "prompt": "Do not use the new client, our contract with the vendor forbids it"}
+{"split": "tune", "statement": true, "prompt": "My colleague reviewed the file and gave me two findings"}
+{"split": "tune", "statement": true, "prompt": "FYI the team agreed to drop Windows support next release"}
+{"split": "tune", "statement": true, "prompt": "we are not going to ship the beta flag, the PM rejected it"}
+{"split": "tune", "statement": false, "prompt": "add a retry helper to src/net.py"}
+{"split": "tune", "statement": false, "prompt": "write a test for the retry helper"}
+{"split": "tune", "statement": false, "prompt": "commit that"}
+{"split": "tune", "statement": false, "prompt": "now add a timeout argument"}
+{"split": "tune", "statement": false, "prompt": "explain what the retry loop does"}
+{"split": "tune", "statement": false, "prompt": "add logging at debug level"}
+{"split": "tune", "statement": false, "prompt": "run the tests"}
+{"split": "tune", "statement": false, "prompt": "commit"}
+{"split": "tune", "statement": false, "prompt": "what does the config loader read"}
+{"split": "tune", "statement": false, "prompt": "add a config key for the base url"}
+{"split": "tune", "statement": false, "prompt": "use it in the client"}
+{"split": "tune", "statement": false, "prompt": "update the README section on config"}
+{"split": "tune", "statement": false, "prompt": "commit and open a branch for the next part"}
+{"split": "tune", "statement": false, "prompt": "add a small cache to the client"}
+{"split": "tune", "statement": false, "prompt": "add a test for the cache"}
+{"split": "tune", "statement": false, "prompt": "looks good, thanks. how big is the diff"}
+{"split": "tune", "statement": false, "prompt": "format the code"}
+{"split": "tune", "statement": false, "prompt": "commit that too"}
+{"split": "tune", "statement": false, "prompt": "summarize what we did today"}
+{"split": "tune", "statement": false, "prompt": "fix the failing test in tests/test_auth.py"}
+{"split": "tune", "statement": false, "prompt": "why is the build slow"}
+{"split": "tune", "statement": false, "prompt": "can you check why this test is failing"}
+{"split": "tune", "statement": false, "prompt": "what happens when no user is found?"}
+{"split": "tune", "statement": false, "prompt": "the login page crashes on Safari"}
+{"split": "tune", "statement": false, "prompt": "it still fails with the same error"}
+{"split": "tune", "statement": false, "prompt": "tests are red on CI, take a look"}
+{"split": "tune", "statement": false, "prompt": "remove that log line because it is noisy"}
+{"split": "tune", "statement": false, "prompt": "rename foo to bar since the name is confusing"}
+{"split": "tune", "statement": false, "prompt": "I think the bug is in the parser"}
+{"split": "tune", "statement": false, "prompt": "I want a dark mode toggle in the settings page"}
+{"split": "tune", "statement": false, "prompt": "I need a script that counts the rows in each table"}
+{"split": "tune", "statement": false, "prompt": "we need a new endpoint for the invoices"}
+{"split": "tune", "statement": false, "prompt": "we should add an index on the user id"}
+{"split": "tune", "statement": false, "prompt": "let's add a test for that"}
+{"split": "tune", "statement": false, "prompt": "let's fix the flaky test first"}
+{"split": "tune", "statement": false, "prompt": "let's see what the logs say"}
+{"split": "tune", "statement": false, "prompt": "did we decide on a database yet?"}
+{"split": "tune", "statement": false, "prompt": "should we always use uv here?"}
+{"split": "tune", "statement": false, "prompt": "do you prefer the first or the second option?"}
+{"split": "tune", "statement": false, "prompt": "what is the reason for this error?"}
+{"split": "tune", "statement": false, "prompt": "why did the team choose this library?"}
+{"split": "tune", "statement": false, "prompt": "is this approved already?"}
+{"split": "tune", "statement": false, "prompt": "if the plan is approved, what is next?"}
+{"split": "tune", "statement": false, "prompt": "make sure no secrets go in the log"}
+{"split": "tune", "statement": false, "prompt": "do not merge until CI passes"}
+{"split": "tune", "statement": false, "prompt": "don't add comments to this file"}
+{"split": "tune", "statement": false, "prompt": "please don't use a new dependency here"}
+{"split": "tune", "statement": false, "prompt": "make sure the function never returns None"}
+{"split": "tune", "statement": false, "prompt": "write a function that always returns a list"}
+{"split": "tune", "statement": false, "prompt": "add a check that the value must be positive"}
+{"split": "tune", "statement": false, "prompt": "the error says `must never be null`, what does it mean"}
+{"split": "tune", "statement": false, "prompt": "fix the bug where the wrong total shows on the cart"}
+{"split": "tune", "statement": false, "prompt": "add a retry when the request fails because of a timeout"}
+{"split": "tune", "statement": false, "prompt": "explain why this fails because I don't get it"}
+{"split": "tune", "statement": false, "prompt": "update the deadline field in the task model"}
+{"split": "tune", "statement": false, "prompt": "add a promise chain to the fetch helper"}
+{"split": "tune", "statement": false, "prompt": "convert this callback into a promise"}
+{"split": "tune", "statement": false, "prompt": "add an approval step to the workflow"}
+{"split": "tune", "statement": false, "prompt": "add an `approved` column to the orders table"}
+{"split": "tune", "statement": false, "prompt": "show me the decision table in the docs"}
+{"split": "tune", "statement": false, "prompt": "write a limit parameter for the search endpoint"}
+{"split": "tune", "statement": false, "prompt": "what is the rate limit of this API"}
+{"split": "tune", "statement": false, "prompt": "ok"}
+{"split": "tune", "statement": false, "prompt": "yes"}
+{"split": "tune", "statement": false, "prompt": "yes please"}
+{"split": "tune", "statement": false, "prompt": "no thanks"}
+{"split": "tune", "statement": false, "prompt": "thanks"}
+{"split": "tune", "statement": false, "prompt": "go ahead"}
+{"split": "tune", "statement": false, "prompt": "continue"}
+{"split": "tune", "statement": false, "prompt": "sounds good"}
+{"split": "tune", "statement": false, "prompt": "perfect, thanks"}
+{"split": "tune", "statement": false, "prompt": "nice work"}
+{"split": "tune", "statement": false, "prompt": "I don't know how the deploy script works, can you read it"}
+{"split": "tune", "statement": false, "prompt": "I'm not sure, what do you suggest"}
+{"split": "tune", "statement": false, "prompt": "I have no idea why this works"}
+{"split": "tune", "statement": false, "prompt": "let me know when it is done"}
+{"split": "tune", "statement": false, "prompt": "tell me which option you recommend"}
+{"split": "tune", "statement": false, "prompt": "pick whichever is simpler"}
+{"split": "tune", "statement": false, "prompt": "use your judgment"}
+{"split": "tune", "statement": false, "prompt": "review this diff"}
+{"split": "tune", "statement": false, "prompt": "open a PR"}
+{"split": "tune", "statement": false, "prompt": "push it"}
+{"split": "tune", "statement": false, "prompt": "merge the branch into dev"}
+{"split": "tune", "statement": false, "prompt": "rebase on main"}
+{"split": "tune", "statement": false, "prompt": "try again"}
+{"split": "tune", "statement": false, "prompt": "look at src/app.py and tell me what it does"}
+{"split": "tune", "statement": false, "prompt": "how do I run this locally"}
+{"split": "tune", "statement": false, "prompt": "where is the auth logic"}
+{"split": "tune", "statement": false, "prompt": "list the open TODOs"}
+{"split": "tune", "statement": false, "prompt": "delete the old README section and add a new one"}
+{"split": "tune", "statement": false, "prompt": "Remove the unused imports, then commit"}
+{"split": "held", "statement": true, "prompt": "I decided against the rewrite, the old parser stays"}
+{"split": "held", "statement": true, "prompt": "we picked Kafka since the data team runs it already"}
+{"split": "held", "statement": true, "prompt": "Let's go with the second design"}
+{"split": "held", "statement": true, "prompt": "ok, you have my approval for the rollout plan"}
+{"split": "held", "statement": true, "prompt": "The CTO approved the budget for the new cluster"}
+{"split": "held", "statement": true, "prompt": "I told the customer that their data stays in the EU"}
+{"split": "held", "statement": true, "prompt": "We guaranteed a refund within 14 days, keep that in mind"}
+{"split": "held", "statement": true, "prompt": "we promised finance a report each Monday"}
+{"split": "held", "statement": true, "prompt": "never run the migrations on a Friday"}
+{"split": "held", "statement": true, "prompt": "Always rebase, never merge, in this repo"}
+{"split": "held", "statement": true, "prompt": "from now on use the staging key for tests"}
+{"split": "held", "statement": true, "prompt": "In future, ask me before you add a dependency"}
+{"split": "held", "statement": true, "prompt": "I'd rather have one big file than many small ones"}
+{"split": "held", "statement": true, "prompt": "My preference is tabs in the Makefile and spaces elsewhere"}
+{"split": "held", "statement": true, "prompt": "The reason it is 30 seconds is that the load balancer cuts at 31"}
+{"split": "held", "statement": true, "prompt": "The reason for the branch is the new tax rule in Norway"}
+{"split": "held", "statement": true, "prompt": "we can't upgrade Node because the build image is frozen until June"}
+{"split": "held", "statement": true, "prompt": "This service must not call the payments API directly"}
+{"split": "held", "statement": true, "prompt": "Heads up: the CI runner has only 2 GB of memory, so keep the build small"}
+{"split": "held", "statement": true, "prompt": "Just so you know, the auth team owns that folder and reviews every change"}
+{"split": "held", "statement": true, "prompt": "the release freeze starts on the 12th, nothing merges after that"}
+{"split": "held", "statement": true, "prompt": "Keep the timeout at 45 seconds because the partner's gateway needs it"}
+{"split": "held", "statement": true, "prompt": "Our license does not allow us to ship that library"}
+{"split": "held", "statement": true, "prompt": "The review found that refund writes no audit line"}
+{"split": "held", "statement": true, "prompt": "We agreed with the partner that retries stop after 5 attempts"}
+{"split": "held", "statement": true, "prompt": "the decision is to keep SQLite for now"}
+{"split": "held", "statement": true, "prompt": "that's a hard limit, the export can't exceed 10 MB"}
+{"split": "held", "statement": true, "prompt": "Note that the nightly job depends on this table, so it has to keep its name"}
+{"split": "held", "statement": true, "prompt": "Approved, go ahead with the plan"}
+{"split": "held", "statement": true, "prompt": "Remember that the prod database has no backups before 2024"}
+{"split": "held", "statement": false, "prompt": "add pagination to the orders list"}
+{"split": "held", "statement": false, "prompt": "write docs for the new CLI flag"}
+{"split": "held", "statement": false, "prompt": "bump the lodash version"}
+{"split": "held", "statement": false, "prompt": "regenerate the lockfile"}
+{"split": "held", "statement": false, "prompt": "run the linter and fix what it finds"}
+{"split": "held", "statement": false, "prompt": "refactor the parser into two modules"}
+{"split": "held", "statement": false, "prompt": "what does this regex match"}
+{"split": "held", "statement": false, "prompt": "how many tests do we have"}
+{"split": "held", "statement": false, "prompt": "is there a test for the parser?"}
+{"split": "held", "statement": false, "prompt": "show the git log for this file"}
+{"split": "held", "statement": false, "prompt": "the page is blank after login"}
+{"split": "held", "statement": false, "prompt": "the deploy script exits with code 2"}
+{"split": "held", "statement": false, "prompt": "this function looks too long"}
+{"split": "held", "statement": false, "prompt": "I see a warning about a deprecated call"}
+{"split": "held", "statement": false, "prompt": "I wonder if this is thread safe"}
+{"split": "held", "statement": false, "prompt": "I want to see the coverage report"}
+{"split": "held", "statement": false, "prompt": "I need you to check the migrations"}
+{"split": "held", "statement": false, "prompt": "we need to split this file"}
+{"split": "held", "statement": false, "prompt": "we should probably rename this"}
+{"split": "held", "statement": false, "prompt": "let's start with the parser"}
+{"split": "held", "statement": false, "prompt": "let's try the other library"}
+{"split": "held", "statement": false, "prompt": "let's go through the failures one by one"}
+{"split": "held", "statement": false, "prompt": "should we use Redis or Memcached?"}
+{"split": "held", "statement": false, "prompt": "did you commit that?"}
+{"split": "held", "statement": false, "prompt": "are we allowed to use this license?"}
+{"split": "held", "statement": false, "prompt": "has the schema change been approved?"}
+{"split": "held", "statement": false, "prompt": "do we always run the migrations by hand?"}
+{"split": "held", "statement": false, "prompt": "what did we decide about the cache?"}
+{"split": "held", "statement": false, "prompt": "is there a reason this is a global?"}
+{"split": "held", "statement": false, "prompt": "why do we never close this file?"}
+{"split": "held", "statement": false, "prompt": "never mind"}
+{"split": "held", "statement": false, "prompt": "never mind, go back to the first version"}
+{"split": "held", "statement": false, "prompt": "always the same error, can you look at the stack trace"}
+{"split": "held", "statement": false, "prompt": "I never saw this error before"}
+{"split": "held", "statement": false, "prompt": "I always forget how this flag works, what does it do"}
+{"split": "held", "statement": false, "prompt": "from now on the variable is unused, so remove it"}
+{"split": "held", "statement": false, "prompt": "keep going"}
+{"split": "held", "statement": false, "prompt": "keep it simple"}
+{"split": "held", "statement": false, "prompt": "that works"}
+{"split": "held", "statement": false, "prompt": "that makes sense"}
+{"split": "held", "statement": false, "prompt": "great, now the tests"}
+{"split": "held", "statement": false, "prompt": "cool, next one"}
+{"split": "held", "statement": false, "prompt": "good catch, fix it"}
+{"split": "held", "statement": false, "prompt": "looks right to me, commit it"}
+{"split": "held", "statement": false, "prompt": "ship it"}
+{"split": "held", "statement": false, "prompt": "fine, do it your way"}
+{"split": "held", "statement": false, "prompt": "add a `deadline` argument to the job runner"}
+{"split": "held", "statement": false, "prompt": "add a must_change_password flag to the user model"}
+{"split": "held", "statement": false, "prompt": "the test name says `test_never_retries`, what does it check"}
+{"split": "held", "statement": false, "prompt": "add a retry that never exceeds the backoff cap"}
+{"split": "held", "statement": false, "prompt": "write a helper that always rounds down"}
+{"split": "held", "statement": false, "prompt": "change the error text to \"you must not do this\""}
+{"split": "held", "statement": false, "prompt": "rename `approve` to `confirm` in the handlers"}
+{"split": "held", "statement": false, "prompt": "create an approval email template"}
+{"split": "held", "statement": false, "prompt": "add a preference page for the user settings"}
+{"split": "held", "statement": false, "prompt": "store the user's preference in local storage"}
+{"split": "held", "statement": false, "prompt": "add a reason field to the refund form"}
+{"split": "held", "statement": false, "prompt": "log the reason when a request is rejected"}
+{"split": "held", "statement": false, "prompt": "validate that the limit is under 100"}
+{"split": "held", "statement": false, "prompt": "fix the because typo in the docs"}
+{"split": "held", "statement": false, "prompt": "the docs say we promised a refund, can you find where"}
+{"split": "held", "statement": false, "prompt": "find where the code decides on the retry"}
+{"split": "held", "statement": false, "prompt": "what decides which handler runs"}
+{"split": "held", "statement": false, "prompt": "copy the note to the top of the file"}
+{"split": "held", "statement": false, "prompt": "add a note to the changelog"}
+{"split": "held", "statement": false, "prompt": "add a heads-up banner to the dashboard"}
+{"split": "held", "statement": false, "prompt": "update the FYI section in the readme"}
+{"split": "held", "statement": false, "prompt": "make the tests pass"}
+{"split": "held", "statement": false, "prompt": "make this faster"}
+{"split": "held", "statement": false, "prompt": "clean up this function"}
+{"split": "held", "statement": false, "prompt": "check the types"}
+{"split": "held", "statement": false, "prompt": "restart the dev server"}
+{"split": "held", "statement": false, "prompt": "start the database"}
+{"split": "held", "statement": false, "prompt": "stop the server"}
+{"split": "held", "statement": false, "prompt": "print the env vars"}
+{"split": "held", "statement": false, "prompt": "draft a release note"}
+{"split": "held", "statement": false, "prompt": "translate this message to French"}
+{"split": "held", "statement": false, "prompt": "compare these two files"}
+{"split": "held", "statement": false, "prompt": "summarize the failing tests"}
+{"split": "held", "statement": false, "prompt": "give me three options for the name"}
+{"split": "held", "statement": false, "prompt": "which one is faster"}
+{"split": "held", "statement": false, "prompt": "what would you do here"}
+{"split": "held", "statement": false, "prompt": "can we do this without a new table"}
+{"split": "held", "statement": false, "prompt": "could you add a test"}
+{"split": "held", "statement": false, "prompt": "would it help to add a cache"}
+{"split": "held", "statement": false, "prompt": "how long will the migration take"}
+{"split": "held", "statement": false, "prompt": "undo the last edit, I want to try another way"}
+{"split": "held", "statement": false, "prompt": "go back to the first version"}
+{"split": "held", "statement": false, "prompt": "<task-notification>the agent decided to retry because the promise failed</task-notification>"}
+{"split": "held", "statement": false, "prompt": "<command-name>/review</command-name> we decided nothing"}
+{"split": "held", "statement": false, "prompt": "Run `memory add \"We decided to keep it\"` for me"}

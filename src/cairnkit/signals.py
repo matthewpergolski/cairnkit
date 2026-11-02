@@ -37,6 +37,7 @@ from cairnkit.session import (
 from cairnkit.similar import analyze
 
 FIX_MIN_FAILS = 2
+SHELL_STEP = re.compile(r"&&|\|\||;")
 MAX_LINES = 5
 REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
@@ -95,6 +96,56 @@ CORRECTION = re.compile(
     ),
     re.IGNORECASE,
 )
+# A statement can follow the work that a prompt asks for, but a long paste holds no owner's words.
+STATEMENT_HEAD = 600
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+NOT_STATED = re.compile(r"\s*(?:if|when|whether|unless|once)\b", re.IGNORECASE)
+# A word such as `promise`, `approved` or `deadline` alone also names code, so these need more.
+STATEMENT = re.compile(
+    "|".join(
+        (
+            # A decision.
+            r"\b(?:i|we|team)(?:'ve| have)? (?:decided|chose|picked|agreed|settled on)\b",
+            r"\bthe decision is\b",
+            r"\blet'?s go with\b",
+            r"\bwe(?:'re| are) not going to\b",
+            r"\brejected (?:it|this|that|the)\b",
+            # An approval.
+            r"\bi approve\b",
+            r"\bmy approval\b",
+            r"\bsigned off\b",
+            r"\b(?:is|are|was|were) approved\b",
+            r"\bapproved (?:it|this|that|the)\b",
+            r"^\W*approved\b",
+            # A promise.
+            r"\b(?:i|we)(?:'ve| have)? (?:promised|guaranteed)\b",
+            r"\bwe committed to (?:a|an|\d)",
+            r"\bpromise (?:that|to)\b",
+            r"\b(?:i|we) told (?:the|our|them)\b",
+            # A limit.
+            r"^\W*(?:please )?(?:always|never) (?!mind\b|the\b|a\b|an\b)\w+",
+            r"\bfrom now on\b|\bgoing forward\b|\bin (?:the )?future\b",
+            r"\bmust (?:not|never)\b",
+            r"\bwe (?:cannot|can't|may not)\b",
+            r"\bdeadline (?:for|is)\b",
+            r"\bhard limit\b|\bforbids?\b|\bnot allowed\b|\b(?:does|do) not allow\b",
+            # What the owner wants known. Each of these opens its sentence.
+            r"^\W*(?:an? )?heads[- ]up\b",
+            r"^\W*(?:fyi|just so you know|for context|note that|remember that|keep in mind)\b",
+            # A preference.
+            r"\bi(?:'d| would)? (?:prefer|rather)\b",
+            r"\bmy preference\b",
+            r"\bi (?:don't|do not) like\b",
+            # A reason. A reason for an edit, such as `because it is noisy`, is in the diff.
+            r"\bthe reason (?:for|is|it|we|why)\b",
+            r"\bbecause (?:our|their|we|the \w+'s)\b",
+            # A review.
+            r"\b(?:colleague|teammate|reviewer) (?:reviewed|found|said)\b",
+            r"\breview found\b",
+        )
+    ),
+    re.IGNORECASE,
+)
 
 
 def _quoted(command: str) -> str:
@@ -108,8 +159,17 @@ def _loop_token(command: str) -> str:
     return f"loop:{command}"
 
 
+def _last_step(command: str) -> str:
+    return SHELL_STEP.split(command)[-1].strip()
+
+
 def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
-    """Count a failure. A pass after repeated failures is a fix worth a fact."""
+    """Count a failure. A pass after repeated failures is a fix worth a fact.
+
+    So is one failure that passes with something in front of the same command, such as a setting
+    or a wrapper. That is how to run it, which no file change shows. A flag after the command
+    often only narrows a test run, so it does not count.
+    """
     state = load_state(memory, key)
     if state is None:
         return
@@ -121,6 +181,9 @@ def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
             state.setdefault("fixed", []).append([command, fails[command]])
         fails.pop(command, None)
         state["told"] = [t for t in state.get("told", []) if t != _loop_token(command)]
+        step = _last_step(command)
+        for failed in [failed for failed in fails if step.endswith(f" {_last_step(failed)}")]:
+            state.setdefault("fixed", []).append([failed, fails.pop(failed), command])
     save_state(memory, key, state)
 
 
@@ -181,6 +244,21 @@ def is_correction(prompt: str) -> bool:
     return bool(CORRECTION.search(QUOTED.sub(" ", prompt[:PROMPT_HEAD])))
 
 
+def is_statement(prompt: str) -> bool:
+    """True when the owner states what only the conversation holds. English only.
+
+    It reads each sentence by itself. A question or a condition states nothing.
+    """
+    if NOT_THE_OWNER.search(prompt):
+        return False
+    for sentence in SENTENCE_END.split(QUOTED.sub(" ", prompt[:STATEMENT_HEAD]).strip()):
+        if sentence.rstrip().endswith("?") or NOT_STATED.match(sentence):
+            continue
+        if STATEMENT.search(sentence):
+            return True
+    return False
+
+
 def _file_stem(path: str) -> str:
     return PurePosixPath(path).stem
 
@@ -212,6 +290,10 @@ def note_prompt(memory: Memory, key: str, prompt: str) -> None:
     named = {word for word in named if "." in word or "/" in word}
     state["named"] = sorted({*state.get("named", []), *named})[:NAMED_LIMIT]
     state["asked"] = sorted({*state.get("asked", []), *removal_words(prompt)})[:NAMED_LIMIT]
+    if not NOT_THE_OWNER.search(prompt):
+        state["prompts"] = state.get("prompts", 0) + 1
+    if is_statement(prompt):
+        state["said"] = agent_writes(memory)
     if is_correction(prompt):
         flat = clean(prompt)
         text = "" if find_secrets(flat, memory.env) else flat[:PROMPT_WIDTH]
@@ -276,9 +358,12 @@ def session_events(memory: Memory, key: str) -> list[str]:
         return []
     told = state.setdefault("told", [])
     found = []
-    for command, count in state.get("fixed", []):
+    for command, count, *by in state.get("fixed", []):
         shown = _quoted(loopbreak.without_secret(command, memory.env))
         line = f"{shown} failed {count} times, then passed. What fixed it?"
+        if by:
+            passed = _quoted(loopbreak.without_secret(by[0], memory.env))
+            line = f"{shown} failed, then {passed} passed. What fixed it?"
         found.append((f"fixed:{command}", line))
     for line in _reverts(memory.project.root, state):
         found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))

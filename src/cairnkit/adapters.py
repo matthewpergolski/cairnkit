@@ -20,6 +20,8 @@ breaker events rechecked 2026-10-30):
   `agent_end` starts no turn, so stop waits until Pi is idle. Print mode has no later turn, so
   its stop arrives at the next `before_agent_start`.
 - OpenCode: `.opencode/plugins/*.js`. `client.session.prompt` with `noReply` adds context.
+  `chat.message` gets the prompt (the plugin types of 1.18.32). A subagent runs in a session with a
+  `parentID`, and `session.idle` fires for it too.
 
 The core never depends on these tools. Only this module names them.
 """
@@ -315,6 +317,14 @@ function hook(event, payload, cwd) {
 
 export const CairnkitMemory = async ({ client, directory }) => {
   const continued = new Set();
+  // A subagent runs in a child session, and session.idle fires for that session too.
+  const isChild = async (id) => {
+    try {
+      return Boolean((await client.session.get({ path: { id } })).data?.parentID);
+    } catch {
+      return false;
+    }
+  };
   const say = (id, text, noReply) =>
     client.session.prompt({
       path: { id },
@@ -332,12 +342,19 @@ export const CairnkitMemory = async ({ client, directory }) => {
       if (event.type === "session.compacted") await load(id, "compact");
       if (event.type === "session.idle") {
         if (continued.delete(id)) return;
-        const text = hook("stop", { session_id: id }, directory);
+        const payload = (await isChild(id)) ? { session_id: id, agent_id: id } : { session_id: id };
+        const text = hook("stop", payload, directory);
         if (text) {
           continued.add(id);
           await say(id, text, false);
         }
       }
+    },
+    "chat.message": async (input, output) => {
+      if (await isChild(input.sessionID)) return;
+      const parts = output.parts.filter((part) => part.type === "text" && !part.synthetic);
+      const prompt = parts.map((part) => part.text).join("\\n");
+      hook("prompt", { session_id: input.sessionID, prompt }, directory);
     },
     "tool.execute.after": async (input, output) => {
       if (input.tool !== "bash") return;

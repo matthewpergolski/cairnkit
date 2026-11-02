@@ -10,7 +10,7 @@ from conftest import git
 from cairnkit.cli import main
 
 AGENTS = ("claude", "codex", "cursor", "grok", "pi", "opencode")
-REMINDER = "No fact was written for this work"
+CAPTURE = "what would the next agent get wrong?"
 LOST = "was here when this session started"
 
 
@@ -181,11 +181,11 @@ def test_twenty_ordinary_turns_block_at_most_three_times(session, turns):
 
 
 @pytest.mark.parametrize("session", AGENTS, indirect=True)
-def test_plain_work_hears_one_reminder_and_no_stop_blocks_for_it(session):
+def test_plain_work_blocks_only_the_first_stop_and_format_the_code_never(session):
     session.begin()
     session.replay(PLAIN)
-    assert session.blocks == []
-    assert sum(REMINDER in line for line in session.heard) == 1
+    assert [number for number, _ in session.blocks] == [1]
+    assert sum(CAPTURE in line for line in session.heard) == (session.agent == "grok")
 
 
 @pytest.mark.parametrize("session", AGENTS, indirect=True)
@@ -259,7 +259,7 @@ def test_a_failure_that_has_not_passed_is_no_event(session):
 )
 def test_a_lost_file_the_owner_asked_about_is_no_event(session, prompt):
     session.begin()
-    assert session.turn(1, prompt, ["rm -f scratch.txt"], []) is None
+    assert LOST not in (session.turn(1, prompt, ["rm -f scratch.txt"], []) or "")
 
 
 @pytest.mark.parametrize("session", ["claude"], indirect=True)
@@ -289,36 +289,8 @@ def test_a_lost_file_named_in_a_correction_is_the_correction_alone(session):
 
 
 @pytest.mark.parametrize("session", ["claude"], indirect=True)
-def test_a_fact_written_first_means_no_reminder(session):
+def test_a_fact_written_first_means_no_block(session):
     session.begin()
     write_a_fact()
     session.replay(PLAIN[:4])
-    assert not any(REMINDER in line for line in session.heard)
-
-
-@pytest.mark.parametrize("session", ["claude"], indirect=True)
-def test_a_fact_written_before_the_reminder_arrives_ends_it(session):
-    session.begin()
-    session.replay(PLAIN[:1])
-    write_a_fact()
-    session.replay(PLAIN[1:3])
-    assert not any(REMINDER in line for line in session.heard)
-
-
-def test_the_generic_adapter_has_only_stop_so_the_reminder_arrives_there(
-    repo, mem, capsys, monkeypatch
-):
-    def stop():
-        monkeypatch.setattr("sys.stdin", io.StringIO('{"session_id": "s1"}'))
-        code = main(["hook", "stop", "--agent", "generic"])
-        return code, capsys.readouterr().err
-
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"session_id": "s1"}'))
-    main(["hook", "session-start", "--agent", "generic"])
-    capsys.readouterr()
-    (repo / "README.md").write_text("changed\n")
-    code, err = stop()
-    assert code == 1
-    assert REMINDER in err
-    (repo / "README.md").write_text("changed again\n")
-    assert stop() == (0, "")
+    assert session.blocks == []

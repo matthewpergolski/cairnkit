@@ -1,4 +1,4 @@
-"""Durable work earns one reminder with no block. Junk stays quiet. Auto-tidy does not count."""
+"""Durable work earns one block. Junk stays quiet. Auto-tidy does not count as a fact."""
 
 import io
 import json
@@ -26,10 +26,6 @@ def stop(capsys, monkeypatch, sid="s1"):
     return run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": sid})
 
 
-def next_prompt(capsys, monkeypatch, sid="s1"):
-    return run_hook(capsys, monkeypatch, "prompt", "claude", {"session_id": sid})[1]
-
-
 def test_stop_stays_quiet_for_junk_and_untracked_noise(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "debug.log").write_text("noise\n")
@@ -40,7 +36,6 @@ def test_stop_stays_quiet_for_junk_and_untracked_noise(repo, mem, capsys, monkey
     code, out, _ = stop(capsys, monkeypatch)
     assert code == 0
     assert "block" not in out
-    assert next_prompt(capsys, monkeypatch) == ""
 
 
 def test_stop_stays_quiet_when_a_tracked_junk_file_changes(repo, mem, capsys, monkeypatch):
@@ -55,23 +50,19 @@ def test_stop_stays_quiet_when_a_tracked_junk_file_changes(repo, mem, capsys, mo
     code, out, _ = stop(capsys, monkeypatch)
     assert code == 0
     assert "block" not in out
-    assert next_prompt(capsys, monkeypatch) == ""
 
 
-def test_a_tracked_edit_reaches_the_next_prompt_and_blocks_no_stop(repo, mem, capsys, monkeypatch):
+def test_a_tracked_edit_blocks_the_stop_once(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "README.md").write_text("changed\n")
     code, out, _ = stop(capsys, monkeypatch)
     assert code == 0
-    assert out == ""
-    heard = next_prompt(capsys, monkeypatch)
-    assert "memory add" in heard
-    assert "carry on" in heard
-    assert len(heard.splitlines()) == 1
-    assert next_prompt(capsys, monkeypatch) == ""
+    assert "memory add" in json.loads(out)["reason"]
+    (repo / "README.md").write_text("changed again\n")
+    assert stop(capsys, monkeypatch)[1] == ""
 
 
-def test_an_auto_tidy_write_does_not_suppress_the_reminder(repo, mem, capsys, monkeypatch):
+def test_an_auto_tidy_write_does_not_end_the_check(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "README.md").write_text("changed\n")
     saved = json.loads((mem / ".sessions" / "s1.json").read_text())
@@ -88,8 +79,7 @@ def test_an_auto_tidy_write_does_not_suppress_the_reminder(repo, mem, capsys, mo
         ],
         name="auto-tidy.jsonl",
     )
-    stop(capsys, monkeypatch)
-    assert "memory add" in next_prompt(capsys, monkeypatch)
+    assert "memory add" in json.loads(stop(capsys, monkeypatch)[1])["reason"]
 
 
 def test_a_session_file_from_an_older_tool_blocks_nothing(repo, mem, capsys, monkeypatch):

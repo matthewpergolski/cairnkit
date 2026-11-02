@@ -71,18 +71,15 @@ def test_stop_is_quiet_when_nothing_changed(mem, capsys, monkeypatch):
     assert code == 0 and "block" not in out
 
 
-def test_stop_reminds_once_after_work_with_no_new_facts(repo, mem, capsys, monkeypatch):
+def test_stop_blocks_once_after_work_with_no_new_facts(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "new.py").write_text("x = 1\n")
     code, out, _ = run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
     assert code == 0
-    assert out == ""
-    _, out, _ = run_hook(capsys, monkeypatch, "prompt", "claude", {"session_id": "s1"})
-    assert "memory add" in out
+    assert "memory add" in json.loads(out)["reason"]
     (repo / "new.py").write_text("x = 2\n")
-    run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
-    _, out, _ = run_hook(capsys, monkeypatch, "prompt", "claude", {"session_id": "s1"})
-    assert "memory add" not in out
+    _, out, _ = run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
+    assert out == ""
 
 
 def test_stop_is_quiet_when_a_fact_was_written(repo, mem, capsys, monkeypatch):

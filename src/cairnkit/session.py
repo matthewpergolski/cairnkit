@@ -28,10 +28,11 @@ KEY_LIMIT = 80
 # the commits of other people, so it is not here. Nor is a merge that a person finished by hand.
 OWN_COMMIT = re.compile(r"^(?!commit \(merge\))(commit|revert|cherry-pick)\b")
 REFLOG_LIMIT = "500"
-REMINDER = (
-    "No fact was written for this work. If a later session needs something from it, record it: "
-    '`memory add "TEXT" --kind lesson|trap|decision`. If not, carry on.'
-)
+# Owner prompts between two blocks for work, when the agent answers each one with a fact. An agent
+# that always writes then sees at most 3 blocks in 20 turns, the limit of tests/test_stop_replay.py.
+WORK_GAP = 6
+WORK_CHANGED = "The work changed in this session, and no fact records it."
+OWNER_SAID = "The owner stated something that only this conversation holds, and no fact records it."
 JUNK_DIRS = frozenset(SKIP_DIRS) | {
     ".venv",
     ".pytest_cache",
@@ -156,7 +157,7 @@ def is_junk_path(path: str) -> bool:
 
 
 def durable_untracked(path: str) -> bool:
-    """True when an untracked path is source worth a stop reminder."""
+    """True when an untracked path is source worth a capture check."""
     if is_junk_path(path):
         return False
     name = PurePosixPath(path).name
@@ -258,13 +259,6 @@ def tracked_files_gone(root: Path, memory_dir: Path | None, head: str) -> list[s
     return [path for path in gone if path in here]
 
 
-def reminder_hint() -> str:
-    return (
-        'Write what a later session needs: `memory add "TEXT" --kind lesson|trap|decision '
-        "--basis seen --source session:DATE`. If nothing is worth a fact, say so and finish."
-    )
-
-
 def mark_loaded(memory: Memory, session_id: str, text: str) -> None:
     """Record what this session has read, so that later news repeats none of it."""
     state = load_state(memory, session_id) or {}
@@ -345,38 +339,42 @@ def agent_writes(memory: Memory) -> int:
     return sum(record.get("writer") != AUTO_TIDY_WRITER for record in memory.records)
 
 
-def mark_reminder(memory: Memory, session_id: str) -> None:
-    """At a stop: tracked work changed and no fact came of it, so one reminder is due.
+def capture_reasons(memory: Memory, session_id: str) -> list[str]:
+    """At a stop: why this stop must ask for a fact. Each reason is given once.
 
-    Only a stop looks, because it has the time for the git calls. After one answer it makes none.
+    A statement is due when no fact followed it. Work is due when it changed since the last look,
+    unless the agent already answered a block for work with no fact: only a later fact opens that
+    again, and then only after WORK_GAP prompts. A session from an older tool starts here.
     """
     state = load_state(memory, session_id)
-    if state is None:
+    if state is None or "writes" not in state:
         start_session(memory, session_id)
-    elif "reminder" not in state:
-        if agent_writes(memory) > state.get("writes", 0):
-            state["reminder"] = "ended"
-        elif fingerprint(memory.project.root, memory.dir) != state.get("start"):
-            state["reminder"] = "due"
-        else:
-            return
-        save_state(memory, session_id, state)
-
-
-def take_reminder(memory: Memory, session_id: str) -> str | None:
-    """The one reminder of a session, unless a fact was written after it fell due."""
-    state = load_state(memory, session_id)
-    if not state or state.get("reminder") != "due":
-        return None
-    state["reminder"] = "ended"
+        return []
+    root, wrote, prompts = memory.project.root, agent_writes(memory), state.get("prompts", 0)
+    reasons = []
+    said = state.pop("said", None)
+    if said is not None and wrote <= said:
+        reasons.append(OWNER_SAID)
+    if wrote > state["writes"]:
+        state.update(
+            writes=wrote,
+            settled=prompts,
+            declined=False,
+            start=fingerprint(root, memory.dir),
+        )
+    elif not state.get("declined") and prompts - state.get("settled", -WORK_GAP) >= WORK_GAP:
+        now_work = fingerprint(root, memory.dir)
+        if now_work != state.get("start"):
+            reasons.append(WORK_CHANGED)
+            state.update(declined=True, settled=prompts, start=now_work)
     save_state(memory, session_id, state)
-    return None if agent_writes(memory) > state.get("writes", 0) else REMINDER
+    return reasons
 
 
 def hold_heard(memory: Memory, session_id: str, line: str) -> None:
     """Keep a line for the next hook that adds text with no turn."""
     state = load_state(memory, session_id) or {}
-    state["heard_next"] = line
+    state["heard_next"] = "\n\n".join(filter(None, (state.get("heard_next"), line)))
     save_state(memory, session_id, state)
 
 
