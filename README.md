@@ -847,17 +847,28 @@ That file is local, and it covers every worktree. Nothing in the repo changes.
 
 | Agent | Session start | Session end | During the session | After a compaction | Subagent load |
 |---|---|---|---|---|---|
-| Claude Code | `SessionStart`: stdout goes into the context | `Stop`: `{"decision": "block"}` makes the agent continue once | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
-| Codex | `SessionStart`: stdout goes into the context | `Stop`: JSON `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
+| Claude Code | `SessionStart`: stdout goes into the context | `Stop`: `{"decision": "block"}` makes the agent continue once | `UserPromptSubmit`, `PreToolUse` for `Bash`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
+| Codex | `SessionStart`: stdout goes into the context | `Stop`: JSON `{"decision": "block"}` | `UserPromptSubmit`, `PreToolUse` for `Bash`, `PostToolUse` | `SessionStart` with `compact` reloads | `SubagentStart`, 300 words |
 | Cursor | `sessionStart`: `additional_context` | `stop`: `followup_message`, `loop_limit: 1` | `beforeSubmitPrompt` reads the prompt. `postToolUse` for `Shell`, `Write` and `Delete` adds `additional_context`, and `postToolUseFailure` counts failures. | `preCompact` holds a load for the next of those tool results, or for stop | None |
 | Grok Build | `SessionStart`: reads only `systemMessage`, so the load waits for the first tool result | `Stop`: `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact`; the load waits for the next tool result | `SubagentStart` hook is written, not tested |
-| Pi | `session_start`; the load goes out at `before_agent_start` | `agent_end`: a follow-up that starts a turn, once | `before_agent_start`, `tool_result` for `bash` | `session_compact`; the load goes out at the next `before_agent_start` | None |
-| OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `chat.message` reads the prompt. `tool.execute.after` for `bash` | `session.compacted` reloads | None |
+| Pi | `session_start`; the load goes out at `before_agent_start` | `agent_end`: a follow-up that starts a turn, once | `before_agent_start`, `tool_call` and `tool_result` for `bash` | `session_compact`; the load goes out at the next `before_agent_start` | None |
+| OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `chat.message` reads the prompt. `tool.execute.before` and `tool.execute.after` for `bash` | `session.compacted` reloads | None |
 | Generic | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | None | None | None |
 
 **Long sessions.** News covers facts from other branches, auto-tidy changes, and
 stored facts that match files changed after the load. Traps come first, and each
 item is named once.
+
+**Before a shell command.** A fact in the load does not make an agent act on it: in 6 of 6 real
+runs, the next session had the fix in its load and still ran the short command first, and failed.
+So when a stored fact holds the same command behind a setting or a wrapper that the command lacks,
+such as `REPORT_LOCALE=C sh report.sh` for `sh report.sh`, the hook stops that call once and gives
+the fact as the reason. A fact that only names the file does not count. Each fact stops one call
+in a session, and the next call runs, whatever it is. The hook never allows a call, so the
+person's own approval still applies. Claude Code, Codex, Pi and OpenCode have this hook. Cursor
+blocks a call on a reply that its schema does not know, and Grok Build reads another reply shape,
+so neither gets it. A context line is no answer: Claude Code adds it with the tool result, after
+the command ran.
 
 **A stop blocks for a new event or a capture check.** A block costs the owner a turn. The events are a health
 problem, a command that failed at least twice and then passed, a command that failed once and then

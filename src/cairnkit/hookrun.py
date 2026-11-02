@@ -19,6 +19,7 @@ import sys
 from cairnkit import (
     adapters,
     autotidy,
+    beforeshell,
     branchgate,
     deadline,
     followups,
@@ -583,6 +584,35 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
     return 0
 
 
+# Each tool here reads a deny before the command runs. See adapters.py for the others.
+BEFORE_SHELL_AGENTS = frozenset({"claude", "codex", "pi", "opencode"})
+BEFORE_SHELL_BUDGET = 2.5
+
+
+def before_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
+    """Before a shell command: a fact with a longer form of it stops this call once. Exits 0.
+
+    It never prints an allow, so the person's own approval of the command still applies. On any
+    error or past its time it says nothing, and the command runs.
+    """
+    text = None
+    with contextlib.suppress(Exception), _time_budget(BEFORE_SHELL_BUDGET):
+        command = loopbreak.shell_command(payload)
+        if agent in BEFORE_SHELL_AGENTS and command and has_memory(project, flag):
+            memory = Memory.open(project, flag)
+            text = beforeshell.message(memory, session_key(payload), command)
+    if not text:
+        if agent == "codex":
+            print("{}")
+        return 0
+    if agent in TEXT_AGENTS:
+        print(text)
+        return 0
+    decision = {"hookEventName": "PreToolUse", "permissionDecision": "deny"}
+    print(json.dumps({"hookSpecificOutput": {**decision, "permissionDecisionReason": text}}))
+    return 0
+
+
 def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     """Before a prompt: note a correction, and say what changed. Always exits 0."""
     if agent == "cursor":
@@ -636,6 +666,8 @@ def run_hook(project: Project, flag: str | None, event: str, agent: str) -> int:
     payload = read_payload()
     if event == "session-start":
         return session_start(project, flag, agent, payload)
+    if event == "before-shell":
+        return before_shell(project, flag, agent, payload)
     if event in ("after-shell", "post-tool"):
         return after_shell(project, flag, agent, payload)
     if event == "prompt":

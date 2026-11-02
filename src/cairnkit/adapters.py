@@ -6,9 +6,11 @@ breaker events rechecked 2026-10-30):
 - Claude Code: `.claude/settings.local.json`, events `SessionStart`, `Stop`, `PostToolUse`,
   `PostToolUseFailure`, `UserPromptSubmit` and `SubagentStart`. SessionStart stdout is added to
   the context. A Stop hook that prints `{"decision": "block", "reason": ...}` makes the agent
-  continue.
+  continue. `PreToolUse` (matcher `Bash`) denies with `permissionDecisionReason`, which the model
+  reads. Its `additionalContext` arrives with the tool result, after the command ran.
 - Codex: `.codex/hooks.json`, the same shape with no `PostToolUseFailure`. Stop must print JSON
-  on exit 0. Project hooks run only in a trusted project, after review in `/hooks`.
+  on exit 0. Project hooks run only in a trusted project, after review in `/hooks`. `PreToolUse`
+  denies as in Claude Code.
 - Cursor: `.cursor/hooks.json` (`version: 1`), events `sessionStart` (JSON `additional_context`),
   `stop` (JSON `followup_message`, capped by `loop_limit`), `postToolUse` and `postToolUseFailure`
   (JSON `additional_context`), `beforeSubmitPrompt` (JSON `continue`, no text) and `preCompact`
@@ -18,10 +20,18 @@ breaker events rechecked 2026-10-30):
   model at the first tool result, or at the first stop when no tool runs.
 - Pi: `.pi/extensions/*.ts`. `before_agent_start` injects a message. A message queued at
   `agent_end` starts no turn, so stop waits until Pi is idle. Print mode has no later turn, so
-  its stop arrives at the next `before_agent_start`.
+  its stop arrives at the next `before_agent_start`. `tool_call` returns `{ block, reason }`, and
+  the reason is the tool result.
 - OpenCode: `.opencode/plugins/*.js`. `client.session.prompt` with `noReply` adds context.
+  An error thrown in `tool.execute.before` stops the call, and the model reads its message.
   `chat.message` gets the prompt (the plugin types of 1.18.32). A subagent runs in a session with a
   `parentID`, and `session.idle` fires for it too.
+
+Before a shell command, only a deny reaches the model in time (checked 2026-11-02). The hook never
+prints an allow, because an allow skips the person's own approval of the command. Cursor's
+`beforeShellExecution` blocks the call on a reply that does not match its schema, and it gives no
+neutral reply, so Cursor gets no such hook. Grok Build reads another shape there (`decision`, and
+camelCase input), and its docs do not say that the model reads the reason, so it gets none either.
 
 The core never depends on these tools. Only this module names them.
 """
@@ -88,10 +98,12 @@ class NestedAdapter(Adapter):
         start_matcher: str,
         shared: tuple[str, ...] = (),
         failure_events: tuple[str, ...] = (),
+        before_shell: bool = False,
     ):
         super().__init__(name, rel, shared)
         self.start_matcher = start_matcher
         self.failure_events = failure_events
+        self.before_shell = before_shell
 
     def _groups(self) -> dict[str, dict]:
         start = {"type": "command", "command": hook_command("session-start", self.name)}
@@ -126,7 +138,16 @@ class NestedAdapter(Adapter):
                 ]
             },
             **{event: {"hooks": [after]} for event in self.failure_events},
+            **self._before_shell_group(),
         }
+
+    def _before_shell_group(self) -> dict[str, dict]:
+        """A stored fact with a longer form of a shell command stops that call once."""
+        if not self.before_shell:
+            return {}
+        command = hook_command("before-shell", self.name)
+        handler = {"type": "command", "command": command, "timeout": 5}
+        return {"PreToolUse": {"matcher": "Bash", "hooks": [handler]}}
 
     def remove(self, data: dict) -> dict:
         hooks = data.get("hooks")
@@ -260,6 +281,15 @@ export default function (pi: any) {
     if (!text) return undefined;
     return { message: { customType: "cairnkit", content: text, display: false } };
   });
+  pi.on("tool_call", async (event: any, ctx: any) => {
+    if (event.toolName !== "bash") return undefined;
+    const text = hook("before-shell", {
+      session_id: key(ctx),
+      tool_name: "bash",
+      tool_input: { command: event.input?.command },
+    });
+    return text ? { block: true, reason: text } : undefined;
+  });
   pi.on("tool_result", async (event: any, ctx: any) => {
     if (event.toolName !== "bash") return;
     const text = hook("after-shell", {
@@ -356,6 +386,20 @@ export const CairnkitMemory = async ({ client, directory }) => {
       const prompt = parts.map((part) => part.text).join("\\n");
       hook("prompt", { session_id: input.sessionID, prompt }, directory);
     },
+    "tool.execute.before": async (input, output) => {
+      if (input.tool !== "bash") return;
+      const text = hook(
+        "before-shell",
+        {
+          session_id: input.sessionID,
+          tool_name: "bash",
+          tool_input: { command: output?.args?.command },
+        },
+        directory,
+      );
+      // OpenCode gives the message of a thrown error to the model, and the call does not run.
+      if (text) throw new Error(text);
+    },
     "tool.execute.after": async (input, output) => {
       if (input.tool !== "bash") return;
       const exit = output?.metadata?.exit;
@@ -385,8 +429,11 @@ ADAPTERS: dict[str, Adapter] = {
         "startup|resume|clear|compact",
         shared=(".claude/settings.json",),
         failure_events=("PostToolUseFailure",),
+        before_shell=True,
     ),
-    "codex": NestedAdapter("codex", ".codex/hooks.json", "startup|resume|clear|compact"),
+    "codex": NestedAdapter(
+        "codex", ".codex/hooks.json", "startup|resume|clear|compact", before_shell=True
+    ),
     "cursor": CursorAdapter("cursor", ".cursor/hooks.json"),
     # Grok Build also runs a project's Claude Code and Cursor hooks. See detect().
     "grok": NestedAdapter(

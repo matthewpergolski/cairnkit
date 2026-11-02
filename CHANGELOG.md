@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Before a shell command runs, a stored fact that gives a longer form of the same command stops
+  that call once, with the fact as the reason. An example is `REPORT_LOCALE=C sh report.sh` for
+  `sh report.sh`. Each fact stops one call in a session, and the next call runs. Claude Code and
+  Codex get a `PreToolUse` deny, Pi a `tool_call` block and OpenCode an error from
+  `tool.execute.before`. Cursor and Grok Build get no such hook. A fact in the load did not stop
+  the short form in 6 of 6 real runs, and a context line arrives only after the command ran.
 - A session start names, once, each line of `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` that
   teaches an older memory, and says which one wins. It edits no tracked file.
 - `memory status` says how many notes Claude Code's own memory holds for this project, and where.

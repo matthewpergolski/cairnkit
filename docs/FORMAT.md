@@ -452,9 +452,9 @@ prints the commands instead. Each file is added to `.git/info/exclude`.
 
 | Agent | File | Events and hook events |
 |---|---|---|
-| Claude Code | `.claude/settings.local.json` | `SessionStart` (matcher `startup\|resume\|clear\|compact`, timeout 10): `session-start`. `Stop` (timeout 30): `stop`. `PostToolUse` and `PostToolUseFailure` (timeout 5): `after-shell`. `UserPromptSubmit` (timeout 5): `prompt`. `SubagentStart` (timeout 10): `subagent-start`. |
+| Claude Code | `.claude/settings.local.json` | `SessionStart` (matcher `startup\|resume\|clear\|compact`, timeout 10): `session-start`. `Stop` (timeout 30): `stop`. `PreToolUse` (matcher `Bash`, timeout 5): `before-shell`. `PostToolUse` and `PostToolUseFailure` (timeout 5): `after-shell`. `UserPromptSubmit` (timeout 5): `prompt`. `SubagentStart` (timeout 10): `subagent-start`. |
 | Codex | `.codex/hooks.json` | The same shape, with no `PostToolUseFailure`. |
-| Grok Build | `.grok/hooks/cairnkit.json` | The same shape as Claude Code. |
+| Grok Build | `.grok/hooks/cairnkit.json` | The same shape as Claude Code, with no `PreToolUse`. |
 | Cursor | `.cursor/hooks.json` | `version: 1`. `hooks.sessionStart[]` (timeout 10): `session-start`. `hooks.stop[]` (timeout 30, `loop_limit: 1`): `stop`. `hooks.beforeSubmitPrompt[]` (timeout 5): `prompt`. `hooks.postToolUse[]` (matcher `Shell|Write|Delete`) and `hooks.postToolUseFailure[]` (timeout 5): `after-shell`. `hooks.preCompact[]` (timeout 5): `pre-compact`. |
 
 A JSON entry has the shape `{"matcher": ..., "hooks": [{"type": "command", "command":
@@ -469,8 +469,8 @@ changed.
 
 | Agent | File | Tool events and hook events |
 |---|---|---|
-| Pi | `.pi/extensions/cairnkit.ts` | `session_start` and `session_compact`: `session-start`, held until the next prompt. `before_agent_start`: `prompt`, then returns a hidden message with the held load and the news. `tool_result` for `bash`: `after-shell`. `agent_end`: `stop`, sent once as a follow-up that starts a turn. |
-| OpenCode | `.opencode/plugins/cairnkit.js` | `session.created` and `session.compacted`: `session-start`, sent with `noReply`. `session.idle`: `stop`, sent once as a prompt. `tool.execute.after` for `bash`: `after-shell`, sent with `noReply`. |
+| Pi | `.pi/extensions/cairnkit.ts` | `session_start` and `session_compact`: `session-start`, held until the next prompt. `before_agent_start`: `prompt`, then returns a hidden message with the held load and the news. `tool_call` for `bash`: `before-shell`, and a reply returns `{ block: true, reason }`. `tool_result` for `bash`: `after-shell`. `agent_end`: `stop`, sent once as a follow-up that starts a turn. |
+| OpenCode | `.opencode/plugins/cairnkit.js` | `session.created` and `session.compacted`: `session-start`, sent with `noReply`. `session.idle`: `stop`, sent once as a prompt. `tool.execute.before` for `bash`: `before-shell`, and a reply is thrown as an error, which stops the call. `tool.execute.after` for `bash`: `after-shell`, sent with `noReply`. |
 
 ### `tool-version.json`
 
@@ -524,6 +524,18 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   that another branch or auto-tidy wrote or ended since the load, and up to 5 stored
   facts that match files changed since the load, traps first. Each item is named once.
   It always exits 0.
+- `before-shell`: before a shell command runs. It splits the command into steps at `;`, `&&`,
+  `||`, `|` and newlines. A step is its `NAME=value` settings and its core, the other words without
+  output redirects. An active fact matches when its text holds the whole core behind a prefix that
+  the step lacks: a setting, or one of the wrappers `env`, `sudo`, `uv run`, `poetry run`,
+  `pdm run`, `pipenv run`, `hatch run`, `bundle exec`, `npx`, `pnpm exec` and `bunx`. The fact
+  speaks once in a session (`.sessions/before-*.json`). Its masked line, labelled as data, and the
+  longer form are the reason of a deny:
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+  "permissionDecisionReason": TEXT}}` for `claude` and `codex`, and TEXT on stdout for `pi` and
+  `opencode`. It never prints an allow, because an allow skips the person's own approval. With
+  nothing to say, on any error and past 2.5 seconds, it prints nothing (`{}` for `codex`), and the
+  command runs. Other agents get nothing. It always exits 0.
 - `after-shell` and `post-tool`: record one shell or tool result for the loop
   breaker and for the events of `stop`. Then they add the same news as
   `prompt`, and the load that `grok` holds. The third identical failure adds the nudge. The output is
