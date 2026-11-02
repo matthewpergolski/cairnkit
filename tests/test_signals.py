@@ -494,7 +494,7 @@ def boom(*args, **kwargs):
     [
         ("hookrun.read_health", ("`make` failed 2 times",)),
         ("signals.stop_nudge", ("`make` failed 2 times",)),
-        ("hookrun.mark_reminder", ("`make` failed 2 times",)),
+        ("hookrun.capture_reasons", ("`make` failed 2 times",)),
     ],
 )
 def test_one_broken_step_leaves_the_others_at_stop(repo, mem, capsys, monkeypatch, broken, kept):
