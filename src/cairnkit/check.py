@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cairnkit import (
-    deadline,
     enforcement,
     githook,
     instruction_files,
@@ -23,7 +22,6 @@ from cairnkit import (
 )
 from cairnkit.clock import now
 from cairnkit.config import config_problems, secrets_in_config
-from cairnkit.docs_cmd import status_line
 from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
 from cairnkit.memory import Memory, MemoryMissing, listed
@@ -524,8 +522,8 @@ def _read_health(project: Project, flag: str | None) -> Health:
     _hook_lines(hooks, health)
     # For a hook that it can fix, repo_line says only what the hook state already said.
     repo = refresh.gone_python_line(project) if hooks.fixable else refresh.repo_line(project, flag)
-    docs = status_line(project) if deadline.has_time() else None
-    health.todo += [line for line in (repo, docs) if line]
+    if repo:
+        health.todo.append(repo)
     note = preset_note(project, memdir)
     if note:
         health.info.append(note)

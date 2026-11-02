@@ -433,6 +433,7 @@ def _say_changes(bar: Progress, source, old: str | None, new: str | None) -> Non
 def run_status(project, flag: str | None) -> int:
     """The version, the source, and one line for each update that is due."""
     from cairnkit.check import read_health
+    from cairnkit.docs_cmd import status_line as docs_status_line
 
     source, _ = src.installed(None)
     build = src.running_build()
@@ -448,6 +449,9 @@ def run_status(project, flag: str | None) -> int:
     health = read_health(project, flag)
     for line in [*health.linked, health.answer(), *health.details(), *health.todo, *health.info]:
         print(line)
+    atlas = docs_status_line(project)
+    if atlas:
+        print(atlas)
     with contextlib.suppress(OSError, ValueError):
         line = skills.status_line(resolve_memory_dir(project, flag)[0])
         if line:
