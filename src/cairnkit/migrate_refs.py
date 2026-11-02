@@ -162,7 +162,10 @@ def check_notes(memdir: Path) -> list[str]:
     notes = [pending] if pending else []
     notes += [
         f"note: {LINK_NAME}/{rel} is outside notes/, so `memory load` does not read it. "
-        "`memory migrate --yes` settles it."
+        f"`memory migrate --yes` moves it to {LINK_NAME}/notes/{rel}, and it replaces only the "
+        "empty template there. A note with other text stays, and this file goes to "
+        f"{LINK_NAME}/{OLD_COPIES}/{rel} with a task to compare them. No text is lost. "
+        "`memory migrate` prints the plan and changes nothing."
         for rel in stray_files(memdir)
     ]
     return notes

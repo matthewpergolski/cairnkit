@@ -117,6 +117,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A pull, a merge, a rebase or a branch switch no longer reads as lost files at stop. Stop asks
   about a tracked file only when this session deleted it, in the worktree or in a commit it made
   here. With the HEAD reflog off, only a worktree deletion counts.
+- `memory init --refresh` says where the list of the facts that it ended is. It names
+  `memory-bank/auto-tidy.log`, whose lines hold each undo, and `memory show ID`.
+- The `memory check` note about a file outside `notes/` says what `memory migrate --yes` moves and
+  what stays, and it names `memory migrate`, which only prints the plan. That plan now says that
+  the file leaves its place, and it no longer says `Migration finished` before the work is done.
 - `memory docs --force` no longer removes or overwrites a Markdown file that it did not write. Only
   a page with the exact front matter of `render_page` is an atlas page. A hand-written page in
   `docs/state` stays and does not make the atlas stale, so `memory status` stops asking for
