@@ -217,7 +217,7 @@ elif args[0] == "load":
 """
 
 AGENT_STUB = """#!__PYTHON__
-import os, shutil, subprocess, sys
+import os, re, shutil, subprocess, sys
 from pathlib import Path
 
 prompt = sys.argv[1]
@@ -256,7 +256,14 @@ elif "I approve the merge of #412" in prompt:
     keep("The owner approved the merge of PR 412.")
     print("Understood.")
 elif "wait on me" in prompt:
-    print("WAITING: 377" if "412" in recall() else "WAITING: 377, 412")
+    # Only a file that the prompt names can answer: a real session has no GitHub here.
+    queue = re.search(r"docs/[\\w-]+\\.md", prompt)
+    if queue:
+        waiting = re.findall(r"#(\\d+) .*Waiting", Path(queue[0]).read_text())
+        settled = recall()
+        print("WAITING: " + ", ".join(n for n in waiting if f"PR {n}" not in settled))
+    else:
+        print("I cannot list the pull requests without gh.")
 elif "tune-retry-window from main" in prompt:
     commit_on("tune-retry-window", "service/config.py", "= 30", "= 45", "change retry window")
     keep("Branch tune-retry-window exists for the Halvorsen gateway restart.")
@@ -333,6 +340,29 @@ def stub_memory_build(tmp_path) -> sandbox.Build:
     return sandbox.Build(label="dev", commit="c0", root=root, version="stub")
 
 
+REAL_TOOL = """#!__PYTHON__
+import json, os, sys
+
+if not os.environ.get("CAIRNKIT_EVAL_HARNESS"):
+    row = {"argv": ["memory", *sys.argv[1:]], "cwd": os.getcwd(), "at": 0}
+    with open(__TRACE__, "a") as handle:
+        handle.write(json.dumps(row) + "\\n")
+os.execv(sys.executable, [sys.executable, "-m", "cairnkit", *sys.argv[1:]])
+"""
+
+
+def real_tool_build(tmp_path) -> sandbox.Build:
+    """This checkout's tool, not a stub: its hooks, its `memory add` and its `memory load`."""
+    root = tmp_path / "real-build"
+    bin_dir = root / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    path = bin_dir / "memory"
+    text = REAL_TOOL.replace("__PYTHON__", sys.executable)
+    path.write_text(text.replace("__TRACE__", repr(str(root / "trace.jsonl"))))
+    path.chmod(0o755)
+    return sandbox.Build(label="dev", commit="c0", root=root, version="this checkout")
+
+
 def scripted_options(tmp_path, agent, scenarios, **kw):
     return runner.Options(
         agent=agent,
@@ -356,6 +386,19 @@ def test_each_scenario_separates_a_carried_note_from_no_memory(tmp_path, scripte
         assert row["agent_a"] == row["agent_b"] == "scripted"
     assert "memory" in rows["dev"]["carried"]
     assert rows["none"]["carried"] == []
+
+
+@pytest.mark.parametrize("scenario_id", VALUE_IDS)
+def test_each_scenario_can_pass_with_the_real_tool_when_session_a_captures(
+    tmp_path, scripted, scenario_id
+):
+    """The stub above cannot show this: here the real hooks and the real load run."""
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[scenario_id]])
+    options.builds = {"dev": real_tool_build(tmp_path)}
+    row = runner.run_all(options)[0]
+    assert row["result"] == PASS, row["reason"]
+    assert "memory" in row["carried"]
+    assert row["needle_in_load"] is True
 
 
 def test_session_b_is_a_new_process_and_gets_no_resume(tmp_path, scripted):
@@ -452,6 +495,20 @@ def two_sessions(probe_a=None, probe_b=None):
 def test_the_waiting_line_decides_and_an_empty_answer_never_passes(answer, result):
     check = SCENARIOS["pickup-decision"].check
     assert check(answered(answer)).result == result
+
+
+def test_the_pending_question_can_be_answered_from_local_files_with_no_answer_in_the_prompt():
+    scenario = SCENARIOS["pickup-decision"]
+    queue = scenario.files["docs/pr-queue.md"]
+    assert "Waiting on the owner" in queue.split("#412")[1].splitlines()[0]
+    assert "Waiting on the owner" in queue.split("#377")[1].splitlines()[0]
+    for prompt in scenario.pickup:
+        assert "docs/pr-queue.md" in prompt
+        assert "412" not in prompt and "377" not in prompt
+        assert "approv" not in prompt.lower()
+    for prompt in (*scenario.prompts, *scenario.pickup):
+        assert "look at" not in prompt.lower(), "an open request sends the model to GitHub"
+    assert "not reachable" in scenario.prompts[0] and "not reachable" in scenario.pickup[0]
 
 
 def test_a_word_check_on_session_b_needs_the_work_of_session_a():

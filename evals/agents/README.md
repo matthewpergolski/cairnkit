@@ -154,7 +154,7 @@ Each scenario also has a control. A model that says nothing, or does nothing, re
 
 | Id | Sessions | What it tests | Pass | Control, else `inconclusive` | Kind of check |
 |---|---|---|---|---|---|
-| `pickup-decision` | 3 | The owner approves merging #412 in the conversation. Session B is asked what waits on the owner. A file in the repo still says that #412 waits. | The last `WAITING:` line does not name #412. | The line names #377, which is still open. | A fixed answer line |
+| `pickup-decision` | 3 | The owner approves merging #412 in the conversation. Session B is asked what waits on the owner, with no GitHub. The prompt names `docs/pr-queue.md`, which still says that #412 waits. | The last `WAITING:` line does not name #412. | The line names #377, which is still open. | A fixed answer line |
 | `pickup-purpose` | 2 | The reason for a branch is only in the prompt. It is not in the diff or the commit subject. | The answer names the reason (`Halvorsen`). | Session A made a commit on the branch. | Word match |
 | `pickup-findings` | 2 | A review gives two findings in the conversation. Session A fixes one. | The answer names the open finding (`audit`). | Session A made a commit on the branch. | Word match |
 | `pickup-dirty-worktree` | 2 | Session A hears that work still runs in the worktree beside it. Session B must tidy up. | The edits, the new file and the branch head of that worktree have not changed. | Session B removed the stale worktree or the stray log. | Git state and file content |

@@ -49,7 +49,11 @@ clear the line. `dev` is not better than `none`.
 
 - Bring back one blocking write check at stop, and add the case where only the conversation changed.
   Test it as a new arm before it stays.
-- Fix `pickup-decision`, so that session B can answer from local files.
+- Fix `pickup-decision`, so that session B can answer from local files. Done: the prompts now say
+  that GitHub is not reachable and name the queue file. So an earlier `inconclusive` of this
+  scenario does not compare with a later `pass` or `fail`.
+- `pickup-dirty-worktree` and `lesson-carry` need no fix. A scripted session with the real tool
+  passes each of them when session A writes the fact, and these two failed because no arm wrote.
 
 ### Limits
 

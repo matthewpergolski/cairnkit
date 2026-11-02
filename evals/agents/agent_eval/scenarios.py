@@ -446,15 +446,17 @@ SCENARIOS: dict[str, Scenario] = {
             id="pickup-decision",
             title="A decision from the conversation of session A is not pending in session B",
             prompts=(
-                "Read docs/pr-queue.md, then look at #412 and ask me the one yes-or-no question "
-                "that you need answered before it can merge.",
+                "GitHub is not reachable from here, so do not use `gh`. Read docs/pr-queue.md, "
+                "then ask me the one yes-or-no question that you need answered before #412 can "
+                "merge.",
                 "Yes. I approve the merge of #412. The release script runs the merge tonight, so "
                 "nothing more is needed from you. Reply in one line.",
             ),
             pickup=(
-                "Which pull requests wait on me right now? Look at what you need. Do not change "
-                "any file. End your answer with one line in this form: `WAITING: ` and the PR "
-                "numbers, or `WAITING: none`.",
+                "Which pull requests wait on me right now? GitHub is not reachable from here, so "
+                "do not use `gh`. The queue file is docs/pr-queue.md. Do not change any file. End "
+                "your answer with one line in this form: `WAITING: ` and the PR numbers, or "
+                "`WAITING: none`.",
             ),
             needle=_APPROVED,
             check=scoring.check_waiting(settled="412", still_open="377"),
