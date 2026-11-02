@@ -537,6 +537,15 @@ def test_value_scenarios_plant_nothing_and_give_session_b_no_hint():
                 assert not scenario.needle.search(text), scenario_id
 
 
+def test_the_readme_states_the_reading_rule_and_each_scenario():
+    text = " ".join((KIT / "README.md").read_text().split())
+    assert "clearly beats the no-memory arm and the earlier arms on pickup and lesson-carry" in text
+    assert "scoring.READING_RULE" not in text
+    for scenario_id in VALUE_IDS:
+        assert f"`{scenario_id}`" in text
+    assert "clearly beats the no-memory arm" in scoring.READING_RULE
+
+
 def test_the_value_suite_is_chosen_by_name_and_the_default_stays_as_it_was():
     assert [s.id for s in selected(None, fake=False, suite="value")] == list(VALUE_IDS)
     assert "fake-pickup-channel" in [s.id for s in selected(None, fake=True, suite="value")]

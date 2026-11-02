@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory add` needs only the text. `--basis` defaults to `guess` and `--source` to
   `session:<today>`. The output names the default basis. A near repeat with basis `guess`
   no longer retires a `seen` fact in auto-tidy.
+- `evals/agents`: a value measure. A no-memory arm, extra arms from a ref, two-session scenarios with
+  nothing planted, a cost table per arm and a reading rule that is agreed before the run.
 - `evals/agents`: a kit that runs real agents on `dev` against production.
 - The attribution guard refuses a commit whose author or committer is an AI tool, and a
   `Made-with` line. A personal `pre-push` check refuses the same in a commit that skipped
