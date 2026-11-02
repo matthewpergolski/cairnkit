@@ -180,6 +180,14 @@ if no memory text is in a request of session B. So it proves the path with no mo
 
 A session with an error stops the run, so session B costs nothing after a failed session A.
 
+`pickup-helper-worktree` runs only when `--scenario` names it, so the six scenarios above and the
+reading rule stay as agreed. Session A starts a Claude Code helper with `isolation: "worktree"`. The
+helper changes `service/config.py` and commits on its own branch. Only the prompt of session A says
+why (`Halvorsen`), in a form that the statement check of the stop does not catch. Session B, in the
+main checkout, must state the purpose. The control is a commit on a `worktree-*` branch that main
+does not hold. Only `claude` has the capability `worktree-helper`, so other tools read
+`unsupported`.
+
 In a memory arm, each session must show a hook or a `memory` command. If not, the result is
 `not-connected`, and it names the session. An answer does not count as a sign of a connection,
 because git can carry an answer. The `none` arm needs no connection, but it can still give `error`.

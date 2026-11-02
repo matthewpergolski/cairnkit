@@ -912,9 +912,16 @@ each adapter, and "format the code" never blocks. An agent that writes a fact at
 most 3. A subagent gets no capture check, because it never saw the conversation. Its stop has an
 `agent_id` or, on OpenCode, a session with a `parentID`. The files that it changes reach the check of
 its parent, which knows why it asked for them. Claude Code, Codex, Cursor and Grok Build have a
-separate subagent stop, which the tool does not connect. A subagent that works in its own worktree
-therefore gets no check. Its parent gets one only if the owner stated something or its own checkout
-changed. `tests/test_stop_replay.py` and `tests/test_capture_stop.py` replay these.
+separate subagent stop, which the tool does not connect. A Claude Code subagent with
+`isolation: "worktree"` works in `.claude/worktrees/agent-*`, and its hooks run there with the
+session key of its parent. They mark that checkout in `.sessions/live/`. The next stop of the parent
+keeps each checkout that the markers of its own session name, and its check also reads those
+checkouts. A checkout has work when it holds a changed file or a commit that the parent's checkout
+does not hold. A removed worktree, or a git that cannot answer in time, is no change. Work that a
+subagent of another session does never blocks this session. On OpenCode, a child session has its own
+key and its hooks run in the project folder, so this path does not apply there.
+`tests/test_stop_replay.py`, `tests/test_capture_stop.py` and `tests/test_helper_worktree.py`
+replay these.
 
 **Corrections and lost files.** When the owner's prompt corrects the agent, or the session deleted
 a file that was here at its start, stop names it once and asks if a trap belongs in memory. The

@@ -18,7 +18,7 @@ KIT = ROOT / "evals" / "agents"
 sys.path.insert(0, str(KIT))
 
 from agent_eval import runner, sandbox, scoring  # noqa: E402
-from agent_eval.agents import AGENTS, Agent, CallContext, Parsed  # noqa: E402
+from agent_eval.agents import AGENTS, WORKTREE_HELPER, Agent, CallContext, Parsed  # noqa: E402
 from agent_eval.scenarios import SCENARIOS, selected  # noqa: E402
 from agent_eval.scoring import FAIL, NOT_CONNECTED, PASS, Observation, Outcome, Turn  # noqa: E402
 
@@ -289,6 +289,16 @@ elif "tune-retry-window from main" in prompt:
     commit_on("tune-retry-window", "service/config.py", "= 30", "= 45", "change retry window", why)
     keep(why)
     print("Done.")
+elif 'isolation set to "worktree"' in prompt:
+    tree = Path(".claude/worktrees/agent-stub")
+    sh("git", "worktree", "add", "-q", "-b", "worktree-agent-stub", str(tree))
+    config = tree / "service/config.py"
+    config.write_text(config.read_text().replace("= 30", "= 45"))
+    sh("git", "-C", str(tree), "commit", "-qam", "change retry window")
+    keep("The helper branch outlasts the nightly Halvorsen gateway restart. Review, then merge.")
+    print("Done.")
+elif "left work on a branch in a worktree" in prompt:
+    print("It is for the Halvorsen gateway." if "Halvorsen" in recall() else "UNKNOWN")
 elif "branch tune-retry-window" in prompt:
     print("It is for the Halvorsen gateway." if "Halvorsen" in recall() else "UNKNOWN")
 elif "checkout-review from main" in prompt:
@@ -658,7 +668,7 @@ def test_the_promise_is_read_from_the_file(probe, result):
 
 
 def test_value_scenarios_plant_nothing_and_give_session_b_no_hint():
-    for scenario_id in VALUE_IDS:
+    for scenario_id in (*VALUE_IDS, HELPER_ID):
         scenario = SCENARIOS[scenario_id]
         assert scenario.pickup, scenario_id
         assert scenario.facts == (), scenario_id
@@ -683,8 +693,44 @@ def test_the_readme_states_the_reading_rule_and_each_scenario():
     assert "clearly beats the no-memory arm" in scoring.READING_RULE
 
 
+HELPER_ID = "pickup-helper-worktree"
+
+
+def test_the_helper_scenario_runs_only_by_name_and_separates_a_carried_note(tmp_path, scripted):
+    assert [s.id for s in selected([HELPER_ID], fake=False)] == [HELPER_ID]
+    helper = replace(scripted, capabilities=scripted.capabilities | {WORKTREE_HELPER})
+    rows = {
+        row["build"]: row
+        for row in runner.run_all(scripted_options(tmp_path, helper, [SCENARIOS[HELPER_ID]]))
+    }
+    assert rows["dev"]["result"] == PASS, rows["dev"]["reason"]
+    assert rows["none"]["result"] == FAIL, rows["none"]["reason"]
+    assert "memory" in rows["dev"]["carried"]
+
+
+def test_the_helper_scenario_needs_a_tool_whose_helper_has_its_own_worktree(tmp_path, scripted):
+    rows = runner.run_all(scripted_options(tmp_path, scripted, [SCENARIOS[HELPER_ID]]))
+    assert {row["result"] for row in rows} == {scoring.UNSUPPORTED}
+    assert WORKTREE_HELPER in AGENTS["claude"].capabilities
+    assert not any(
+        WORKTREE_HELPER in AGENTS[name].capabilities for name in AGENTS if name != "claude"
+    )
+
+
+def test_helper_work_merged_to_main_or_left_undone_is_inconclusive():
+    check = SCENARIOS[HELPER_ID].check
+    done = two_sessions({"branch_commits": 1}, {"branch_commits": 1})
+    assert (
+        check(answered("Outlast the Halvorsen restart; review it.", sessions=done)).result == PASS
+    )
+    assert check(answered("UNKNOWN", sessions=done)).result == FAIL
+    idle = two_sessions({"branch_commits": 0}, {"branch_commits": 0})
+    assert check(answered("Halvorsen", sessions=idle)).result == scoring.INCONCLUSIVE
+
+
 def test_the_value_suite_is_chosen_by_name_and_the_default_stays_as_it_was():
     assert [s.id for s in selected(None, fake=False, suite="value")] == list(VALUE_IDS)
+    assert HELPER_ID not in [s.id for s in selected(None, fake=True, suite="value")]
     assert "fake-pickup-channel" in [s.id for s in selected(None, fake=True, suite="value")]
     assert not {s.id for s in selected(None, fake=False)} & set(VALUE_IDS)
     assert [s.id for s in selected(None, fake=True)] == ["fake-connect", "fake-auth-error"]

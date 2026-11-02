@@ -15,6 +15,7 @@ import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
+from cairnkit import deadline
 from cairnkit.autotidy import WRITER as AUTO_TIDY_WRITER
 from cairnkit.clock import now, stamp
 from cairnkit.install_source import SKIP_DIRS, SKIP_SUFFIXES
@@ -33,6 +34,8 @@ REFLOG_LIMIT = "500"
 # Owner prompts between two blocks for work, when the agent answers each one with a fact. An agent
 # that always writes then sees at most 3 blocks in 20 turns, the limit of tests/test_stop_replay.py.
 WORK_GAP = 6
+# Helper checkouts read at one stop. Each costs about five git calls inside the stop's budget.
+HELPER_LIMIT = 8
 WORK_CHANGED = "The work changed in this session, and no fact records it."
 OWNER_SAID = "The owner stated something that only this conversation holds, and no fact records it."
 BOTH_CHANGED = (
@@ -185,23 +188,67 @@ def _durable_tracked_paths(root: Path, memory_dir: Path | None) -> list[str]:
     return paths
 
 
-def fingerprint(root: Path, memory_dir: Path | None = None) -> str:
-    """A hash of the work that a later session could need a fact about. Junk does not count."""
+def _work(root: Path, memory_dir: Path | None) -> tuple[str, str, list[str]]:
+    """HEAD, the diff of durable tracked paths, and the durable untracked paths. No junk."""
     durable = _durable_tracked_paths(root, memory_dir)
     untracked = sorted(
         path
         for path in _untracked_paths(root)
         if durable_untracked(path) and not is_memory_path(path, root, memory_dir)
     )
-    blob = "\0".join(
-        (
-            "durable-v1",
-            run_git(root, "rev-parse", "HEAD", timeout=2.0) or "",
-            (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "") if durable else "",
-            *untracked,
-        )
-    )
-    return hashlib.sha1(blob.encode()).hexdigest()
+    head = run_git(root, "rev-parse", "HEAD", timeout=2.0) or ""
+    diff = (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "") if durable else ""
+    return head, diff, untracked
+
+
+def _digest(head: str, diff: str, untracked: list[str]) -> str:
+    return hashlib.sha1("\0".join(("durable-v1", head, diff, *untracked)).encode()).hexdigest()
+
+
+def fingerprint(root: Path, memory_dir: Path | None = None) -> str:
+    """A hash of the work that a later session could need a fact about. Junk does not count."""
+    return _digest(*_work(root, memory_dir))
+
+
+def note_helpers(memory: Memory, session_id: str, paths: list[str]) -> None:
+    """Keep the other checkouts where a helper of this session worked. Only a main stop calls it.
+
+    A Claude Code helper with `isolation: "worktree"` works in its own worktree, with the session
+    key of its parent. Its changes are not in this checkout, so the capture check reads them there.
+    Only the live markers of this session name a checkout, so the work of another session never
+    counts. The value is the work seen at the last look, empty before the first.
+    """
+    root = memory.project.root.resolve()
+    state = load_state(memory, session_id)
+    if state is None:
+        return
+    helpers = state.setdefault("helpers", {})
+    new = [path for path in paths if path not in helpers and Path(path).resolve() != root]
+    if new:
+        helpers.update(dict.fromkeys(new, ""))
+        save_state(memory, session_id, state)
+
+
+def _helper_work(memory: Memory, seen: dict[str, str]) -> dict[str, str]:
+    """The work of each helper checkout that holds changes or commits that this checkout lacks.
+
+    A checkout that is gone, or that git could not read in time, is left out, so it is no change.
+    """
+    project = memory.project
+    present = {path.resolve() for path in project.checkouts} - {project.root.resolve()}
+    wanted = [path for path in seen if Path(path).resolve() in present][:HELPER_LIMIT]
+    if not wanted:
+        return {}
+    base = run_git(project.root, "rev-parse", "HEAD", timeout=2.0) or ""
+    found = {}
+    for path in wanted:
+        cuts = deadline.git_cuts()
+        head, diff, untracked = _work(Path(path), memory.dir)
+        args = ("merge-base", "--is-ancestor", head, base)
+        merged = bool(head and base) and run_git(project.root, *args, timeout=2.0) is not None
+        if deadline.git_cuts() == cuts and (diff or untracked or not merged):
+            found[path] = _digest(head, diff, untracked)
+    return found
 
 
 def files_outside_git(root: Path, memory_dir: Path | None) -> list[str]:
@@ -354,13 +401,15 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
 
     A statement is due when no fact followed it. Work is due when it changed since the last look,
     unless the agent already answered a block for work with no fact: only a later fact opens that
-    again, and then only after WORK_GAP prompts. A session from an older tool starts here.
+    again, and then only after WORK_GAP prompts. The work includes the checkouts of this session's
+    helpers (see `note_helpers`). A session from an older tool starts here.
     """
     state = load_state(memory, session_id)
     if state is None or "writes" not in state:
         start_session(memory, session_id)
         return []
     root, wrote, prompts = memory.project.root, agent_writes(memory), state.get("prompts", 0)
+    seen = state.get("helpers") or {}
     reasons = []
     said = state.pop("said", None)
     if said is not None and wrote <= said:
@@ -371,12 +420,16 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
             settled=prompts,
             declined=False,
             start=fingerprint(root, memory.dir),
+            helpers={**seen, **_helper_work(memory, seen)},
         )
     elif not state.get("declined") and prompts - state.get("settled", -WORK_GAP) >= WORK_GAP:
         now_work = fingerprint(root, memory.dir)
-        if now_work != state.get("start"):
+        helpers = _helper_work(memory, seen)
+        if now_work != state.get("start") or any(seen.get(p) != h for p, h in helpers.items()):
             reasons.append(WORK_CHANGED)
-            state.update(declined=True, settled=prompts, start=now_work)
+            state.update(
+                declined=True, settled=prompts, start=now_work, helpers={**seen, **helpers}
+            )
     save_state(memory, session_id, state)
     return [BOTH_CHANGED] if len(reasons) == 2 else reasons
 

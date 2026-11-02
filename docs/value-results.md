@@ -7,6 +7,75 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: work of a helper in its own worktree, on Haiku
+
+This change makes the capture check at the stop also read the worktree of each Claude Code helper
+of this session that ran with `isolation: "worktree"`. Before, a helper's commit in
+`.claude/worktrees/agent-*` did not block the stop of its parent. In the first real use by the
+owner, 5 helpers left no fact. The new scenario `pickup-helper-worktree` runs only by name, so the
+reading rule of the six scenarios does not apply to it.
+
+- Commits: `dev` is `d82bf1a`. `base` is `f382781`. No `prod` arm.
+- Model: `claude-haiku-5-5` for session A and session B, 3 repeats. Sonnet did not run, because
+  the Haiku result is clear.
+- Sessions: 18. Reported cost: 0.07 USD. The cap was 0.15 USD for each session.
+- Local results: `evals/agents/results/20261102T162722Z-claude`, in the worktree of the change.
+
+### Before the run: a probe of real Claude Code
+
+One `claude -p` session on Haiku, with a probe hook beside the memory hooks, in a throwaway repo:
+
+- The hooks of the helper ran, with the worktree as the process folder and as `cwd` in the payload.
+  They had the `session_id` of the parent and an `agent_id`.
+- The `after-shell` hook of the helper wrote a live marker for the worktree. The worktree had its
+  `memory-bank` link, from the `post-checkout` git hook.
+- The stop of the parent did not block with `f382781`, before this change. The main checkout
+  shows the worktree only as an untracked folder, and that is no work.
+- In one run the helper ran in the background. The parent stopped before the helper worked, and
+  stopped again after the task notice. So the check must keep the helper's checkout past one stop.
+
+### Results
+
+| Scenario | dev | base | none |
+|---|---|---|---|
+| `pickup-helper-worktree` | 3 of 3 | 0 of 3 | 0 of 3 |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 6 | 5 | 5 | 3 | 223 |
+| base | 6 | 0 | 0 | 0 | 144 |
+| none | 6 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The helper ran in a worktree in all 9 runs.** Each session A called the Agent tool with
+  `isolation: "worktree"`, and each left 1 commit on a `worktree-agent-*` branch that main does
+  not hold. So no run is `inconclusive`.
+- **The block fired once in each `dev` session A, and never in `base`.** Its reason was "The work
+  changed in this session, and no fact records it." The stop after it was silent. Session A then
+  wrote 1 or 2 facts with the Halvorsen restart as the purpose and the review as the next step.
+- **The fact carried.** The load of session B held `Halvorsen` in 3 of 3 `dev` runs. Each session B
+  stated the purpose. In `base` and `none`, session B read the commit and the diff, and said that
+  the purpose is not known.
+- **The prompt states no decision or reason in the form that the statement check catches.** So in
+  `base`, no stop asked for a fact. That is the gap of the first real use.
+
+### Limits
+
+- One run of 3 repeats, on Haiku only.
+- Some facts also restate git: the branch name and the commit hash.
+- A helper of this session that runs one tool in a checkout where another session works makes that
+  work count for this session too. No test or run shows how often that happens.
+- OpenCode did not run. Its `task` child has its own session key, and its hooks run in the project
+  folder, so this path does not apply there. The `openai` login of this machine is a ChatGPT
+  account, and it refused `gpt-5.4-mini`, `gpt-5.5` and `gpt-6.1-sol` in OpenCode.
+
+### Decisions
+
+- Keep the change: 3 of 3 against 0 of 3, with one block for each session that used a helper.
+- A run on Sonnet, and a run of the six scenarios to check that the cost table does not move, are
+  owner calls.
+
 ## 2026-11-02: dev against 0.3.1 on Sonnet
 
 This is the run on a larger model that the reading rule asks for before a keep or cut. It has all

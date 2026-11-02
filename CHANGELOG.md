@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The capture check at a stop also reads the worktree of each Claude Code subagent of this session
+  that ran with `isolation: "worktree"`. Before, its changes and its commits in
+  `.claude/worktrees/agent-*` did not block, and in a first real use 5 subagents left no fact. Work
+  of another session's subagent never blocks this session. A removed worktree is no change. The eval
+  scenario `pickup-helper-worktree` tests it, and runs only when `--scenario` names it.
+
 - Before a shell command runs, a stored fact that gives a longer form of the same command stops
   that call once, with the fact as the reason. An example is `REPORT_LOCALE=C sh report.sh` for
   `sh report.sh`. Each fact stops one call in a session, and the next call runs. Claude Code and
