@@ -168,10 +168,9 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
         if not memory.only_plain(fact_id)
     ]
     errors += [memory.secret_line_problem(line) for line in memory.secret_lines]
-    root = memory.project.root
     for state in sorted(memory.states.values(), key=lambda s: s["id"]):
         held = state.get("held_by")
-        if state.get("status") == "promoted" and held and not _path_known(root, held):
+        if state.get("status") == "promoted" and held and not _path_known(memory.project, held):
             errors.append(
                 f"{state['id']}: held_by {held} does not exist; run "
                 f'`memory change {state["id"]} --status active --reason "..."` to load the '
@@ -184,11 +183,11 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
     ]
 
 
-def _path_known(root, path: str) -> bool:
-    """True when the path exists here, or in the history of any branch."""
-    if (root / path).exists():
+def _path_known(project: Project, path: str) -> bool:
+    """True when the path exists in any checkout, or in the history of any branch."""
+    if any((checkout / path).exists() for checkout in (project.root, *project.checkouts)):
         return True
-    found = run_git(root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0)
+    found = run_git(project.root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0)
     return found is None or bool(found)  # git cannot say: a slow git is not a problem to report
 
 
