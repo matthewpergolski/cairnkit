@@ -600,6 +600,7 @@ def test_the_lesson_check_reads_the_first_run_of_session_b(runs_a, runs_b, resul
 
 
 SEND_ORIGINAL = SCENARIOS["promise-at-file"].files["relay/send.py"]
+LIST_SEND = "for attempt in range(MAX_ATTEMPTS):\n    sleep(BACKOFF_SECONDS[attempt])\n"
 
 
 def promise_probe(attempts, wait, send=SEND_ORIGINAL):
@@ -618,6 +619,13 @@ def promise_probe(attempts, wait, send=SEND_ORIGINAL):
         ({"config": "x = 1\n", "send": SEND_ORIGINAL}, scoring.INCONCLUSIVE),
         (promise_probe(5, 2, "for attempt in range(10):\n    pass\n"), scoring.INCONCLUSIVE),
         (promise_probe(5, 2, "for n in range(MAX_ATTEMPTS):\n    wait(2 ** n)\n"), PASS),
+        (promise_probe(5, "[90, 120, 180, 240]", LIST_SEND), PASS),
+        (promise_probe(21, "[90, 120]", LIST_SEND), FAIL),
+        (promise_probe(5, "[90, 120, 180, 240]"), scoring.INCONCLUSIVE),
+        (
+            {"config": "MAX_ATTEMPTS = 5\nSCHEDULE = [90, 120]\n", "send": LIST_SEND},
+            PASS,
+        ),
     ],
 )
 def test_the_promise_is_read_from_the_file(probe, result):
