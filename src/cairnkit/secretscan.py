@@ -207,6 +207,11 @@ MADE_UP = re.compile(r"[a-z][A-Z]|\w[@#%^&*!]\w?")
 MIN_VALUE = 4
 MIN_PROSE_DIGITS = 6
 MIN_WEAK_VALUE = 6
+MIN_URL_VALUE = 6
+# No digit, no capital inside it and no symbol. This reads as a word, and it can be a password.
+PLAIN_VALUE = re.compile(r"[A-Za-z][a-z]*")
+POSSESSIVE = re.compile(r"'[a-z]{1,2}\b")
+NEXT_WORD = re.compile(r"\s+[A-Za-z]")
 
 # A lookahead, so that `login: password=abc` still finds the second label.
 VALUE = r"""(?="(?P<dq>[^"\n]*)"|'(?P<sq>[^'\n]*)'|`(?P<bq>[^`\s]*)`|(?P<bare>[^\s'"`]+))"""
@@ -278,15 +283,34 @@ def _is_reference(value: str) -> bool:
     return parts[0] in CODE_ROOTS or last.isupper() or label_of(last) is Label.STRONG
 
 
+def _stands_in(value: str) -> bool:
+    return (
+        value[:1] in ("$", "<", "{")
+        or any(mark in value for mark in ("${", "{{"))
+        or bool(TEMPLATE.fullmatch(value) or PLACEHOLDER.fullmatch(value))
+    )
+
+
 def is_not_a_value(value: str) -> bool:
     """The text names where a value is, or stands in for one."""
     return (
-        value[:1] in ("$", "<", "{", "(")
-        or any(mark in value for mark in ("${", "{{", "]("))
-        or bool(TEMPLATE.fullmatch(value) or PLACEHOLDER.fullmatch(value) or URL.fullmatch(value))
+        _stands_in(value)
+        or value[:1] == "("
+        or "](" in value
+        or bool(URL.fullmatch(value))
         or _is_reference(value)
         or _is_path(value)
     )
+
+
+def _unwrapped(text: str) -> str:
+    """The value without the quote and punctuation that the prose around it adds."""
+    ends = "`'\"*.,;:!?"
+    text = text.lstrip("`'\"*").rstrip(ends)
+    for closing, opening in ((")", "("), ("}", "{"), ("]", "[")):
+        if text.endswith(closing) and opening not in text:
+            text = text.rstrip(closing + ends)
+    return text
 
 
 def _value(match: re.Match[str]) -> tuple[str, bool]:
@@ -294,11 +318,7 @@ def _value(match: re.Match[str]) -> tuple[str, bool]:
     bare = match["bare"]
     if bare is None:
         return next(match[g] for g in ("dq", "sq", "bq") if match[g] is not None), True
-    bare = bare.strip("*").rstrip(".,;:!")
-    for closing, opening in ((")", "("), ("}", "{"), ("]", "[")):
-        if bare.endswith(closing) and opening not in bare:
-            bare = bare.rstrip(closing + ".,;:!")
-    return bare, False
+    return _unwrapped(bare), False
 
 
 def looks_made_up(value: str) -> bool:
@@ -311,12 +331,25 @@ def looks_made_up(value: str) -> bool:
     return has_digit or bool(MADE_UP.search(value))
 
 
+def _reads_as_prose(match: re.Match[str], value: str) -> bool:
+    """`**A bad secret:** Dahl's name`: a plain word that the sentence goes on from."""
+    if match["bare"] is None or not PLAIN_VALUE.fullmatch(value):
+        return False
+    after = match.end("bare")
+    return bool(
+        POSSESSIVE.match(match.string, after)
+        or (match["stars"] and NEXT_WORD.match(match.string, after))
+    )
+
+
 def _assigned_name(match: re.Match[str]) -> bool:
     label = label_of(match["name"])
     if label is Label.NONE:
         return True
     value, _ = _value(match)
     if value.lower() == match["name"].lower() or is_not_a_value(value):
+        return True
+    if _reads_as_prose(match, value):
         return True
     if label is Label.WEAK:
         words = re.split(r"[_-]", value)
@@ -335,9 +368,10 @@ def _spoken(match: re.Match[str]) -> bool:
 
 
 def _url_parameter(match: re.Match[str]) -> bool:
-    if TEMPLATE.fullmatch(match["value"]):
+    value = _unwrapped(match["value"])
+    if len(value) < MIN_URL_VALUE or _stands_in(value):
         return True
-    return not SECRET_NAME.search(match["name"]) and _is_word(match["value"])
+    return not SECRET_NAME.search(match["name"]) and _is_word(value)
 
 
 def _url_password(match: re.Match[str]) -> bool:
@@ -349,6 +383,8 @@ class Shape(NamedTuple):
     name: str
     pattern: re.Pattern[str]
     harmless: Callable[[re.Match[str]], bool] = lambda match: False
+    # The name beside the value says secret, and no shape of the value does.
+    labelled: bool = False
 
 
 SHAPES: list[Shape] = [
@@ -399,6 +435,7 @@ SHAPES: list[Shape] = [
             r"|auth)=(?P<value>[^\s&#]{6,})"
         ),
         _url_parameter,
+        labelled=True,
     ),
     Shape(
         "JSON web token",
@@ -412,14 +449,17 @@ SHAPES: list[Shape] = [
     Shape(
         "assigned secret",
         re.compile(
-            r"(?<![\w.])(?P<name>[A-Za-z][\w.-]*)['\"`]?\s*(?::=|=>|==|=|:)\s*\**\s*" + VALUE
+            r"(?<![\w.])(?P<name>[A-Za-z][\w.-]*)['\"`]?\s*(?::=|=>|==|=|:)\s*(?P<stars>\**)\s*"
+            + VALUE
         ),
         _assigned_name,
+        labelled=True,
     ),
     Shape(
         "secret after a flag",
         re.compile(r"(?<!\S)--(?P<name>[A-Za-z][\w-]*)\s+" + VALUE),
         _spoken,
+        labelled=True,
     ),
     Shape(
         "secret in prose",
@@ -431,6 +471,7 @@ SHAPES: list[Shape] = [
             r"|(?:set|changed|reset|rotated|updated)\s+to)\s+" + VALUE
         ),
         _spoken,
+        labelled=True,
     ),
 ]
 
@@ -554,7 +595,7 @@ def mask(text: str, known: KnownValues | None = None) -> str:
 
 
 def mask_record(value: object, known: KnownValues | None = None) -> object:
-    """A copy with each free text field masked. It keeps the same fields that `_strings` scans."""
+    """A copy with each free text field masked. It keeps the same fields that `strings_of` scans."""
     if isinstance(value, str):
         return mask(value, known)
     if isinstance(value, list):
@@ -591,6 +632,24 @@ def real_secrets(text: str, known: KnownValues | None = None) -> list[str]:
     return [name for name in find_secrets(text, known) if not (known and known.only_plain([name]))]
 
 
+def only_plain_words(text: str, known: KnownValues | None = None) -> bool:
+    """Each catch here is one plain word that only its label or a `.env` file makes secret.
+
+    A fact refuses this word, because a fact loads in each session. A note is the owner's prose,
+    so `--strict` must not fail on a word that prose can hold by chance.
+    """
+    if "[secret: " in text:
+        text = MASK.sub("<secret>", text)
+    for shape in SHAPES:
+        for match in shape.pattern.finditer(text):
+            if shape.harmless(match):
+                continue
+            start, end = _value_span(match)
+            if not (shape.labelled and PLAIN_VALUE.fullmatch(_unwrapped(text[start:end]))):
+                return False
+    return not known or all(known.only_plain([name]) for name in known.find(text))
+
+
 TEXT_IN_LINE = re.compile(r'"(?:text|summary)"\s*:\s*"(.*)', re.DOTALL)
 
 
@@ -617,18 +676,18 @@ def has_real_text(masked: str) -> bool:
     return len(re.findall(r"[A-Za-z]{2,}", MASK.sub(" ", masked))) >= REAL_WORDS
 
 
-def _strings(value: object) -> Iterator[str]:
+def strings_of(value: object) -> Iterator[str]:
     if isinstance(value, str):
         yield value
     elif isinstance(value, list):
         for item in value:
-            yield from _strings(item)
+            yield from strings_of(item)
     elif isinstance(value, dict):
         for key, item in value.items():
             if key not in UNSCANNED_FIELDS:
-                yield from _strings(item)
+                yield from strings_of(item)
 
 
 def find_in_record(record: dict, known: KnownValues | None = None) -> list[str]:
     """Return the names found in any field of a record that holds free text."""
-    return sorted({name for text in _strings(record) for name in find_secrets(text, known)})
+    return sorted({name for text in strings_of(record) for name in find_secrets(text, known)})
