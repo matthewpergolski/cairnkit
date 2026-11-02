@@ -7,6 +7,72 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-02: dev against 0.3.1 on Sonnet
+
+This is the run on a larger model that the reading rule asks for before a keep or cut. It has all
+the changes of this day together: the capture check at the stop with the shorter block, the deny
+before a shell command, and the live work list. The branch-note gate is off, as it is by default.
+
+- Commits: `dev` is `e0132a6`. `prod` is `d523c01` (0.3.1).
+- Model: `claude-sonnet-5-5` for session A and session B, 3 repeats.
+- Sessions: 117. Reported cost: 4.72 USD. The cap was 0.25 USD for each session.
+- Local results: `evals/agents/results/20261102T100848Z-claude`.
+
+### Results
+
+| Scenario | dev | prod | none |
+|---|---|---|---|
+| `pickup-decision` | 3 of 3 | 0 of 3 | 0 of 3 |
+| `pickup-purpose` | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-findings` | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-dirty-worktree` | 3 of 3 | 0 of 3 | 0 of 3 |
+| `lesson-carry` | 3 of 3 | 0 of 3 | 0 of 3 |
+| `promise-at-file` | 3 of 3 | 1 of 3 | 1 of 3 |
+| **Total** | **18 of 18** | **7 of 18** | **1 of 18** |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 36 | 23 | 23 | 21 | 179 |
+| prod | 36 | 21 | 9 | 9 | 182 |
+| none | 36 | 0 | 0 | 0 | 0 |
+
+### Against the pass line
+
+- Against `none`: 17 more passes, better in all 6 scenarios.
+- Against `prod`: 11 more passes, better in 4 scenarios (`pickup-decision`, `pickup-dirty-worktree`,
+  `lesson-carry`, `promise-at-file`) and worse in none. The pass line is met.
+- Against the cost line: words are 179 against 182, so no worse. Blocks are 21 against 9, so worse.
+  The reading rule says "no worse cost table". So the blocks are the open part of the cost.
+
+### What the transcripts show
+
+- **`lesson-carry` passes through two paths.** In run 0, session B read the fix in its load and ran
+  `REPORT_LOCALE=C sh report.sh` first. In runs 1 and 2, session B ran the plain command first, the
+  hook stopped that call once, and the next call used the stored form. So 2 of the 3 passes come
+  from the deny before a shell command. On Haiku, the capture arms of the full run below passed it 0 of 6, with the fix in the load each
+  time.
+- **The deny fired nowhere else.** Only those 2 session B transcripts hold its text, in 36 `dev`
+  sessions.
+- **`pickup-decision` passes on Sonnet and fails on Haiku with the same note.** Session A wrote the
+  approval in all 3 runs. On Haiku, session B often named #412 from the queue file first (see the
+  shorter capture block below). So that gap is on the read side, in the model, not in the capture.
+- **`prod` does not carry the needed fact in 4 scenarios.** Its session A wrote 9 facts in 18 runs.
+  In `pickup-decision`, `pickup-dirty-worktree`, `lesson-carry` and `promise-at-file`, the load of
+  its session B held the needed fact in 0 of 3 runs. `dev` held it in 3 of 3 in each scenario.
+
+### Limits
+
+- One run of 3 repeats. `none` passed `promise-at-file` once, so a scenario can pass by chance.
+- I did not count filler facts in this run.
+- The person who ran it also merged the changes.
+
+### Decisions
+
+- Keep the changes of this day on `dev`. They meet the pass line on Haiku and on Sonnet, and the word
+  cost is no higher than in 0.3.1.
+- The blocks (21 against 9) are an owner call: accept them, or test a line at the prompt that asks
+  for the fact in the same turn.
+
 ## 2026-11-02: a shorter capture block, on Haiku
 
 This change tries to bring the hook cost to that of 0.3.1 (183 words and 9 blocks per 36 sessions)
@@ -16,7 +82,7 @@ numbers come from the full run below.
 - Commits: `dev` is `e5f5463` in run 1 (guide of 95 words) and `0771de4` in run 2 (guide of 87
   words). `base` is `d9b1820` in both runs.
 - Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
-- Sessions: 108 for each run. I did not total the cost.
+- Sessions: 108 for each run. Reported cost: 0.34 USD for each run.
 - Local results: `evals/agents/results/20261102T082457Z-claude` (run 1) and
   `20261102T085430Z-claude` (run 2), in the worktree of the change.
 
