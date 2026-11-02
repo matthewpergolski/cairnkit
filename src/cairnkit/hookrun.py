@@ -293,7 +293,11 @@ def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> None
 
 
 def _session_text(
-    project: Project, flag: str | None, session: str, update_notice: bool = True, same_process=True
+    project: Project,
+    flag: str | None,
+    session: str,
+    update_notice: bool = True,
+    same_process: bool = True,
 ) -> str:
     buffer = io.StringIO()
     hide = session if same_process else None
@@ -466,7 +470,8 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     if not payload.get("agent_id"):  # the stop of a subagent ends no turn of its parent
         with contextlib.suppress(Exception):
             memory, key = Memory.open(project, flag), session_key(payload)
-            note_helpers(memory, key, live.clear_working(memory, key))
+            with contextlib.suppress(Exception):
+                note_helpers(memory, key, live.clear_working(memory, key))
             helpers.on_main_stop(memory, key)
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
     # A long session still retires clear cases when the tidy state is old.
@@ -681,7 +686,7 @@ def subagent_start(project: Project, flag: str | None, payload: dict) -> int:
     return 0
 
 
-# The tools here can wait for no helper hook: past this, the record is not written.
+# The helper waits for this hook to start, so past this time the record is not written.
 HELPER_BUDGET = 2.5
 
 

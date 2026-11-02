@@ -145,7 +145,7 @@ class NestedAdapter(Adapter):
         }
 
     def _tool_groups(self) -> dict[str, list[dict]]:
-        """The `PreToolUse` groups, and the end of a helper. Each prints nothing that decides."""
+        """The `PreToolUse` groups, and the end of a helper. Only `before-shell` can deny."""
         found: dict[str, list[dict]] = {}
 
         def handler(event: str) -> dict:
