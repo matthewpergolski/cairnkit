@@ -49,7 +49,7 @@ replace a run of the whole suite.
 ### Limits
 
 - The hook words per session are above the 182 of 0.3.1 in the baseline, on other scenarios. The
-  guide has 140 words.
+  guide has 157 words.
 - Some facts are weak. Example: `Commit has no body by owner request.` A later full run must count these.
 
 ## 2026-11-02: baseline on Claude Code

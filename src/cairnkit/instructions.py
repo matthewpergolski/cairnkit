@@ -26,10 +26,10 @@ itself. If its output is not in your context, run it. Read it before you work.
 {guide}
 
 Only the text is required. A stop blocks once to ask this when the work changed or the owner stated
-something and no fact followed. Options: `--kind`, `--area NAME`, `--basis` (default `guess`),
-`--source` (default `session:` and today's date).
+something and no fact followed. Options: `--kind`, `--area NAME`, `--basis`, `--source`.
 Kinds: {kinds}. Basis: {bases}.
-Source: commit:HASH, file:PATH, pr:N, session:DATE, person:ROLE.
+Basis defaults to `guess`. Source defaults to `session:` and today's date. Other sources:
+commit:HASH, file:PATH, pr:N, person:ROLE.
 
 ### The rest
 

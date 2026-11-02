@@ -179,7 +179,7 @@ def test_the_block_comes_with_a_real_event_only_once(session):
     session.shell(edit(session)[0])
     said = session.stop_text(session.hook("stop"))
     assert "then passed" in said
-    assert said.count("next agent") == 1
+    assert said.count("what would the next agent get wrong?") == 1
     assert session.turn(2, "thanks", [], []) is None
 
 
