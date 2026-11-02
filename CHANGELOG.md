@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teaches an older memory, and says which one wins. It edits no tracked file.
 - `memory status` says how many notes Claude Code's own memory holds for this project, and where.
   It only reads that store.
+- `memory load` names other live work: a checkout with uncommitted changes that this session did
+  not make, with its files and the note of its branch, and a checkout where a session is in a turn.
+  With nothing live, it adds no word. In `pickup-dirty-worktree` on Haiku, with no fact from session
+  A, session B left the running edits in 3 of 3 runs. The no-memory arm gave 0 of 3.
 - A stop blocks once to ask for a fact when the work changed, or when the owner stated a decision,
   an approval, a promise, a limit, a preference, a reason or a review, and no fact followed. An
   answer of "nothing" lets the agent finish. Plain work does not block again until a fact and 6 more

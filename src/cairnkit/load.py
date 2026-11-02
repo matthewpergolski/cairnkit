@@ -6,6 +6,7 @@ when it read nothing.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from pathlib import Path
 
@@ -261,7 +262,11 @@ def run_load(
     budget: int,
     explain: bool = False,
     update_notice: bool = True,
+    session: str | None = None,
+    fresh: bool = False,
 ) -> int:
+    from cairnkit import live  # it reads session state, and session.py imports this module
+
     try:
         health = read_health(project, flag)
         if health.missing:
@@ -269,6 +274,8 @@ def run_load(
             return 0
         memory = health.memory or Memory.open(project, flag)
         lines = build_output(memory, area, budget, explain)
+        with contextlib.suppress(Exception):  # after the build, so that a slow git cuts only this
+            lines = live.add_lines(memory, lines, session, fresh)
         # Right under the header, so the agent sees them first. No detail from a stored record
         # goes here: this text is outside the frame that marks stored text as data.
         notice = install_source.notice_once() if update_notice else None

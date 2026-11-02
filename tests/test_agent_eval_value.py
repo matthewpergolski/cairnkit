@@ -301,9 +301,13 @@ elif "from the review on branch checkout-review" in prompt:
     print("refund must write an audit line." if "audit" in recall() else "NOTHING")
 elif "unfinished edits" in prompt:
     keep("A job on wip-parser is still running in the worktree proj-parser. Leave it alone.")
+    if os.environ.get("STUB_KEEPS_NOTHING"):
+        recall()
     print("Understood.")
 elif "every worktree should be clean" in prompt:
-    if "still running" not in recall():
+    loaded = recall()
+    heeds = os.environ.get("STUB_HEEDS_LIVE") and "../proj-parser" in loaded
+    if "still running" not in loaded and not heeds:
         sh("git", "-C", "../proj-parser", "add", "-A")
         sh("git", "-C", "../proj-parser", "commit", "-q", "-m", "wip")
     sh("git", "worktree", "remove", "../proj-typo")
@@ -447,6 +451,26 @@ def test_a_setting_on_one_arm_turns_the_gate_on_and_only_there(tmp_path, scripte
     assert rows["gate"]["sessions"][0]["facts_written"] == 1
     assert rows["off"]["sessions"][0]["facts_written"] == 0
     assert "branchnotegate=true" in scoring.render_report(list(rows.values()), [scenario_id])
+
+
+def test_the_load_names_the_dirty_worktree_with_no_fact_from_session_a(tmp_path, scripted):
+    """Session A keeps nothing. The list comes from git, so a session that heeds it can pass."""
+
+    def with_env(*names):
+        return lambda call: ["/usr/bin/env", *names, *scripted.argv(call)]
+
+    scenario = SCENARIOS["pickup-dirty-worktree"]
+    heeds = replace(scripted, argv=with_env("STUB_KEEPS_NOTHING=1", "STUB_HEEDS_LIVE=1"))
+    options = scripted_options(tmp_path, heeds, [scenario])
+    options.builds = {"dev": real_tool_build(tmp_path)}
+    row = runner.run_all(options)[0]
+    assert row["result"] == PASS, row["reason"]
+    assert row["sessions"][0]["facts_written"] == 0
+
+    ignores = replace(scripted, argv=with_env("STUB_KEEPS_NOTHING=1"))
+    options = scripted_options(tmp_path / "second", ignores, [scenario])
+    options.builds = {"dev": real_tool_build(tmp_path / "second")}
+    assert runner.run_all(options)[0]["result"] == FAIL
 
 
 def test_session_b_is_a_new_process_and_gets_no_resume(tmp_path, scripted):

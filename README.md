@@ -534,6 +534,22 @@ keeps one place for each area, and a trap holds the place when the area has one.
 [The test record](docs/forgetting-tests.md) gives the numbers and the cost. Look up:
 `memory search`, `memory show`, `--pinned`, `--link`, `memory tidy`.
 
+**Live work.** When other work is live in the project, the load adds a `## Live work` list, and one
+line that tells the agent to leave that work alone. With nothing live, it adds no word. The list
+names up to 3 checkouts, with up to 5 changed files and the short note of the branch:
+
+- A checkout that holds uncommitted changes. Git says this, so no session has to record it. Logs,
+  caches and memory paths do not count. A new session also hears of changes in its own checkout,
+  because it did not make them. A reload in the same session, or a plain `memory load`, does not
+  name its own checkout.
+- A checkout where a session is in a turn. Each prompt and tool hook touches a local marker in
+  `.sessions/live/`, and a stop removes it. A session that died in a turn drops out after 30 minutes.
+  A session that waits between turns is not named, but its uncommitted changes are.
+
+This does not use the word budget. It reads each checkout with `git status`, with no optional lock,
+and with 1.5 seconds in total. A checkout that it could not read is counted in the list. It never
+stops a load.
+
 ## Why
 
 - An agent starts each session with no memory of the last one.
