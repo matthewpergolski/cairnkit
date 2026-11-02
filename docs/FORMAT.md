@@ -549,7 +549,11 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
 - `subagent-start`: prints `{"hookSpecificOutput": {"hookEventName": "SubagentStart",
   "additionalContext": TEXT}}`, where TEXT is a load of 300 words. It writes nothing.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
-  checkout. `stop` removes the markers of its session, except for the stop of a subagent.
+  checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before
+  it removes them, it adds each other checkout that they name to `helpers` in
+  `.sessions/<session>.json`: a map from the checkout path to a hash of the work seen there at the
+  last capture check, empty before the first. A Claude Code subagent with its own worktree writes
+  such a marker. The capture check reads at most 8 of these checkouts that still exist.
 - `pre-compact`: holds a load for the next tool result or stop. Only Cursor needs this.
 - `pre-commit`: exits 1 only when a staged path is `memory-bank`, `.memory-path`
   or inside the memory folder. Else it prints each stored trap (up to 3) that matches
