@@ -27,9 +27,11 @@ import json
 import os
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
+from cairnkit import deadline
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git
 from cairnkit.secretscan import mask
@@ -42,6 +44,8 @@ TASK_WORDS = 40
 # A session cannot start more at once. Past this, the oldest record goes, so the file stays small.
 MAX_RECORDS = 50
 GIT_TIMEOUT = 1.0
+# A record may wait this long for another hook's write. A load must not wait longer.
+LOCK_WAIT = 0.5
 
 
 @dataclass(frozen=True)
@@ -95,19 +99,18 @@ def _write(memory: Memory, helpers: list[Helper]) -> None:
     os.replace(tmp, path)
 
 
-@contextlib.contextmanager
-def _change(memory: Memory):
-    """Read, change and write the records under the lock. A busy lock skips the change."""
+def _update(memory: Memory, change: Callable[[list[Helper]], list[Helper]]) -> None:
+    """Apply `change` to the records under the lock. A lock held past LOCK_WAIT skips it."""
     _folder(memory).mkdir(parents=True, exist_ok=True)
-    try:
-        with locked(_folder(memory) / ".lock"):
-            helpers = _read(memory)
-            before = list(helpers)
-            yield helpers
-            if helpers != before:
-                _write(memory, helpers)
-    except LockBusy:
-        return
+    with (
+        contextlib.suppress(LockBusy),
+        deadline.within(LOCK_WAIT),
+        locked(_folder(memory) / ".lock"),
+    ):
+        helpers = _read(memory)
+        changed = change(helpers)
+        if changed != helpers:
+            _write(memory, changed)
 
 
 def _words(text: str, limit: int, memory: Memory) -> str:
@@ -140,8 +143,7 @@ def on_call(memory: Memory, session: str, payload: dict) -> None:
         started_at=time.time(),
         parent=str(payload.get("cwd") or memory.project.root),
     )
-    with _change(memory) as helpers:
-        helpers[:] = [h for h in helpers if h.call != record.call] + [record]
+    _update(memory, lambda helpers: [h for h in helpers if h.call != record.call] + [record])
 
 
 def on_result(memory: Memory, payload: dict) -> None:
@@ -153,12 +155,14 @@ def on_result(memory: Memory, payload: dict) -> None:
     response = response if isinstance(response, dict) else {}
     launched = response.get("status") == "async_launched" and response.get("agentId")
     failed = "Failure" in str(payload.get("hook_event_name") or "")
-    with _change(memory) as helpers:
-        if launched and not failed:
-            agent = str(response["agentId"])
-            helpers[:] = [replace(h, agent=agent) if h.call == call else h for h in helpers]
-        else:
-            helpers[:] = [h for h in helpers if h.call != call]
+    if launched and not failed:
+        agent = str(response["agentId"])
+        _update(
+            memory,
+            lambda helpers: [replace(h, agent=agent) if h.call == call else h for h in helpers],
+        )
+    else:
+        _update(memory, lambda helpers: [h for h in helpers if h.call != call])
 
 
 def on_start(memory: Memory, session: str, payload: dict) -> None:
@@ -168,7 +172,8 @@ def on_start(memory: Memory, session: str, payload: dict) -> None:
         return
     cwd = str(payload.get("cwd") or "")
     kind = str(payload.get("agent_type") or "")
-    with _change(memory) as helpers:
+
+    def join(helpers: list[Helper]) -> list[Helper]:
         mine = next((h for h in helpers if h.agent == agent), None)
         if mine is None:
             waiting = [
@@ -178,19 +183,20 @@ def on_start(memory: Memory, session: str, payload: dict) -> None:
             ]
             mine = min(waiting, key=lambda h: h.started_at, default=None)
         if mine is None or mine.checkout:
-            return
+            return helpers
         own = cwd if cwd and not _same(cwd, mine.parent) and Path(cwd).is_dir() else None
         base = run_git(Path(own), "rev-parse", "HEAD", timeout=GIT_TIMEOUT) if own else None
         found = replace(mine, agent=agent, checkout=own, base=base or None)
-        helpers[:] = [found if h.call == mine.call else h for h in helpers]
+        return [found if h.call == mine.call else h for h in helpers]
+
+    _update(memory, join)
 
 
 def on_end(memory: Memory, payload: dict) -> None:
     """`SubagentStop`: that helper ended."""
     agent = str(payload.get("agent_id") or "")
     if agent:
-        with _change(memory) as helpers:
-            helpers[:] = [h for h in helpers if h.agent != agent]
+        _update(memory, lambda helpers: [h for h in helpers if h.agent != agent])
 
 
 def on_main_stop(memory: Memory, session: str) -> None:
@@ -198,13 +204,12 @@ def on_main_stop(memory: Memory, session: str) -> None:
 
     A background helper outlives the turn, and its launch gave it an id, so it stays.
     """
-    with _change(memory) as helpers:
-        helpers[:] = [
-            h
-            for h in helpers
-            if not (h.session == session and not h.launched)
-            and not (session in h.told and not h.has_checkout)
-        ]
+
+    def ends(h: Helper) -> bool:
+        never_started = h.session == session and not h.launched
+        return never_started or (session in h.told and not h.has_checkout)
+
+    _update(memory, lambda helpers: [h for h in helpers if not ends(h)])
 
 
 def shown(memory: Memory, hide_session: str | None) -> list[Helper]:
@@ -216,10 +221,12 @@ def shown(memory: Memory, hide_session: str | None) -> list[Helper]:
 
 
 def note_told(memory: Memory, calls: list[str], session: str) -> None:
-    if not calls:
-        return
-    with _change(memory) as helpers:
-        helpers[:] = [
+    """The load of `session` named these records."""
+
+    def tell(h: Helper) -> Helper:
+        return (
             replace(h, told=(*h.told, session)) if h.call in calls and session not in h.told else h
-            for h in helpers
-        ]
+        )
+
+    if calls:
+        _update(memory, lambda helpers: [tell(h) for h in helpers])

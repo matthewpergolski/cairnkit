@@ -364,6 +364,21 @@ def test_only_claude_code_gets_the_helper_hooks(repo, mem):
         assert ("Agent|Task" in matchers) == (agent == "claude"), agent
 
 
+def test_a_held_lock_skips_a_change_and_stops_no_hook(repo, mem, hooks):
+    import fcntl
+
+    killed_mid_helper(repo, hooks)
+    with (mem / ".sessions" / "helpers" / ".lock").open("ab") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        begun = time.monotonic()
+        assert helper_lines(hooks.load(repo, "s2"))
+        hooks.call(repo, "toolu_2", description="a call that the lock skips")
+        hooks.subagent_stop(repo, "a1", repo)
+        assert time.monotonic() - begun < SESSION_START_TIMEOUT
+    [line] = helper_lines(hooks.load(repo, "s3"))
+    assert PURPOSE in line
+
+
 def test_a_slow_git_in_the_helper_checkout_keeps_the_start_in_time(repo, hooks, tmp_path):
     for number in range(4):
         path = worktree(repo, f"slow-{number}")
