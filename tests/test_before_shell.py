@@ -151,11 +151,32 @@ def test_a_generated_adapter_gets_the_reason_as_plain_text(repo, mem, agent, rel
         ("Use `sudo make install`.", "make", None),
         (FIX, "sh report.sh &>/dev/null &", "REPORT_LOCALE=C sh report.sh"),
         (FIX, "sh report.sh.bak", None),
+        # The body of a heredoc is text that a command writes, not a step.
+        (FIX, "cat <<EOF > notes.md\nsh report.sh\nEOF", None),
+        (FIX, "cat <<-'EOF'\n\tsh report.sh\n\tEOF", None),
+        (FIX, 'cat <<"A" >x\nsh report.sh\nA\nsh report.sh', "REPORT_LOCALE=C sh report.sh"),
+        (FIX, "cat <<EOF\nsh report.sh", None),
+        (FIX, "cat <<< 'x'; sh report.sh", "REPORT_LOCALE=C sh report.sh"),
     ],
 )
 def test_the_match_is_the_same_core_behind_a_prefix(text, command, form):
     found = hits(command, [{"id": "f", "text": text}])
     assert [hit.form for hit in found] == ([form] if form else [])
+
+
+def test_the_time_budget_holds_through_code_that_catches_errors():
+    """A broad `except Exception` inside a hook step must not eat the end of its time."""
+    import contextlib
+    import time
+
+    from cairnkit.hookrun import _time_budget
+
+    start = time.monotonic()
+    with _time_budget(0.2):
+        with contextlib.suppress(Exception):
+            time.sleep(1)
+        time.sleep(3)
+    assert time.monotonic() - start < 1
 
 
 def test_install_stops_no_tool_with_an_allow(repo, mem):

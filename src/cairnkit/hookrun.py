@@ -165,8 +165,8 @@ def auto_retire_note(project: Project, flag: str | None) -> str:
 GIT_HOOK_BUDGET = 3
 
 
-class _OverBudget(Exception):
-    """The git-hook step used its time budget."""
+class _OverBudget(BaseException):
+    """The step used its time budget. Not an Exception, so a broad `except` inside cannot eat it."""
 
 
 def _over_budget(_signum, _frame):

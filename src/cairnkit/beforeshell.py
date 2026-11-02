@@ -32,6 +32,7 @@ from cairnkit.store import locked
 SETTING = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=\S*")
 REDIRECT = re.compile(r"&?\d*(?:>>?|<)(&\d+|&-)?")
 REDIRECT_JOINED = re.compile(r"&?\d*(?:>>?|<)\S+")
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(['\"]?)([A-Za-z0-9_]+)\1")
 WRAPPERS = (
     ("env",),
     ("sudo",),
@@ -87,16 +88,36 @@ def _redirect_amp(command: str, index: int) -> bool:
     return command[index - 1 : index] in ("<", ">") or command[index + 1 : index + 2] == ">"
 
 
-def _parts(command: str) -> list[str]:
-    """The command split at each `;`, `&`, `|` and newline outside quotes. Empty if a quote is open.
+def _past_heredocs(command: str, index: int, ends: list[str]) -> int | None:
+    """The index after the end lines of these heredocs, from the line at `index`, or None."""
+    for end in ends:
+        while True:
+            stop = command.find("\n", index)
+            line = command[index:] if stop < 0 else command[index:stop]
+            index = len(command) if stop < 0 else stop + 1
+            if line.strip() == end:
+                break
+            if stop < 0:
+                return None
+    return index
 
-    A split inside quotes would make a step of a grep pattern such as `'check\\.py|manage\\.py'`.
+
+def _parts(command: str) -> list[str]:
+    """The command split at each `;`, `&`, `|` and newline outside quotes and heredoc bodies.
+
+    Empty if a quote or a heredoc is open. A split inside quotes would make a step of a grep
+    pattern such as `'check\\.py|manage\\.py'`, and a heredoc body is text, not commands.
     """
-    parts, start, quote, index = [], 0, "", 0
+    parts, start, quote, index, ends = [], 0, "", 0, []
     while index < len(command):
         char = command[index]
         if char == "\\" and quote != "'":
             index += 2
+            continue
+        heredoc = None if quote else HEREDOC.match(command, index)
+        if heredoc:
+            ends.append(heredoc.group(2))
+            index = heredoc.end()
             continue
         if quote:
             quote = "" if char == quote else quote
@@ -105,8 +126,15 @@ def _parts(command: str) -> list[str]:
         elif char in ";|\n" or (char == "&" and not _redirect_amp(command, index)):
             parts.append(command[start:index])
             start = index + 1
+            if char == "\n" and ends:
+                after = _past_heredocs(command, start, ends)
+                if after is None:
+                    return []
+                start, ends = after, []
+                index = after
+                continue
         index += 1
-    return [] if quote else [*parts, command[start:]]
+    return [] if quote or ends else [*parts, command[start:]]
 
 
 def _plain_core(core: list[str]) -> bool:
