@@ -9,6 +9,7 @@ each because subagents share a session key, and a shared JSON file would lose th
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import time
@@ -63,9 +64,14 @@ def note_working(memory: Memory, session: str) -> None:
     (folder / f"{_key(session)}-{_key(root)}").write_text(root, encoding="utf-8")
 
 
-def clear_working(memory: Memory, session: str) -> None:
+def clear_working(memory: Memory, session: str) -> list[str]:
+    """Remove the markers of a session. Return the checkouts that they named."""
+    paths = []
     for marker in _folder(memory).glob(f"{_key(session)}-*"):
+        with contextlib.suppress(OSError, UnicodeDecodeError):
+            paths.append(marker.read_text(encoding="utf-8"))
         marker.unlink(missing_ok=True)
+    return paths
 
 
 def _others_at_work(memory: Memory, session: str | None) -> dict[str, float]:

@@ -56,6 +56,7 @@ from cairnkit.session import (
     hold_load,
     load_state,
     mark_loaded,
+    note_helpers,
     start_session,
     take_heard,
     take_load,
@@ -385,7 +386,8 @@ def stop_message(project: Project, flag: str | None, agent: str, payload: dict) 
 
     A failure in one step keeps the other steps. News waits for the next hook that adds text with
     no turn. A subagent never saw the conversation, and its stop carries `agent_id`, so its parent
-    gets the capture check. Its changes are in the parent's checkout.
+    gets the capture check. Its changes are in the parent's checkout, or in a worktree that a
+    marker of the session names (`session.note_helpers`).
     """
     parts = []
     key = session_key(payload)
@@ -448,7 +450,8 @@ def stop(project: Project, flag: str | None, agent: str, payload: dict) -> int:
         return 0
     if not payload.get("agent_id"):  # the stop of a subagent ends no turn of its parent
         with contextlib.suppress(Exception):
-            live.clear_working(Memory.open(project, flag), session_key(payload))
+            memory, key = Memory.open(project, flag), session_key(payload)
+            note_helpers(memory, key, live.clear_working(memory, key))
     continued = bool(payload.get("stop_hook_active")) or int(payload.get("loop_count") or 0) > 0
     # A long session still retires clear cases when the tidy state is old.
     if not continued:
