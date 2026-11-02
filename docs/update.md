@@ -205,10 +205,11 @@ An install on 0.3.1 catches up by itself. These steps need no person:
 - `memory init --refresh`, which the session start asks the agent to run, removes
   the `post-commit` block. `memory init` and `memory hooks install` remove it too.
 - The next session start ends each fact that the 0.3.1 commit miner wrote, as
-  `expired`, with a line in `auto-tidy.log`. It keeps a pinned fact, a rule, and a
-  fact with basis `told`. The archive keeps each ended fact. It also removes
-  `proposals/auto-candidates.jsonl`, `proposals/stale-pending.md` and the lock files
-  of the miner.
+  `expired`, with a line in `auto-tidy.log` that holds the undo command. It keeps a
+  pinned fact, a rule, and a fact with basis `told`. The archive keeps each ended fact.
+  It also removes `proposals/auto-candidates.jsonl`, `proposals/stale-pending.md` and
+  the lock files of the miner. When `memory init --refresh` ends them, it names the log.
+  To see them, run `grep mined memory-bank/auto-tidy.log`, then `memory show ID`.
 - A short-term note with an `expires_at` that the old 14-day default wrote still ends
   on that date. A new `--short` note has no date.
 
