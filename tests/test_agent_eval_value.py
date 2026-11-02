@@ -764,7 +764,10 @@ def test_the_interrupted_helper_check_needs_a_killed_session_and_an_undone_task(
 
 def test_an_interrupted_turn_ends_on_a_sigint_and_reads_as_no_error(tmp_path):
     mark = tmp_path / "mark"
-    script = f"trap 'echo got-int; exit 130' INT; touch {mark}; sleep 30 & wait"
+    # A `wait` that starts after the SIGINT holds the trap until the job ends, so the shell loops.
+    # The child in the background still holds the pipes, as a tool's own child can.
+    loop = "while :; do sleep 0.2; done"
+    script = f"trap 'echo got-int; exit 130' INT; sleep 30 & touch {mark}; {loop}"
     turn = runner.call_one(
         ["sh", "-c", script],
         tmp_path,
