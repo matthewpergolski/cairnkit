@@ -43,6 +43,8 @@ REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
 COMMAND_WIDTH = 200
 ASK_TRAP = "Does a trap belong in memory?"
+# An agent declined once because a doc held the fix, and the next session failed the same way.
+DOC_IS_NO_RECORD = "A doc that the next agent reads only after it fails is no record."
 PATH_WORD = re.compile(r"[\w./-]*[/.][\w./-]*\w")
 GONE_NAMES = 3
 PROMPT_WIDTH = 120
@@ -351,6 +353,23 @@ def _gone_line(memory: Memory, state: dict) -> str | None:
     return f"{shown}{more} {verb} here when this session started and not now. {ASK_TRAP}"
 
 
+def _fix_is_stored(memory: Memory, failed: str, passed: str) -> bool:
+    """True when an active fact names what went in front of the command, and the command.
+
+    A session that loaded the fix can still run the plain command first. Its question costs a turn
+    and gets no new fact.
+    """
+    step, plain = _last_step(passed), _last_step(failed)
+    fix, name = step.removesuffix(plain).strip(), plain.split()[-1] if plain.split() else ""
+    if not fix or not name:
+        return False
+    for fact in active_states(memory):
+        text = f"{fact.get('text', '')} {fact.get('summary', '')}"
+        if fix in text and name in text:
+            return True
+    return False
+
+
 def session_events(memory: Memory, key: str) -> list[str]:
     """New events that a later session may need. Each one is returned once."""
     state = load_state(memory, key)
@@ -362,8 +381,11 @@ def session_events(memory: Memory, key: str) -> list[str]:
         shown = _quoted(loopbreak.without_secret(command, memory.env))
         line = f"{shown} failed {count} times, then passed. What fixed it?"
         if by:
+            if _fix_is_stored(memory, command, by[0]):
+                told.append(f"fixed:{command}")
+                continue
             passed = _quoted(loopbreak.without_secret(by[0], memory.env))
-            line = f"{shown} failed, then {passed} passed. What fixed it?"
+            line = f"{shown} failed, then {passed} passed. What fixed it? {DOC_IS_NO_RECORD}"
         found.append((f"fixed:{command}", line))
     for line in _reverts(memory.project.root, state):
         found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))

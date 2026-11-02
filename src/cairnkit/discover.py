@@ -7,22 +7,18 @@ DISCOVER = (
 )
 
 ADD_LINE = (
-    '`memory add "TEXT"`. Add `--basis told` for what the owner said, or `--basis seen` for what '
-    "you saw. If nothing is worth a fact, say so and finish."
+    '`memory add "TEXT" --basis told` for what the owner said, else `--basis seen`. If nothing is '
+    "worth a fact, say so and finish."
 )
 
-CAPTURE_GUIDE = f"""\
-Ask: if this session ended now, what would the next agent get wrong? Write a fact for each of these
-moments that this session had. A doc that the next agent reads only after it fails is no record:
-- The owner decided or approved something.
-- A promise or a limit.
-- A review found something.
-- Work started or was handed off: its purpose and its next step.
-- A failure and its fix.
-- Something written earlier is no longer true: replace it with `--supersedes ID`.
-A good fact gives the reason and not only the change, in one or two sentences. It names the files
-it applies to when it has any. A routine step, or what the code already shows, is not a fact.
-{ADD_LINE}"""
+# Each block prints this. The 157 words before this guide were 43 percent of all hook words.
+CAPTURE_GUIDE = (
+    "Ask: what would the next agent get wrong if this session ended now? Write a fact for each "
+    "moment it had: an owner decision or approval, a promise or a limit, a review finding, the "
+    "purpose and next step of started work, a failure and its fix, or an old fact no longer true "
+    "(`--supersedes ID`). Give the reason and the files. A commit, a branch or the diff is no "
+    f"fact.\n{ADD_LINE}"
+)
 
 RULES_SHORT = """\
 Memory rules: save a decision, trap, lesson or correction with `memory add "TEXT"`

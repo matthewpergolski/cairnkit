@@ -33,6 +33,10 @@ REFLOG_LIMIT = "500"
 WORK_GAP = 6
 WORK_CHANGED = "The work changed in this session, and no fact records it."
 OWNER_SAID = "The owner stated something that only this conversation holds, and no fact records it."
+BOTH_CHANGED = (
+    "The owner stated something that only this conversation holds, and the work changed. No fact "
+    "records either."
+)
 JUNK_DIRS = frozenset(SKIP_DIRS) | {
     ".venv",
     ".pytest_cache",
@@ -368,7 +372,7 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
             reasons.append(WORK_CHANGED)
             state.update(declined=True, settled=prompts, start=now_work)
     save_state(memory, session_id, state)
-    return reasons
+    return [BOTH_CHANGED] if len(reasons) == 2 else reasons
 
 
 def hold_heard(memory: Memory, session_id: str, line: str) -> None:

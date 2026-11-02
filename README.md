@@ -892,8 +892,11 @@ no fact followed:
   limit, a preference, a reason or a review. Each new statement blocks once, also after an answer of
   "nothing". The detector is in `signals.py`.
 
-The block gives the test, the moments and the `memory add` line. `memory instructions` holds the
-same guide. In 20 ordinary turns, an agent that never writes sees 1 block on a plain script, on
+The block gives the test, the moments and the `memory add` line, in about 95 words. It says that a
+commit, a branch or the diff is no fact, because git holds them. `memory instructions` holds the
+same guide. A stop that only names an event gives the `memory add` line and no guide, because the
+event asks its own question. A command that passes with a setting in front of it is no event when an
+active fact already names that setting and the command: the session had the fix in its load. In 20 ordinary turns, an agent that never writes sees 1 block on a plain script, on
 each adapter, and "format the code" never blocks. An agent that writes a fact at each block sees at
 most 3. A subagent gets no capture check, because it never saw the conversation. Its stop has an
 `agent_id` or, on OpenCode, a session with a `parentID`. The files that it changes reach the check of

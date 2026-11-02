@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The capture guide at a blocked stop is about 95 words, down from 157, and it says that a commit,
+  a branch or the diff is no fact. A stop that only names an event gives the `memory add` line and
+  no guide. A command that passes with a setting in front of it is no event when an active fact
+  names that setting and the command. In a real run on Haiku, the guide was 43 percent of all hook
+  words, and session B of `lesson-carry` was blocked for a fix that it had loaded.
 - A stale docs atlas prints only in `memory status`. A load and `memory check` no longer print it
   or count it as a thing to do, because nobody acted on it at each merge. `memory docs --check`
   still fails, for a project whose CI owns the atlas.

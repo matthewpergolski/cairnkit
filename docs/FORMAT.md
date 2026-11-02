@@ -514,8 +514,10 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   are a command that failed at least twice and then passed, a command that failed and then
   passed with a setting or a wrapper in front of it, a revert since the session
   started, a correction, and a lost file that no prompt named or asked to remove. Each
-  event is named once. It adds the capture check when no fact followed new work or a statement
-  of the owner, and the guide. A payload with `agent_id` gets no capture check. It adds no text
+  event is named once. A fix with a setting in front is no event when an active fact names the
+  setting and the command. It adds the capture check when no fact followed new work or a statement
+  of the owner, and the guide. Events with no capture check get the `memory add` line and no guide.
+  A payload with `agent_id` gets no capture check. It adds no text
   for news, unless the agent is `generic`, which has no other hook. Output is
   `{"decision": "block", "reason": TEXT}` for `claude`, `codex` and `grok`,
   `{"followup_message": TEXT}` for `cursor`, TEXT on stdout with exit 0 for `pi` and
