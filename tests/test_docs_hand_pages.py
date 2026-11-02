@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from test_docs_project import plant_docsearch
 
 from cairnkit.cli import main
 
@@ -104,6 +105,33 @@ def test_the_first_write_goes_beside_hand_pages_with_no_force(mem, state, capsys
     assert check(capsys) == (0, "")
 
 
+def test_the_refusal_counts_only_atlas_pages(mem, state, capsys):
+    assert main(["docs"]) == 0
+    count = len(list(state.rglob("*.md")))
+    put(state / "runbook.md", HAND)
+    capsys.readouterr()
+    assert main(["docs"]) == 1
+    err = capsys.readouterr().err
+    assert f"({count} atlas page(s))" in err
+    assert "Nothing changed" in err
+
+
+def test_an_atlas_page_whose_module_left_is_removed_by_force(mem, repo, state, capsys):
+    plant_docsearch(repo)
+    assert main(["docs"]) == 0
+    page = state / "modules" / "docsearch-chunking.md"
+    assert page.is_file()
+    put(state / "runbook.md", HAND)
+    (repo / "src" / "docsearch" / "chunking.py").unlink()
+    code, listed = check(capsys)
+    assert code == 1
+    assert "docs/state/modules/docsearch-chunking.md" in listed.splitlines()
+    assert main(["docs", "--force"]) == 0
+    assert not page.exists()
+    assert (state / "runbook.md").read_text(encoding="utf-8") == HAND
+    assert check(capsys) == (0, "")
+
+
 @pytest.mark.parametrize("flags", [["docs"], ["docs", "--force"]])
 def test_a_hand_page_at_an_atlas_path_is_kept_and_named(mem, state, capsys, flags):
     readme = state / "README.md"
@@ -128,6 +156,7 @@ def test_a_folder_at_an_atlas_path_is_left_alone(mem, state, capsys):
     readme = state / "README.md"
     readme.unlink()
     readme.mkdir()
+    assert check(capsys) == (0, "")
     assert main(["docs", "--force"]) == 0
     assert readme.is_dir()
 

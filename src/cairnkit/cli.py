@@ -376,7 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--force",
         action="store_true",
-        help="overwrite an existing docs/state atlas",
+        help="rewrite the atlas pages in docs/state; other Markdown there stays",
     )
     p.add_argument(
         "--check",

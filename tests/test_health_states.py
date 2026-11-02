@@ -14,6 +14,7 @@ from conftest import git, make_fact, write_facts
 
 from cairnkit import githook
 from cairnkit.cli import main
+from cairnkit.docs_cmd import Page, render_page
 from cairnkit.migrate_refs import PENDING, TASK
 
 SECRET = "password=hunter2hunter2"
@@ -88,7 +89,9 @@ def migration_open(repo: Path, tmp_path: Path, monkeypatch) -> None:
 def stale_atlas(repo: Path, tmp_path: Path, monkeypatch) -> None:
     init(repo)
     (repo / "docs" / "state").mkdir(parents=True)
-    (repo / "docs" / "state" / "old.md").write_text("# old page\n")
+    (repo / "docs" / "state" / "old.md").write_text(
+        render_page(Page("old.md", "old", "old", "module", "implemented", "Old.", None))
+    )
 
 
 def rename_break(repo: Path, tmp_path: Path, monkeypatch) -> None:

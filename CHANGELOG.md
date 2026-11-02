@@ -117,6 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A pull, a merge, a rebase or a branch switch no longer reads as lost files at stop. Stop asks
   about a tracked file only when this session deleted it, in the worktree or in a commit it made
   here. With the HEAD reflog off, only a worktree deletion counts.
+- `memory docs --force` no longer removes or overwrites a Markdown file that it did not write. Only
+  a page with the exact front matter of `render_page` is an atlas page. A hand-written page in
+  `docs/state` stays and does not make the atlas stale, so `memory status` stops asking for
+  `--force`. An atlas page that no longer has a source is still removed.
 - `docs/update.md` and the README give the tested way from stable back to dev, by a git URL or a
   local folder. An update to a version with no `--channel` says so and prints the way back.
 - A rule-change notice in a load holds no stored text above the frame. It names the id and the
