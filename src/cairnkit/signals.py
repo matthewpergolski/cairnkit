@@ -95,6 +95,56 @@ CORRECTION = re.compile(
     ),
     re.IGNORECASE,
 )
+# A statement can follow the work that a prompt asks for, but a long paste holds no owner's words.
+STATEMENT_HEAD = 600
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+NOT_STATED = re.compile(r"\s*(?:if|when|whether|unless|once)\b", re.IGNORECASE)
+# A word such as `promise`, `approved` or `deadline` alone also names code, so these need more.
+STATEMENT = re.compile(
+    "|".join(
+        (
+            # A decision.
+            r"\b(?:i|we|team)(?:'ve| have)? (?:decided|chose|picked|agreed|settled on)\b",
+            r"\bthe decision is\b",
+            r"\blet'?s go with\b",
+            r"\bwe(?:'re| are) not going to\b",
+            r"\brejected (?:it|this|that|the)\b",
+            # An approval.
+            r"\bi approve\b",
+            r"\bmy approval\b",
+            r"\bsigned off\b",
+            r"\b(?:is|are|was|were) approved\b",
+            r"\bapproved (?:it|this|that|the)\b",
+            r"^\W*approved\b",
+            # A promise.
+            r"\b(?:i|we)(?:'ve| have)? (?:promised|guaranteed)\b",
+            r"\bwe committed to (?:a|an|\d)",
+            r"\bpromise (?:that|to)\b",
+            r"\b(?:i|we) told (?:the|our|them)\b",
+            # A limit.
+            r"^\W*(?:please )?(?:always|never) (?!mind\b|the\b|a\b|an\b)\w+",
+            r"\bfrom now on\b|\bgoing forward\b|\bin (?:the )?future\b",
+            r"\bmust (?:not|never)\b",
+            r"\bwe (?:cannot|can't|may not)\b",
+            r"\bdeadline (?:for|is)\b",
+            r"\bhard limit\b|\bforbids?\b|\bnot allowed\b|\b(?:does|do) not allow\b",
+            # What the owner wants known. Each of these opens its sentence.
+            r"^\W*(?:an? )?heads[- ]up\b",
+            r"^\W*(?:fyi|just so you know|for context|note that|remember that|keep in mind)\b",
+            # A preference.
+            r"\bi(?:'d| would)? (?:prefer|rather)\b",
+            r"\bmy preference\b",
+            r"\bi (?:don't|do not) like\b",
+            # A reason. A reason for an edit, such as `because it is noisy`, is in the diff.
+            r"\bthe reason (?:for|is|it|we|why)\b",
+            r"\bbecause (?:our|their|we|the \w+'s)\b",
+            # A review.
+            r"\b(?:colleague|teammate|reviewer) (?:reviewed|found|said)\b",
+            r"\breview found\b",
+        )
+    ),
+    re.IGNORECASE,
+)
 
 
 def _quoted(command: str) -> str:
@@ -179,6 +229,21 @@ def is_correction(prompt: str) -> bool:
     if NOT_THE_OWNER.search(prompt):
         return False
     return bool(CORRECTION.search(QUOTED.sub(" ", prompt[:PROMPT_HEAD])))
+
+
+def is_statement(prompt: str) -> bool:
+    """True when the owner states what only the conversation holds. English only.
+
+    It reads each sentence by itself. A question or a condition states nothing.
+    """
+    if NOT_THE_OWNER.search(prompt):
+        return False
+    for sentence in SENTENCE_END.split(QUOTED.sub(" ", prompt[:STATEMENT_HEAD]).strip()):
+        if sentence.rstrip().endswith("?") or NOT_STATED.match(sentence):
+            continue
+        if STATEMENT.search(sentence):
+            return True
+    return False
 
 
 def _file_stem(path: str) -> str:
