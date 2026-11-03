@@ -28,6 +28,11 @@ def test_want_anim_false_with_github_actions():
     assert want_anim(Terminal(), env={"TERM": "xterm", "GITHUB_ACTIONS": "true"}) is False
 
 
+def test_want_anim_false_when_term_is_dumb():
+    """TERM=dumb alone is enough; CI need not be set."""
+    assert want_anim(Terminal(), env={"TERM": "dumb"}) is False
+
+
 def test_want_anim_false_with_no_color():
     assert want_anim(Terminal(), env={"TERM": "xterm", "NO_COLOR": "1"}) is False
 

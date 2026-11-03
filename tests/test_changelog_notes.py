@@ -62,6 +62,25 @@ def test_release_notes_empty_when_path_missing(tmp_path):
     assert release_notes(tmp_path / "missing.md", "0.3.0", "0.3.1") == []
 
 
+def test_release_notes_empty_on_undecodable_changelog(tmp_path):
+    """A non-UTF-8 CHANGELOG must not raise; notes stay empty so the record still writes."""
+    path = tmp_path / "CHANGELOG.md"
+    path.write_bytes(b"## [0.3.1]\n\n- ok\n\xe9 bad\n")
+    assert release_notes(path, "0.3.0", "0.3.1") == []
+
+
+def test_release_notes_stops_before_link_reference_footer():
+    text = (
+        "## [0.2.0] - 2026-10-26\n\n"
+        "Baseline.\n\n"
+        "[Unreleased]: https://example.com/compare/v0.2.0...HEAD\n"
+        "[0.2.0]: https://example.com/releases/tag/v0.2.0\n"
+    )
+    assert release_notes(text, "0.1.0", "0.2.0") == ["Baseline."]
+    empty_body = "## [1.0.0] - 2026-01-01\n\n[1.0.0]: https://example.com/releases/tag/v1.0.0\n"
+    assert release_notes(empty_body, "0.9.0", "1.0.0") == []
+
+
 def test_release_notes_empty_when_old_not_behind_new():
     assert release_notes(SAMPLE, "0.3.1", "0.3.1") == []
     assert release_notes(SAMPLE, "0.3.1", "0.3.0") == []

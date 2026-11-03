@@ -616,6 +616,7 @@ def change_lines(source: Source, old: str | None, new: str | None) -> list[str]:
 
 
 _CHANGELOG_HEADING = re.compile(r"^## \[([^\]]+)\]")
+_CHANGELOG_LINK_REF = re.compile(r"^\[[^\]]+\]:\s+\S")
 
 
 def _plain_version(text: str) -> str:
@@ -637,7 +638,9 @@ def release_notes(text_or_path: str | Path, old: str | None, new: str | None) ->
     """Lines of the Keep a Changelog section for new.
 
     Empty when that section is missing, when new is blank, or when old is a
-    version that is not older than new. Unreleased is never returned.
+    version that is not older than new. Unreleased is never returned. A bad
+    encoding or a missing file yields empty notes. Link-reference footers are
+    not part of the section.
     """
     if new is None or not str(new).strip():
         return []
@@ -649,7 +652,7 @@ def release_notes(text_or_path: str | Path, old: str | None, new: str | None) ->
     if isinstance(text_or_path, Path):
         try:
             text = text_or_path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return []
     else:
         text = text_or_path
@@ -662,8 +665,13 @@ def release_notes(text_or_path: str | Path, old: str | None, new: str | None) ->
                 break
             capture = _plain_version(heading.group(1)) == new_ver
             continue
-        if capture and raw.strip():
-            lines.append(raw.rstrip())
+        if not capture:
+            continue
+        if not raw.strip():
+            continue
+        if _CHANGELOG_LINK_REF.match(raw.strip()):
+            break
+        lines.append(raw.rstrip())
     return lines
 
 
