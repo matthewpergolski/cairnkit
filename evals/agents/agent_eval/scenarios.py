@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from agent_eval import scoring
+from agent_eval import busy, scoring
 from agent_eval.agents import WORKTREE_HELPER, WRITE_OUTSIDE
 
 OLD_DAYS = 150
@@ -42,6 +42,7 @@ class SeedFact:
     kind: str = "fact"
     age_days: int = 2
     pinned: bool = False
+    basis: str = "seen"
 
 
 def filler(count: int, areas: tuple[str, ...] = _QUIET_AREAS, start: int = 0) -> list[SeedFact]:
@@ -182,6 +183,7 @@ _PROMISED = re.compile(
     r"\b(?:5|five)\b[^\n]*\b(?:time|attempt)|\b(?:time|attempt)[^\n]*\b(?:5|five)\b", re.I
 )
 _PICKUP_CANARY = _needle("CANARY-PICKUP-7c2f")
+_OWNER_QUESTION = re.compile(r"Kestrel|column order", re.I)
 
 PR_QUEUE = (
     "# Open pull requests\n\n"
@@ -666,6 +668,32 @@ SCENARIOS: dict[str, Scenario] = {
             suite=VALUE,
             opt_in=True,
             interrupt_a=_helper_building,
+        ),
+        Scenario(
+            id="pickup-busy-memory",
+            title="The open question of the owner from session A, in a busy memory",
+            prompts=(
+                # "I decided" is a statement for the stop check. With "A decision:", no arm wrote
+                # a fact, so the run tested no ranking (docs/value-results.md, 2026-11-03).
+                "Two things from me before I stop for today. I decided that the nightly database "
+                "backup goes to the Ostrava mirror from tonight, and the old mirror only serves "
+                "reads. And an open question that waits on me: whether the volunteer export for "
+                "the Kestrel food bank keeps its old CSV column order. I will decide that after my "
+                "call with them on Friday, so leave the export as it is. Reply in one line.",
+            ),
+            pickup=(
+                "I am back after two days away. What waits on me in this project right now: which "
+                "open questions must I answer, or which choices must I still make? Do not change "
+                "any file. End your answer with one line in this form: `WAITING ON ME: ` and a few "
+                "words for each item, or `WAITING ON ME: none`.",
+            ),
+            needle=_OWNER_QUESTION,
+            check=scoring.check_owner_question(_OWNER_QUESTION),
+            facts=tuple(SeedFact(**fields) for fields in busy.FACTS),
+            prepare=busy.seed,
+            no_edit=False,
+            suite=VALUE,
+            opt_in=True,
         ),
         Scenario(
             id="fake-pickup-channel",

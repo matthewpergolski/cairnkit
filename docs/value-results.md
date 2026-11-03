@@ -7,6 +7,100 @@ entry. The method, the scenarios and the pass line are in
 
 A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
 
+## 2026-11-03: the open question of the owner in a busy memory, on Haiku and Sonnet
+
+In a real project with about 50 active facts, the session start showed 16 and held back all that
+the owner said in two days, his two open questions too. `8cfd208` puts the five newest facts with
+basis told right after the pinned facts. The other pickups start with an empty memory, so they
+cannot show this. The new scenario `pickup-busy-memory` runs only by name, so the reading rule of
+the six scenarios does not apply to it. It seeds 52 older facts in 17 areas (7 pinned, 28 told, 30
+looked up with `memory show`) and a status note of 33 lines. The owner states a decision and an open
+question in session A. Session B must name the question.
+
+- Commits: `dev` is `8cfd208` (the kit at `4ce22d6`, which changes no code under `src/`).
+  `before` is `af8309e`, with no told-first ranking. `prod` is 0.3.1 (`d523c01`).
+- Model: `claude-haiku-5-5` (two runs of 3 repeats), then `claude-sonnet-5-5` (one run of 3
+  repeats). Claude Code 2.1.317.
+- Sessions: 72. Reported cost: 1.20 USD (Haiku 0.065 and 0.074, Sonnet 1.058). The cap was 0.10
+  USD for each Haiku session and 0.20 USD for each Sonnet session.
+- Local results: `evals/agents/results/20261103T212837Z-claude` (Haiku, first wording),
+  `20261103T213515Z-claude` (Haiku) and `20261103T214102Z-claude` (Sonnet), in the worktree of
+  the change.
+
+### Before the run: a free probe
+
+With two facts that have basis told added as session A would add them, the start hook of `dev` held
+the question (6,798 characters). The hooks of `before` (6,399) and `prod` (6,858, 16 fact ids)
+did not. Each load was under `HOOK_TEXT_LIMIT` (9,000), so the control holds in all arms.
+
+### Results
+
+`In load` is the start load of session B. Each load of each run was under the hook limit.
+
+| Run | dev | before | prod | none |
+|---|---|---|---|---|
+| Haiku, "A decision:" | 0 of 3, in load 0 | 0 of 3, in load 0 | 0 of 3, in load 0 | 0 of 3 |
+| Haiku, "I decided" | 3 of 3, in load 3 | 0 of 3, in load 0 | 0 of 3, in load 0 | 0 of 3 |
+| Sonnet, "I decided" | 2 of 3, in load 0 | 0 of 3, in load 0 | 2 of 3, in load 1 | 2 of 3 |
+
+| Arm (Sonnet) | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 6 | 8 | 6 | 0 | 1140 |
+| before | 6 | 6 | 6 | 0 | 1077 |
+| prod | 6 | 9 | 4 | 0 | 1154 |
+| none | 6 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **With the first wording, no stop blocked and the run tested capture, not the load.** "A
+  decision:" and "an open question that waits on me" match no pattern of the statement check.
+  Only 1 of 9 memory sessions A wrote a fact, by itself, with basis `guess`. So the scenario now
+  says "I decided", and a test checks that the statement check reads it.
+- **On Haiku, the told-first ranking is the difference.** In `dev` and `before`, the stop blocked
+  once in each session A, and Haiku wrote both facts with `--basis told`, as the stop text says. In
+  `dev` the question was in each start load of session B, and each session B named it. In `before`
+  the same two facts were in memory, but not in the load, and no session B ran `memory search`. It
+  named the old reminder question from the status note. In `prod`, session A wrote nothing: 0.3.1
+  has no stop for a statement.
+- **On Sonnet, session A wrote both facts before the stop, with basis `guess`, in all 6 sessions of
+  `dev` and `before`.** It ran `memory add "TEXT"`, the form of the rules line at session start,
+  and twice wrote "(told)" in the text. The note "saved with basis guess" came after the add, and
+  Sonnet did not change the basis. The stop did not block, because any write after the statement
+  counts. So the told-first ranking did not apply, and the question was in no load. The 2 passes
+  in `dev` came from `memory search` in session B. In `before`, no session B searched.
+- **The `prod` passes on Sonnet came from other paths.** In 1 run Sonnet used `--short`, and a short
+  fact has its own budget, so it was in the load. In 1 run session B searched.
+- **The 2 passes in `none` on Sonnet came from Claude Code's own memory.** Session A wrote
+  `MEMORY.md` and two notes under `~/.claude/projects/<project>/memory/`, and session B read them.
+  This channel is open in all arms (see the limits of the value measure).
+
+### Product gaps (not changed here)
+
+- The rules line of each session start (`RULES_SHORT` in `src/cairnkit/discover.py`) teaches
+  `memory add "TEXT"` with no `--basis told`. Only the stop text names it. An agent that writes
+  before the stop gets basis `guess`, and the told-first ranking skips its fact.
+- The stop check for a statement (`OWNER_SAID` in `src/cairnkit/session.py`) passes after any write.
+  A fact with basis `guess` after the owner's words answers it.
+- The statement check does not read "A decision: ..." or "an open question that waits on me" as a
+  statement.
+
+### Limits
+
+- 3 repeats in each cell, one scenario, one author of the seed text and the prompts.
+- The seed follows the shape of one real project. Its texts are shorter (median 25 words), and no
+  fact has a summary.
+- The prompt of session A was changed after the first run, to a form that the stop check reads.
+  The first run shows what a plainer form does.
+- The kit runs with the real home folder, so Claude Code's own memory stays on in all arms.
+
+### Decisions
+
+- Keep `pickup-busy-memory` opt-in. The result depends on the capture path and the model, and the
+  reading rule names six scenarios.
+- The told-first ranking works when the fact has basis told: Haiku 3 of 3 against 0 of 3. On
+  Sonnet it did not act, because no fact had basis told. The owner decides whether the rules line
+  names `--basis told`, and whether the stop asks again after a write with basis `guess`.
+
 ## 2026-11-02: the task of a helper that a Ctrl+C killed, on Haiku
 
 This change records why each Claude Code helper started, from the moment that it starts. Before, a

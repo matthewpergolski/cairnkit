@@ -229,7 +229,7 @@ def seed_record(fact, now: datetime) -> dict:
         "happened_at": when.date().isoformat(),
         "learned_at": when.replace(microsecond=0).isoformat(),
         "source": f"session:{when.date().isoformat()}",
-        "basis": "seen",
+        "basis": fact.basis,
         "status": "active",
         "writer": "seed",
     }

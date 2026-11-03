@@ -270,7 +270,12 @@ def commit_on(branch, path, old, new, subject, why):
         recall()
 
 
-if "ask me the one" in prompt:
+if "Two things from me" in prompt:
+    keep("Open question for the owner: does the Kestrel export keep its CSV column order?")
+    print("Noted.")
+elif "What waits on me" in prompt:
+    print("WAITING ON ME: " + ("the Kestrel export" if "Kestrel" in recall() else "none"))
+elif "ask me the one" in prompt:
     print("Do you approve the merge of #412?")
 elif "I approve the merge of #412" in prompt:
     keep("The owner approved the merge of PR 412.")
@@ -987,3 +992,101 @@ def test_rules_words_count_only_an_untracked_rules_file(tmp_path):
     box.git("add", "AGENTS.md")
     box.git("commit", "-q", "-m", "tracked")
     assert box.rules_words() == 0
+
+
+BUSY_ID = "pickup-busy-memory"
+
+
+def test_the_busy_memory_is_shaped_like_a_real_project_and_plants_no_answer():
+    from agent_eval import busy
+
+    from cairnkit.signals import is_statement
+
+    scenario = SCENARIOS[BUSY_ID]
+    facts = scenario.facts
+    assert len(facts) >= 50
+    assert len({fact.kind for fact in facts}) >= 6
+    assert len({fact.area for fact in facts}) >= 14
+    assert sum(fact.pinned for fact in facts) >= 5
+    assert sum(fact.kind == "rule" and fact.basis == "told" for fact in facts) >= 5
+    assert sum(fact.basis == "told" for fact in facts) >= 20
+    assert len(busy.LOOKED_UP) >= 20
+    assert len(busy.STATUS_NOTE.splitlines()) >= 30
+    assert "\n  " not in busy.STATUS_NOTE
+    for text in (*(fact.text for fact in facts), busy.STATUS_NOTE, *scenario.files.values()):
+        assert not scenario.needle.search(text)
+    assert scenario.needle.search(scenario.prompts[0])
+    assert not scenario.needle.search(scenario.pickup[0])
+    # Else the stop never asks for a fact, and the run tests capture, not what the load picks.
+    assert is_statement(scenario.prompts[0])
+    for prompt in (*scenario.prompts, *scenario.pickup):
+        assert "memory" not in prompt.lower() and "remember" not in prompt.lower()
+
+
+def test_the_busy_scenario_runs_only_by_name():
+    assert [s.id for s in selected([BUSY_ID], fake=False)] == [BUSY_ID]
+    assert BUSY_ID not in [s.id for s in selected(None, fake=False, suite="value")]
+    assert BUSY_ID not in [s.id for s in selected(None, fake=True, suite="value")]
+
+
+def started_with(load: str) -> list[scoring.SessionRecord]:
+    pair = two_sessions()
+    pair[1].trace = [{"hook": "session-start", "hook_stdout": load}]
+    return pair
+
+
+@pytest.mark.parametrize(
+    "answer,result",
+    [
+        ("WAITING ON ME: the Kestrel export", PASS),
+        ("**WAITING ON ME:** CSV column order for the food bank", PASS),
+        ("The Kestrel question is open.\nWAITING ON ME: reminder lead time", FAIL),
+        ("WAITING ON ME: none", FAIL),
+        ("UNKNOWN", scoring.INCONCLUSIVE),
+    ],
+)
+def test_the_last_owner_line_decides_and_silence_never_passes(answer, result):
+    check = SCENARIOS[BUSY_ID].check
+    assert check(answered(answer)).result == result
+
+
+def test_the_owner_check_says_if_the_start_load_held_the_question_and_needs_it_to_fit():
+    from cairnkit.hookrun import HOOK_TEXT_LIMIT
+
+    check = SCENARIOS[BUSY_ID].check
+    shown = check(answered("WAITING ON ME: Kestrel", sessions=started_with("Kestrel export")))
+    assert shown.result == PASS and "was in the start load" in shown.reason
+    missed = check(answered("WAITING ON ME: none", sessions=started_with("other facts")))
+    assert missed.result == FAIL and "was not in the start load" in missed.reason
+    big = started_with("Kestrel " + "x" * HOOK_TEXT_LIMIT)
+    assert check(answered("WAITING ON ME: Kestrel", sessions=big)).result == scoring.INCONCLUSIVE
+
+
+def test_the_busy_scenario_separates_a_carried_note_from_no_memory(tmp_path, scripted):
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[BUSY_ID]])
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    assert rows["dev"]["result"] == PASS, rows["dev"]["reason"]
+    assert rows["none"]["result"] == FAIL, rows["none"]["reason"]
+    assert "memory" in rows["dev"]["carried"]
+
+
+def test_this_checkout_loads_the_new_question_over_a_busy_memory(tmp_path, scripted, monkeypatch):
+    """The real tool: the seed, its lookups and the status note, then the load of session B."""
+    import tempfile
+
+    from agent_eval import busy
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[BUSY_ID]], keep=True)
+    options.builds = {"dev": real_tool_build(tmp_path)}
+    row = runner.run_all(options)[0]
+    assert row["result"] == PASS, row["reason"]
+    assert row["needle_in_load"] is True
+    memory = Path(row["kept_at"]) / "run" / "proj.memory"
+    assert (memory / "notes" / "status.md").is_file()
+    looked_up = {
+        line.split("\t")[1]
+        for log in (memory / ".usage").glob("*.log")
+        for line in log.read_text().splitlines()
+    }
+    assert len(looked_up) == len(busy.LOOKED_UP)
