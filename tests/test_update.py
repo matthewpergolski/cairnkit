@@ -344,6 +344,34 @@ def test_update_prints_commit_subjects_after_a_successful_install(machine, monke
     assert "memory updated:" in out
 
 
+def test_update_drips_changelog_notes_instead_of_commit_subjects(machine, monkeypatch, capsys):
+    """When CHANGELOG has the new section, drip those lines and skip commit subjects."""
+    assert main(["update"]) == 0
+    monkeypatch.setattr(install_source, "current_version", lambda: "0.2.0")
+    (machine.source / "pyproject.toml").write_text(
+        '[project]\nname = "cairnkit"\nversion = "0.3.0"\n', encoding="utf-8"
+    )
+    (machine.source / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## [0.3.0] - 2026-11-03\n\n"
+        "### Added\n\n"
+        "- Cairn drip line.\n\n"
+        "## [0.2.0] - 2026-10-26\n\n"
+        "Baseline.\n",
+        encoding="utf-8",
+    )
+    git(machine.source, "add", "-A")
+    git(machine.source, "commit", "-q", "-m", "Bump to 0.3.0 with notes.")
+    monkeypatch.setenv("FAKE_NEW_VERSION", "0.3.0")
+    capsys.readouterr()
+    assert main(["update"]) == 0
+    out = capsys.readouterr().out
+    assert "Cairn drip line." in out
+    assert "### Added" in out
+    assert "Bump to 0.3.0 with notes." not in out
+    assert "memory updated:" in out
+
+
 def test_update_check_shows_a_github_compare_url(machine, monkeypatch, capsys):
     """A GitHub git URL has no local history; --check prints a compare link instead."""
     url = "https://github.com/example/cairnkit"

@@ -32,11 +32,13 @@ second update says that it waits. Then it checks the source itself, so it
 never installs an older commit last. After 5 minutes it stops and installs
 nothing. `--check` and `--dry-run` take no lock. Windows has no lock.
 
-It prints the old and the new version. When the source moved on, it also
-prints the commit subjects between the installed ref and the new one (for a
-local git folder), or a GitHub compare URL (for a GitHub git URL). On a
-failure it stops, exits 1 and says how to fix it. When nothing is newer, it
-says "Already up to date" and changes nothing. So it is safe to run twice.
+It prints the old and the new version. When `CHANGELOG.md` has a section for
+the new version, it prints that section. When it does not, and the source
+moved on, it prints the commit subjects between the installed ref and the
+new one for a local git folder, or a GitHub compare URL for a GitHub git
+URL. On a failure it stops, exits 1 and says how to fix it. When nothing is
+newer, it says "Already up to date" and changes nothing. So it is safe to run
+twice.
 
 - `memory update --check` only says whether an update exists.
 - `memory update --dry-run` runs the check and lists the other steps.
@@ -47,8 +49,12 @@ says "Already up to date" and changes nothing. So it is safe to run twice.
   the commit subjects between the installed ref and the new one, or a GitHub
   compare URL when subjects are not available locally.
 
-On a terminal the steps show as one progress bar. Piped output shows one
-plain line per step. `NO_COLOR` turns off color.
+On a terminal the steps stack a cairn. Check, Fetch, Install, and Verify
+each add one stone. Build runs and adds no stone. After a successful update
+the summary line names the old and new versions. The release notes then
+print one line at a time. Piped output, `TERM=dumb`, CI, `NO_COLOR`,
+`--plain`, `CAIRNKIT_PLAIN`, and `MEMORY_PLAIN` show one plain line per
+step and print the notes with no pause.
 
 ## Where it is installed from
 

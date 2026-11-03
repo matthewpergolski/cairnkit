@@ -176,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--check", action="store_true", help="only say if an update exists")
     mode.add_argument("--dry-run", action="store_true", help="check, then list the steps")
     p.add_argument("--source", metavar="PATH|URL", help="the folder or git URL to install from")
+    p.add_argument("--plain", action="store_true", help="plain step lines, no cairn and no pause")
 
     sub.add_parser(
         "status", parents=[common], help="say the version, the source, and what needs an update"
@@ -407,7 +408,7 @@ def run(args) -> int:
     from cairnkit.writing import Refused, add_fact, change_fact, fail, keep_fact, purge_fact
 
     if args.command == "update":
-        return run_update(args.source, args.check, args.dry_run)
+        return run_update(args.source, args.check, args.dry_run, plain=args.plain)
     project = find_project()
     if args.command == "docs":
         if args.check and (args.dry_run or args.force):

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `memory update` on a terminal stacks a cairn, one stone for Check, Fetch,
+  Install, and Verify. Build still runs and adds no stone. After success the
+  new release section of `CHANGELOG.md` prints one line at a time. `--plain`,
+  `CAIRNKIT_PLAIN`, `MEMORY_PLAIN`, `NO_COLOR`, CI, and a non-terminal keep
+  plain step lines with no pause.
+
 ## [0.3.1] - 2026-10-30
 
 ### Added
