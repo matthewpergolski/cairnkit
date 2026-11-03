@@ -137,7 +137,7 @@ def current_version() -> str:
 def git_env() -> dict[str, str]:
     """The environment for git: it never asks for a password and waits, and its
     messages are in English, so update.refuses_commit_id can read them."""
-    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0"}
 
 
 def git(args: list[str], timeout: float = 3.0) -> str | None:

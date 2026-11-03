@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import functools
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -49,14 +51,65 @@ class Project:
         return self.common_dir is not None
 
 
+_INDEX_COPIES: dict[tuple[str, int, int], str] = {}
+_INDEX_PATHS: dict[tuple[str, str], str] = {}
+
+
+def _drop_index_copies() -> None:
+    for path in _INDEX_COPIES.values():
+        for name in (path, f"{path}.lock"):
+            with contextlib.suppress(OSError):
+                os.unlink(name)
+
+
+def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
+    """A copy of the index that git uses in `cwd`, for a `git diff` to refresh in place of it."""
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        where = (str(cwd), env.get("GIT_INDEX_FILE", ""))
+        if where not in _INDEX_PATHS:
+            found = subprocess.run(
+                ["git", "rev-parse", "--path-format=absolute", "--git-path", "index"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=max(min(1.0, deadline.left()), 0.01),
+                env=env,
+            )
+            _INDEX_PATHS[where] = found.stdout.strip() if found.returncode == 0 else ""
+        real = Path(_INDEX_PATHS[where]) if _INDEX_PATHS[where] else None
+        if real and real.is_file():
+            data = real.read_bytes()
+            stat = real.stat()
+            key = (str(real), stat.st_mtime_ns, len(data))
+            if key not in _INDEX_COPIES:
+                if not _INDEX_COPIES:
+                    atexit.register(_drop_index_copies)
+                fd, path = tempfile.mkstemp(prefix="cairnkit-index-")
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                _INDEX_COPIES[key] = path
+            return _INDEX_COPIES[key]
+    return None
+
+
 def run_git(
     cwd: Path, *args: str, timeout: float = 3.0, env: dict[str, str] | None = None
 ) -> str | None:
-    """Run git. Return its output, or None when git fails, is missing or has no time left."""
+    """Run git. Return its output, or None when git fails, is missing or has no time left.
+
+    A git that runs past its time is killed, and a lock that it held stays and stops the next
+    commit. A read such as `git status` takes no optional lock here. A `git diff` against the
+    worktree always refreshes and writes the index, so it gets a copy of the index.
+    """
     room = deadline.left()
     if room <= 0 or deadline.git_stuck():
         deadline.note_git_cut()
         return None
+    env = {**(env if env is not None else os.environ), "GIT_OPTIONAL_LOCKS": "0"}
+    if args and args[0] == "diff":
+        copy = _index_copy(cwd, env)
+        if copy:
+            env["GIT_INDEX_FILE"] = copy
     try:
         result = subprocess.run(
             ["git", *args],

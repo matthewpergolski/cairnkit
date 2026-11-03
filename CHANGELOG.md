@@ -173,6 +173,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A hook no longer writes `.git/index`. A `git diff` against the worktree refreshes the index and
+  holds `.git/index.lock` while it does, whatever `GIT_OPTIONAL_LOCKS` says. A hook kills a git
+  that runs past its time, and the lock it leaves stops the next `git commit` ("index.lock: File
+  exists"). This happened once in a test run on a loaded machine. Now each `git diff` of a hook
+  works on a copy of the index, and every other git read runs with `GIT_OPTIONAL_LOCKS=0`.
+
 - The text of a session start and a subagent start stays under 9,000 characters. Claude Code saves
   hook text over 10,000 characters to a file, and the model sees only the first 2,000. In a real
   project the session start grew to 10,170 characters, and the agent saw the preview only. A load
