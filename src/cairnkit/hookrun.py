@@ -333,7 +333,8 @@ def fitted_load(project: Project, flag: str | None, budget: int, room: int, **op
             return text
         if budget <= LEAST_BUDGET:
             return _cut(text, room)
-        budget = max(LEAST_BUDGET, min(budget // 2, int(budget * room / len(text))))
+        # Words scale with characters. 95 percent of that, and at least a tenth less each time.
+        budget = max(LEAST_BUDGET, min(budget * 9 // 10, int(budget * room / len(text) * 0.95)))
 
 
 def _session_text(

@@ -186,6 +186,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A session start shows the newest facts that the owner stated. In a real project it showed 16 of
+  51 facts and held back all that the owner said in two days, his two open questions among them.
+  A new statement has no lookups yet, so it ranked below older facts that searches keep warm, and
+  one place for each of 14 areas went to old facts first. Now the five newest facts with basis
+  `told` come right after the pinned facts. This orders what fits. It ends nothing. On a copy of
+  that memory, all four statements of the last day now load, and 23 facts in all.
+
+- A load that is too big for the hook limit now shrinks its word budget only as far as it needs
+  (at least a tenth each time), not by half.
+
+- A load names the files outside `notes/` in one short line. `memory check` still explains each
+  file. In a real project two such notes took 849 characters of each session start.
+
 - In a project with a hand-written `docs/state/README.md`, the pages of `memory docs` name that
   page as their parent. Before, they named a page that did not exist.
 

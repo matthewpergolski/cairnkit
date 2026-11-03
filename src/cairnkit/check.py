@@ -417,6 +417,8 @@ class Health:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     todo: list[str] = field(default_factory=list)
+    # Files in the memory folder that no load reads. `todo` explains each one, a load names them.
+    stray: list[str] = field(default_factory=list)
     info: list[str] = field(default_factory=list)
     linked: list[str] = field(default_factory=list)
     # The warnings that come from a line in a note. A stop must know which file holds each one.
@@ -519,6 +521,7 @@ def _read_health(project: Project, flag: str | None) -> Health:
             "the ones that do not apply."
         )
     health.todo += migrate_refs.check_notes(memdir)
+    health.stray = migrate_refs.stray_files(memdir)
     _hook_lines(hooks, health)
     # For a hook that it can fix, repo_line says only what the hook state already said.
     repo = refresh.gone_python_line(project) if hooks.fixable else refresh.repo_line(project, flag)

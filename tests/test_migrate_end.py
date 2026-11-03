@@ -757,3 +757,15 @@ def test_the_now_line_is_the_line_in_the_file(repo, capsys):
     task = task_path(repo).read_text()
     now = [line for line in task.splitlines() if "- Now:" in line and "Run tools" in line]
     assert now and all("memory-bank/log.md" in line for line in now)
+
+
+def test_the_load_names_files_outside_the_notes_in_one_short_line(repo, capsys):
+    """Each long note took about 400 characters of every session start in a real project."""
+    later_status_beside_a_note(repo, capsys)
+    write(repo / "memory-bank" / "specs" / "a-spec.md", "# A spec\n")
+    lines = [line for line in load(capsys).splitlines() if "outside notes/" in line]
+    assert len(lines) == 1
+    assert "status.md" in lines[0] and "specs/a-spec.md" in lines[0]
+    assert "`memory migrate`" in lines[0]
+    assert len(lines[0]) <= 240
+    assert "memory-bank/status.md is outside notes/" in check_strict(capsys)

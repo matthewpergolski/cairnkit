@@ -223,6 +223,10 @@ def bound_rules(rules: list[dict]) -> tuple[list[dict], list[dict]]:
 # With no signal about the work, this share of the budget keeps one place for each area. Newer
 # facts would crowd out an old fact in a quiet area. See docs/forgetting-tests.md.
 AREA_SHARE = 1 / 3
+# The newest facts that a person stated come next, before the area places. A new statement has no
+# lookups yet, so its score loses to older facts that searches keep warm, and a session lost the
+# owner's open questions that way. This orders what fits. It ends nothing.
+RECENT_TOLD = 5
 
 
 def _area_places(ranked: list[dict]) -> list[dict]:
@@ -245,7 +249,8 @@ def pick(
     words: set[str],
     used: dict[str, datetime] | None = None,
 ) -> list[dict]:
-    """Pinned facts, then one place per area when no signal exists, then the best scores.
+    """Pinned facts, the newest statements of a person, one place per area when no signal
+    exists, then the best scores.
 
     A changed file that matches no fact says nothing about which fact is relevant, so it is no
     signal.
@@ -263,9 +268,18 @@ def pick(
         chosen.append(state)
         used += words_in(render(state))
     taken = set()
+    told = [s for s in unpinned if s.get("basis") == "told"]
+    newest = sorted(told, key=lambda s: (s.get("learned_at", ""), s["id"]), reverse=True)
+    for state in newest[:RECENT_TOLD]:
+        cost = words_in(render(state))
+        if budget and used + cost > budget:
+            continue
+        chosen.append(state)
+        taken.add(state["id"])
+        used += cost
     if budget and AREA_SHARE and not signal:
         limit = used + int(budget * AREA_SHARE)
-        for state in _area_places(rest):
+        for state in _area_places([s for s in rest if s["id"] not in taken]):
             cost = words_in(render(state))
             if used + cost > limit:
                 continue

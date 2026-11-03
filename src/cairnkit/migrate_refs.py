@@ -171,6 +171,21 @@ def check_notes(memdir: Path) -> list[str]:
     return notes
 
 
+def is_stray_note(line: str) -> bool:
+    return line.startswith(f"note: {LINK_NAME}/") and " is outside notes/," in line
+
+
+def stray_line(rels: list[str]) -> str | None:
+    """One line for a load, which every session reads. `memory check` explains each file."""
+    if not rels:
+        return None
+    shown = ", ".join(rels[:3]) + (f" and {len(rels) - 3} more" if len(rels) > 3 else "")
+    return (
+        f"note: {len(rels)} file(s) in {LINK_NAME} are outside notes/, so no load reads them: "
+        f"{shown}. `memory migrate` prints the plan."
+    )
+
+
 def outside_layout(memdir: Path) -> list[Path]:
     """Regular files in the memory folder outside the new layout. Tool state starts with a dot."""
     found: list[Path] = []

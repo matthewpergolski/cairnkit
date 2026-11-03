@@ -16,6 +16,7 @@ from cairnkit import (
     followups,
     hygiene,
     install_source,
+    migrate_refs,
     rule_notices,
     usage,
 )
@@ -285,9 +286,9 @@ def run_load(
         answer = [] if health.is_ok else [health.answer()]
         if health.errors or health.warnings:
             answer.append("`memory check` lists each one with its fix.")
-        lines[1:1] = [
-            line for line in (owner, beside, warning, notice, *answer, *health.todo) if line
-        ]
+        todo = [line for line in health.todo if not migrate_refs.is_stray_note(line)]
+        todo.append(migrate_refs.stray_line(health.stray))
+        lines[1:1] = [line for line in (owner, beside, warning, notice, *answer, *todo) if line]
         if update_notice:
             lines[1:1] = rule_notices.take_lines(memory)
     except MemoryMissing as exc:
