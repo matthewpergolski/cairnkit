@@ -56,3 +56,18 @@ def test_release_notes_from_path(tmp_path):
     path.write_text(SAMPLE, encoding="utf-8")
     lines = release_notes(path, "0.3.0", "0.3.1")
     assert any("cairn animation" in line for line in lines)
+
+
+def test_release_notes_empty_when_path_missing(tmp_path):
+    assert release_notes(tmp_path / "missing.md", "0.3.0", "0.3.1") == []
+
+
+def test_release_notes_empty_when_old_not_behind_new():
+    assert release_notes(SAMPLE, "0.3.1", "0.3.1") == []
+    assert release_notes(SAMPLE, "0.3.1", "0.3.0") == []
+
+
+def test_release_notes_matches_v_prefix_on_heading_or_new():
+    text = "## [v0.3.1]\n\n- tagged with v\n"
+    assert release_notes(text, "0.3.0", "0.3.1") == ["- tagged with v"]
+    assert release_notes("## [0.3.1]\n\n- plain\n", "0.3.0", "v0.3.1") == ["- plain"]

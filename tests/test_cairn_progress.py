@@ -26,6 +26,11 @@ def test_want_anim_false_with_no_color():
     assert want_anim(Terminal(), env={"TERM": "xterm", "NO_COLOR": "1"}) is False
 
 
+def test_want_anim_true_when_no_color_is_empty():
+    """Empty NO_COLOR is unset for this gate (same as missing)."""
+    assert want_anim(Terminal(), env={"TERM": "xterm", "NO_COLOR": ""}) is True
+
+
 def test_want_anim_false_with_cairnkit_plain():
     assert want_anim(Terminal(), env={"TERM": "xterm", "CAIRNKIT_PLAIN": "1"}) is False
 
@@ -52,6 +57,40 @@ def test_build_stage_does_not_add_a_stone():
     assert stone_names == ["Check", "Fetch", "Install", "Verify"]
 
 
+def test_build_and_unknown_labels_do_not_increment_stacked():
+    bar = Progress(io.StringIO(), anim=False)
+    bar.start("Mystery")
+    bar.done()
+    assert bar.stacked == 0
+    bar.start("Build")
+    bar.done()
+    assert bar.stacked == 0
+    bar.start("Check")
+    bar.done()
+    assert bar.stacked == 1
+
+
+def test_default_drip_delay_matches_settled_pause():
+    assert Progress(anim=False).drip_delay == 0.12
+
+
+def test_start_stops_the_previous_ticker(monkeypatch):
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    out = Terminal()
+    bar = Progress(out, anim=True, drip_delay=0)
+    bar.start("Check")
+    first = bar.ticker
+    assert first is not None
+    bar.start("Fetch")
+    assert not first.is_alive()
+    assert bar.ticker is not None and bar.ticker.is_alive()
+    assert bar.label == "Fetch"
+    bar.done()
+    bar.close()
+
+
 def test_piped_output_stays_plain_step_lines():
     out = io.StringIO()
     bar = Progress(out, anim=False)
@@ -64,7 +103,7 @@ def test_piped_output_stays_plain_step_lines():
     assert "  Check... done\n" in text
     assert "  Build... done\n" in text
     assert text.endswith("memory updated: 0.1.0 -> 0.2.0.\n")
-    assert "●" not in text and "○" not in text
+    assert "●" not in text
 
 
 def test_opt_out_forces_plain_on_tty(monkeypatch):
@@ -87,12 +126,12 @@ def test_tty_stacks_four_stones_then_flag(monkeypatch):
     for name in ("Check", "Fetch", "Build", "Install", "Verify"):
         bar.start(name)
         bar.done()
+    assert bar.stacked == 4
     bar.finish("memory updated: 0.3.0 → 0.3.1.")
     text = out.getvalue()
-    # Four product stones; Build is silent on the cairn.
-    assert text.count("●") + text.count("○") >= 4
+    assert "● ● ● ●" in text
     assert "0.3.0" in text and "0.3.1" in text
-    assert "→" in text or "->" in text
+    assert "→" in text
 
 
 def test_tty_failure_stays_plain(monkeypatch):

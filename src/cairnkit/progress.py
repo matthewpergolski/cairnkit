@@ -27,16 +27,15 @@ class StageSpec:
     """One update step. Build is a real step and adds no stone."""
 
     name: str
-    weight: float
     stone: bool
 
 
 STAGES: tuple[StageSpec, ...] = (
-    StageSpec("Check", 1.0, True),
-    StageSpec("Fetch", 1.0, True),
-    StageSpec("Build", 4.0, False),
-    StageSpec("Install", 4.0, True),
-    StageSpec("Verify", 1.0, True),
+    StageSpec("Check", True),
+    StageSpec("Fetch", True),
+    StageSpec("Build", False),
+    StageSpec("Install", True),
+    StageSpec("Verify", True),
 )
 
 
@@ -71,7 +70,7 @@ class Progress:
         stream: TextIO | None = None,
         *,
         anim: bool | None = None,
-        drip_delay: float = 0.04,
+        drip_delay: float = 0.12,
         stages: tuple[StageSpec, ...] = STAGES,
     ) -> None:
         self.out = stream or sys.stdout
@@ -104,6 +103,7 @@ class Progress:
                 self._write(self._cairn_row())
 
     def start(self, label: str) -> None:
+        self._stop_ticker()
         self.label = label
         self.step_started = time.monotonic()
         if not self.live:
