@@ -348,3 +348,18 @@ def test_rerun_is_byte_stable_and_check_sees_an_import_change(mem: Path, repo: P
     capsys.readouterr()
     assert main(["docs", "--check"]) == 1
     assert "docs/state/components/backend-shop.md" in capsys.readouterr().out.splitlines()
+
+
+def test_pages_hang_under_a_hand_written_system_page(mem: Path, repo: Path, capsys):
+    """A project's own README stays, and the new pages name it as their parent, not a lost id."""
+    plant_django(repo)
+    hand = (
+        "---\nid: the-shop\ntitle: The shop\nkind: system\n---\n\n# The shop\n\nWritten by hand.\n"
+    )
+    write(state(repo) / "README.md", hand)
+    assert main(["docs"]) == 0
+    assert page(repo, "README.md") == hand
+    parents = {front(page(repo, rel)).get("parent") for rel in pages(repo) - {"README.md"}}
+    assert parents == {"the-shop"}
+    capsys.readouterr()
+    assert main(["docs", "--check"]) == 0

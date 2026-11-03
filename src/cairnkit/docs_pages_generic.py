@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from cairnkit.docs_cmd import Page
+from cairnkit.docs_cmd import _ATLAS_FRONT_MATTER, STATE_DIR, Page
 from cairnkit.docs_inventory import (
     MAX_CODE_FILES,
     Component,
@@ -160,7 +160,7 @@ def _system_entry_rows(inv: ProjectInventory, graph: _Graph, page_ids: dict[str,
     for folder, group in sorted(scripts.items()):
         if len(group) > 1:
             rows.append(
-                f"| {EntryKind.PYTHON_SCRIPT} | {len(group)} files | `__main__` blocks "
+                f"| {EntryKind.PYTHON_SCRIPT} | {_files(len(group))} | `__main__` blocks "
                 f"| [{_display(folder)}](components/{page_ids[folder]}.md) |"
             )
     if len(shown) > ENTRY_ROWS:
@@ -339,11 +339,11 @@ def _component_page(
 ) -> Page:
     langs = _languages(comp.files, graph)
     name = _display(comp.path)
-    summary = comp.summary or f"{comp.label} with {len(comp.files)} files."
+    summary = comp.summary or f"{comp.label} with {_files(len(comp.files))}."
     facts = [f"{comp.label}.", f"Source root {_code(_display(comp.root))}."]
     if Language.PYTHON in langs and comp.path != comp.root:
         facts.append(f"Import name {_code(relative(comp.path, comp.root).replace('/', '.'))}.")
-    facts.append(f"{len(comp.files)} files.")
+    facts.append(f"{_files(len(comp.files))}.")
     diagram, links = _component_diagram(comp, graph, page_ids)
     parts = [f"# {name}", *([comp.summary] if comp.summary else []), " ".join(facts)]
     note = (
@@ -384,7 +384,8 @@ def _component_page(
         )
     text = "## Files\n\n" + "\n".join(rows)
     if len(comp.files) > TABLE_ROWS:
-        text += f"\n\n{len(comp.files) - TABLE_ROWS} more files are not listed."
+        rest = len(comp.files) - TABLE_ROWS
+        text += f"\n\n{rest} more {'file is' if rest == 1 else 'files are'} not listed."
     parts.append(text)
     return Page(
         state_path=f"components/{page_ids[comp.path]}.md",
@@ -400,8 +401,25 @@ def _component_page(
     )
 
 
+def _files(count: int) -> str:
+    return f"{count} file" if count == 1 else f"{count} files"
+
+
+_FRONT_ID = re.compile(r"\A---\n(?:.*\n)*?id: *([^\s\n]+) *\n")
+
+
+def _hand_root_id(root: Path) -> str | None:
+    """The id of a hand-written system page in docs/state, which stays and is the parent."""
+    try:
+        text = (root / STATE_DIR / "README.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    found = None if _ATLAS_FRONT_MATTER.match(text) else _FRONT_ID.match(text)
+    return found.group(1).strip("\"'") if found else None
+
+
 def build_generic_pages(root: Path, inv: ProjectInventory) -> list[Page]:
-    root_id = _slug(inv.project_name) or "project"
+    root_id = _hand_root_id(root) or _slug(inv.project_name) or "project"
     graph = _Graph(inv)
     page_ids = _page_ids(inv, root_id)
     pages = [_system_page(root, inv, graph, root_id, page_ids)]

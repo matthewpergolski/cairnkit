@@ -186,6 +186,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- In a project with a hand-written `docs/state/README.md`, the pages of `memory docs` name that
+  page as their parent. Before, they named a page that did not exist.
+
 - A hook no longer writes `.git/index`. A `git diff` against the worktree refreshes the index and
   holds `.git/index.lock` while it does, whatever `GIT_OPTIONAL_LOCKS` says. A hook kills a git
   that runs past its time, and the lock it leaves stops the next `git commit` ("index.lock: File
