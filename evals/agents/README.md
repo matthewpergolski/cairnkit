@@ -196,6 +196,21 @@ sets `RETRY_WINDOW_SECONDS` to 45. Session B must state that task (`45`). The re
 `inconclusive` when the helper did not reach its first step, or when its edit or commit is on disk.
 An interrupted turn is no error.
 
+`pickup-busy-memory` also runs only by name. The other pickups start with an empty memory, so no
+fact competes for the word budget of the load. Here a memory arm starts with 52 older active facts:
+decisions, traps, rules, events and others, in 17 areas, 7 of them pinned, 28 with basis told. The
+kit looks up 30 of them with `memory show`, so they carry a `use` score, and writes a status note of
+33 lines. The shape follows one real project of about 50 facts. All text is made up, in
+`agent_eval/busy.py`. In session A the owner states a decision (the backup moves to the Ostrava
+mirror) and an open question that waits on him (the CSV column order of the Kestrel export). He says
+"I decided", which the stop check of `dev` reads as a statement. With "A decision:", no session A
+wrote a fact with basis told, so a run tested capture and not the load. Session B is asked what
+waits on the owner and must end with a `WAITING ON ME:` line. It passes when that line names the
+question (`Kestrel` or `column order`). No such line gives `inconclusive`. The control
+reads what the session-start hook gave session B: over `HOOK_TEXT_LIMIT` characters the result is
+`inconclusive`, because Claude Code then shows the model only the head of the text. Under it, the
+reason says whether the question was in that text. The `none` arm gets no seed.
+
 In a memory arm, each session must show a hook or a `memory` command. If not, the result is
 `not-connected`, and it names the session. An answer does not count as a sign of a connection,
 because git can carry an answer. The `none` arm needs no connection, but it can still give `error`.

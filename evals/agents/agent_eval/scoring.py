@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 from agent_eval.agents import Parsed
+from cairnkit.hookrun import HOOK_TEXT_LIMIT
 
 PASS = "pass"
 FAIL = "fail"
@@ -436,6 +437,44 @@ def check_waiting(settled: str, still_open: str) -> Callable[[Observation], Outc
         if still_open not in numbers:
             return Outcome(INCONCLUSIVE, f"it does not name #{still_open}, which is still open")
         return Outcome(PASS, f"it names #{still_open} and not #{settled}")
+
+    return check
+
+
+_OWNER_LINE = re.compile(r"WAITING ON ME:\**\s*(.*)", re.I)
+
+
+def start_load(session: SessionRecord) -> str | None:
+    """What the session-start hook gave the model, without the JSON around it."""
+    texts = [_hook_text(out) for event, out in _hook_outputs(session.trace) if event == _HOOK_START]
+    return texts[0] if texts else None
+
+
+def check_owner_question(needle: re.Pattern) -> Callable[[Observation], Outcome]:
+    """The last WAITING ON ME line must name the open question. Silence never passes.
+
+    The control: the start load of session B fits the hook limit. Over it, Claude Code shows the
+    model only the head of the text, so the run would test that cut and not what the load chose.
+    """
+
+    def check(obs: Observation) -> Outcome:
+        lines = _OWNER_LINE.findall(obs.final_text)
+        if not lines:
+            return Outcome(INCONCLUSIVE, "the answer has no WAITING ON ME line")
+        load = start_load(obs.sessions[-1]) if obs.has_memory and len(obs.sessions) > 1 else None
+        where = ""
+        if load is not None:
+            if len(load) > HOOK_TEXT_LIMIT:
+                return Outcome(
+                    INCONCLUSIVE,
+                    f"the start load of session B has {len(load)} characters, over the hook "
+                    f"limit of {HOOK_TEXT_LIMIT}",
+                )
+            shown = "in" if needle.search(load) else "not in"
+            where = f"; the question was {shown} the start load of session B ({len(load)} chars)"
+        if needle.search(lines[-1]):
+            return Outcome(PASS, "session B names the open question of the owner" + where)
+        return Outcome(FAIL, "session B does not name the open question of the owner" + where)
 
     return check
 
