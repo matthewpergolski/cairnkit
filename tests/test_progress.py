@@ -33,11 +33,17 @@ def test_piped_summary_is_a_plain_line():
     assert out.getvalue().endswith("  Install... done\nmemory updated: 0.1.0 -> 0.2.0.\n")
 
 
-def test_terminal_stacks_a_cairn_and_the_summary(monkeypatch):
+def _clear_plain_gates(monkeypatch) -> None:
+    """Anim tests must not inherit CI / GITHUB_ACTIONS from the runner."""
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.delenv("CAIRNKIT_PLAIN", raising=False)
     monkeypatch.delenv("MEMORY_PLAIN", raising=False)
+
+
+def test_terminal_stacks_a_cairn_and_the_summary(monkeypatch):
+    _clear_plain_gates(monkeypatch)
     monkeypatch.setenv("TERM", "xterm-256color")
     out = Terminal()
     bar = Progress(out)
@@ -68,6 +74,7 @@ def test_no_color_is_plain_lines(monkeypatch):
 
 
 def test_dumb_terminal_gets_plain_lines(monkeypatch):
+    _clear_plain_gates(monkeypatch)
     monkeypatch.setenv("TERM", "dumb")
     out = Terminal()
     bar = Progress(out)
@@ -77,10 +84,7 @@ def test_dumb_terminal_gets_plain_lines(monkeypatch):
 
 
 def test_cursor_comes_back_after_a_failure(monkeypatch):
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    monkeypatch.delenv("CI", raising=False)
-    monkeypatch.delenv("CAIRNKIT_PLAIN", raising=False)
-    monkeypatch.delenv("MEMORY_PLAIN", raising=False)
+    _clear_plain_gates(monkeypatch)
     monkeypatch.setenv("TERM", "xterm-256color")
     out = Terminal()
     bar = Progress(out)
