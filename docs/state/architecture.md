@@ -20,9 +20,10 @@ sources:
   - src/cairnkit/discover.py
   - src/cairnkit/docs_cmd.py
   - src/cairnkit/docs_inventory.py
-  - src/cairnkit/docs_modules.py
   - src/cairnkit/docs_pages_cairnkit.py
   - src/cairnkit/docs_pages_generic.py
+  - src/cairnkit/docs_python.py
+  - src/cairnkit/docs_script.py
   - src/cairnkit/enforcement.py
   - src/cairnkit/envsecrets.py
   - src/cairnkit/followups.py
@@ -108,9 +109,10 @@ flowchart TB
     Library --> detect[detect]
     Library --> discover[discover]
     Library --> docs_inventory[docs_inventory]
-    Library --> docs_modules[docs_modules]
     Library --> docs_pages_cairnkit[docs_pages_cairnkit]
     Library --> docs_pages_generic[docs_pages_generic]
+    Library --> docs_python[docs_python]
+    Library --> docs_script[docs_script]
     Library --> enforcement[enforcement]
     Library --> envsecrets[envsecrets]
     Library --> githook[githook]

@@ -104,6 +104,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `memory docs` in a project that is not cairnkit writes one system page and one page for each
+  component: a top-level package or folder of a source root. Before, it wrote one import graph of
+  the top-level Python packages only. In a real Django and TypeScript project, it showed only the
+  22 scripts in `tools/`, and it did not show `backend/` or the frontend. Now it finds Python
+  source roots in subfolders (`backend/` with `manage.py`, `src/`) and resolves imports from
+  them. It reads TypeScript and JavaScript imports, with `tsconfig` `paths` and `baseUrl`. It
+  lists entry points (`manage.py`, console scripts, `__main__` blocks, `package.json`, and the
+  scripts that `index.html` loads) and HTTP routes (Django `urlpatterns` through `include()`, and
+  FastAPI, Flask and Django Ninja decorators under their mount). It reads only files that git
+  does not ignore, and it skips tests, migrations, build output and generated files. On that
+  project it writes 11 pages in about 0.2 seconds. The pages `architecture.md` and `modules/`
+  of an older atlas have no source now, so `memory docs --force` removes them. The atlas of
+  cairnkit itself keeps its pages. Only its module list names the new modules.
 - The capture guide at a blocked stop is 87 words, down from 157, and it says that a commit, a
   branch or the diff is no fact. `--supersedes ID` stays in the rules of each session start. When
   the owner stated something and the work changed, the block gives one line for both. A stop that

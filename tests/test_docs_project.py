@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from cairnkit.cli import main
-from cairnkit.docs_inventory import ProjectKind, detect_project_kind, inventory
+from cairnkit.docs_inventory import ProjectKind, detect_project_kind
 
 
 def state_dir(repo: Path) -> Path:
@@ -146,73 +146,27 @@ def test_project_kind_gate(tmp_path: Path):
     assert detect_project_kind(generic) is ProjectKind.GENERIC
 
 
-def test_inventory_reads_console_scripts_and_readme_sections(tmp_path: Path):
-    root = tmp_path / "proj"
-    _write(
-        root / "pyproject.toml",
-        '[project]\nname = "docsearch"\nversion = "0.1.0"\n'
-        'description = "Search."\n\n'
-        '[project.entry-points."console_scripts"]\n'
-        'search = "docsearch.search:run"\n',
-    )
-    headings = "\n".join(f"## Section {i}\n\nbody\n" for i in range(10))
-    _write(root / "README.md", f"# docsearch\n\n### Skip me\n\n{headings}")
-    inv = inventory(root)
-    assert inv.kind is ProjectKind.GENERIC
-    assert inv.project_name == "docsearch"
-    assert [(ep.name, ep.module) for ep in inv.entry_points] == [("search", "docsearch.search")]
-    assert len(inv.readme_sections) == 8
-    assert inv.readme_sections[0].heading == "Section 0"
-    assert inv.readme_sections[-1].heading == "Section 7"
-    assert all(section.heading != "Skip me" for section in inv.readme_sections)
-
-
-def test_docs_generic_docsearch_pages_follow_imports(mem: Path, repo: Path):
+def test_docs_generic_docsearch_page_follows_imports(mem: Path, repo: Path):
     plant_docsearch(repo)
     assert main(["docs", "--force"]) == 0
     names = {p.relative_to(state_dir(repo)).as_posix() for p in state_dir(repo).rglob("*.md")}
-    assert "README.md" in names
-    assert "architecture.md" in names
-    assert "agent-session.md" not in names
-    assert "fact-lifecycle.md" not in names
+    assert names == {"README.md", "components/src-docsearch.md"}
     _forbid_cairnkit(repo)
 
     root = (state_dir(repo) / "README.md").read_text(encoding="utf-8")
     assert "kind: system" in root
     assert 'sourceRevision: "' in root
     assert "README.md" in root.split("---", 2)[1]
-    assert "Codebase" in root
-    assert "docsearch" in root
+    assert "`docsearch.cli:main`" in root
     assert "```mermaid" in root
 
-    arch = (state_dir(repo) / "architecture.md").read_text(encoding="utf-8")
-    assert "kind: service" in arch
-    assert "sourceRevision:" not in arch
-    assert "docsearch.cli:main" in arch
-    for heading in ("Ingest", "Search", "Rerank"):
-        assert heading in arch
-    assert "docsearch_ingest --> docsearch_chunking" in arch
-    assert "docsearch_search --> docsearch_rerank" in arch
-
-    expected = {
-        "docsearch-ingest",
-        "docsearch-chunking",
-        "docsearch-search",
-        "docsearch-rerank",
-        "docsearch-judge",
-        "docsearch-decider",
-        "docsearch-llm",
-        "docsearch-cli",
-    }
-    modules = state_dir(repo) / "modules"
-    stems = {p.stem for p in modules.glob("*.md")}
-    assert stems == expected
-    ingest = (modules / "docsearch-ingest.md").read_text(encoding="utf-8")
-    assert "kind: module" in ingest
-    assert "sourceRevision:" not in ingest
-    assert "Ingest raw documents." in ingest
-    assert "docsearch_chunking" in ingest
-    assert "docsearch-notes.md" not in names
+    page = (state_dir(repo) / "components" / "src-docsearch.md").read_text(encoding="utf-8")
+    assert "kind: module" in page
+    assert "sourceRevision:" not in page
+    assert "Python package. Source root `src`. Import name `docsearch`." in page
+    assert '["ingest.py"]' in page and '["chunking.py"]' in page
+    assert "| `ingest.py` | Ingest raw documents. | 2 |" in page
+    assert "| `notes.py` | Scratch notes that nothing imports. | 0 |" in page
 
 
 def test_docs_generic_package_edges(mem: Path, repo: Path):
@@ -225,52 +179,12 @@ def test_docs_generic_package_edges(mem: Path, repo: Path):
     _write(repo / "src" / "beta" / "__init__.py", "")
     _write(repo / "src" / "beta" / "util.py", '"""Util."""\ndef helper():\n    return 1\n')
     assert main(["docs", "--force"]) == 0
-    arch = (state_dir(repo) / "architecture.md").read_text(encoding="utf-8")
-    assert "alpha --> beta" in arch
+    root = (state_dir(repo) / "README.md").read_text(encoding="utf-8")
+    assert 'c_src_alpha["src/alpha"]' in root
+    assert "c_src_alpha --> c_src_beta" in root
     names = {p.name for p in state_dir(repo).rglob("*.md")}
-    assert "agent-session.md" not in names
-    assert "fact-lifecycle.md" not in names
+    assert names == {"README.md", "src-alpha.md", "src-beta.md"}
     _forbid_cairnkit(repo)
-
-
-def test_docs_generic_subpackage_pages(mem: Path, repo: Path):
-    _write(repo / "pyproject.toml", _pyproject("pipe", "Nested packages."))
-    _write(repo / "src" / "pipe" / "__init__.py", "")
-    _write(repo / "src" / "pipe" / "ingest" / "__init__.py", "")
-    _write(repo / "src" / "pipe" / "ingest" / "loader.py", '"""Load files."""\n')
-    _write(repo / "src" / "pipe" / "search" / "__init__.py", "")
-    _write(repo / "src" / "pipe" / "search" / "query.py", '"""Run a query."""\n')
-    assert main(["docs", "--force"]) == 0
-    modules = state_dir(repo) / "modules"
-    assert (modules / "pipe-ingest.md").is_file()
-    assert (modules / "pipe-search.md").is_file()
-    assert not (modules / "pipe-ingest-loader.md").exists()
-    text = (modules / "pipe-ingest.md").read_text(encoding="utf-8")
-    assert "kind: module" in text
-    assert "loader" in text
-    names = {p.name for p in state_dir(repo).rglob("*.md")}
-    assert "agent-session.md" not in names
-    _forbid_cairnkit(repo)
-
-
-def test_docs_generic_module_pages_capped_and_stable(mem: Path, repo: Path):
-    _write(repo / "pyproject.toml", _pyproject("pkg", "Many modules."))
-    pkg = repo / "src" / "pkg"
-    _write(pkg / "__init__.py", "")
-    count = 20
-    for index in range(count):
-        targets = [f"a{(index + 1) % count:02d}", f"a{(index + 2) % count:02d}"]
-        body = f'"""Module a{index:02d}."""\n' + "".join(f"import pkg.{name}\n" for name in targets)
-        _write(pkg / f"a{index:02d}.py", body)
-    assert main(["docs", "--force"]) == 0
-    first = sorted(p.name for p in (state_dir(repo) / "modules").glob("*.md"))
-    assert first == [f"pkg-a{index:02d}.md" for index in range(16)]
-    assert main(["docs", "--force"]) == 0
-    second = sorted(p.name for p in (state_dir(repo) / "modules").glob("*.md"))
-    assert second == first
-    names = {p.name for p in state_dir(repo).rglob("*.md")}
-    assert "agent-session.md" not in names
-    assert "fact-lifecycle.md" not in names
 
 
 def test_docs_check_goes_stale_when_an_import_changes(mem: Path, repo: Path, capsys):
@@ -283,7 +197,7 @@ def test_docs_check_goes_stale_when_an_import_changes(mem: Path, repo: Path, cap
     out = capsys.readouterr()
     assert code == 1
     assert out.err == ""
-    assert "docs/state/architecture.md" in out.out.splitlines()
+    assert out.out.splitlines() == ["docs/state/components/src-docsearch.md"]
 
 
 def test_docs_generic_rerun_is_byte_stable(mem: Path, repo: Path):

@@ -116,16 +116,19 @@ def test_the_refusal_counts_only_atlas_pages(mem, state, capsys):
     assert "Nothing changed" in err
 
 
-def test_an_atlas_page_whose_module_left_is_removed_by_force(mem, repo, state, capsys):
+def test_an_atlas_page_whose_package_left_is_removed_by_force(mem, repo, state, capsys):
     plant_docsearch(repo)
+    put(repo / "src" / "extra" / "__init__.py", "")
+    put(repo / "src" / "extra" / "tool.py", '"""A second package."""\n')
     assert main(["docs"]) == 0
-    page = state / "modules" / "docsearch-chunking.md"
+    page = state / "components" / "src-extra.md"
     assert page.is_file()
     put(state / "runbook.md", HAND)
-    (repo / "src" / "docsearch" / "chunking.py").unlink()
+    for path in sorted((repo / "src" / "extra").iterdir()):
+        path.unlink()
     code, listed = check(capsys)
     assert code == 1
-    assert "docs/state/modules/docsearch-chunking.md" in listed.splitlines()
+    assert "docs/state/components/src-extra.md" in listed.splitlines()
     assert main(["docs", "--force"]) == 0
     assert not page.exists()
     assert (state / "runbook.md").read_text(encoding="utf-8") == HAND

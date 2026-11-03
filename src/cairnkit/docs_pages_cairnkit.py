@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cairnkit.docs_cmd import Page
-from cairnkit.docs_inventory import ProjectInventory, node_id
+from cairnkit.docs_inventory import SKIP_MODULES, ProjectInventory, node_id
 
 COMMAND_MODULES = frozenset(
     {
@@ -34,9 +34,11 @@ COMMAND_MODULES = frozenset(
 def _module_stems(inv: ProjectInventory) -> list[str]:
     return sorted(
         {
-            m.qualname.rsplit(".", 1)[-1]
-            for m in inv.python_modules
-            if m.package == "cairnkit" or m.rel_path.startswith("src/cairnkit/")
+            stem
+            for item in inv.files
+            if item.path.startswith("src/cairnkit/")
+            and item.path.endswith(".py")
+            and (stem := item.path.rsplit("/", 1)[-1][: -len(".py")]) not in SKIP_MODULES
         }
     )
 
