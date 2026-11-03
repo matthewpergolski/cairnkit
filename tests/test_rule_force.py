@@ -26,7 +26,7 @@ def agent(monkeypatch):
 def add_rule(capsys, text, *extra):
     capsys.readouterr()
     assert main(["add", text, "--kind", "rule", *SOURCE, *extra]) == 0
-    return capsys.readouterr().out.strip().split()[-1]
+    return capsys.readouterr().out.split("added ")[1].split()[0]
 
 
 def load(capsys):
@@ -98,7 +98,7 @@ def test_a_person_changing_a_rule_prints_no_notice(mem, capsys):
 
 def test_an_agent_changing_its_own_data_rule_prints_no_notice(mem, agent, capsys):
     agent("add", "Use tabs.", "--kind", "rule", *SOURCE)
-    fid = capsys.readouterr().out.strip().split()[-1]
+    fid = capsys.readouterr().out.split("added ")[1].split()[0]
     agent("change", fid, "--status", "expired", "--reason", "x")
     assert "Tell the owner" not in capsys.readouterr().out
     assert fid not in load(capsys)
@@ -134,7 +134,7 @@ def test_a_persons_rule_has_no_data_note(mem, capsys):
 
 def test_restating_a_data_rule_with_told_lifts_it(mem, agent, capsys):
     agent("add", "Use tabs in the build files", "--kind", "rule", *SOURCE)
-    old = capsys.readouterr().out.strip().split()[-1]
+    old = capsys.readouterr().out.split("added ")[1].split()[0]
     agent("add", "Use tabs in the build files", "--kind", "rule", "--basis", "told", *SOURCE)
     out = capsys.readouterr().out
     assert "Nothing written" not in out

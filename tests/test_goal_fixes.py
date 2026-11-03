@@ -77,7 +77,7 @@ def test_a_held_by_file_on_another_branch_is_not_a_problem(mem, repo, capsys):
     git(repo, "checkout", "-qb", "work")
     _commit(repo, "rules.md")
     assert main(["add", "A rule.", "--area", "x", "--basis", "told", "--source", "session:1"]) == 0
-    fact = capsys.readouterr().out.strip().split()[-1]
+    fact = capsys.readouterr().out.split("added ")[1].split()[0]
     assert (
         main(["change", fact, "--status", "promoted", "--held-by", "rules.md", "--reason", "moved"])
         == 0
@@ -218,7 +218,7 @@ def test_expires_implies_short_term(mem, repo, capsys):
 
 def test_a_short_note_on_the_default_branch_says_it_has_no_end_event(mem, capsys):
     out = _add_out(capsys, "Note.", "--short")
-    fact = out.strip().split()[-1]
+    fact = out.split("added ")[1].split()[0]
     lines = [line for line in out.splitlines() if "no end event" in line]
     assert len(lines) == 1
     assert "default branch" in lines[0]

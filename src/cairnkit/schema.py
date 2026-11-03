@@ -133,12 +133,15 @@ def _check_change(rec: dict) -> list[str]:
         errors.append(f"scope {rec['scope']!r} is not one of {', '.join(SCOPES)}")
     if "add_links" in rec:
         errors += _check_links(rec["add_links"], "add_links")
+    if "remove_links" in rec:
+        errors += _check_links(rec["remove_links"], "remove_links")
     if rec.get("enforced_by") is not None:  # null clears it
         errors += _check_enforced(rec["enforced_by"])
     if "branch_tip" in rec:
         errors += _check_tip(rec["branch_tip"])
-    if not any(k in rec for k in ("status", "add_links", "scope", "enforced_by", "branch_tip")):
-        errors.append("a change must set status, scope, add_links or enforced_by")
+    sets = ("status", "add_links", "remove_links", "scope", "enforced_by", "branch_tip")
+    if not any(k in rec for k in sets):
+        errors.append("a change must set status, scope, add_links, remove_links or enforced_by")
     if "text" in rec:
         errors.append("a change cannot set text; add a new fact with --supersedes")
     if "summary" in rec:

@@ -62,6 +62,8 @@ def fold(records: list[dict]) -> dict[str, dict]:
         if "reason" in change and "status" in change:
             state["reason"] = change["reason"]
         state["links"].extend(change.get("add_links") or [])
+        gone = change.get("remove_links") or []
+        state["links"] = [link for link in state["links"] if link not in gone]
         state["history"].append(change)
     return facts
 

@@ -205,14 +205,15 @@ A change does not edit the fact. It adds a new state.
 | `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must exist when the change is written. Later, `memory check` accepts a path that exists here or in the history of any branch. |
 | `scope` | no | `long` or `short`. `memory keep` writes `"scope": "long"`. |
 | `add_links` | no | Links to add. |
+| `remove_links` | no | Links to remove, each one the fact holds. A build before this field keeps the link, and its `memory check` names the record. |
 | `enforced_by` | no | Rules only. A `<type>:<value>` string sets it. `null` clears it (the rule is advisory again). |
 | `branch_tip` | no | Auto-tidy only. The first tip that it saw of the end branch of a fact with no `branch_tip`. It changes no status. |
 | `cid` | no | A hash that auto-tidy writes. Two sessions that write the same change write it once. A reader applies only the first change with a `cid`. |
 | `case` | no | Auto-tidy only. Why it retired the fact: `duplicate`, `ended`, `file-gone` or `mined`. An older record can hold `near-duplicate`. |
 | `writer` | yes | The writer name. |
 
-A change must set at least one of `status`, `scope`, `add_links`, `enforced_by` or
-`branch_tip`.
+A change must set at least one of `status`, `scope`, `add_links`, `remove_links`,
+`enforced_by` or `branch_tip`.
 
 ### Status
 
@@ -273,7 +274,8 @@ More examples: [tests/fixtures/example-facts.jsonl](../tests/fixtures/example-fa
 A reader computes the status of a fact; it does not only read it:
 
 - Fold: start with the fact record. Apply each change record for its id in
-  order of `at`. A later value wins. `add_links` adds to `links`.
+  order of `at`. A later value wins. `add_links` adds to `links`, and `remove_links` takes
+  each of its links out of `links`.
 - A short-term fact (`scope: short`) reads as `expired` when its `expires_at` is
   past, or when its `until_branch_merged` branch reads as merged. Nothing is written.
   Auto-tidy may write the change later.

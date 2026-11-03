@@ -117,7 +117,7 @@ def unusable(record: dict) -> str | None:
             return f"{name} must be a string"
     if any(record[name] is None for name in _NEEDS[kind]):
         return f"a {kind} needs {' and '.join(_NEEDS[kind])}"
-    for name in ("links", "add_links"):
+    for name in ("links", "add_links", "remove_links"):
         if record.get(name) is not None and not _links_ok(record[name]):
             return f"{name} must be a list of links"
     if record.get("tags") is not None and not isinstance(record["tags"], list):

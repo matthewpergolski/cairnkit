@@ -332,6 +332,8 @@ def add_fact(memory: Memory, args) -> str | None:
             }
             records.append(_validated(change))
         append_records(memory.writer_file(writer), records)
+    # First, so that no older ID in a note below reads as the new one.
+    print(f"added {fact['id']}")
     _refresh_followups(memory)
     data_rule = fact["kind"] == "rule" and not owner_rule(fact)
     if data_rule:
@@ -441,6 +443,12 @@ def change_fact(memory: Memory, args) -> None:
     _check_links(memory, links)
     if links:
         change["add_links"] = links
+    gone = [parse_link(v) for v in getattr(args, "unlink", None) or []]
+    for link in gone:
+        if link not in state.get("links", []):
+            raise Refused(f"{args.id} has no link {link['rel']}:{link['id']}")
+    if gone:
+        change["remove_links"] = gone
     if args.enforced_by:
         if state.get("kind") != "rule":
             raise Refused(f"{args.id} is a {state.get('kind')}; --enforced-by is only for rules")

@@ -257,6 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--superseded-by", metavar="ID")
     p.add_argument("--held-by", metavar="PATH", help="tracked file that now holds the rule")
     p.add_argument("--link", action="append", help="<rel>:<id> to add")
+    p.add_argument("--unlink", action="append", help="<rel>:<id> to remove")
     group = p.add_mutually_exclusive_group()
     group.add_argument("--enforced-by", metavar="TYPE:VALUE", help="rules only: the check")
     group.add_argument("--no-enforced-by", action="store_true", help="the rule is advisory again")
@@ -524,10 +525,8 @@ def run(args) -> int:
             line = copy_line_once(project, memory.dir)
             if line:
                 print(line, file=sys.stderr)
-            if new:
-                if args.kind == "rule" and hooks_cmd.githook_connected(project):
-                    hooks_cmd.sync_guard_only(project, args.path)
-                print(f"added {new}")
+            if new and args.kind == "rule" and hooks_cmd.githook_connected(project):
+                hooks_cmd.sync_guard_only(project, args.path)
         elif args.command == "change":
             change_fact(memory, args)
             print(f"changed {args.id}")

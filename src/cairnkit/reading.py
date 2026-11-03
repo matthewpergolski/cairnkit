@@ -76,6 +76,8 @@ def run_show(memory: Memory, fact_id: str) -> int:
             parts.append(f"branch tip {clean(change['branch_tip'])}")
         for link in change.get("add_links", []):
             parts.append(f"link {link['rel']} {link['id']}")
+        for link in change.get("remove_links", []):
+            parts.append(f"unlink {link['rel']} {link['id']}")
         why = f": {change['reason']}" if change.get("reason") else ""
         line = f"{change.get('at')}  {', '.join(parts)}{why} ({change.get('writer')})"
         print("  " + clean(mask(line, memory.env)))

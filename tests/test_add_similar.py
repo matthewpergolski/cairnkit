@@ -31,7 +31,7 @@ def new_id(out):
 def test_exact_repeat_supersedes_the_old_fact(mem, capsys):
     write_facts(mem, [make_fact(OLD, "Deploys need a clean tree.")])
     code, out, _ = add(capsys, "Deploys need a clean tree")
-    new = out.strip().split()[-1]
+    new = out.split("added ")[1].split()[0]
     assert code == 0 and OLD in out
     assert state(OLD)["status"] == "superseded" and state(OLD)["superseded_by"] == new
     assert state(new)["status"] == "active"

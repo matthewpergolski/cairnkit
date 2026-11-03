@@ -13,7 +13,7 @@ BASE = ["--area", "deploy", "--basis", "seen", "--source", "commit:abc1234"]
 def add(capsys, text, *extra):
     capsys.readouterr()
     assert main(["add", text, *BASE, *extra]) == 0
-    return capsys.readouterr().out.strip().splitlines()[-1].split()[-1]
+    return capsys.readouterr().out.split("added ")[1].split()[0]
 
 
 def test_add_writes_one_fact_line(mem, capsys):
@@ -122,3 +122,23 @@ def test_promote_is_a_hidden_alias_of_keep(mem, capsys):
     capsys.readouterr()
     main([])
     assert "promote" not in capsys.readouterr().out
+
+
+def test_change_removes_a_link_that_was_wrong(mem, capsys):
+    """An agent linked a lesson to the wrong fact and had no way to take the link back."""
+    from cairnkit.memory import Memory
+    from cairnkit.paths import find_project
+
+    first = add(capsys, "The report script exits 3 without a locale.")
+    second = add(capsys, "Set REPORT_LOCALE=C when you run the report script.", "--kind", "lesson")
+    third = add(capsys, "The deploy needs a clean tree.")
+    assert main(["change", second, "--link", f"related:{third}"]) == 0
+    assert (
+        main(["change", second, "--unlink", f"related:{third}", "--link", f"related:{first}"]) == 0
+    )
+    links = Memory.open(find_project()).states[second]["links"]
+    assert links == [{"rel": "related", "id": first}]
+    capsys.readouterr()
+    assert main(["change", second, "--unlink", f"related:{third}"]) != 0
+    assert "has no link related:" in capsys.readouterr().err
+    assert main(["check"]) == 0

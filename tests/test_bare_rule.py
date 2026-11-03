@@ -41,15 +41,15 @@ def _active(text: str) -> list[dict]:
     return [s for s in states if s["status"] == "active" and s["text"] == text]
 
 
-def test_the_first_line_says_it_loads_as_data_and_how_to_lift_it(mem, capsys, monkeypatch):
+def test_the_first_note_says_it_loads_as_data_and_how_to_lift_it(mem, capsys, monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
     lines = _add(capsys, BARE)
-    assert "loads as data" in lines[0]
-    assert "same command with --basis told" in lines[0]
-    assert "owner stated" in lines[0]
-    assert len(lines[0].split()) <= SHORT_LINE
+    assert lines[0].startswith("added f-")
+    assert "loads as data" in lines[1]
+    assert "same command with --basis told" in lines[1]
+    assert "owner stated" in lines[1]
+    assert len(lines[1].split()) <= SHORT_LINE
     assert [line for line in lines if "basis guess" in line] == []
-    assert lines[-1].startswith("added f-")
 
 
 def test_the_rule_is_written_and_loads_under_a_heading_that_names_the_lift(
@@ -69,7 +69,7 @@ def test_the_rule_is_written_and_loads_under_a_heading_that_names_the_lift(
 def test_the_same_command_with_told_lifts_the_rule(mem, capsys, monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
     first = _add(capsys, BARE)
-    old = re.search(r"f-\d+-[0-9a-f]+", first[-1])[0]
+    old = re.search(r"f-\d+-[0-9a-f]+", first[0])[0]
     lines = _add(capsys, TOLD)
     assert not any("loads as data" in line for line in lines)
     assert any(f"superseded {old}" in line for line in lines)

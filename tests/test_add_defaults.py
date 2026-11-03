@@ -121,3 +121,19 @@ def test_held_by_alone_says_what_it_needs(mem, repo, capsys):
     err = capsys.readouterr().err
     assert "--held-by needs --status promoted" in err
     assert f"memory change {fact} --status promoted --held-by README.md" in err
+
+
+def test_the_first_line_names_the_new_fact_before_any_older_one(mem, capsys):
+    """An agent once linked a lesson to an older fact, because its ID came first in the output."""
+    write_facts(mem, [make_fact(OLD, "The report script exits 3 unless REPORT_LOCALE is C.")])
+    capsys.readouterr()
+    assert (
+        main(
+            ["add", "The report script exits 3 unless REPORT_LOCALE is C here.", "--basis", "seen"]
+        )
+        == 0
+    )
+    lines = capsys.readouterr().out.splitlines()
+    new = lines[0].removeprefix("added ")
+    assert lines[0].startswith("added f-") and new != OLD
+    assert OLD in "\n".join(lines[1:])
