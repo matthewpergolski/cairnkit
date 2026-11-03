@@ -222,7 +222,7 @@ def note_helpers(memory: Memory, session_id: str, paths: list[str]) -> None:
     state = load_state(memory, session_id)
     if state is None:
         return
-    helpers = state.setdefault("helpers", {})
+    helpers = state.setdefault("helper_checkouts", {})
     new = [path for path in paths if path not in helpers and Path(path).resolve() != root]
     if new:
         helpers.update(dict.fromkeys(new, ""))
@@ -409,7 +409,7 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
         start_session(memory, session_id)
         return []
     root, wrote, prompts = memory.project.root, agent_writes(memory), state.get("prompts", 0)
-    seen = state.get("helpers") or {}
+    seen = state.get("helper_checkouts") or {}
     reasons = []
     said = state.pop("said", None)
     if said is not None and wrote <= said:
@@ -420,7 +420,7 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
             settled=prompts,
             declined=False,
             start=fingerprint(root, memory.dir),
-            helpers={**seen, **_helper_work(memory, seen)},
+            helper_checkouts={**seen, **_helper_work(memory, seen)},
         )
     elif not state.get("declined") and prompts - state.get("settled", -WORK_GAP) >= WORK_GAP:
         now_work = fingerprint(root, memory.dir)
@@ -428,7 +428,7 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
         if now_work != state.get("start") or any(seen.get(p) != h for p, h in helpers.items()):
             reasons.append(WORK_CHANGED)
             state.update(
-                declined=True, settled=prompts, start=now_work, helpers={**seen, **helpers}
+                declined=True, settled=prompts, start=now_work, helper_checkouts={**seen, **helpers}
             )
     save_state(memory, session_id, state)
     return [BOTH_CHANGED] if len(reasons) == 2 else reasons

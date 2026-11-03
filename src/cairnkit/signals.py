@@ -51,6 +51,9 @@ PROMPT_WIDTH = 120
 # A correction opens a prompt. Deep in a long paste, these words belong to the paste.
 PROMPT_HEAD = 300
 NAMED_LIMIT = 200
+# A session can run for days. Only the newest failures can pair with a pass, and the state that
+# each hook reads and writes stays small.
+FAILS_LIMIT = 20
 QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"", re.DOTALL)
 # A harness turn opens with a tag. A stop follow-up comes back as a prompt on some tools.
 NOT_THE_OWNER = re.compile(r"^\s*<|`memory |\bmemory check\b|\bDoes a trap belong\b")
@@ -173,7 +176,9 @@ def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
         return
     fails = state.setdefault("fails", {})
     if not ok:
-        fails[command] = fails.get(command, 0) + 1
+        fails[command] = fails.pop(command, 0) + 1  # to the end, as the newest
+        for old in list(fails)[:-FAILS_LIMIT]:
+            del fails[old]
     else:
         if fails.get(command, 0) >= FIX_MIN_FAILS:
             state.setdefault("fixed", []).append([command, fails[command]])
@@ -278,15 +283,23 @@ def removal_words(prompt: str) -> set[str]:
     return found
 
 
+def _newest(old: list[str], new: list[str]) -> list[str]:
+    """`old` then `new`, each once, with only the newest NAMED_LIMIT kept."""
+    kept = [word for word in old if word not in new] + list(dict.fromkeys(new))
+    return kept[-NAMED_LIMIT:]
+
+
 def note_prompt(memory: Memory, key: str, prompt: str) -> None:
     """Keep what a stop needs from a prompt: a correction, and the names of files the owner used."""
     state = load_state(memory, key)
     if state is None or not prompt.strip():
         return
-    named = {word.strip("`'\",:;!?()").rstrip(".") for word in prompt.split()}
-    named = {word for word in named if "." in word or "/" in word}
-    state["named"] = sorted({*state.get("named", []), *named})[:NAMED_LIMIT]
-    state["asked"] = sorted({*state.get("asked", []), *removal_words(prompt)})[:NAMED_LIMIT]
+    # A helper's report or a notification also arrives as a prompt. Its names are not the owner's.
+    if not NOT_THE_OWNER.search(prompt):
+        words = [word.strip("`'\",:;!?()*_").rstrip(".") for word in prompt.split()]
+        named = [word for word in words if "." in word or "/" in word]
+        state["named"] = _newest(state.get("named", []), named)
+        state["asked"] = _newest(state.get("asked", []), sorted(removal_words(prompt)))
     if not NOT_THE_OWNER.search(prompt):
         state["prompts"] = state.get("prompts", 0) + 1
     if is_statement(prompt):

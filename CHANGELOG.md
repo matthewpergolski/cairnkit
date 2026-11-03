@@ -186,6 +186,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The state of a session stays small in a session that runs for days. It keeps the newest 20
+  failed commands, so an old failure cannot pair with a pass days later, and the newest 200 file
+  names from the owner's prompts. A helper's report or a notification names no file, and `**`
+  marks are no part of a name. In a real project one session held 41 failures (24 KB) and 200
+  names, many of them bold words from helper reports.
+
+- The session state calls the worktrees of this session's helpers `helper_checkouts`, not
+  `helpers`. An agent read that map as the record of why each helper started. That record is
+  `.sessions/helpers/open.json`.
+
 - A session start shows the newest facts that the owner stated. In a real project it showed 16 of
   51 facts and held back all that the owner said in two days, his two open questions among them.
   A new statement has no lookups yet, so it ranked below older facts that searches keep warm, and
