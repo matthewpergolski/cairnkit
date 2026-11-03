@@ -153,7 +153,9 @@ src/cairnkit/
   ranking.py     words, stems and BM25 for search
   skills.py      memory skills: the pstack skills check and install
   docs_cmd.py    memory docs: the atlas under docs/state
-  docs_inventory.py  docs_modules.py  docs_pages_cairnkit.py  docs_pages_generic.py  the atlas inputs and pages
+  docs_inventory.py  the atlas inventory: source roots, components, files, imports, entry points, routes
+  docs_python.py  docs_script.py  read Python and TypeScript/JavaScript files for the inventory
+  docs_pages_cairnkit.py  docs_pages_generic.py  the atlas pages
 tests/           pytest; each test makes a throwaway git repo
 benchmarks/      retrieval eval of search, and forgetting/ (see its README); both synthetic
 scripts/verify.sh   all checks (ruff, format, pytest, memory docs --check); CI calls this
