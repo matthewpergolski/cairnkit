@@ -2,8 +2,8 @@
 
 A terminal stacks a cairn. Check, Fetch, Install, and Verify each add one
 stone. Build runs and adds no stone. After success the summary line is the
-flag. Piped output, a dumb terminal, CI, NO_COLOR, and an opt-out get one
-plain line per step.
+flag. Piped output, a dumb terminal, CI, GITHUB_ACTIONS, NO_COLOR, and
+Progress(anim=False) get one plain line per step.
 """
 
 from __future__ import annotations
@@ -39,16 +39,17 @@ STAGES: tuple[StageSpec, ...] = (
 )
 
 
-def want_anim(stream: TextIO, env: Mapping[str, str] | None = None, opt_out: bool = False) -> bool:
-    """True only when the cairn and the drip delay are allowed."""
-    if opt_out:
-        return False
+def want_anim(stream: TextIO, env: Mapping[str, str] | None = None) -> bool:
+    """True only when the cairn and the drip delay are allowed.
+
+    Force plain with Progress(anim=False) (CLI --plain). Env gates stay here.
+    """
     names = os.environ if env is None else env
     if names.get("CAIRNKIT_PLAIN") or names.get("MEMORY_PLAIN"):
         return False
     if names.get("NO_COLOR"):
         return False
-    if names.get("CI"):
+    if names.get("CI") or names.get("GITHUB_ACTIONS"):
         return False
     isatty = getattr(stream, "isatty", None)
     if not callable(isatty) or not isatty():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import io
 import re
 
@@ -22,6 +23,11 @@ def test_want_anim_false_in_ci(monkeypatch):
     assert want_anim(Terminal(), env={"TERM": "xterm", "CI": "true"}) is False
 
 
+def test_want_anim_false_with_github_actions():
+    """GITHUB_ACTIONS alone turns the cairn off, same as CI."""
+    assert want_anim(Terminal(), env={"TERM": "xterm", "GITHUB_ACTIONS": "true"}) is False
+
+
 def test_want_anim_false_with_no_color():
     assert want_anim(Terminal(), env={"TERM": "xterm", "NO_COLOR": "1"}) is False
 
@@ -39,13 +45,15 @@ def test_want_anim_false_with_memory_plain():
     assert want_anim(Terminal(), env={"TERM": "xterm", "MEMORY_PLAIN": "1"}) is False
 
 
-def test_want_anim_false_when_opt_out():
-    assert want_anim(Terminal(), env={"TERM": "xterm"}, opt_out=True) is False
+def test_want_anim_has_no_opt_out_parameter():
+    """Plain force goes through Progress(anim=False), not a second want_anim knob."""
+    assert "opt_out" not in inspect.signature(want_anim).parameters
 
 
 def test_want_anim_true_on_tty(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.delenv("CAIRNKIT_PLAIN", raising=False)
     monkeypatch.delenv("MEMORY_PLAIN", raising=False)
     assert want_anim(Terminal(), env={"TERM": "xterm-256color"}) is True
