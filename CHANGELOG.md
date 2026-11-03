@@ -173,6 +173,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The text of a session start and a subagent start stays under 9,000 characters. Claude Code saves
+  hook text over 10,000 characters to a file, and the model sees only the first 2,000. In a real
+  project the session start grew to 10,170 characters, and the agent saw the preview only. A load
+  that is too big loads again with a smaller word budget. Rules, pinned facts and the status note
+  do not count against that budget, so when they are too big alone, the end of the stored notes is
+  cut, the frame stays whole, and a line says to run `memory load`.
+
+- `memory add` prints `added ID` first, before any note that names an older fact. Before, the
+  last line or the first ID could be an older fact, and in a real project an agent linked a lesson
+  to the wrong fact.
+
+- `memory change ID --unlink REL:ID` removes a link, for example one added by mistake. A change
+  record holds it as `remove_links`.
+
 - A new Claude Code hook line (`before-shell`, `helper-call`, `subagent-stop`) ends in `|| true`.
   An older build does not know these events and exits 2, and an exit 2 of a `PreToolUse` hook
   blocks the tool call. So a roll back of the tool would have blocked every shell command until the

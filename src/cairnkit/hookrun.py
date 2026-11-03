@@ -50,7 +50,7 @@ from cairnkit.paths import (
     resolve_memory_dir,
     run_git,
 )
-from cairnkit.selection import clean
+from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean
 from cairnkit.session import (
     capture_reasons,
     hold_heard,
@@ -73,6 +73,8 @@ SUBAGENT_BUDGET = 300
 JSON_NEUTRAL = frozenset({"codex", "cursor"})
 # A generated adapter reads plain text on stdout.
 TEXT_AGENTS = frozenset({"pi", "opencode"})
+# Claude Code saves hook text over 10,000 characters to a file, and the model sees only 2,000 of it.
+HOOK_TEXT_LIMIT = 9_000
 # A load for these sources continues the session, so its events stay.
 SAME_SESSION = frozenset({"compact", "resume", "reload"})
 # A load for these sources runs in the same process, where a helper of the session can still run.
@@ -292,26 +294,60 @@ def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> None
         run_init(project, None, verbose=False)
 
 
+CUT_NOTE = "memory: this load was cut to fit the size limit of a hook. Run `memory load` for all."
+# Below this word budget a smaller budget saves little, so the load is cut instead.
+LEAST_BUDGET = 60
+
+
+def _cut(text: str, room: int) -> str:
+    """Drop stored lines from the end of the frame until the text fits. The frame stays whole."""
+    lines = text.splitlines()
+    if FRAME_FOOTER not in lines:
+        return text[:room]
+    footer = lines.index(FRAME_FOOTER)
+    first = next((n + 1 for n, line in enumerate(lines) if line == FRAME_HEADER), footer)
+    lines.insert(1, CUT_NOTE)
+    footer, first = footer + 1, first + 1
+    while len("\n".join(lines)) > room and footer > first:
+        del lines[footer - 1]
+        footer -= 1
+    # Then the lines above the frame, past the title and the note. The frame lines stay.
+    while len("\n".join(lines)) > room and first > 3:
+        del lines[2]
+        first -= 1
+    return "\n".join(lines)
+
+
+def fitted_load(project: Project, flag: str | None, budget: int, room: int, **options) -> str:
+    """The load at this word budget, or at a smaller one, so that it has at most `room` characters.
+
+    Rules, pinned facts and the status note do not count against the word budget, so a load can
+    be too big at any budget. Then the end of the stored notes is cut.
+    """
+    while True:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            run_load(project, flag, None, budget, **options)
+        text = buffer.getvalue().rstrip()
+        if len(text) <= room:
+            return text
+        if budget <= LEAST_BUDGET:
+            return _cut(text, room)
+        budget = max(LEAST_BUDGET, min(budget // 2, int(budget * room / len(text))))
+
+
 def _session_text(
     project: Project,
     flag: str | None,
     session: str,
     update_notice: bool = True,
     same_process: bool = True,
+    reserve: int = 0,
 ) -> str:
-    buffer = io.StringIO()
+    room = HOOK_TEXT_LIMIT - reserve - len(RULES_SHORT) - 2
     hide = session if same_process else None
-    with contextlib.redirect_stdout(buffer):
-        run_load(
-            project,
-            flag,
-            None,
-            600,
-            update_notice=update_notice,
-            session=session,
-            hide_helpers_of=hide,
-        )
-    return buffer.getvalue().rstrip() + "\n\n" + RULES_SHORT
+    options = {"update_notice": update_notice, "session": session, "hide_helpers_of": hide}
+    return fitted_load(project, flag, 600, room, **options) + "\n\n" + RULES_SHORT
 
 
 def session_start(project: Project, flag: str | None, agent: str, payload: dict) -> int:
@@ -331,9 +367,8 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
     key = session_key(payload)
     fresh = payload.get("source") not in SAME_SESSION
     same_process = payload.get("source") in SAME_PROCESS
-    text = _optional_work(project, flag) + _session_text(
-        project, flag, key, same_process=same_process
-    )
+    work = _optional_work(project, flag)
+    text = work + _session_text(project, flag, key, same_process=same_process, reserve=len(work))
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
         if fresh:
@@ -678,10 +713,12 @@ def subagent_start(project: Project, flag: str | None, payload: dict) -> int:
     key = session_key(payload)
     with contextlib.suppress(Exception):
         helpers.on_start(Memory.open(project, flag), key, payload)
-    buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
-        run_load(project, flag, None, SUBAGENT_BUDGET, update_notice=False, hide_helpers_of=key)
-    event = {"hookEventName": "SubagentStart", "additionalContext": buffer.getvalue().rstrip()}
+    # The JSON around the text and its escapes count too, so the room has a margin.
+    room = HOOK_TEXT_LIMIT - 1_000
+    text = fitted_load(
+        project, flag, SUBAGENT_BUDGET, room, update_notice=False, hide_helpers_of=key
+    )
+    event = {"hookEventName": "SubagentStart", "additionalContext": text}
     print(json.dumps({"hookSpecificOutput": event}))
     return 0
 
