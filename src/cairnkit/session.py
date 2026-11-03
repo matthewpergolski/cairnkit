@@ -6,6 +6,7 @@ to delete.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import itertools
 import json
@@ -355,9 +356,14 @@ def save_state(memory: Memory, session_id: str, state: dict) -> None:
     path.parent.mkdir(exist_ok=True)
     # Another hook of the same session may read it now. A rename gives it all or nothing.
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".state-", suffix=".tmp")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(state))
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(state))
+        os.replace(tmp, path)
+    except BaseException:  # a hook's time budget can end it here
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
     _prune(path.parent)
 
 

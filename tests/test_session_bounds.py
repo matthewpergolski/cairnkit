@@ -66,3 +66,16 @@ def test_a_failure_again_counts_as_new(session):
     session.tool("sh report.sh", False)
     session.tool("sh last.sh", False)
     assert state()["fails"].get("sh report.sh") == 2
+
+
+def test_a_slow_prompt_hook_ends_before_the_tool_drops_it(session, monkeypatch):
+    """Claude Code drops a prompt hook after 5 seconds. On a busy machine one ran past that."""
+    import time
+
+    def slow(*_args, **_kwargs):
+        time.sleep(10)
+
+    monkeypatch.setattr("cairnkit.signals.note_prompt", slow)
+    start = time.monotonic()
+    session.hook("prompt", prompt="Keep config/settings.py.")
+    assert time.monotonic() - start < 4

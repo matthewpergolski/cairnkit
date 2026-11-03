@@ -82,3 +82,9 @@ def test_a_plain_load_keeps_the_lookup_line(thirty_facts, capsys):
     out = capsys.readouterr().out
     assert out.count("Look up:") == 1
     assert out.count("memory show ID") == 1
+
+
+def test_the_rules_say_how_to_save_what_the_owner_said():
+    """Sonnet wrote the owner's words before any stop asked, with no basis, so they ranked as a
+    guess and a busy load held them back."""
+    assert "`--basis told` if the owner said it" in RULES_SHORT

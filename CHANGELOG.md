@@ -186,6 +186,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The rules block of each session start says to add `--basis told` when the owner said it. In a
+  busy-memory eval, Sonnet wrote the owner's open question before any stop asked, with no basis,
+  so it ranked as a guess and the next load held it back.
+
+- The prompt hook ends its own work after 2.5 seconds, and a cut leaves no temp file. Claude Code
+  drops a prompt hook after 5 seconds, and on a busy machine one ran past that.
+
 - The state of a session stays small in a session that runs for days. It keeps the newest 20
   failed commands, so an old failure cannot pair with a pass days later, and the newest 200 file
   names from the owner's prompts. A helper's report or a notification names no file, and `**`

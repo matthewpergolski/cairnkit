@@ -686,21 +686,26 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
     return 0
 
 
+# Claude Code drops a prompt hook after its 5 s timeout. On a busy machine one ran past that.
+PROMPT_BUDGET = 2.5
+
+
 def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     """Before a prompt: note a correction, and say what changed. Always exits 0."""
     if agent == "cursor":
         print(json.dumps({"continue": True}))
     if not has_memory(project, flag):
         return 0
-    with contextlib.suppress(Exception):
+    lines: list[str] = []
+    with contextlib.suppress(Exception), _time_budget(PROMPT_BUDGET):
         memory = Memory.open(project, flag)
         key = session_key(payload)
         with contextlib.suppress(Exception):
             live.note_working(memory, key)
         signals.note_prompt(memory, key, str(payload.get("prompt") or ""))
         lines = [] if agent in DROPS_PROMPT_OUTPUT else _quiet_lines(memory, key)
-        if lines:
-            print("\n\n".join(lines))
+    if lines:
+        print("\n\n".join(lines))
     return 0
 
 
