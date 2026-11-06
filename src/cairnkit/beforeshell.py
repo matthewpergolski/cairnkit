@@ -166,7 +166,10 @@ def added_in_front(failed: str, passed: str) -> tuple[str, str] | None:
     That is a setting or a wrapper on the same command, which is how to run it. Steps that only
     share a tail, such as `echo ok`, are not the same command.
     """
+    # In a chain, a plain word such as `ls` is no proof that it was the step that failed.
     before = all_steps(failed)
+    if len(before) > 1:
+        before = [old for old in before if _plain_core(old.core.split())]
     for step in all_steps(passed):
         for old in before:
             added = sorted(step.settings - old.settings)

@@ -186,6 +186,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixes from an independent review of the load and the hooks. A load that is too big for the hook
+  limit keeps its one-time notices (the update line, a rule that changed), runs at most 4 passes
+  or stops near the end of the hook's time, and its cut keeps the rules and the frame and now also
+  fits when the lines after the frame are long. "What fixed it?" pairs a chain only on a step that
+  is more than one plain word, so `pytest -x && ls` and `FOO=1 ls` are no pair. An owner prompt
+  that says "run memory check" still counts as the owner's. Temp files of a killed hook go after
+  an hour, and the index copy can no longer raise or be left half written.
+
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the
   hooks.

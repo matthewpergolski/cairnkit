@@ -8,6 +8,7 @@ import functools
 import os
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -62,9 +63,24 @@ def _drop_index_copies() -> None:
                 os.unlink(name)
 
 
+def _copies_folder() -> Path:
+    """One folder for the index copies. A copy of a killed hook is gone after an hour there."""
+    folder = Path(tempfile.gettempdir()) / f"cairnkit-index-{os.getuid()}"
+    folder.mkdir(mode=0o700, exist_ok=True)
+    limit = time.time() - 3600
+    for old in folder.iterdir():
+        with contextlib.suppress(OSError):
+            if old.stat().st_mtime < limit:
+                old.unlink()
+    return folder
+
+
 def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
-    """A copy of the index that git uses in `cwd`, for a `git diff` to refresh in place of it."""
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
+    """A copy of the index that git uses in `cwd`, for a `git diff` to refresh in place of it.
+
+    Never raises: with no copy, the diff runs on the real index.
+    """
+    with contextlib.suppress(Exception):
         where = (str(cwd), env.get("GIT_INDEX_FILE", ""))
         if where not in _INDEX_PATHS:
             found = subprocess.run(
@@ -72,21 +88,26 @@ def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
                 cwd=cwd,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=max(min(1.0, deadline.left()), 0.01),
                 env=env,
             )
             _INDEX_PATHS[where] = found.stdout.strip() if found.returncode == 0 else ""
         real = Path(_INDEX_PATHS[where]) if _INDEX_PATHS[where] else None
         if real and real.is_file():
-            data = real.read_bytes()
             stat = real.stat()
-            key = (str(real), stat.st_mtime_ns, len(data))
+            key = (str(real), stat.st_mtime_ns, stat.st_size)
             if key not in _INDEX_COPIES:
                 if not _INDEX_COPIES:
                     atexit.register(_drop_index_copies)
-                fd, path = tempfile.mkstemp(prefix="cairnkit-index-")
-                with os.fdopen(fd, "wb") as fh:
-                    fh.write(data)
+                fd, path = tempfile.mkstemp(prefix="index-", dir=_copies_folder())
+                try:
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(real.read_bytes())
+                except BaseException:  # a hook's time budget can end it here
+                    with contextlib.suppress(OSError):
+                        os.unlink(path)
+                    raise
                 _INDEX_COPIES[key] = path
             return _INDEX_COPIES[key]
     return None

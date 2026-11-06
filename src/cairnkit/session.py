@@ -367,11 +367,17 @@ def save_state(memory: Memory, session_id: str, state: dict) -> None:
     _prune(path.parent)
 
 
+# A temp file of a write that a kill ended. A live write holds its file for far less.
+STALE_TEMP = 3600
+
+
 def _prune(folder: Path) -> None:
-    limit = time.time() - KEEP_DAYS * 86400
-    for old in folder.glob("*.json"):
+    now_s = time.time()
+    old_files = [(p, KEEP_DAYS * 86400) for p in folder.glob("*.json")]
+    old_files += [(p, STALE_TEMP) for p in folder.glob(".state-*.tmp")]
+    for old, age in old_files:
         try:
-            if old.stat().st_mtime < limit:
+            if old.stat().st_mtime < now_s - age:
                 old.unlink()
         except OSError:
             pass

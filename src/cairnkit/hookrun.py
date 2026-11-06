@@ -38,7 +38,7 @@ from cairnkit import (
 from cairnkit.check import Health, read_health
 from cairnkit.discover import ADD_LINE, CAPTURE_GUIDE, RULES_SHORT
 from cairnkit.init import ensure_all_linked, ensure_linked, run_init
-from cairnkit.load import run_load
+from cairnkit.load import run_load, take_notices
 from cairnkit.memory import Memory, listed
 from cairnkit.paths import (
     LINK_NAME,
@@ -297,24 +297,38 @@ def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> None
 CUT_NOTE = "memory: this load was cut to fit the size limit of a hook. Run `memory load` for all."
 # Below this word budget a smaller budget saves little, so the load is cut instead.
 LEAST_BUDGET = 60
+# Each pass is a full load. Past these, or near the end of the hook's time, the load is cut.
+MAX_LOAD_PASSES = 4
+LOAD_TIME_LEFT = 2.0
+
+
+RULE_HEADINGS = ("## Enforced rules", "## Advisory rules")
 
 
 def _cut(text: str, room: int) -> str:
-    """Drop stored lines from the end of the frame until the text fits. The frame stays whole."""
+    """Drop lines until the text fits: stored lines from the end of the frame, then notes above
+    the rules, then the lines after the frame. The frame and the rules stay, because a rule
+    binds in each session.
+    """
     lines = text.splitlines()
     if FRAME_FOOTER not in lines:
         return text[:room]
+    lines.insert(1, CUT_NOTE)
+
+    def size() -> int:
+        return len("\n".join(lines))
+
     footer = lines.index(FRAME_FOOTER)
     first = next((n + 1 for n, line in enumerate(lines) if line == FRAME_HEADER), footer)
-    lines.insert(1, CUT_NOTE)
-    footer, first = footer + 1, first + 1
-    while len("\n".join(lines)) > room and footer > first:
+    while size() > room and footer > first:
         del lines[footer - 1]
         footer -= 1
-    # Then the lines above the frame, past the title and the note. The frame lines stay.
-    while len("\n".join(lines)) > room and first > 3:
+    top = next((n for n, line in enumerate(lines) if line.startswith(RULE_HEADINGS)), first - 1)
+    while size() > room and top > 2:
         del lines[2]
-        first -= 1
+        top -= 1
+    while size() > room and len(lines) > lines.index(FRAME_FOOTER) + 1:
+        lines.pop()
     return "\n".join(lines)
 
 
@@ -322,16 +336,20 @@ def fitted_load(project: Project, flag: str | None, budget: int, room: int, **op
     """The load at this word budget, or at a smaller one, so that it has at most `room` characters.
 
     Rules, pinned facts and the status note do not count against the word budget, so a load can
-    be too big at any budget. Then the end of the stored notes is cut.
+    be too big at any budget. Then the end of the stored notes is cut. The one-time notices are
+    taken once, so that the pass that is shown still has them.
     """
-    while True:
+    if options.pop("update_notice", True):
+        options["notices"] = take_notices(project, flag)
+    for passes in range(1, MAX_LOAD_PASSES + 1):
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            run_load(project, flag, None, budget, **options)
+            run_load(project, flag, None, budget, update_notice=False, **options)
         text = buffer.getvalue().rstrip()
         if len(text) <= room:
             return text
-        if budget <= LEAST_BUDGET:
+        last = passes == MAX_LOAD_PASSES or deadline.left() < LOAD_TIME_LEFT
+        if budget <= LEAST_BUDGET or last:
             return _cut(text, room)
         # Words scale with characters. 95 percent of that, and at least a tenth less each time.
         budget = max(LEAST_BUDGET, min(budget * 9 // 10, int(budget * room / len(text) * 0.95)))

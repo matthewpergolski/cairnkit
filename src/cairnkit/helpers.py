@@ -94,10 +94,19 @@ def _read(memory: Memory) -> list[Helper]:
 
 def _write(memory: Memory, helpers: list[Helper]) -> None:
     path = _file(memory)
+    for old in path.parent.glob(".open-*.tmp"):  # left by a write that a kill ended
+        with contextlib.suppress(OSError):
+            if old.stat().st_mtime < time.time() - 3600:
+                old.unlink()
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".open-", suffix=".tmp")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps([asdict(h) for h in helpers[-MAX_RECORDS:]]))
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps([asdict(h) for h in helpers[-MAX_RECORDS:]]))
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def _update(memory: Memory, change: Callable[[list[Helper]], list[Helper]]) -> None:

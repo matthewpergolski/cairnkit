@@ -256,6 +256,17 @@ def _explain(
     return out
 
 
+def take_notices(project: Project, flag: str | None) -> list[str]:
+    """The one-time notices of a load. Once taken they are gone, so take them once. Never raises."""
+    lines: list[str] = []
+    with contextlib.suppress(Exception):
+        lines += rule_notices.take_lines(Memory.open(project, flag))
+    with contextlib.suppress(Exception):
+        notice = install_source.notice_once()
+        lines += [notice] if notice else []
+    return lines
+
+
 def run_load(
     project: Project,
     flag: str | None,
@@ -265,7 +276,9 @@ def run_load(
     update_notice: bool = True,
     session: str | None = None,
     hide_helpers_of: str | None = None,
+    notices: list[str] | None = None,
 ) -> int:
+    """Print the load. `notices` stands in for the one-time notices, which a caller took once."""
     from cairnkit import live  # it reads session state, and session.py imports this module
 
     try:
@@ -279,7 +292,7 @@ def run_load(
             lines = live.add_lines(memory, lines, session, hide_helpers_of)
         # Right under the header, so the agent sees them first. No detail from a stored record
         # goes here: this text is outside the frame that marks stored text as data.
-        notice = install_source.notice_once() if update_notice else None
+        notice = install_source.notice_once() if update_notice and notices is None else None
         warning = real_folder_warning(project, memory.dir)
         owner = load_owner_line(project, memory.dir)
         beside = beside_line(project, memory.dir)
@@ -289,7 +302,9 @@ def run_load(
         todo = [line for line in health.todo if not migrate_refs.is_stray_note(line)]
         todo.append(migrate_refs.stray_line(health.stray))
         lines[1:1] = [line for line in (owner, beside, warning, notice, *answer, *todo) if line]
-        if update_notice:
+        if notices is not None:
+            lines[1:1] = notices
+        elif update_notice:
             lines[1:1] = rule_notices.take_lines(memory)
     except MemoryMissing as exc:
         print(f"memory: not loaded: {exc}")
