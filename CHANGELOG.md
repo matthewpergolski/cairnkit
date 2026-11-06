@@ -186,6 +186,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- One odd Python file no longer stops `memory docs`, `memory docs --check` or the atlas line of
+  `memory status`. A sum of 5000 terms in `urlpatterns` raised RecursionError. Now a file that
+  cannot be read or parsed counts as empty, and the other files still map.
+- `memory docs` reads no file outside the repo. A tracked link to a file outside put that file's
+  first line in `docs/state`. Now it skips each link, also a link to a manifest such as
+  `pyproject.toml`. It also refuses a `docs/state` that is a link, and it writes or removes no page
+  that is a link or is under one. Before, `--force` could write or delete outside the repo.
+- `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
+  files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
+  list a repo, it stops with an error and changes nothing. Before, it walked the folder and read
+  ignored files. A folder with no git is walked to at most 50000 files, and a file bigger than 1 MB
+  counts as empty.
+- A file that starts with a UTF-8 byte order mark keeps its summary and its imports in the atlas.
+- The parent id of the atlas comes only from the front matter of a hand-written
+  `docs/state/README.md`. Before, an `id:` line in the body could set it.
+
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the
   hooks.

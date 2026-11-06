@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from cairnkit.docs_inventory import Route, first_sentence, parent, relative
+from cairnkit.docs_inventory import Route, first_sentence, parent, read_file, relative
 
 ROUTE_METHODS = frozenset(
     {"get", "post", "put", "patch", "delete", "head", "options", "route", "api_route", "websocket"}
@@ -222,12 +222,23 @@ def _url_pattern(item: ast.expr) -> UrlPattern | None:
     return UrlPattern(route.value, ast.unparse(view), None)
 
 
+_UNREAD = PythonFacts(None, (), {}, False, (), (), None, None)
+
+
 def read_python(root: Path, path: str, module: str) -> PythonFacts:
+    """What the file says. A file that cannot be read or parsed says nothing, so one odd file,
+    such as a sum of 5000 terms that is too deep to walk, never stops the atlas."""
+    text = read_file(root, path)
+    if text is None:
+        return _UNREAD
     try:
-        text = (root / path).read_text(encoding="utf-8")
-        tree = ast.parse(text, filename=path)
-    except (OSError, UnicodeError, SyntaxError, ValueError):
-        return PythonFacts(None, (), {}, False, (), (), None, None)
+        return _facts(text, path, module)
+    except (SyntaxError, ValueError, RecursionError):
+        return _UNREAD
+
+
+def _facts(text: str, path: str, module: str) -> PythonFacts:
+    tree = ast.parse(text, filename=path)
     is_init = path.endswith("/__init__.py") or path == "__init__.py"
     settings = _SETTINGS_MODULE.search(text) if path.endswith("manage.py") else None
     urlconf = _ROOT_URLCONF.search(text)

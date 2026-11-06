@@ -16,6 +16,7 @@ from cairnkit.docs_inventory import (
     ProjectInventory,
     Route,
     SourceFile,
+    read_file,
     relative,
 )
 
@@ -405,16 +406,16 @@ def _files(count: int) -> str:
     return f"{count} file" if count == 1 else f"{count} files"
 
 
-_FRONT_ID = re.compile(r"\A---\n(?:.*\n)*?id: *([^\s\n]+) *\n")
+_FRONT_MATTER = re.compile(r"\A---\n(.*?)^---$", re.DOTALL | re.MULTILINE)
+_FRONT_ID = re.compile(r"^id: *(\S+) *$", re.MULTILINE)
 
 
 def _hand_root_id(root: Path) -> str | None:
-    """The id of a hand-written system page in docs/state, which stays and is the parent."""
-    try:
-        text = (root / STATE_DIR / "README.md").read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
-    found = None if _ATLAS_FRONT_MATTER.match(text) else _FRONT_ID.match(text)
+    """The id of a hand-written system page in docs/state, which stays and is the parent.
+    Only the front matter gives it: an `id:` line in the body is text."""
+    text = read_file(root, (STATE_DIR / "README.md").as_posix()) or ""
+    front = None if _ATLAS_FRONT_MATTER.match(text) else _FRONT_MATTER.match(text)
+    found = _FRONT_ID.search(front.group(1)) if front else None
     return found.group(1).strip("\"'") if found else None
 
 

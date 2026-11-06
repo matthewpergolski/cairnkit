@@ -11,6 +11,7 @@ import json
 import os
 import posixpath
 import re
+import stat
 import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -56,6 +57,8 @@ SKIP_MODULES = frozenset({"__init__", "__main__"})
 CAIRNKIT_STEMS = frozenset({"memory", "schema", "state", "store"})
 SCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 MAX_CODE_FILES = 6000
+MAX_FILE_BYTES = 1_000_000  # a bigger file is generated or data; the atlas reads it as empty
+MAX_WALK = 50_000  # files listed in a folder with no git, so the run stays bounded
 
 
 class ProjectKind(StrEnum):
@@ -154,32 +157,57 @@ def relative(path: str, folder: str) -> str:
     return path[len(folder) + 1 :] if folder else path
 
 
-def _read_pyproject(path: Path) -> dict:
-    if not path.is_file():
-        return {}
+class ListingFailed(Exception):
+    """git could not list the files of a repo. A walk would ignore .gitignore and differ."""
+
+
+def _is_regular(path: Path) -> bool:
+    """A plain file, not a link and not a device. A link can point out of the repo."""
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError, UnicodeError):
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def read_file(root: Path, rel: str) -> str | None:
+    """The text of one project file, or None when it is a link, is outside the repo, is bigger
+    than MAX_FILE_BYTES, or is not UTF-8. A byte order mark goes."""
+    path = root / rel
+    real, home = os.path.realpath(path), os.path.realpath(root)
+    if not _is_regular(path) or os.path.commonpath([real, home]) != home:
+        return None
+    try:
+        with open(real, "rb") as fh:
+            data = fh.read(MAX_FILE_BYTES + 1)
+        return data.decode("utf-8-sig") if len(data) <= MAX_FILE_BYTES else None
+    except (OSError, ValueError):
+        return None
+
+
+def _read_pyproject(root: Path, rel: str) -> dict:
+    try:
+        data = tomllib.loads(read_file(root, rel) or "")
+    except tomllib.TOMLDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
 
 
-def read_json(path: Path) -> dict:
+def read_json(root: Path, rel: str) -> dict:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeError):
+        raw = json.loads(read_file(root, rel) or "null")
+    except ValueError:
         return {}
     return raw if isinstance(raw, dict) else {}
 
 
 def read_name(root: Path) -> tuple[str, str]:
-    data = _read_pyproject(root / "pyproject.toml")
+    data = _read_pyproject(root, "pyproject.toml")
     project = data.get("project") if isinstance(data.get("project"), dict) else {}
     if project:
         name = str(project.get("name") or root.name)
         summary = str(project.get("description") or f"System map for {name}.")
         return name, summary
-    raw = read_json(root / "package.json") if (root / "package.json").is_file() else {}
+    raw = read_json(root, "package.json")
     if raw:
         name = str(raw.get("name") or root.name)
         summary = str(raw.get("description") or f"System map for {name}.")
@@ -204,7 +232,7 @@ def top_entries(root: Path, limit: int = 12) -> tuple[str, ...]:
 
 
 def detect_project_kind(root: Path) -> ProjectKind:
-    data = _read_pyproject(root / "pyproject.toml")
+    data = _read_pyproject(root, "pyproject.toml")
     project = data.get("project") if isinstance(data.get("project"), dict) else {}
     if str(project.get("name") or "") == "cairnkit":
         return ProjectKind.CAIRNKIT
@@ -233,24 +261,37 @@ def _kept(path: str) -> bool:
 
 
 def _walk(root: Path) -> Iterable[str]:
+    """Plain files in a folder that is no git repo, in a fixed order, at most MAX_WALK."""
+    count = 0
     for folder, dirs, names in os.walk(root):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith("."))
         base = Path(folder).relative_to(root).as_posix()
-        for name in names:
-            yield name if base == "." else f"{base}/{name}"
+        for name in sorted(names):
+            path = name if base == "." else f"{base}/{name}"
+            if _kept(path) and _is_regular(root / path):
+                yield path
+                count += 1
+                if count >= MAX_WALK:
+                    return
 
 
 def project_paths(root: Path) -> list[str]:
-    """Each file in the checkout that git does not ignore, outside skipped folders, sorted."""
+    """Each plain file in the checkout that git tracks, or that is new and not ignored, outside
+    skipped folders, sorted. A link is left out: it can point out of the repo."""
     from cairnkit.paths import run_git
 
     listed = run_git(
         root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", timeout=10.0
     )
     if listed is None:
-        return sorted({path for path in _walk(root) if _kept(path)})
+        if os.path.lexists(root / ".git"):
+            raise ListingFailed(
+                f"git could not list the files in {root}, so the atlas could differ from one "
+                "that git lists. Nothing changed."
+            )
+        return sorted(_walk(root))
     kept = {path for path in listed.split("\0") if path and _kept(path)}
-    return sorted(path for path in kept if (root / path).is_file())
+    return sorted(path for path in kept if _is_regular(root / path))
 
 
 def code_language(path: str) -> Language | None:
@@ -284,10 +325,7 @@ def readme_line(root: Path, folder: str, paths: set[str]) -> str | None:
     rel = join(folder, "README.md")
     if rel not in paths:
         return None
-    try:
-        lines = (root / rel).read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
-        return None
+    lines = (read_file(root, rel) or "").splitlines()
     for index, line in enumerate(lines):
         text = line.strip()
         if text and not text.startswith(("#", "!", "[", "<", "|", "```", "---", ">")):
@@ -380,7 +418,7 @@ def _python(root: Path, paths: set[str], files: list[str], drafts: dict[str, _Dr
         )
     entries: list[EntryPoint] = []
     for manifest in sorted(path for path in paths if _name(path) == "pyproject.toml"):
-        project = _read_pyproject(root / manifest).get("project")
+        project = _read_pyproject(root, manifest).get("project")
         folder = parent(manifest)
         for name, target in sorted(_console_scripts(project).items()):
             module = target.split(":", 1)[0].strip()
@@ -458,10 +496,7 @@ def _page_entries(root: Path, folder: str, paths: set[str], resolver) -> list[En
     page = join(folder, "index.html")
     if page not in paths:
         return []
-    try:
-        text = (root / page).read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return []
+    text = read_file(root, page) or ""
     found = []
     for src in sorted(set(_PAGE_SCRIPT.findall(text))):
         hit = resolver.find_file(join(folder, src.removeprefix("./").lstrip("/")))
@@ -477,7 +512,7 @@ def _scripts(root: Path, paths: set[str], files: list[str], drafts: dict[str, _D
     owners = {path: home for path in files if (home := _deepest(path, homes)) is not None}
     used = sorted(set(owners.values()))
     packages = {
-        folder: read_json(root / join(folder, "package.json"))
+        folder: read_json(root, join(folder, "package.json"))
         for folder in sorted(homes)
         if join(folder, "package.json") in paths
     }
@@ -491,10 +526,7 @@ def _scripts(root: Path, paths: set[str], files: list[str], drafts: dict[str, _D
     has_src = {owners[path] for path in owners if under(path, join(owners[path], "src"))}
     for path, home in owners.items():
         base = join(home, "src") if home in has_src and under(path, join(home, "src")) else home
-        try:
-            text = (root / path).read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            text = ""
+        text = read_file(root, path) or ""
         imports = {resolver.resolve(path, home, spec) for spec in js.specifiers(text)}
         drafts[path] = _Draft(
             path=path,
