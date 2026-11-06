@@ -17,10 +17,12 @@ from cairnkit.docs_inventory import (
     read_file,
 )
 
-_FROM = re.compile(
-    r"""\b(?:import|export)\s+(?:type\s+)?[\w*{}\s,$]*?\bfrom\s*["']([^"'\n]+)["']"""
-)
-_BARE = re.compile(r"""(?:^|[;\n])\s*import\s*["']([^"'\n]+)["']""")
+# Each regex here runs over project files, so each must be linear in the text. A clause starts only
+# where the run of clause characters starts, so no later start scans the same run again.
+_CLAUSE = re.compile(r"""(?<![\w*{}\s,$])([\w*{}\s,$]+)["']([^"'\n]+)["']""")
+_CLAUSE_KEYWORD = re.compile(r"\b(?:import|export)\s")
+_CLAUSE_FROM = re.compile(r"\bfrom\s*\Z")
+_BARE = re.compile(r"""(?:^|[;\n])[^\S\n]*import\s*["']([^"'\n]+)["']""")
 _CALL = re.compile(r"""\b(?:import|require)\s*\(\s*["']([^"'\n]+)["']\s*\)""")
 _SWAP = {".js": (".ts", ".tsx"), ".jsx": (".tsx",), ".mjs": (".mts",), ".cjs": (".cts",)}
 _TOOL_COMMENT = re.compile(r"^(@|eslint|prettier|biome|ts-|jshint|global |istanbul)")
@@ -41,8 +43,19 @@ class Aliases:
     base_url: str | None  # repo-relative folder
 
 
+def _from_specifiers(text: str) -> list[str]:
+    """`import ... from "x"` and `export ... from "x"`: a keyword, then a clause, then `from`."""
+    found = []
+    for clause, spec in _CLAUSE.findall(text):
+        keyword = _CLAUSE_KEYWORD.search(clause)
+        tail = _CLAUSE_FROM.search(clause, keyword.end()) if keyword else None
+        if tail:
+            found.append(spec)
+    return found
+
+
 def specifiers(text: str) -> list[str]:
-    found = _FROM.findall(text) + _BARE.findall(text) + _CALL.findall(text)
+    found = _from_specifiers(text) + _BARE.findall(text) + _CALL.findall(text)
     return sorted(set(found))
 
 

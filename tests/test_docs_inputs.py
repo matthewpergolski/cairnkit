@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -10,6 +13,7 @@ from test_docs_generic import front, page, pages, state, write
 
 from cairnkit.cli import main
 from cairnkit.docs_inventory import inventory
+from cairnkit.docs_script import specifiers
 
 
 def all_text(repo: Path) -> str:
@@ -228,3 +232,66 @@ def test_the_toolchain_scan_reads_a_too_deep_manifest_as_empty(tmp_path: Path, r
     found = detect(tmp_path)
     assert not found["uv"].found and not found["ruff"].found
     assert found["biome"].found and not found["biome-run"].found
+
+
+def run_cli(repo: Path, *args: str, timeout: float = 30) -> subprocess.CompletedProcess:
+    """The CLI in its own process, so that a hang fails the test and does not stop the run."""
+    argv = [sys.executable, "-m", "cairnkit", *args]
+    return subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=timeout)
+
+
+def test_a_script_full_of_import_words_maps_in_time(mem: Path, repo: Path):
+    """`import a ` 50000 times ran 30+ s of CPU: the import scan was quadratic."""
+    write(repo / "web" / "package.json", '{"name": "web"}\n')
+    write(repo / "web" / "index.js", "import a " * 50_000)
+    write(repo / "web" / "main.js", '// The entry.\nimport "./index.js";\n')
+    done = run_cli(repo, "docs")
+    assert done.returncode == 0, done.stderr
+    assert "The entry." in all_text(repo)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "import a " * 20_000,
+        "export a " * 20_000,
+        "\n" * 100_000,
+        "import" + " " * 100_000,
+        "import" + " " * 100_000 + "x",
+        "import(" * 50_000,
+    ],
+    ids=["import-words", "export-words", "blank-lines", "trailing-space", "space-run", "calls"],
+)
+def test_the_import_scan_is_linear(text: str):
+    start = time.process_time()
+    specifiers(text)
+    assert time.process_time() - start < 1.0
+
+
+def test_a_page_full_of_open_script_tags_maps_in_time(mem: Path, repo: Path):
+    write(repo / "web" / "package.json", '{"name": "web"}\n')
+    write(repo / "web" / "main.js", "// The entry.\n")
+    write(repo / "web" / "index.html", "<script " * 20_000)
+    start = time.process_time()
+    inventory(repo)
+    assert time.process_time() - start < 2.0
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ('import { from } from "./a";\n', ["./a"]),
+        ("import type { A } from './types';\n", ["./types"]),
+        ('import React, {\n  useState,\n} from "react";\n', ["react"]),
+        ('export * from "./all";\nexport { b as c } from "./b";\n', ["./all", "./b"]),
+        ('const x = 1;\nimport "./side";\n', ["./side"]),
+        ('const a = require("./r");\nconst b = import("./d");\n', ["./d", "./r"]),
+        ('import from from "./f";\n', ["./f"]),
+        ('const s = "x";import y from "./y"', ["./y"]),
+        ('importer from "./no";\nexport default from "./no2";\n', ["./no2"]),
+        ('const from = "./nope";\n', []),
+    ],
+)
+def test_the_import_scan_finds_each_import(text: str, found: list[str]):
+    assert specifiers(text) == found
+

@@ -491,7 +491,8 @@ def _package_entries(folder: str, data: dict, resolver) -> list[EntryPoint]:
     return entries
 
 
-_PAGE_SCRIPT = re.compile(r"""<script\b[^>]*\bsrc=["']([^"':]+)["']""", re.IGNORECASE)
+# A tag ends at the next `<` too, so an unclosed tag never scans past the tag after it.
+_PAGE_SCRIPT = re.compile(r"""<script\b[^<>]*\bsrc=["']([^"':<>]+)["']""", re.IGNORECASE)
 
 
 def _page_entries(root: Path, folder: str, paths: set[str], resolver) -> list[EntryPoint]:

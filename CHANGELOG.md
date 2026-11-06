@@ -228,6 +228,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minus signs ran the Python parser out of memory. Now a file that cannot be read or parsed counts
   as empty, and the other files still map. The toolchain scan of the presets also reads such a
   manifest as empty.
+- `memory docs` reads a script or an `index.html` in a time that grows with its size, not with the
+  square of its size. A `web/index.js` of 50000 `import a ` words ran for more than 30 s of CPU,
+  and so did a run of blank lines or of open `<script` tags. That stopped `memory docs`,
+  `memory docs --check` and `memory status`.
 - `memory docs` reads no file outside the repo. A tracked link to a file outside put that file's
   first line in `docs/state`. Now it skips each link, also a link to a manifest such as
   `pyproject.toml`. It also refuses a `docs/state` that is a link, and it writes or removes no page
