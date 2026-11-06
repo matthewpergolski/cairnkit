@@ -58,7 +58,7 @@ QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"", re.DOTALL)
 # A harness turn opens with a tag. A stop follow-up comes back as a prompt on some tools.
 # Text that the tools put in a prompt: a notification, or a line of this tool. An owner who writes
 # "run memory check" later in a prompt is still the owner.
-NOT_THE_OWNER = re.compile(r"^\s*(?:<|`memory |memory check\b|Does a trap belong\b)")
+NOT_THE_OWNER = re.compile(r"^\s*(?:<|memory check\b)|`memory |\bDoes a trap belong\b")
 # `clean`, `clear` and `drop` also mean a tidy-up with no loss, so they must name a file.
 REMOVAL = re.compile(
     r"\b(?:remove|delete|rm|get rid of|wipe|purge|prune|erase|trash|discard)\b"
