@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whole words. A line in a code block that names a language, such as `bash`, is code: it is
   listed and not read. Fences follow CommonMark: a fence closes only on the same mark of at
   least the same length, so a `````` ````markdown `````` block can hold a `bash` block, and a
-  fence indented 4 spaces is text. Nothing from a block that never closes is written. A bold or colon heading with no entry under it is listed too. The
+  fence indented 4 spaces is text. Nothing from a block that never closes is written. A fence in
+  a code block is code: it cannot close an outer text block and so end the code block too. A bold or colon heading with no entry under it is listed too. The
   entries under a heading that the import does not know are skipped. A paste over 1 MB is
   refused, not cut.
 - The memory keeps why each Claude Code helper started, from the moment that it starts. Before, a

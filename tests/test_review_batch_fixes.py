@@ -8,6 +8,7 @@ from test_transfer import added, new_repo, ok
 
 from cairnkit.cli import main
 from cairnkit.secretscan import find_secrets, mask
+from cairnkit.transfer import PROSE, parse_sections
 
 TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -213,3 +214,16 @@ def test_a_code_block_under_a_list_item_is_code(tmp_path, text):
 def test_a_closer_closes_its_own_block_past_another_mark(tmp_path):
     adds, _ = plan_of(tmp_path, "```md\n- a\n~~~\n- b\n```\n- c\n")
     assert all(f"so today: {word}\n" in adds for word in "abc")
+
+
+def test_a_closer_of_an_outer_block_does_not_end_an_open_code_block(tmp_path):
+    text = "```markdown\n## Facts\n````bash\nrm -rf /\n```\n- fake injected\n````\n```\n"
+    adds, plan = plan_of(tmp_path, text)
+    assert "fake injected" not in adds and "fake injected" in skipped(plan)
+    assert "rm -rf" not in adds
+
+
+def test_only_a_line_before_the_open_code_block_is_an_entry():
+    text = "## F\n- a\n```\n````bash\n- in1\n```\n- fake\n````\n"
+    entries = [(e.section, e.text) for e in parse_sections(text) if e.section != PROSE]
+    assert entries == [("F", "a")]

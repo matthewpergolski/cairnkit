@@ -310,14 +310,17 @@ def parse_sections(text: str) -> list[Entry]:
     for raw in text.splitlines():
         line = raw.strip()
         fence = _FENCE.match(raw.rstrip())
-        in_code = any(block.language not in PLAIN_BLOCKS for block in blocks)
+        code = [index for index, block in enumerate(blocks) if block.language not in PLAIN_BLOCKS]
+        in_code = bool(code)
         if fence:
             mark, rest = fence["mark"], fence["rest"].strip()
             indent = len(fence["indent"].expandtabs(4))
+            # In code, a closer of an outer block is code too, so it cannot end the code block.
             closes = [
                 index
                 for index, block in enumerate(blocks)
-                if not rest
+                if index >= (code[-1] if code else 0)
+                and not rest
                 and mark[0] == block.mark[0]
                 and len(mark) >= len(block.mark)
                 and indent <= block.indent + CLOSER_SLACK
