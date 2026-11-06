@@ -231,35 +231,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is more than one plain word, so `pytest -x && ls` and `FOO=1 ls` are no pair. An owner prompt
   that says "run memory check" still counts as the owner's. Temp files of a killed hook go after
   an hour, and the index copy can no longer raise or be left half written.
-- One odd Python file no longer stops `memory docs`, `memory docs --check` or the atlas line of
-  `memory status`. A sum of 5000 terms in `urlpatterns` raised RecursionError. Now a file that
-  cannot be read or parsed counts as empty, and the other files still map.
+- One odd file no longer stops `memory docs`, `memory docs --check` or the atlas line of
+  `memory status`. A sum of 5000 terms in `urlpatterns` raised RecursionError, and so did a
+  `package.json`, `tsconfig.json` or `pyproject.toml` that nests 100000 deep. A line of 400000
+  minus signs ran the Python parser out of memory. Now a file that cannot be read or parsed counts
+  as empty, and the other files still map. The toolchain scan of the presets also reads such a
+  manifest as empty, and `memory hooks install` reports such an agent settings file as not valid
+  JSON. Before, it stopped with RecursionError.
+- `memory docs` reads a script or an `index.html` in a time that grows with its size, not with the
+  square of its size. A `web/index.js` of 50000 `import a ` words ran for more than 30 s of CPU,
+  and so did a run of blank lines or of open `<script` tags. That stopped `memory docs`,
+  `memory docs --check` and `memory status`.
 - `memory docs` reads no file outside the repo. A tracked link to a file outside put that file's
   first line in `docs/state`. Now it skips each link, also a link to a manifest such as
   `pyproject.toml`. It also refuses a `docs/state` that is a link, and it writes or removes no page
-  that is a link or is under one. Before, `--force` could write or delete outside the repo.
+  that is a link or is under one. Before, `--force` could write or delete outside the repo. Each
+  read opens the file one folder at a time and refuses a link at each step, so a file that turns
+  into a link after a check is not read either.
+- A pipe or another file that is not a regular file in `docs/state` no longer hangs
+  `memory docs`, `memory docs --check` or `memory status`. Before, `mkfifo docs/state/x.md` made
+  each of them wait for ever.
 - `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
   files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
   list a repo, it stops with an error and changes nothing. Before, it walked the folder and read
   ignored files. A folder with no git is walked to at most 50000 files, and a file bigger than 1 MB
-  counts as empty.
+  counts as empty. A global ignore of one machine can still change the list, so the help of
+  `memory docs --check` and the README say to run the check in CI on a clean checkout.
 - A file that starts with a UTF-8 byte order mark keeps its summary and its imports in the atlas.
 - The parent id of the atlas comes only from the front matter of a hand-written
   `docs/state/README.md`. Before, an `id:` line in the body could set it.
 - `memory migrate` names a repo hook that reads the old notes in more forms: a glob
-  (`memory-bank/*.md`), the folder itself (`ls memory-bank`, `ls memory-bank/`,
-  `test -d memory-bank`, `os.listdir("memory-bank")`), a `$VAR`, a brace set,
-  `Path("memory-bank") / "status.md"` and `["memory-bank", "a/b.md"]`. A path under `notes/`,
-  `facts/`, `branches/`, `proposals/`, `config.toml` or `README.md` is still the new layout.
+  (`memory-bank/*.md`), a list of the folder (`ls memory-bank`, `ls memory-bank/`,
+  `os.listdir("memory-bank")`, `.iterdir()`), a `$VAR`, a brace set,
+  `Path("memory-bank") / "status.md"`, `.joinpath("status.md")`, `.glob("*.md")`,
+  `notes/../status.md` and `["memory-bank", "a/b.md"]`. A path under `notes/`, `facts/`,
+  `branches/`, `proposals/`, `config.toml` or `README.md` is still the new layout.
+- `memory migrate` no longer names a hook for a path that is not a read of the old layout. These
+  were false alarms: the files that the tool writes itself (`auto-tidy.log`, `tool-version.json`,
+  `.sessions/`, `.usage/`, `.identity` and the other dot files), each choice of a brace set that
+  is in the new layout (`memory-bank/{notes,facts}/x`), `./` and `//` in a path, a test of the
+  folder or a step into it (`test -d memory-bank || exit 0`, `ls -d memory-bank`,
+  `cd memory-bank`, `git -C memory-bank log`, `.exists()`), a recursive read (`.rglob`), and
+  text that reads nothing: a comment, a docstring, a URL, or what `echo` and `printf` print. The
+  folder exists in both layouts, so a test of it shows nothing.
 - The task item for such a hook names the path that it reads and asks the agent to compare the hook
   with `memory load`, `memory check` and the memory hooks. It says to remove the hook only when
   they do all that it does. Before, a mention of a path was enough to say "Remove this hook
-  handler".
+  handler". A hook that runs the old checker now gets the same item. It counts only when it runs
+  a repo script named `check_memory.py` (or `check-memory.sh` and the like) that names
+  `memory-bank` and reads no path of the new layout. Before, `check_memory` anywhere in the
+  command counted, so `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that
+  was already updated got "Remove this hook handler". A doc line or a script name counts as the
+  old checker only for the whole name `check_memory` or `check-memory` too.
+- `memory migrate` reads a long hook script, hook command or doc line in a time that grows with
+  its size. Before, the time grew with the square of the size for a long word of
+  `memory-bank/notes/` parts, a run of spaces after `"memory-bank"`, a long doc line that names
+  the checker, and a long hook command.
 - `memory change --unlink` alone writes a change that the 0.3.1 build also accepts. That build
   knew no `remove_links`, so its check reported the record as bad. Now the change also holds an
   empty `add_links`. The older build keeps the link, and this build removes it.
 - The load line that names files outside `notes/` cleans each file name and cuts it at 40
   characters. A file name with a line break could put a line of its own in the load.
+  `memory migrate` now cleans each file name that it prints too: a stray file in the memory
+  folder, a note, a kept copy, a pointer, a moved folder and a doc that names the old checker.
+  Before, a name with a line break, a terminal code or the end line of the stored notes printed
+  as it was.
 
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the

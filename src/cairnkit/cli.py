@@ -421,7 +421,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--check",
         action="store_true",
-        help="compare docs/state with a fresh atlas and write nothing",
+        help=(
+            "compare docs/state with a fresh atlas and write nothing. The atlas maps the tracked "
+            "files and the untracked files that git does not ignore, so a global ignore of one "
+            "machine can change it: run it in CI on a clean checkout"
+        ),
     )
     return parser
 

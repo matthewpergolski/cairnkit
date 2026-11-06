@@ -521,7 +521,7 @@ def _read(path: Path) -> dict:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8") or "{}")
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:  # deep nesting runs the parser out of stack
         raise BadConfig(f"{path} is not valid JSON ({exc}). {FIX_IT}") from exc
     if not isinstance(data, dict):
         raise BadConfig(f"{path} does not hold a JSON object. {FIX_IT}")

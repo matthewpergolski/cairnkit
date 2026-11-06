@@ -7,7 +7,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from cairnkit.docs_inventory import Route, first_sentence, parent, read_file, relative
+from cairnkit.docs_inventory import (
+    PARSE_ERRORS,
+    Route,
+    first_sentence,
+    parent,
+    read_file,
+    relative,
+)
 
 ROUTE_METHODS = frozenset(
     {"get", "post", "put", "patch", "delete", "head", "options", "route", "api_route", "websocket"}
@@ -233,7 +240,7 @@ def read_python(root: Path, path: str, module: str) -> PythonFacts:
         return _UNREAD
     try:
         return _facts(text, path, module)
-    except (SyntaxError, ValueError, RecursionError):
+    except (SyntaxError, *PARSE_ERRORS):
         return _UNREAD
 
 

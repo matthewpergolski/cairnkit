@@ -78,7 +78,7 @@ def _files(root: Path, name: str) -> list[Path]:
 def _pyproject(path: Path) -> dict:
     try:
         return tomllib.loads(_read(path))
-    except tomllib.TOMLDecodeError:
+    except (ValueError, RecursionError):  # deep nesting runs the parser out of stack
         return {}
 
 
@@ -165,7 +165,7 @@ def _package_scripts(root: Path) -> dict[str, tuple[str, str]]:
     for path in _files(root, "package.json"):
         try:
             scripts = json.loads(_read(path) or "{}").get("scripts", {})
-        except (json.JSONDecodeError, AttributeError):
+        except (ValueError, RecursionError, AttributeError):
             continue
         if isinstance(scripts, dict):
             for name, command in scripts.items():

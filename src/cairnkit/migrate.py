@@ -36,7 +36,6 @@ from cairnkit.init import STATUS, plan_link, run_init
 from cairnkit.memory import Memory
 from cairnkit.migrate_refs import (
     CANDIDATES,
-    CHECKER_RE,
     OLD_COPIES,
     OLD_SUFFIX,
     TASK,
@@ -57,12 +56,14 @@ from cairnkit.migrate_refs import (
     render_followups,
     rewrite_text,
     rewritten_docs,
+    runs_old_checker,
     stray_files,
     stub_text,
 )
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir, run_git
 from cairnkit.schema import MAX_TEXT
 from cairnkit.secretscan import find_secrets
+from cairnkit.selection import clean
 
 JUNK = {".DS_Store"}
 TIERS = ("likely", "maybe", "worktree-only", "repeat")
@@ -173,7 +174,7 @@ def _keep_old_copy(memdir: Path, rel: str, origin: Path, dry_run: bool) -> None:
             return
         number += 1
         place = memdir / OLD_COPIES / f"{rel}.{number}"
-    print(f"{'would keep' if dry_run else 'keep'} the other copy of {rel} at {place}")
+    print(f"{'would keep' if dry_run else 'keep'} the other copy of {clean(rel)} at {clean(place)}")
     if not dry_run:
         place.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(origin, place)
@@ -194,17 +195,20 @@ def _settle_strays(memdir: Path, dry_run: bool) -> None:
     for rel in stray_files(memdir):
         path, note = memdir / rel, memdir / "notes" / rel
         if not note.exists() or _is_template(note):
-            print(f"{would}move {path} -> {note}")
+            print(f"{would}move {clean(path)} -> {clean(note)}")
             if not dry_run:
                 note.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, note)
                 _remove(path, memdir)
             continue
         if filecmp.cmp(path, note, shallow=False):
-            print(f"{would}remove {path}: {note} has the same text")
+            print(f"{would}remove {clean(path)}: {clean(note)} has the same text")
         else:
             _keep_old_copy(memdir, rel, path, dry_run)
-            print(f"{would}remove {path}: that copy holds its text, and {note} stays as it is")
+            print(
+                f"{would}remove {clean(path)}: that copy holds its text, and {clean(note)} stays "
+                "as it is"
+            )
         if not dry_run:
             _remove(path, memdir)
 
@@ -214,13 +218,13 @@ def _sync_stubs(memdir: Path, named: set[str], dry_run: bool) -> None:
     would = "would " if dry_run else ""
     for path in outside_layout(memdir):
         if is_stub(path) and path.relative_to(memdir).as_posix() not in named:
-            print(f"{would}remove the pointer {path}")
+            print(f"{would}remove the pointer {clean(path)}")
             if not dry_run:
                 _remove(path, memdir)
     for rel in sorted(named):
         path = memdir / rel
         if not path.exists():
-            print(f"{would}leave a pointer to the note at {path}")
+            print(f"{would}leave a pointer to the note at {clean(path)}")
             if not dry_run:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(stub_text(rel), encoding="utf-8")
@@ -480,22 +484,18 @@ def _hooks(project: Project) -> list[Item]:
     """Old hooks in settings files: the checker, and any other that reads the old notes."""
     root = project.root
 
-    def is_old(command: str) -> bool:
-        return bool(CHECKER_RE.search(command) or hook_reads_old_notes(root, command))
+    def why_old(command: str) -> str | None:
+        return hook_reads_old_notes(root, command) or runs_old_checker(root, command)
 
+    fix = (
+        "A path is no proof that the hook is dead. Compare what it does with what "
+        "`memory load`, `memory check` and the memory hooks next to it do now. If they "
+        "do all of it, remove it. If it does more, keep it and point that path at "
+        f"{LINK_NAME}/notes/."
+    )
     items = []
-    for hook in adapters.stale_hooks(project, is_old):
-        if CHECKER_RE.search(hook.command):
-            why = "This hook runs the old checker, which reads the old layout."
-            fix = "Remove this hook handler. The memory hooks are already installed next to it."
-        else:
-            why = f"{hook_reads_old_notes(root, hook.command)} It runs at each {hook.event}."
-            fix = (
-                "A path is no proof that the hook is dead. Compare what it does with what "
-                "`memory load`, `memory check` and the memory hooks next to it do now. If they "
-                "do all of it, remove it. If it does more, keep it and point that path at "
-                f"{LINK_NAME}/notes/."
-            )
+    for hook in adapters.stale_hooks(project, lambda command: bool(why_old(command))):
+        why = f"{why_old(hook.command)} It runs at each {hook.event}."
         note = " The tool changes no tracked file, so this edit is yours." if hook.tracked else ""
         items.append(
             Item(
@@ -680,7 +680,7 @@ def run_migrate(
     print(f"Old notes: {source_dir} ({len(_files(source_dir))} file(s))")
     would = "would " if dry_run else ""
     for path, target, _ in moves:
-        print(f"{would}move {path} -> {target}")
+        print(f"{would}move {clean(path)} -> {clean(target)}")
         if not dry_run:
             _move(path, target)
 
@@ -700,7 +700,7 @@ def run_migrate(
     copied, same, differing = copy_notes(source_dir, notes, layout, dry_run)
     print(f"{would}copy {copied} file(s) to {notes}; {same} already there")
     for rel in differing:
-        print(f"note {notes / rel} differs from the old file. Left as it is.")
+        print(f"note {clean(notes / rel)} differs from the old file. Left as it is.")
         _keep_old_copy(memdir, rel, source_dir / layout[rel], dry_run)
     for old_rel in losers:
         _keep_old_copy(memdir, old_rel.removeprefix("notes/"), source_dir / old_rel, dry_run)
@@ -741,8 +741,8 @@ def run_migrate(
     else:
         scripts, refs = _old_checker(project)
         if scripts or refs:
-            name = ", ".join(scripts) if scripts else "the old checker"
-            shown = ", ".join(refs[:6]) + (" ..." if len(refs) > 6 else "")
+            name = ", ".join(map(clean, scripts)) if scripts else "the old checker"
+            shown = ", ".join(map(clean, refs[:6])) + (" ..." if len(refs) > 6 else "")
             print(f"The old checker ({name}) is not deleted. It reads the old layout.")
             print("When it and `memory check` disagree, believe `memory check`.")
             if refs:
@@ -751,7 +751,7 @@ def run_migrate(
         if drops:
             print("What the old tooling checked. This list prints once. Tell the developer:")
             for drop in drops:
-                print(f"  {drop}")
+                print(f"  {clean(drop)}")
         references, named = _references(project, memdir, source_dir)
         _sync_stubs(memdir, named, dry_run)
         items += references + _hooks(project)

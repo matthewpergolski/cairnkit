@@ -59,6 +59,9 @@ SCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 MAX_CODE_FILES = 6000
 MAX_FILE_BYTES = 1_000_000  # a bigger file is generated or data; the atlas reads it as empty
 MAX_WALK = 50_000  # files listed in a folder with no git, so the run stays bounded
+# What a parser raises on a file it cannot read. Deep nesting runs a parser out of stack:
+# json and tomllib raise RecursionError, and the Python parser raises MemoryError.
+PARSE_ERRORS = (ValueError, RecursionError, MemoryError)
 
 
 class ProjectKind(StrEnum):
@@ -169,15 +172,44 @@ def _is_regular(path: Path) -> bool:
         return False
 
 
+_NO_LINK = getattr(os, "O_NOFOLLOW", 0)
+_FOLDER = getattr(os, "O_DIRECTORY", 0)
+
+
+def _open_inside(root: Path, rel: str) -> int:
+    """Open `rel` one folder at a time from the root, and refuse a link at each step. So the
+    file is in the repo when it is read, not only when a check looked. A pipe does not make the
+    open wait (O_NONBLOCK). Raises OSError."""
+    parts = rel.split("/")
+    if not all(parts) or any(part in (".", "..") for part in parts):
+        raise OSError(f"not a path in the repo: {rel}")
+    if os.open not in os.supports_dir_fd:  # Windows: no dir_fd, so check, then open
+        home = os.path.realpath(root)
+        if os.path.commonpath([os.path.realpath(root / rel), home]) != home:
+            raise OSError(f"outside the repo: {rel}")
+        return os.open(root / rel, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    folder = os.open(root, os.O_RDONLY | _FOLDER)
+    try:
+        for part in parts[:-1]:
+            inner = os.open(part, os.O_RDONLY | _FOLDER | _NO_LINK, dir_fd=folder)
+            os.close(folder)
+            folder = inner
+        return os.open(parts[-1], os.O_RDONLY | _NO_LINK | os.O_NONBLOCK, dir_fd=folder)
+    finally:
+        os.close(folder)
+
+
 def read_file(root: Path, rel: str) -> str | None:
-    """The text of one project file, or None when it is a link, is outside the repo, is bigger
-    than MAX_FILE_BYTES, or is not UTF-8. A byte order mark goes."""
-    path = root / rel
-    real, home = os.path.realpath(path), os.path.realpath(root)
-    if not _is_regular(path) or os.path.commonpath([real, home]) != home:
+    """The text of one project file, or None when it is a link or under one, is not a regular
+    file, is bigger than MAX_FILE_BYTES, or is not UTF-8. A byte order mark goes."""
+    try:
+        fd = _open_inside(root, rel)
+    except OSError:
         return None
     try:
-        with open(real, "rb") as fh:
+        with os.fdopen(fd, "rb") as fh:
+            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                return None
             data = fh.read(MAX_FILE_BYTES + 1)
         return data.decode("utf-8-sig") if len(data) <= MAX_FILE_BYTES else None
     except (OSError, ValueError):
@@ -187,7 +219,7 @@ def read_file(root: Path, rel: str) -> str | None:
 def _read_pyproject(root: Path, rel: str) -> dict:
     try:
         data = tomllib.loads(read_file(root, rel) or "")
-    except tomllib.TOMLDecodeError:
+    except PARSE_ERRORS:
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -195,7 +227,7 @@ def _read_pyproject(root: Path, rel: str) -> dict:
 def read_json(root: Path, rel: str) -> dict:
     try:
         raw = json.loads(read_file(root, rel) or "null")
-    except ValueError:
+    except PARSE_ERRORS:
         return {}
     return raw if isinstance(raw, dict) else {}
 
@@ -488,7 +520,8 @@ def _package_entries(folder: str, data: dict, resolver) -> list[EntryPoint]:
     return entries
 
 
-_PAGE_SCRIPT = re.compile(r"""<script\b[^>]*\bsrc=["']([^"':]+)["']""", re.IGNORECASE)
+# A tag ends at the next `<` too, so an unclosed tag never scans past the tag after it.
+_PAGE_SCRIPT = re.compile(r"""<script\b[^<>]*\bsrc=["']([^"':<>]+)["']""", re.IGNORECASE)
 
 
 def _page_entries(root: Path, folder: str, paths: set[str], resolver) -> list[EntryPoint]:

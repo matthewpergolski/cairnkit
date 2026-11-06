@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -10,6 +13,7 @@ from test_docs_generic import front, page, pages, state, write
 
 from cairnkit.cli import main
 from cairnkit.docs_inventory import inventory
+from cairnkit.docs_script import specifiers
 
 
 def all_text(repo: Path) -> str:
@@ -186,3 +190,161 @@ def test_only_the_front_matter_of_a_hand_page_gives_its_id(mem: Path, repo: Path
     assert main(["docs"]) == 0
     parents = {front(page(repo, rel)).get("parent") for rel in pages(repo) - {"README.md"}}
     assert parents and "evil" not in parents
+
+
+@pytest.mark.parametrize(
+    ("rel", "text"),
+    [
+        ("site/deep.py", "x = " + "-" * 400_000 + "1\n"),
+        ("package.json", "[" * 200_000),
+        ("web/tsconfig.json", "[" * 200_000),
+        ("pyproject.toml", "a=" + "[" * 100_000),
+    ],
+    ids=["python-parser-stack", "package-json", "tsconfig", "pyproject"],
+)
+def test_a_file_too_deep_to_parse_counts_as_empty(mem: Path, repo: Path, capsys, rel, text):
+    """A parser ran out of stack (MemoryError, RecursionError) and stopped docs and status."""
+    write(repo / "site" / "__init__.py", "")
+    write(repo / "site" / "good.py", '"""Good module."""\n')
+    write(repo / "web" / "package.json", '{"name": "web"}\n')
+    write(repo / "web" / "main.ts", "// The web entry.\nexport {};\n")
+    write(repo / rel, text)
+    assert main(["docs"]) == 0
+    assert "Good module." in all_text(repo)
+    capsys.readouterr()
+    assert main(["docs", "--check"]) == 0
+    assert capsys.readouterr().out == ""
+    write(repo / "site" / "good.py", '"""Better module."""\n')
+    assert main(["status"]) == 0
+    assert "docs/state" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("rel", [".claude/settings.json", ".cursor/hooks.json"])
+def test_a_too_deep_agent_settings_file_stops_no_command(mem: Path, repo: Path, capsys, rel):
+    write(repo / rel, "[" * 200_000)
+    assert main(["status"]) == 0
+    assert main(["load"]) == 0
+    capsys.readouterr()
+    assert main(["migrate"]) == 0
+    assert main(["hooks", "install"]) in (0, 1)
+
+
+@pytest.mark.parametrize(
+    ("rel", "text"),
+    [("package.json", "[" * 200_000), ("pyproject.toml", "a=" + "[" * 100_000)],
+    ids=["package-json", "pyproject"],
+)
+def test_the_toolchain_scan_reads_a_too_deep_manifest_as_empty(tmp_path: Path, rel, text):
+    from cairnkit.detect import detect
+
+    write(tmp_path / "biome.json", "{}\n")
+    write(tmp_path / rel, text)
+    found = detect(tmp_path)
+    assert not found["uv"].found and not found["ruff"].found
+    assert found["biome"].found and not found["biome-run"].found
+
+
+def run_cli(repo: Path, *args: str, timeout: float = 30) -> subprocess.CompletedProcess:
+    """The CLI in its own process, so that a hang fails the test and does not stop the run."""
+    argv = [sys.executable, "-m", "cairnkit", *args]
+    return subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=timeout)
+
+
+def test_a_script_full_of_import_words_maps_in_time(mem: Path, repo: Path):
+    """`import a ` 50000 times ran 30+ s of CPU: the import scan was quadratic."""
+    write(repo / "web" / "package.json", '{"name": "web"}\n')
+    write(repo / "web" / "index.js", "import a " * 50_000)
+    write(repo / "web" / "main.js", '// The entry.\nimport "./index.js";\n')
+    done = run_cli(repo, "docs")
+    assert done.returncode == 0, done.stderr
+    assert "The entry." in all_text(repo)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "import a " * 20_000,
+        "export a " * 20_000,
+        "\n" * 100_000,
+        "import" + " " * 100_000,
+        "import" + " " * 100_000 + "x",
+        "import(" * 50_000,
+    ],
+    ids=["import-words", "export-words", "blank-lines", "trailing-space", "space-run", "calls"],
+)
+def test_the_import_scan_is_linear(text: str):
+    start = time.process_time()
+    specifiers(text)
+    assert time.process_time() - start < 1.0
+
+
+def test_a_page_full_of_open_script_tags_maps_in_time(mem: Path, repo: Path):
+    write(repo / "web" / "package.json", '{"name": "web"}\n')
+    write(repo / "web" / "main.js", "// The entry.\n")
+    write(repo / "web" / "index.html", "<script " * 20_000)
+    start = time.process_time()
+    inventory(repo)
+    assert time.process_time() - start < 2.0
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ('import { from } from "./a";\n', ["./a"]),
+        ("import type { A } from './types';\n", ["./types"]),
+        ('import React, {\n  useState,\n} from "react";\n', ["react"]),
+        ('export * from "./all";\nexport { b as c } from "./b";\n', ["./all", "./b"]),
+        ('const x = 1;\nimport "./side";\n', ["./side"]),
+        ('const a = require("./r");\nconst b = import("./d");\n', ["./d", "./r"]),
+        ('import from from "./f";\n', ["./f"]),
+        ('const s = "x";import y from "./y"', ["./y"]),
+        ('importer from "./no";\nexport default from "./no2";\n', ["./no2"]),
+        ('const from = "./nope";\n', []),
+    ],
+)
+def test_the_import_scan_finds_each_import(text: str, found: list[str]):
+    assert specifiers(text) == found
+
+
+def test_a_link_that_a_check_saw_as_a_file_is_not_followed(mem: Path, repo: Path, monkeypatch):
+    """A check before the open can be stale: the file can turn into a link between the two."""
+    import os
+
+    from cairnkit.docs_inventory import read_file
+
+    outside = repo.parent / "outside.py"
+    write(outside, '"""Outside secret text."""\n')
+    plain = repo / "app" / "plain.py"
+    write(plain, '"""Plain module."""\n')
+    link = repo / "app" / "main.py"
+    link.symlink_to(outside)
+    real_lstat = os.lstat
+
+    def stale_lstat(path, *args, **kwargs):
+        return real_lstat(plain if Path(path) == link else path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", stale_lstat)
+    assert read_file(repo, "app/plain.py") == '"""Plain module."""\n'
+    assert read_file(repo, "app/main.py") is None
+
+
+def test_a_file_under_a_linked_folder_is_not_read(mem: Path, repo: Path):
+    from cairnkit.docs_inventory import read_file
+
+    write(repo.parent / "outside" / "secret.py", '"""Outside secret text."""\n')
+    (repo / "app").symlink_to(repo.parent / "outside")
+    assert read_file(repo, "app/secret.py") is None
+
+
+@pytest.mark.parametrize("args", [("docs", "--check"), ("docs", "--force"), ("status",)])
+def test_a_pipe_in_the_state_folder_does_not_hang(mem: Path, repo: Path, args):
+    """`mkfifo docs/state/x.md`: the open of a pipe waits for a writer, and none comes."""
+    import os
+
+    write(repo / "app" / "__init__.py", "")
+    write(repo / "app" / "main.py", '"""Main module."""\n')
+    assert main(["docs"]) == 0
+    os.mkfifo(state(repo) / "x.md")
+    done = run_cli(repo, *args)
+    assert done.returncode == 0, done.stderr
+    assert (state(repo) / "x.md").exists()

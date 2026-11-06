@@ -14,6 +14,7 @@ The old notes were files in `memory-bank/`. They now live in
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
@@ -25,36 +26,62 @@ from cairnkit.selection import clean
 # Names in the new layout. A path that starts with one of these is not an old path.
 OLD_SUFFIX = ".memory-old"
 NEW_DIRS = ("notes", "facts", "branches", "proposals")
-NEW_FILES = ("config.toml", "README.md")
+# The tool's own files: autotidy.LOG_NAME, refresh.STAMP, and the copies of a bad config.toml
+# (config.py). Tool state starts with a dot. A test reads the names in the code and from a run.
+NEW_FILES = ("config.toml", "README.md", "auto-tidy.log", "tool-version.json")
+NEW_PREFIXES = (".", "config.toml.bad")
 
+# Each regex below runs over project files, so its cost must grow with the text, not faster.
 PATH_RE = re.compile(rf"(?<![\w-]){LINK_NAME}/([A-Za-z0-9_.\-/]*[A-Za-z0-9_/])")
 OLD_DOC_RE = re.compile(rf"(?<![\w-]){LINK_NAME}(?:[-_.][\w-]+)")
 OLD_DOC_NAME_RE = re.compile(r"memory[-_]?bank", re.IGNORECASE)
-CHECKER_RE = re.compile(r"check[_-]?memory", re.IGNORECASE)
+# The old checker by name: `check_memory.py` or `check-memory`, not `check_memory_usage.sh`.
+CHECKER_RE = re.compile(r"(?<![\w-])check[_-]?memory(?![\w-])", re.IGNORECASE)
+CHECKER_SCRIPT_RE = re.compile(r"check[_-]?memory\.(?:py|sh|mjs|js|ts)", re.IGNORECASE)
 # The memory folder in a hook command or script. `memory-bank.md` is a doc name, not the folder.
 FOLDER_RE = re.compile(rf"(?<![\w.-]){LINK_NAME}(?![\w-]|\.\w)")
 # What follows `memory-bank/`: a path, a glob, a `$VAR` or a brace set, up to the end of the word.
-FOLDER_TAIL_RE = re.compile(r"/([^\s'\"`;|&()<>]*)")
+# The bound keeps the cost of each mention the same in a long word of mentions.
+FOLDER_TAIL_RE = re.compile(r"/([^\s'\"`;|&()<>]{0,256})")
 # The next part after a quoted `"memory-bank"`: `, "status.md"` or `) / 'status.md'`.
-FOLDER_PART_RE = re.compile(r"""\s*\)?\s*[,/]\s*["']([^"'\n]*)["']""")
-# Code that reads the folder itself: `Path("memory-bank").glob(...)`, `os.listdir("memory-bank")`.
-FOLDER_METHOD_RE = re.compile(r"\s*\)\s*\.\s*(?:r?glob|iterdir|exists|is_dir)\b")
-FOLDER_CALL_RE = re.compile(
-    r"\b(?:listdir|scandir|glob|iglob|walk|isdir|exists|readdirSync|readdir|opendir)"
-    r"\s*\(\s*(?:Path\s*\(\s*)?$"
+FOLDER_PART_RE = re.compile(r"""\s*(?:\)\s*)?[,/]\s*["']([^"'\n]{0,256})["']""")
+# A method of `Path("memory-bank")`, and its first argument when that is a plain string.
+FOLDER_METHOD_RE = re.compile(r"""\s*\)\s*\.\s*(\w+)\s*\(\s*(?:["']([^"'\n]{0,256})["'])?""")
+FOLDER_LIST_METHODS = frozenset({"iterdir"})
+FOLDER_PATH_METHODS = frozenset({"glob", "joinpath"})
+# A call that lists the folder: `os.listdir("memory-bank")`, `fs.readdirSync("memory-bank")`.
+FOLDER_LIST_CALL_RE = re.compile(
+    r"\b(?:listdir|scandir|readdirSync|readdir|opendir)\s*\(\s*(?:Path\s*\(\s*)?$"
 )
-# The word before a bare `memory-bank` that makes it a file argument: `ls`, `test -d`, `[ -d`.
-FOLDER_ARG_RE = re.compile(
-    r"-\w[\w-]*|ls|cat|cd|find|test|\[\[?|tree|du|stat|cp|mv|rm|rsync|tar|head|tail|wc"
-)
+# `ls` before a bare `memory-bank`, with its options. Without -d it lists what the folder holds.
+FOLDER_LS_RE = re.compile(r"(?:^|[\s;&|(`/])ls((?:\s+-[\w=-]+)*)\s+$")
+BRACE_RE = re.compile(r"\{([^{}]*)\}")
+MAX_BRACE_PATHS = 64
 WORD_END = ("", " ", "\t", "\n", ";", "&", "|", ")", "]", "`")
 OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
-HOOK_SCRIPT_RE = re.compile(r"[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
+HOOK_SCRIPT_RE = re.compile(r"(?<![\w./-])[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
 CHECKER_CMD_RE = re.compile(
-    r"(?:uv run(?: --no-project)? |python3? )?[^\s`'\"()]*check[_-]?memory[^\s`'\"()]*?"
-    r"\.(?:py|sh|mjs|js|ts)",
+    r"(?<![^\s`'\"(])(?:uv run(?: --no-project)? |python3? )?(?:[^\s`'\"()]*/)?"
+    r"check[_-]?memory\.(?:py|sh|mjs|js|ts)\b",
     re.IGNORECASE,
 )
+# What reads nothing in a hook: comments, docstrings, URLs and the text that echo prints. A
+# string stays, because code names a path in a string. An open string, comment or docstring
+# runs to the end of its line or of the text, so no start scans the same text twice.
+_STRING = r"""'[^'\n]*(?:'|$)|"[^"\n]*(?:"|$)"""
+_NOT_CODE = {
+    "sh": re.compile(rf"({_STRING})|(?:^|(?<=[\s;]))#[^\n]*", re.MULTILINE),
+    "py": re.compile(
+        rf"\"\"\"[\s\S]*?(?:\"\"\"|\Z)|'''[\s\S]*?(?:'''|\Z)|({_STRING})|#[^\n]*", re.MULTILINE
+    ),
+    "js": re.compile(
+        rf"/\*[\s\S]*?(?:\*/|\Z)|({_STRING}|`[^`]*(?:`|\Z))|(?:^|(?<=\s))//[^\n]*", re.MULTILINE
+    ),
+}
+_SCRIPT_KIND = {".py": "py", ".sh": "sh", ".mjs": "js", ".js": "js", ".ts": "js"}
+URL_RE = re.compile(r"(?<![\w+.-])[A-Za-z][\w+.-]*://[^\s'\"`<>()]*")
+# `echo` and `printf` up to the end of the command. `$(...)` runs a command, so it stays.
+ECHO_RE = re.compile(r"(?<![\w.-])(?:echo|printf)(?=[^\S\n])(?:[^;&|<>()\n`$]|\$(?!\())*")
 SCRIPT_SUFFIXES = {".py", ".sh", ".mjs", ".js", ".ts"}
 SKIP_DIRS = {".git", "node_modules", ".venv", "__pycache__", ".worktrees"}
 MAX_BYTES = 500_000
@@ -117,7 +144,9 @@ OLD_CHECKS = (
         "Dropped. `memory check` counts only the words of the rules.",
     ),
 )
-CHECK_FUNCTION_RE = re.compile(r"^\s*(?:def|function)\s+(\w*(?:check|lint|validate)\w*)", re.M)
+CHECK_FUNCTION_RE = re.compile(
+    r"^[ \t]*(?:def|function)[ \t]+(\w*(?:check|lint|validate)\w*)", re.M
+)
 
 
 def dropped_checks(scripts: dict[str, Path]) -> list[str]:
@@ -137,7 +166,8 @@ def dropped_checks(scripts: dict[str, Path]) -> list[str]:
 
 
 def is_new_layout(rel: str) -> bool:
-    return rel.split("/")[0] in NEW_DIRS or rel in NEW_FILES
+    first = rel.split("/")[0]
+    return first in NEW_DIRS or first in NEW_FILES or first.startswith(NEW_PREFIXES)
 
 
 def is_stub(path: Path) -> bool:
@@ -385,45 +415,116 @@ def checker_references(root: Path, files: Iterable[str], scripts: list[str]) -> 
     return refs[:MAX_REFS]
 
 
-def folder_reads(text: str) -> Iterator[str]:
+def _code(text: str, kind: str) -> str:
+    """The text with the parts that read nothing blanked: comments, docstrings, URLs, and for a
+    shell the text that `echo` prints."""
+
+    def keep(match: re.Match) -> str:
+        return match.group(1) if match.group(1) is not None else " "
+
+    code = URL_RE.sub(" ", _NOT_CODE[kind].sub(keep, text))
+    return ECHO_RE.sub(" ", code) if kind == "sh" else code
+
+
+def _paths(word: str) -> list[str]:
+    """Each path in the memory folder that a word names: a brace set gives one path for each
+    choice, and `.`, `..` and `//` resolve. "" is the folder. A path that climbs out names
+    nothing in it. Past MAX_BRACE_PATHS choices the rest stay as they are, so they look old."""
+    todo, words = [word], []
+    while todo:
+        item = todo.pop()
+        brace = BRACE_RE.search(item)
+        if brace and "," in brace.group(1) and len(todo) + len(words) < MAX_BRACE_PATHS:
+            head, tail = item[: brace.start()], item[brace.end() :]
+            todo += [head + choice + tail for choice in brace.group(1).split(",")]
+        else:
+            words.append(item)
+    found = []
+    for item in words:
+        path = posixpath.normpath(item.lstrip("/") or ".")
+        if path != ".." and not path.startswith("../"):
+            found.append("" if path == "." else path)
+    return found
+
+
+def _lists_folder(before: str) -> bool:
+    """True when the bare folder is the argument of `ls` with no -d: that shows its top level."""
+    found = FOLDER_LS_RE.search(before)
+    if not found:
+        return False
+    options = found.group(1).split()
+    return not any(o == "--directory" or (o[1:2] != "-" and "d" in o) for o in options)
+
+
+def folder_reads(text: str, kind: str = "sh") -> Iterator[str]:
     """The path in the memory folder that each read names: `status.md` for
     `memory-bank/status.md`, and "" for the folder itself, as in `ls memory-bank`.
 
-    A path, a glob, a `$VAR`, a brace set, `Path("memory-bank") / "x"` and
-    `["memory-bank", "x"]` each name what follows. A bare `memory-bank` is a read only as a file
-    argument (`ls`, `test -d`, `os.listdir(...)`). A word in a comment, or a name that code joins
-    with a part later, names no path, so it shows nothing about the layout.
+    A path, a glob, a `$VAR`, a brace set (each choice), `Path("memory-bank") / "x"`,
+    `["memory-bank", "x"]`, `.glob("x")` and `.joinpath("x")` each name what follows. A bare
+    `memory-bank` is a read only when code lists what it holds: `ls` with no -d, `.iterdir()`,
+    `os.listdir(...)`. The folder exists in both layouts, so a test of it (`test -d`,
+    `.exists()`), a `cd` or `git -C` into it, and a recursive read (`.rglob`, `**`) show nothing
+    about the layout. Comments, docstrings, URLs and the text that `echo` prints read nothing.
+
+    Known limits, which the agent finds when it reads the hook: a path that code builds from a
+    variable (`BANK + "/status.md"`, `BANK / "status.md"`), a `cd memory-bank` and then a
+    relative path, a recursive search (`rg x memory-bank`, `git ls-files memory-bank`), a bare
+    folder after another reader (`bat`, `less`, `code`, `python`), a path in a Python `print`,
+    and a string with an escaped quote.
     """
-    for match in FOLDER_RE.finditer(text):
-        before, after = text[: match.start()], text[match.end() :]
-        tail = FOLDER_TAIL_RE.match(after)
+    code = _code(text, kind)
+    for match in FOLDER_RE.finditer(code):
+        start, after = match.span()
+        line = max(code.rfind("\n", max(0, start - 200), start) + 1, start - 200)
+        before = code[line:start]
+        tail = FOLDER_TAIL_RE.match(code, after)
         if tail:
-            yield tail.group(1)
-            continue
-        quoted = before[-1:] in ("'", '"') and after[:1] == before[-1:]
-        if quoted:
-            before, after = before[:-1], after[1:]
-            part = FOLDER_PART_RE.match(after)
-            if part:
-                yield part.group(1)
+            paths = _paths(tail.group(1))
+            if any(paths) or not paths:  # a path in the folder, or one that climbs out of it
+                yield from filter(None, paths)
                 continue
-            if FOLDER_METHOD_RE.match(after) or FOLDER_CALL_RE.search(before):
+            after = tail.end()  # `memory-bank/` is the folder itself
+        quoted = before[-1:] in ("'", '"') and code[after : after + 1] == before[-1:]
+        if quoted:
+            before, after = before[:-1], after + 1
+            part = FOLDER_PART_RE.match(code, after)
+            if part:
+                yield from _paths(part.group(1))
+                continue
+            method = FOLDER_METHOD_RE.match(code, after)
+            if method:
+                name, arg = method.groups()
+                if name in FOLDER_LIST_METHODS:
+                    yield ""
+                elif name in FOLDER_PATH_METHODS and arg is not None and "**" not in arg:
+                    yield from _paths(arg)
+                continue
+            if FOLDER_LIST_CALL_RE.search(before):
                 yield ""
                 continue
-        words = before.split()
-        is_arg = bool(words) and FOLDER_ARG_RE.fullmatch(words[-1]) is not None
-        if is_arg and (quoted or after[:1] in WORD_END):
+        if (quoted or code[after : after + 1] in WORD_END) and _lists_folder(before):
             yield ""
 
 
-def old_note_path(text: str) -> str | None:
+def old_note_path(text: str, kind: str = "sh") -> str | None:
     """The first path in the memory folder that the text reads and the new layout has no place
     for, as `memory-bank/REL`. The link keeps its name, so `memory-bank/notes/` is the new layout.
     """
-    for rel in folder_reads(text):
+    for rel in folder_reads(text, kind):
         if not is_new_layout(rel):
             return _shown(f"{LINK_NAME}/{rel}" if rel else LINK_NAME, 80).replace("`", "'")
     return None
+
+
+def _hook_scripts(root: Path, command: str) -> Iterator[tuple[str, str, str]]:
+    """(path, kind, text) of each repo script that a hook command names."""
+    for script in HOOK_SCRIPT_RE.findall(command):
+        rel = script.lstrip("/").removeprefix("./")
+        if ".." in PurePosixPath(rel).parts:
+            continue
+        kind = _SCRIPT_KIND.get(PurePosixPath(rel).suffix.lower(), "sh")
+        yield rel, kind, read_text(root / rel) or ""
 
 
 def hook_reads_old_notes(root: Path, command: str) -> str | None:
@@ -434,13 +535,31 @@ def hook_reads_old_notes(root: Path, command: str) -> str | None:
     found = old_note_path(command.replace(str(root), ""))
     if found:
         return f"Its command reads `{found}`, which is outside the new layout."
-    for script in HOOK_SCRIPT_RE.findall(command):
-        rel = script.lstrip("/").removeprefix("./")
-        if ".." in PurePosixPath(rel).parts:
-            continue
-        found = old_note_path(read_text(root / rel) or "")
+    for rel, kind, text in _hook_scripts(root, command):
+        found = old_note_path(text, kind)
         if found:
             return f"The script it runs ({rel}) reads `{found}`, which is outside the new layout."
+    return None
+
+
+def runs_old_checker(root: Path, command: str) -> str | None:
+    """Why a hook runs the old checker: a repo script named `check_memory.py` (or with `-`, or
+    another script suffix) that names the memory folder and reads no path of the new layout. Any
+    other name is not that checker, and neither is a checker that runs `memory check` or that
+    its owner already pointed at `memory-bank/notes/`."""
+    if OWN_HOOK_RE.search(command):
+        return None
+    for rel, kind, text in _hook_scripts(root, command):
+        if not CHECKER_SCRIPT_RE.fullmatch(PurePosixPath(rel).name):
+            continue
+        reads = list(folder_reads(text, kind))
+        if FOLDER_RE.search(_code(text, kind)) and not any(
+            path and is_new_layout(path) for path in reads
+        ):
+            return (
+                f"It runs the old checker ({rel}), which names {LINK_NAME} and reads no path of "
+                "the new layout."
+            )
     return None
 
 
