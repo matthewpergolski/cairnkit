@@ -636,11 +636,30 @@ def _join_split_words(text: str, known: KnownValues | None) -> str:
     return "".join(words)
 
 
+def _without_unseen_in_ascii(text: str) -> str:
+    """The text without each run of unseen characters that stands between two visible ASCII
+    characters, such as a mark that splits `pass\u200bword`. A virama, an accent or an emoji
+    joiner stands next to a letter that is not ASCII, or next to a space, so it stays."""
+    out: list[str] = []
+    run: list[str] = []
+    for char in _TERMINAL_CODE.sub("", text):
+        if _unseen(char):
+            run.append(char)
+            continue
+        if run and not (out and "!" <= out[-1] <= "~" and "!" <= char <= "~"):
+            out += run
+        run = []
+        out.append(char)
+    return "".join(out + run)
+
+
 def mask(text: str, known: KnownValues | None = None) -> str:
     """The text with each value that looks secret replaced. A second mask changes nothing."""
     if not find_secrets(text, known):
         return text
     text = _join_split_words(text, known)
+    if not _found(text, known):
+        text = _without_unseen_in_ascii(text)
     if not _found(text, known):
         text = without_unseen(text)
     if known:

@@ -145,10 +145,14 @@ def test_a_bold_line_with_nothing_under_it_is_listed(tmp_path):
     assert "**Do not touch the legacy folder**" in skipped(plan)
 
 
-@pytest.mark.parametrize("line", ["~~~Always use pip~~~", "```Always use pip``` (really)"])
-def test_a_fence_line_with_text_is_listed(tmp_path, line):
+@pytest.mark.parametrize(
+    ("line", "closed"), [("```Always use pip``` (really)", True), ("~~~Always use pip~~~", False)]
+)
+def test_a_fence_line_with_text_is_listed(tmp_path, line, closed):
+    """A tilde fence may hold `~` in its language, so it opens a block that never closes here."""
     adds, plan = plan_of(tmp_path, f"## Decisions\n- Use uv\n{line}\n- Use ruff\n")
-    assert line in skipped(plan) and "Use ruff" in adds
+    assert line in skipped(plan)
+    assert ("Use ruff" in adds) is closed
 
 
 def test_a_long_fence_holds_an_inner_code_block(tmp_path):
@@ -170,3 +174,24 @@ def test_a_mask_keeps_the_marks_of_the_other_words():
 @pytest.mark.parametrize("mark", ["\u2028", "\u2029", "\ue000"])
 def test_separators_and_private_marks_hide_no_secret(mark):
     assert TOKEN[10:] not in mask(f"ok {TOKEN[:10]}{mark}{TOKEN[10:]} end")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "~~~ python ~~~\n- pip install x\n~~~\n",
+        "```text\n- use uv\nmore\n",
+        "````text\n- a\n```\n- b\n",
+        "```bash\n    ```\n- pip install x\n```\n",
+    ],
+)
+def test_odd_fences_write_nothing_from_inside(tmp_path, text):
+    adds, _ = plan_of(tmp_path, text)
+    assert "+ " not in adds
+
+
+def test_a_split_label_keeps_the_marks_of_the_other_words():
+    words = "cafe\u0301 \u0939\u093f\u0928\u094d\u0926\u0940 \U0001f468\u200d\U0001f469"
+    assert mask(f"{words} pass\u200bword = hunter2x") == (
+        f"{words} password = [secret: assigned secret]"
+    )

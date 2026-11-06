@@ -99,7 +99,8 @@ _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$")
 _COLON_HEADING = re.compile(r"^([^\s\[].{0,58}?):$")
 # The section of a line that is no list item and no dated line. The plan lists each such line.
 PROSE = ""
-_FENCE = re.compile(r"^(?P<mark>`{3,}|~{3,})(?P<rest>.*)$")
+# At most 3 spaces in front: a fence indented more is text in the block.
+_FENCE = re.compile(r"^ {0,3}(?P<mark>`{3,}|~{3,})(?P<rest>.*)$")
 _INFO = re.compile(r"[\w+#.-]*")
 # A code block with no language, or one of these, holds text, such as the answer to the prompt.
 PLAIN_BLOCKS = ("", "text", "txt", "markdown", "md", "plain", "plaintext")
@@ -294,26 +295,27 @@ def parse_sections(text: str) -> list[Entry]:
     """
     found: list[Entry] = []
     section, heading_line = "Other", None
-    blocks: list[tuple[str, str]] = []  # (fence mark, language) of each open code block
+    # (fence mark, language, the first entry inside) of each open code block
+    blocks: list[tuple[str, str, int]] = []
     for raw in text.splitlines():
         line = raw.strip()
-        fence = _FENCE.match(line)
+        fence = _FENCE.match(raw.rstrip())
         if fence:
             mark, rest = fence["mark"], fence["rest"].strip()
             open_mark = blocks[-1][0] if blocks else ""
             if not rest and open_mark and mark[0] == open_mark[0] and len(mark) >= len(open_mark):
                 blocks.pop()
-            elif mark[0] in rest:
+            elif mark[0] == "`" and "`" in rest:
                 found.append(Entry(PROSE, line))  # a whole fenced line, such as ```text```
             else:
                 language = rest.split()[0].lower() if rest else ""
-                blocks.append((mark, language))
+                blocks.append((mark, language, len(found)))
                 if not _INFO.fullmatch(rest):
                     found.append(Entry(PROSE, line))
             continue
         if not line:
             continue
-        if any(language not in PLAIN_BLOCKS for _, language in blocks):
+        if any(language not in PLAIN_BLOCKS for _, language, _ in blocks):
             found.append(Entry(PROSE, line))
             continue
         heading = _heading(line)
@@ -331,6 +333,12 @@ def parse_sections(text: str) -> list[Entry]:
             found.append(Entry(PROSE, line))
     if heading_line:
         found.append(Entry(PROSE, heading_line))
+    if blocks:
+        # A block that never closes can hold code, so nothing from it on is written.
+        start = blocks[0][2]
+        found[start:] = [
+            entry if entry.section == PROSE else Entry(PROSE, entry.text) for entry in found[start:]
+        ]
     return found
 
 
