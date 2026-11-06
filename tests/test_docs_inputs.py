@@ -295,3 +295,46 @@ def test_a_page_full_of_open_script_tags_maps_in_time(mem: Path, repo: Path):
 def test_the_import_scan_finds_each_import(text: str, found: list[str]):
     assert specifiers(text) == found
 
+
+def test_a_link_that_a_check_saw_as_a_file_is_not_followed(mem: Path, repo: Path, monkeypatch):
+    """A check before the open can be stale: the file can turn into a link between the two."""
+    import os
+
+    from cairnkit.docs_inventory import read_file
+
+    outside = repo.parent / "outside.py"
+    write(outside, '"""Outside secret text."""\n')
+    plain = repo / "app" / "plain.py"
+    write(plain, '"""Plain module."""\n')
+    link = repo / "app" / "main.py"
+    link.symlink_to(outside)
+    real_lstat = os.lstat
+
+    def stale_lstat(path, *args, **kwargs):
+        return real_lstat(plain if Path(path) == link else path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", stale_lstat)
+    assert read_file(repo, "app/plain.py") == '"""Plain module."""\n'
+    assert read_file(repo, "app/main.py") is None
+
+
+def test_a_file_under_a_linked_folder_is_not_read(mem: Path, repo: Path):
+    from cairnkit.docs_inventory import read_file
+
+    write(repo.parent / "outside" / "secret.py", '"""Outside secret text."""\n')
+    (repo / "app").symlink_to(repo.parent / "outside")
+    assert read_file(repo, "app/secret.py") is None
+
+
+@pytest.mark.parametrize("args", [("docs", "--check"), ("docs", "--force"), ("status",)])
+def test_a_pipe_in_the_state_folder_does_not_hang(mem: Path, repo: Path, args):
+    """`mkfifo docs/state/x.md`: the open of a pipe waits for a writer, and none comes."""
+    import os
+
+    write(repo / "app" / "__init__.py", "")
+    write(repo / "app" / "main.py", '"""Main module."""\n')
+    assert main(["docs"]) == 0
+    os.mkfifo(state(repo) / "x.md")
+    done = run_cli(repo, *args)
+    assert done.returncode == 0, done.stderr
+    assert (state(repo) / "x.md").exists()

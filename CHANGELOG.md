@@ -235,7 +235,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory docs` reads no file outside the repo. A tracked link to a file outside put that file's
   first line in `docs/state`. Now it skips each link, also a link to a manifest such as
   `pyproject.toml`. It also refuses a `docs/state` that is a link, and it writes or removes no page
-  that is a link or is under one. Before, `--force` could write or delete outside the repo.
+  that is a link or is under one. Before, `--force` could write or delete outside the repo. Each
+  read opens the file one folder at a time and refuses a link at each step, so a file that turns
+  into a link after a check is not read either.
+- A pipe or another file that is not a regular file in `docs/state` no longer hangs
+  `memory docs`, `memory docs --check` or `memory status`. Before, `mkfifo docs/state/x.md` made
+  each of them wait for ever.
 - `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
   files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
   list a repo, it stops with an error and changes nothing. Before, it walked the folder and read

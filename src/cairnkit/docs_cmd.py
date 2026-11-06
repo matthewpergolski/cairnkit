@@ -160,19 +160,17 @@ def _through_link(root: Path, path: Path) -> bool:
 
 def _atlas_pages(root: Path) -> dict[Path, str]:
     """The pages under docs/state that render_page wrote, with no `sourceRevision` line. A page
-    that is a link, or is under one, is not the tool's own."""
+    that is a link, is under one, or is not a regular file (a pipe there would hang a read) is
+    not the tool's own."""
+    from cairnkit.docs_inventory import read_file
+
     state = root / STATE_DIR
     found: dict[Path, str] = {}
     if _through_link(root, state) or not state.is_dir():
         return found
     for path in sorted(state.rglob("*.md")):
-        if _through_link(root, path):
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            continue
-        if _ATLAS_FRONT_MATTER.match(text):
+        text = read_file(root, path.relative_to(root).as_posix())
+        if text is not None and _ATLAS_FRONT_MATTER.match(text):
             found[path] = _strip_source_revision(text)
     return found
 
