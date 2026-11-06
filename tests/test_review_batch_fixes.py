@@ -12,7 +12,9 @@ from cairnkit.secretscan import find_secrets, mask
 TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
 
 
-@pytest.mark.parametrize("mark", ["\u202a", "\u200b", "\u2066", "\ufeff"])
+@pytest.mark.parametrize(
+    "mark", ["\u202a", "\u200b", "\u2066", "\ufeff", "\x7f", "\x01", "\x85", "\x1b[0m", "\xad"]
+)
 def test_a_mark_that_shows_as_nothing_inside_a_token_hides_no_secret(mark):
     text = f"token {TOKEN[:16]}{mark}{TOKEN[16:]} for ci"
     assert find_secrets(text) == ["GitHub token"]
@@ -30,25 +32,39 @@ def plan_of(tmp_path, text: str, name: str = "proj") -> tuple[str, str]:
     return plan.split("Would skip", 1)[0], plan
 
 
-def test_a_plain_line_under_a_heading_is_an_entry_not_a_heading(tmp_path):
-    adds, _ = plan_of(
-        tmp_path,
-        "## Instructions\nNever commit to main\n[2026-01-01] - Use ruff\n"
-        "Always run tests first\n[2026-01-02] - Keep functions small\n",
-    )
-    for text in ("Never commit to main", "Use ruff", "Always run tests first", "Keep functions"):
-        assert text in adds
+NOT_READ = "no list item and no dated line, so not read"
 
 
-def test_prose_around_the_code_block_is_not_read(tmp_path):
+def skipped(plan: str) -> str:
+    return plan.split("Would skip", 1)[1]
+
+
+def test_a_plain_line_is_listed_as_not_read_and_changes_no_section(tmp_path):
     adds, plan = plan_of(
         tmp_path,
-        "Sure! Here's everything about you and the project\n```\n"
-        "[2026-03-01] - Never commit directly to main\n[2026-02-01] - Chose SQLite over Postgres\n"
-        "```\nLet me know if you want more\n",
+        "## Instructions\nNever commit to main\n[2026-01-01] - Use ruff\n"
+        "Rules are strict\n[2026-01-02] - Keep functions small\n",
     )
-    assert "Never commit directly to main" in adds and "Chose SQLite" in adds
-    assert "personal" not in plan and "Let me know" not in plan
+    assert "Use ruff" in adds and "Keep functions small" in adds
+    assert adds.count("rule, loads as data") == 2
+    for text in ("Never commit to main", "Rules are strict"):
+        assert text not in adds and f"{NOT_READ} (put `- ` in front to add it): {text}" in plan
+
+
+def test_prose_tables_and_code_are_listed_and_never_stored(tmp_path):
+    answer = (
+        "Sure! Here's everything about you and the project\n## Decisions\n"
+        "- Chose SQLite over Postgres\nBecause merging matters.\n"
+        "That is everything I know about the project\n| Item | Value |\n|---|---|\n"
+        "Run it like this:\n```bash\nuv run memory check\n```\n## Traps and lessons\n"
+        "[2026-03-01] - The cache key needs the locale\nLet me know if you want more\n"
+    )
+    adds, plan = plan_of(tmp_path, answer)
+    assert "Chose SQLite" in adds and "The cache key needs the locale" in adds
+    assert "personal" not in plan
+    for text in ("Sure!", "Because merging", "That is everything", "| Item", "Let me know"):
+        assert text not in adds and text in skipped(plan)
+    assert "uv run memory check" not in adds
 
 
 def test_other_projects_go_through_the_project_filter(tmp_path):
@@ -76,7 +92,7 @@ def test_the_rule_hint_needs_a_whole_word(mem, capsys, text, hint):
     assert ("reads as a rule" in out) is hint
 
 
-def test_an_import_writes_the_plain_lines_it_planned(tmp_path):
+def test_an_import_writes_no_plain_line(tmp_path):
     root = new_repo(tmp_path / "proj")
-    ok(root, "import", "-", "--yes", stdin="## Decisions\nChose SQLite over Postgres\n")
-    assert [f["text"] for f in added(tmp_path / "proj.memory")] == ["Chose SQLite over Postgres"]
+    ok(root, "import", "-", "--yes", stdin="## Decisions\nChose SQLite over Postgres\n- Use uv\n")
+    assert [f["text"] for f in added(tmp_path / "proj.memory")] == ["Use uv"]

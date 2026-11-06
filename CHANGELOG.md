@@ -22,10 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shows the plan, and it writes only with `--yes`. It skips personal entries with a count, secrets,
   ended facts and text that the memory has. Each fact gets basis `seen`, author `import` and source
   `import:<name>:<date>`, so an imported rule loads as data until the owner states it with
-  `--basis told`. A second import of the same text writes nothing. When the text has a code
-  block, only the lines inside it are read, so the assistant's own prose stays out. Headings match
-  on whole words, a plain line under a heading is an entry, and the entries under a heading that
-  the import does not know are skipped. A paste over 1 MB is refused, not cut.
+  `--basis told`. A second import of the same text writes nothing. Only a list item or a dated
+  line is an entry. Each other line, such as the assistant's own prose, a table row or a code
+  line, is listed in the plan as not read, and the import never writes it. A heading is a `#`
+  line, a bold line or a line that ends with a colon, and headings match on whole words. The
+  entries under a heading that the import does not know are skipped. A paste over 1 MB is
+  refused, not cut.
 - The memory keeps why each Claude Code helper started, from the moment that it starts. Before, a
   Ctrl+C while a helper worked left nothing of its aim, because no stop runs in a killed process.
   Now `PreToolUse` on the `Agent` tool records the description and the start of the prompt, masked,
@@ -206,8 +208,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.
-- A secret token with a mark that shows as nothing inside it (a zero-width space, a bidi control,
-  a word joiner, a byte order mark) is found and masked. Before, `memory add` stored it, and the
+- A secret token with a mark inside it that shows as nothing or that the load removes (a control
+  character, a terminal code, a zero-width space, a bidi control, a soft hyphen, a byte order
+  mark) is found and masked. Before, `memory add` stored it, and the
   load, which removes bidi marks, showed it whole.
 - `memory add` says when a plain fact opens like an order ("Never", "Always", "Do not", "Must"):
   a fact can be held back from the session start, and a rule loads each time. It prints the

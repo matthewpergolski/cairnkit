@@ -95,12 +95,10 @@ MAX_BYTES = 1024 * 1024
 SHOWN = 120
 
 _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$")
-# A plain line is a heading when it ends with a colon, such as `Personal details, preferences:`,
-# or when it is a few words that open or close with a heading word, such as `Identity` or
-# `Project state`. Any other plain line under a heading is an entry: assistants leave out marks.
+# A plain line that ends with a colon is a heading too, such as `Personal details, preferences:`.
 _COLON_HEADING = re.compile(r"^([^\s\[].{0,58}?):$")
-HEADING_WORDS = 4
-_SENTENCE_END = (".", "!", "?")
+# The section of a line that is no list item and no dated line. The plan lists each such line.
+PROSE = ""
 _BULLET = re.compile(r"^\s*(?:[-*+\N{BULLET}]|\d+[.)])\s+(.*)$")
 _DATED = re.compile(r"^\[([^\]]{0,20})\]\s*(?:[-\N{EN DASH}\N{EM DASH}:]\s*)?(.*)$")
 _DAY = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T][\d:.]+Z?)?")
@@ -273,49 +271,33 @@ def _dated(body: str) -> tuple[str | None, str, bool]:
 
 def _heading(line: str) -> str | None:
     marked = _HEADING.match(line) or _COLON_HEADING.match(line)
-    if marked:
-        return next(g for g in marked.groups() if g).strip()
-    words = line.split()
-    if len(words) > HEADING_WORDS or line.endswith(_SENTENCE_END) or _BULLET.match(line):
-        return None
-    edges = (words[0].rstrip(":"), words[-1].rstrip(":"))
-    return line.rstrip(":") if any(heading_kind(word) for word in edges) else None
-
-
-def _in_code(lines: list[str]) -> list[str]:
-    """The lines inside code fences. The prose around them is the assistant's, not the memory."""
-    inside, kept = False, []
-    for raw in lines:
-        if FENCE_RE.match(raw):
-            inside = not inside
-        elif inside:
-            kept.append(raw)
-    return kept
+    return next(g for g in marked.groups() if g).strip() if marked else None
 
 
 def parse_sections(text: str) -> list[Entry]:
-    """Each line under the heading above it: inside the code fences when the text has any.
+    """Each list item and dated line, under the heading above it.
 
-    Without fences, a plain line before the first heading, or after a blank line, is prose, such
-    as the closing line of an export. A list item or a dated line is always an entry.
+    Each other line comes back under PROSE, so the plan lists it and the import writes it never.
+    Three reviews found that a guess at what a plain line means (a heading, an entry, the
+    assistant's own words) drops lines or stores prose. The owner reads the plan and can add a
+    `- ` in front of a line that should go in.
     """
-    lines = text.splitlines()
-    fenced = any(FENCE_RE.match(raw) for raw in lines)
     found = []
-    section, under_heading = "Other", fenced
-    for raw in _in_code(lines) if fenced else lines:
+    section = "Other"
+    for raw in text.splitlines():
         line = raw.strip()
-        if not line:
-            under_heading = under_heading and fenced
+        if not line or FENCE_RE.match(raw):
             continue
         heading = _heading(line)
         if heading:
-            section, under_heading = heading, True
+            section = heading
             continue
         bullet = _BULLET.match(line)
         day, body, marked = _dated(bullet[1].strip() if bullet else line)
-        if body and (bullet or marked or under_heading):
+        if body and (bullet or marked):
             found.append(Entry(section, body, day))
+        else:
+            found.append(Entry(PROSE, line))
     return found
 
 
@@ -400,6 +382,8 @@ def _has_words(text: str, words: str) -> bool:
 
 def _kind(entry: Entry, project: str) -> tuple[str | None, str]:
     """The kind an entry is written as, or None and why it is skipped."""
+    if entry.section == PROSE:
+        return None, "no list item and no dated line, so not read (put `- ` in front to add it)"
     kind = heading_kind(entry.section)
     if kind == PROJECTS:
         if _has_words(entry.text.lower(), project):
@@ -511,7 +495,8 @@ def run_import(memory: Memory, target: str | None, native: bool, yes: bool) -> i
         name = "Claude Code's notes for this project"
     else:
         name = "paste" if target in (None, "-") else Path(target).name
-    print(f"memory import: {clean(name)}, {_n(len(entries), 'entry', 'entries')} read.")
+    read = sum(entry.section != PROSE for _, entry in entries)
+    print(f"memory import: {clean(name)}, {_n(read, 'entry', 'entries')} read.")
     print(
         f"{'Added' if yes else 'Would add'} {len(adds)} (basis seen, author import; {DATA_LABEL}):"
     )

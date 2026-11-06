@@ -486,8 +486,14 @@ class KnownValues(Protocol):
     def only_plain(self, names: list[str]) -> bool: ...
 
 
-# Marks that show as nothing: zero-width ones, bidi controls, the word joiner and the BOM.
-INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
+# What a load removes or shows as nothing: terminal codes, control characters, zero-width marks,
+# bidi controls, the word joiner, the BOM, the soft hyphen, variation selectors and tag
+# characters. A scan reads the text without them too, so none can split a token.
+INVISIBLE = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]"
+    "|[\x00-\x08\x0e-\x1f\x7f-\x9f\xad\u034f\u200b-\u200f\u202a-\u202e\u2060-\u2064"
+    "\u2066-\u2069\ufe00-\ufe0f\ufeff\U000e0000-\U000e007f]"
+)
 HIDDEN = "hidden text"
 ENV_VALUE = "env value"
 _MASK_NAMES = "|".join(re.escape(name) for name in [*(s.name for s in SHAPES), HIDDEN, ENV_VALUE])
