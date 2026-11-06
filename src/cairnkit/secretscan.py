@@ -9,6 +9,7 @@ real path, a code reference, a placeholder or a template.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable, Iterator
 from enum import Enum
 from functools import lru_cache, partial
@@ -486,14 +487,36 @@ class KnownValues(Protocol):
     def only_plain(self, names: list[str]) -> bool: ...
 
 
-# What a load removes or shows as nothing: terminal codes, control characters, zero-width marks,
-# bidi controls, the word joiner, the BOM, the soft hyphen, variation selectors and tag
-# characters. A scan reads the text without them too, so none can split a token.
-INVISIBLE = re.compile(
-    r"\x1b\[[0-9;?]*[ -/]*[@-~]"
-    "|[\x00-\x08\x0e-\x1f\x7f-\x9f\xad\u034f\u200b-\u200f\u202a-\u202e\u2060-\u2064"
-    "\u2066-\u2069\ufe00-\ufe0f\ufeff\U000e0000-\U000e007f]"
-)
+# A terminal code is removed as a whole, so its letters cannot stay between two halves.
+_TERMINAL_CODE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_ASCII_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
+# Letters and symbols that show as an empty place: Hangul fillers, the blank braille cell, the
+# Khmer vowels that have no shape.
+_BLANK_SHAPES = frozenset("\u115f\u1160\u17b4\u17b5\u2800\u3164\uffa0")
+# Control and format characters, and the marks that join the letter before them, which take in
+# zero-width marks, bidi controls, the soft hyphen and all variation selectors.
+_UNSEEN_KINDS = frozenset({"Cc", "Cf", "Mn", "Me"})
+
+
+_ORDINARY_SPACE = frozenset(" \t\n\r\x0b\x0c")
+
+
+@lru_cache(maxsize=4096)
+def _unseen(char: str) -> bool:
+    return char not in _ORDINARY_SPACE and (
+        char in _BLANK_SHAPES or unicodedata.category(char) in _UNSEEN_KINDS
+    )
+
+
+def without_unseen(text: str) -> str:
+    """The text without each character that shows as nothing or that a load removes. A scan reads
+    this too, so no such character can split a token. A list of them missed many."""
+    text = _TERMINAL_CODE.sub("", text)
+    if text.isascii():
+        return _ASCII_CONTROL.sub("", text)
+    return "".join(char for char in text if not _unseen(char))
+
+
 HIDDEN = "hidden text"
 ENV_VALUE = "env value"
 _MASK_NAMES = "|".join(re.escape(name) for name in [*(s.name for s in SHAPES), HIDDEN, ENV_VALUE])
@@ -573,7 +596,7 @@ def find_secrets(text: str, known: KnownValues | None = None) -> list[str]:
         # `<...>` stands in for a value in each shape, and a mask holds no value.
         text = MASK.sub("<secret>", text)
     found = _found(text, known)
-    seen = INVISIBLE.sub("", text)
+    seen = without_unseen(text)
     return found or (_found(seen, known) if seen != text else [])
 
 
@@ -605,8 +628,10 @@ def mask(text: str, known: KnownValues | None = None) -> str:
     """The text with each value that looks secret replaced. A second mask changes nothing."""
     if not find_secrets(text, known):
         return text
-    if not _found(text, known):
-        text = INVISIBLE.sub("", text)
+    seen = without_unseen(text)
+    if seen != text and _found(seen, known):
+        # A mark can split a token so that only its head has the shape: mask the whole token.
+        text = seen
     if known:
         text = _outside_masks(text, known.mask)
     for shape in SHAPES:

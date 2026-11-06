@@ -99,6 +99,10 @@ _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$")
 _COLON_HEADING = re.compile(r"^([^\s\[].{0,58}?):$")
 # The section of a line that is no list item and no dated line. The plan lists each such line.
 PROSE = ""
+_FENCE = re.compile(r"^(?:```|~~~)(?P<rest>.*)$")
+# A code block with no language, or one of these, holds text, such as the answer to the prompt.
+PLAIN_BLOCKS = ("", "text", "txt", "markdown", "md", "plain", "plaintext")
+_WORD = re.compile(r"\w")
 _BULLET = re.compile(r"^\s*(?:[-*+\N{BULLET}]|\d+[.)])\s+(.*)$")
 _DATED = re.compile(r"^\[([^\]]{0,20})\]\s*(?:[-\N{EN DASH}\N{EM DASH}:]\s*)?(.*)$")
 _DAY = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T][\d:.]+Z?)?")
@@ -270,6 +274,9 @@ def _dated(body: str) -> tuple[str | None, str, bool]:
 
 
 def _heading(line: str) -> str | None:
+    """A `#` line, a bold line or a line that ends with a colon, and no list item."""
+    if _BULLET.match(line):
+        return None
     marked = _HEADING.match(line) or _COLON_HEADING.match(line)
     return next(g for g in marked.groups() if g).strip() if marked else None
 
@@ -278,26 +285,43 @@ def parse_sections(text: str) -> list[Entry]:
     """Each list item and dated line, under the heading above it.
 
     Each other line comes back under PROSE, so the plan lists it and the import writes it never.
-    Three reviews found that a guess at what a plain line means (a heading, an entry, the
-    assistant's own words) drops lines or stores prose. The owner reads the plan and can add a
-    `- ` in front of a line that should go in.
+    Reviews found that each guess at what a plain line means drops lines or stores prose. The
+    owner reads the plan and can add a `- ` in front of a line that should go in. So are a line
+    in a code block that names a language (`bash`, `yaml`), which is code, a list mark with no
+    word after it (`* * *`), and a bold or colon heading with no entry under it, which can be a
+    rule written in bold.
     """
-    found = []
-    section = "Other"
+    found: list[Entry] = []
+    section, heading_line, code = "Other", None, None
     for raw in text.splitlines():
         line = raw.strip()
-        if not line or FENCE_RE.match(raw):
+        fence = _FENCE.match(line)
+        if fence:
+            if code is None and fence["rest"].rstrip("`~").strip() and fence["rest"].endswith("`"):
+                found.append(Entry(PROSE, line))  # a whole fenced line
+            else:
+                code = None if code is not None else fence["rest"].strip().lower()
+            continue
+        if not line:
+            continue
+        if code not in (None, *PLAIN_BLOCKS):
+            found.append(Entry(PROSE, line))
             continue
         heading = _heading(line)
         if heading:
-            section = heading
+            if heading_line:
+                found.append(Entry(PROSE, heading_line))
+            section, heading_line = heading, (None if line.startswith("#") else line)
             continue
         bullet = _BULLET.match(line)
         day, body, marked = _dated(bullet[1].strip() if bullet else line)
-        if body and (bullet or marked):
+        if body and (bullet or marked) and _WORD.search(body):
             found.append(Entry(section, body, day))
+            heading_line = None
         else:
             found.append(Entry(PROSE, line))
+    if heading_line:
+        found.append(Entry(PROSE, heading_line))
     return found
 
 

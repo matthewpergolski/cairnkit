@@ -25,7 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--basis told`. A second import of the same text writes nothing. Only a list item or a dated
   line is an entry. Each other line, such as the assistant's own prose, a table row or a code
   line, is listed in the plan as not read, and the import never writes it. A heading is a `#`
-  line, a bold line or a line that ends with a colon, and headings match on whole words. The
+  line, a bold line or a line that ends with a colon, never a list item, and headings match on
+  whole words. A line in a code block that names a language, such as `bash`, is code: it is
+  listed and not read. A bold or colon heading with no entry under it is listed too. The
   entries under a heading that the import does not know are skipped. A paste over 1 MB is
   refused, not cut.
 - The memory keeps why each Claude Code helper started, from the moment that it starts. Before, a
@@ -208,9 +210,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.
-- A secret token with a mark inside it that shows as nothing or that the load removes (a control
-  character, a terminal code, a zero-width space, a bidi control, a soft hyphen, a byte order
-  mark) is found and masked. Before, `memory add` stored it, and the
+- A secret token with a mark inside it that shows as nothing or that the load removes is found
+  and masked whole. The scan reads the text without each control or format character, each
+  mark that joins the letter before it, and each blank letter such as a Hangul filler. Before, `memory add` stored it, and the
   load, which removes bidi marks, showed it whole.
 - `memory add` says when a plain fact opens like an order ("Never", "Always", "Do not", "Must"):
   a fact can be held back from the session start, and a rule loads each time. It prints the
