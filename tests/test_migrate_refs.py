@@ -1,6 +1,10 @@
 """Rewrite old-layout paths, and find the lines that need a person or an agent."""
 
-from cairnkit.migrate_refs import judgment_items, rewrite_text
+import time
+
+import pytest
+
+from cairnkit.migrate_refs import dropped_checks, judgment_items, rewrite_text
 
 HAVE = {"status.md", "decisions.md", "howto", "howto/x.md", "brief.md"}
 
@@ -93,3 +97,11 @@ def test_suggestion_keeps_the_backticks_around_a_bare_checker_path():
     assert items[0].suggestion == "`memory check` fails when a note is old."
     items = judgment_items("a.md", "The numbers are in `tools/check_memory.py`. Then stop.\n", has)
     assert items[0].suggestion == "The numbers are in `memory check`. Then stop."
+
+
+def test_blank_lines_in_an_old_checker_are_read_in_time(tmp_path):
+    script = tmp_path / "check_memory.py"
+    script.write_text("\n" * 40_000 + "def check_x():\n    pass\n")
+    start = time.process_time()
+    assert "check_x" in "\n".join(dropped_checks({"check_memory.py": script}))
+    assert time.process_time() - start < 1.0

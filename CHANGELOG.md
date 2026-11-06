@@ -252,14 +252,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The parent id of the atlas comes only from the front matter of a hand-written
   `docs/state/README.md`. Before, an `id:` line in the body could set it.
 - `memory migrate` names a repo hook that reads the old notes in more forms: a glob
-  (`memory-bank/*.md`), the folder itself (`ls memory-bank`, `ls memory-bank/`,
-  `test -d memory-bank`, `os.listdir("memory-bank")`), a `$VAR`, a brace set,
-  `Path("memory-bank") / "status.md"` and `["memory-bank", "a/b.md"]`. A path under `notes/`,
-  `facts/`, `branches/`, `proposals/`, `config.toml` or `README.md` is still the new layout.
+  (`memory-bank/*.md`), a list of the folder (`ls memory-bank`, `ls memory-bank/`,
+  `os.listdir("memory-bank")`, `.iterdir()`), a `$VAR`, a brace set,
+  `Path("memory-bank") / "status.md"`, `.joinpath("status.md")`, `.glob("*.md")`,
+  `notes/../status.md` and `["memory-bank", "a/b.md"]`. A path under `notes/`, `facts/`,
+  `branches/`, `proposals/`, `config.toml` or `README.md` is still the new layout.
+- `memory migrate` no longer names a hook for a path that is not a read of the old layout. These
+  were false alarms: the files that the tool writes itself (`auto-tidy.log`, `tool-version.json`,
+  `.sessions/`, `.usage/`, `.identity` and the other dot files), each choice of a brace set that
+  is in the new layout (`memory-bank/{notes,facts}/x`), `./` and `//` in a path, a test of the
+  folder or a step into it (`test -d memory-bank || exit 0`, `ls -d memory-bank`,
+  `cd memory-bank`, `git -C memory-bank log`, `.exists()`), a recursive read (`.rglob`), and
+  text that reads nothing: a comment, a docstring, a URL, or what `echo` and `printf` print. The
+  folder exists in both layouts, so a test of it shows nothing.
 - The task item for such a hook names the path that it reads and asks the agent to compare the hook
   with `memory load`, `memory check` and the memory hooks. It says to remove the hook only when
   they do all that it does. Before, a mention of a path was enough to say "Remove this hook
   handler".
+- `memory migrate` reads a long hook script or hook command in a time that grows with its size.
+  Before, the time grew with the square of the size for a long word of `memory-bank/notes/`
+  parts, a run of spaces after `"memory-bank"`, and a long hook command.
 - `memory change --unlink` alone writes a change that the 0.3.1 build also accepts. That build
   knew no `remove_links`, so its check reported the record as bad. Now the change also holds an
   empty `add_links`. The older build keeps the link, and this build removes it.
