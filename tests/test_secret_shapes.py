@@ -128,7 +128,6 @@ def test_a_value_behind_a_secret_label_is_refused(text):
         "token_type: bearer",
         "PASSWORD_FILE=hunter2hunter2",
         "CACHE_KEY=user_session",
-        '{"family_key": "birch"}',
         "password: required",
     ],
 )

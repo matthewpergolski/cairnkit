@@ -61,9 +61,8 @@ ENDED = "ended"
 # A heading word and what it means for an import. The first word that a heading holds wins, so
 # "Traps and lessons" is a lesson and "Project state" is state. Each export title reads back.
 PERSONAL_WORDS = (
-    "identity", "career", "personal", "about me", "about the user", "about you", "profile",
-    "education", "family", "health", "relationship", "work history", "biography", "me",
-    "myself", "location", "job", "hobby", "hobbies", "interests", "life",
+    "identity", "career", "personal", "about me", "about the user", "about you", "education",
+    "family", "relationship", "work history", "biography", "hobby", "hobbies",
 )  # fmt: skip
 HEADINGS = (
     ("ended", ENDED),
@@ -79,9 +78,12 @@ HEADINGS = (
     ("state", "event"),
     ("status", "event"),
     ("progress", "event"),
-    ("other", "fact"),
     ("project", PROJECTS),
     ("preference", "preference"),
+    # After the kinds, so "Rules for me" is a rule and "Notes on me" is personal.
+    ("me", PERSONAL),
+    ("myself", PERSONAL),
+    ("other", "fact"),
     ("fact", "fact"),
     ("note", "fact"),
 )
@@ -93,9 +95,11 @@ MAX_BYTES = 1024 * 1024
 SHOWN = 120
 
 _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$")
-# A line alone that is short and ends no sentence is a heading too, such as `Identity` or
-# `Personal details, preferences:`. A heading this import does not know skips what is under it.
-_PLAIN_HEADING = re.compile(r"^([^\s\[].{0,58}?):?$")
+# A plain line is a heading when it ends with a colon, such as `Personal details, preferences:`,
+# or when it is a few words that open or close with a heading word, such as `Identity` or
+# `Project state`. Any other plain line under a heading is an entry: assistants leave out marks.
+_COLON_HEADING = re.compile(r"^([^\s\[].{0,58}?):$")
+HEADING_WORDS = 4
 _SENTENCE_END = (".", "!", "?")
 _BULLET = re.compile(r"^\s*(?:[-*+\N{BULLET}]|\d+[.)])\s+(.*)$")
 _DATED = re.compile(r"^\[([^\]]{0,20})\]\s*(?:[-\N{EN DASH}\N{EM DASH}:]\s*)?(.*)$")
@@ -267,26 +271,51 @@ def _dated(body: str) -> tuple[str | None, str, bool]:
     return None, body, False
 
 
+def _heading(line: str) -> str | None:
+    marked = _HEADING.match(line) or _COLON_HEADING.match(line)
+    if marked:
+        return next(g for g in marked.groups() if g).strip()
+    words = line.split()
+    if len(words) > HEADING_WORDS or line.endswith(_SENTENCE_END) or _BULLET.match(line):
+        return None
+    edges = (words[0].rstrip(":"), words[-1].rstrip(":"))
+    return line.rstrip(":") if any(heading_kind(word) for word in edges) else None
+
+
+def _in_code(lines: list[str]) -> list[str]:
+    """The lines inside code fences. The prose around them is the assistant's, not the memory."""
+    inside, kept = False, []
+    for raw in lines:
+        if FENCE_RE.match(raw):
+            inside = not inside
+        elif inside:
+            kept.append(raw)
+    return kept
+
+
 def parse_sections(text: str) -> list[Entry]:
-    """Each list item or dated line, under the heading above it. Other lines are prose."""
+    """Each line under the heading above it: inside the code fences when the text has any.
+
+    Without fences, a plain line before the first heading, or after a blank line, is prose, such
+    as the closing line of an export. A list item or a dated line is always an entry.
+    """
+    lines = text.splitlines()
+    fenced = any(FENCE_RE.match(raw) for raw in lines)
     found = []
-    section = "Other"
-    for raw in text.splitlines():
+    section, under_heading = "Other", fenced
+    for raw in _in_code(lines) if fenced else lines:
         line = raw.strip()
-        if not line or FENCE_RE.match(raw):
+        if not line:
+            under_heading = under_heading and fenced
             continue
-        heading = _HEADING.match(line)
+        heading = _heading(line)
         if heading:
-            section = next(g for g in heading.groups() if g).strip()
+            section, under_heading = heading, True
             continue
         bullet = _BULLET.match(line)
         day, body, marked = _dated(bullet[1].strip() if bullet else line)
-        if (bullet or marked) and body:
+        if body and (bullet or marked or under_heading):
             found.append(Entry(section, body, day))
-            continue
-        plain = _PLAIN_HEADING.match(line)
-        if plain and not line.endswith(_SENTENCE_END):
-            section = plain[1].strip()
     return found
 
 

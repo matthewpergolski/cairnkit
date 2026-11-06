@@ -447,7 +447,13 @@ def run_status(project, flag: str | None) -> int:
     for line in src.pending_change_lines():
         print(line)
     health = read_health(project, flag)
-    for line in [*health.linked, health.answer(), *health.details(), *health.todo, *health.info]:
+    for line in [
+        *health.linked,
+        health.answer(),
+        *health.details(),
+        *health.todo,
+        *health.shown_info(),
+    ]:
         print(line)
     atlas = docs_status_line(project)
     if atlas:

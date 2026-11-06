@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import os
 import re
@@ -423,6 +424,15 @@ class Health:
     linked: list[str] = field(default_factory=list)
     # The warnings that come from a line in a note. A stop must know which file holds each one.
     note_catches: list[NoteCatch] = field(default_factory=list)
+    # Note lines with one plain word behind a secret label. Most are no secret.
+    plain_words: list[NoteCatch] = field(default_factory=list)
+
+    def shown_info(self) -> list[str]:
+        """The notes for a person or an agent who reads the check. A plain-word line shows once:
+        in a real project the same false catch came back on each check, and a line that never
+        ends teaches an agent to skip it."""
+        fresh = _untold(self.memdir, self.plain_words) if self.memdir else self.plain_words
+        return [*plain_word_note(fresh), *self.info]
 
     def answer(self, strict: bool = False) -> str:
         if self.missing:
@@ -456,6 +466,28 @@ class Health:
         if self.missing:
             return 1 if self.gone else 0
         return 1 if self.errors or (strict and self.warnings) else 0
+
+
+PLAIN_TOLD = ".plain-words-told"
+
+
+def _untold(memdir: Path, catches: list[NoteCatch]) -> list[NoteCatch]:
+    """The catches that no check has shown yet. Marks them as shown. On any error, all of them."""
+    path = memdir / PLAIN_TOLD
+    keys = {hashlib.sha256(catch.key.encode()).hexdigest()[:16]: catch for catch in catches}
+    try:
+        told = set(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        told = set()
+    fresh = [catch for key, catch in keys.items() if key not in told]
+    if fresh:
+        try:
+            temp = path.with_name(f"{PLAIN_TOLD}.{os.getpid()}.tmp")
+            temp.write_text(json.dumps(sorted(told | set(keys))), encoding="utf-8")
+            os.replace(temp, path)
+        except OSError:
+            return catches
+    return fresh
 
 
 def plain_word_note(catches: list[NoteCatch]) -> list[str]:
@@ -504,7 +536,7 @@ def _read_health(project: Project, flag: str | None) -> Health:
     catches = note_catches(memory)
     health.note_catches = [catch for catch in catches if not catch.plain]
     health.warnings += [catch.problem for catch in health.note_catches]
-    health.info += plain_word_note([catch for catch in catches if catch.plain])
+    health.plain_words = [catch for catch in catches if catch.plain]
     # The load tells the agent that a plain word can stay, so --strict must not fail on it.
     health.info += [
         f"note: {memory.secret_problem(fact_id)}"
@@ -557,6 +589,6 @@ def run_check(
     for line in health.details(strict):
         print(line)
     print(health.answer(strict))
-    for line in health.todo + health.info:
+    for line in health.todo + health.shown_info():
         print(line)
     return health.exit_code(strict)

@@ -122,39 +122,6 @@ DATA_KEYS = frozenset(
         "unique",
     ]
 )
-# The part before `key` that names a key used to sign in or to sign. Another, such as
-# `family_key: birch` in a real project, names a record, so only a value that reads as no word
-# is a secret behind it.
-KEY_OWNERS = frozenset(
-    [
-        "access",
-        "account",
-        "admin",
-        "api",
-        "app",
-        "auth",
-        "client",
-        "crypto",
-        "deploy",
-        "encryption",
-        "gpg",
-        "hmac",
-        "jwt",
-        "license",
-        "master",
-        "pgp",
-        "private",
-        "root",
-        "secret",
-        "service",
-        "session",
-        "signing",
-        "ssh",
-        "ssl",
-        "tls",
-        "webhook",
-    ]
-)
 ORDINARY_CODES = frozenset(
     [
         "exit",
@@ -269,9 +236,7 @@ def label_of(name: str) -> Label:
     if parts[-1] in ("pass", "auth", "cookie"):
         return Label.STRONG
     if parts[-1] == "key":
-        if parts[-2] in DATA_KEYS:
-            return Label.NONE
-        return Label.STRONG if parts[-2] in KEY_OWNERS else Label.WEAK
+        return Label.NONE if parts[-2] in DATA_KEYS else Label.STRONG
     if parts[-1] == "code" and name.isupper() and parts[0] not in ORDINARY_CODES:
         return Label.WEAK
     return Label.NONE
@@ -521,6 +486,8 @@ class KnownValues(Protocol):
     def only_plain(self, names: list[str]) -> bool: ...
 
 
+# Marks that show as nothing: zero-width ones, bidi controls, the word joiner and the BOM.
+INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
 HIDDEN = "hidden text"
 ENV_VALUE = "env value"
 _MASK_NAMES = "|".join(re.escape(name) for name in [*(s.name for s in SHAPES), HIDDEN, ENV_VALUE])
@@ -591,10 +558,20 @@ def _shapes_in(text: str) -> tuple[str, ...]:
 
 
 def find_secrets(text: str, known: KnownValues | None = None) -> list[str]:
-    """Return the names of the secret shapes and known values found in text."""
+    """Return the names of the secret shapes and known values found in text.
+
+    A mark that shows as nothing, inside a token, breaks its shape. A load removes such marks, so
+    the text without them is read too.
+    """
     if "[secret: " in text:
         # `<...>` stands in for a value in each shape, and a mask holds no value.
         text = MASK.sub("<secret>", text)
+    found = _found(text, known)
+    seen = INVISIBLE.sub("", text)
+    return found or (_found(seen, known) if seen != text else [])
+
+
+def _found(text: str, known: KnownValues | None) -> list[str]:
     found = list(_shapes_in(text))
     return found + known.find(text) if known else found
 
@@ -622,6 +599,8 @@ def mask(text: str, known: KnownValues | None = None) -> str:
     """The text with each value that looks secret replaced. A second mask changes nothing."""
     if not find_secrets(text, known):
         return text
+    if not _found(text, known):
+        text = INVISIBLE.sub("", text)
     if known:
         text = _outside_masks(text, known.mask)
     for shape in SHAPES:

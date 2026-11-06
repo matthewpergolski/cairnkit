@@ -22,7 +22,7 @@ def test_a_byte_order_mark_does_not_hide_the_first_heading(tmp_path):
     root = new_repo(tmp_path / "proj")
     paste = tmp_path / "paste.md"
     paste.write_bytes(
-        "﻿## Identity\n- [2020-01-01] - I am a nurse in Berlin.\n".encode()
+        "\ufeff## Identity\n- [2020-01-01] - I am a nurse in Berlin.\n".encode()
         + b"## Decisions\n- [2026-10-01] - Use Postgres.\n"
     )
     plan = ok(root, "import", str(paste))
@@ -135,4 +135,4 @@ def test_a_status_line_with_its_own_date_keeps_one_date(tmp_path):
 
 
 def test_clean_drops_bidi_marks():
-    assert clean("a‮b⁦c⁩d") == "abcd"
+    assert clean("a\u202eb\u2066c\u2069d") == "abcd"

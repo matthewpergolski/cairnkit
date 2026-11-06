@@ -238,3 +238,16 @@ def test_stop_still_blocks_for_a_health_error(mem, capsys, monkeypatch):
     hook(capsys, monkeypatch, "session-start")
     (mem / "facts" / "main.jsonl").write_text('{"typ\n')
     assert blocked(hook(capsys, monkeypatch, "stop")[1])
+
+
+def test_a_plain_word_note_shows_once_and_a_new_line_shows_again(repo, mem, capsys):
+    """In a real project `{"family_key": "birch"}` came back on each check for days."""
+    (mem / "notes" / "brief.md").write_text('# Brief\nSeed: `"family_key": "birch"`.\n')
+    _, first = run(capsys, "check")
+    _, second = run(capsys, "check")
+    assert "note: 1 note line(s)" in first and "note line(s)" not in second
+    (mem / "notes" / "brief.md").write_text(
+        '# Brief\nSeed: `"family_key": "birch"`.\npassword: hunter\n'
+    )
+    _, third = run(capsys, "check")
+    assert "note: 1 note line(s)" in third and "brief.md:3" in third

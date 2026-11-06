@@ -39,7 +39,7 @@ DEFAULT_BASIS = "guess"
 REASON_WIDTH = 200
 # A fact that opens like an order. In a real project "Never list processes with full command
 # lines" went in as a plain fact, and the session start held it back.
-RULE_START = re.compile(r"(?i)\s*(?:never|always|do not|don't|must)\b")
+RULE_START = re.compile(r"(?i)\s*(?:never|always|do not|don['\u2019]t|must)(?![\w-])")
 DATA_RULE = (
     "This rule loads as data, because an agent wrote it. "
     "If the owner stated it, the same command with --basis told lifts it."
