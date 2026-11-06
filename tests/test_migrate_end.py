@@ -11,6 +11,9 @@ from cairnkit.cli import main
 
 OLD_CHECKER = """\
 import subprocess
+from pathlib import Path
+
+BANK = Path("memory-bank")
 
 def check_secrets():
     env = open(".env").read()

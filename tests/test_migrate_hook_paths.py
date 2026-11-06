@@ -272,3 +272,42 @@ def test_a_long_hook_command_is_read_in_time(tmp_path: Path):
     start = time.process_time()
     hook_reads_old_notes(tmp_path, "a" * 60_000)
     assert time.process_time() - start < 1.0
+
+
+# --- the old checker ------------------------------------------------------------------------
+
+OLD_CHECKER_SCRIPT = 'BANK = Path("memory-bank")\nSTATUS = BANK / "status.md"\n'
+
+
+@pytest.mark.parametrize(
+    ("command", "rel", "script"),
+    [
+        ("sh scripts/check_memory_usage.sh", "scripts/check_memory_usage.sh", "free -m\n"),
+        ("check-memory-leaks --all", "check-memory-leaks", "valgrind x\n"),
+        ("uv run tools/check_memory.py", "tools/check_memory.py", "memory check\n"),
+        (
+            "uv run tools/check_memory.py",
+            "tools/check_memory.py",
+            'NOTES = Path("memory-bank") / "notes"\nSTATUS = NOTES / "status.md"\n',
+        ),
+    ],
+    ids=["usage-script", "leak-tool", "calls-memory-check", "reads-new-notes"],
+)
+def test_a_hook_that_does_not_run_the_old_checker_is_not_named(repo, capsys, command, rel, script):
+    write(repo / rel, script)
+    write(repo / "memory-bank" / "status.md", "# Status\nOpen.\n")
+    hook_repo(repo, command)
+    migrate(capsys, "--yes")
+    task = task_path(repo)
+    assert not task.exists() or "(hook)" not in task.read_text()
+
+
+def test_the_old_checker_hook_asks_for_a_comparison(repo, capsys):
+    write(repo / "tools" / "check_memory.py", OLD_CHECKER_SCRIPT)
+    write(repo / "memory-bank" / "status.md", "# Status\nOpen.\n")
+    hook_repo(repo, "uv run tools/check_memory.py")
+    migrate(capsys, "--yes")
+    item = hook_item(task_path(repo).read_text())
+    assert "tools/check_memory.py" in item
+    assert "Compare" in item
+    assert "Remove this hook handler." not in item

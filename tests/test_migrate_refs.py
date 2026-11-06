@@ -99,6 +99,25 @@ def test_suggestion_keeps_the_backticks_around_a_bare_checker_path():
     assert items[0].suggestion == "The numbers are in `memory check`. Then stop."
 
 
+@pytest.mark.parametrize(
+    "line",
+    ["Run scripts/check_memory_usage.sh.", "Use check-memory-leaks --all.", "my_check_memory"],
+)
+def test_a_checker_name_inside_a_longer_name_is_not_an_item(line: str):
+    assert judgment_items("a.md", line + "\n", has) == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["tools/check_memory.py " + "a" * 40_000, "check_memory " + "a/" * 20_000],
+    ids=["long-word", "long-path"],
+)
+def test_a_long_line_that_names_the_checker_is_read_in_time(line: str):
+    start = time.process_time()
+    judgment_items("a.md", line + "\n", has)
+    assert time.process_time() - start < 1.0
+
+
 def test_blank_lines_in_an_old_checker_are_read_in_time(tmp_path):
     script = tmp_path / "check_memory.py"
     script.write_text("\n" * 40_000 + "def check_x():\n    pass\n")

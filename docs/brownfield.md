@@ -87,10 +87,14 @@ refuses, merges, or adds a marked block.
         held that file or folder.
       - A line that needs judgment, such as "run the old checker at session start", or
         a doc about the old folder.
-      - A hook in an agent settings file that runs the old checker, or any other hook
-        whose command or repo script names the old notes folder, such as a word search
-        that runs at each prompt. The memory hooks are already next to it. The task says
-        to remove the old handler, with the file and the line.
+      - A hook in an agent settings file that runs the old checker (a repo script named
+        `check_memory.py` that names `memory-bank` and reads no path of the new layout),
+        or any other hook whose command or repo script reads a path of the old layout,
+        such as a word search that runs at each prompt. A test of the folder, a `cd` into
+        it, a comment or an `echo` does not count. The task names the file, the line and
+        the path. It asks the agent to compare the hook with `memory load`,
+        `memory check` and the memory hooks next to it, and to remove it only when they
+        do all that it does.
       - An older copy in `proposals/old-copies/`. The agent compares it with the note,
         carries over what is still true, and deletes the copy.
 

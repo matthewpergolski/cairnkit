@@ -35,7 +35,9 @@ NEW_PREFIXES = (".", "config.toml.bad")
 PATH_RE = re.compile(rf"(?<![\w-]){LINK_NAME}/([A-Za-z0-9_.\-/]*[A-Za-z0-9_/])")
 OLD_DOC_RE = re.compile(rf"(?<![\w-]){LINK_NAME}(?:[-_.][\w-]+)")
 OLD_DOC_NAME_RE = re.compile(r"memory[-_]?bank", re.IGNORECASE)
-CHECKER_RE = re.compile(r"check[_-]?memory", re.IGNORECASE)
+# The old checker by name: `check_memory.py` or `check-memory`, not `check_memory_usage.sh`.
+CHECKER_RE = re.compile(r"(?<![\w-])check[_-]?memory(?![\w-])", re.IGNORECASE)
+CHECKER_SCRIPT_RE = re.compile(r"check[_-]?memory\.(?:py|sh|mjs|js|ts)", re.IGNORECASE)
 # The memory folder in a hook command or script. `memory-bank.md` is a doc name, not the folder.
 FOLDER_RE = re.compile(rf"(?<![\w.-]){LINK_NAME}(?![\w-]|\.\w)")
 # What follows `memory-bank/`: a path, a glob, a `$VAR` or a brace set, up to the end of the word.
@@ -59,8 +61,8 @@ WORD_END = ("", " ", "\t", "\n", ";", "&", "|", ")", "]", "`")
 OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
 HOOK_SCRIPT_RE = re.compile(r"(?<![\w./-])[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
 CHECKER_CMD_RE = re.compile(
-    r"(?:uv run(?: --no-project)? |python3? )?[^\s`'\"()]*check[_-]?memory[^\s`'\"()]*?"
-    r"\.(?:py|sh|mjs|js|ts)",
+    r"(?<![^\s`'\"(])(?:uv run(?: --no-project)? |python3? )?(?:[^\s`'\"()]*/)?"
+    r"check[_-]?memory\.(?:py|sh|mjs|js|ts)\b",
     re.IGNORECASE,
 )
 # What reads nothing in a hook: comments, docstrings, URLs and the text that echo prints. A
@@ -537,6 +539,27 @@ def hook_reads_old_notes(root: Path, command: str) -> str | None:
         found = old_note_path(text, kind)
         if found:
             return f"The script it runs ({rel}) reads `{found}`, which is outside the new layout."
+    return None
+
+
+def runs_old_checker(root: Path, command: str) -> str | None:
+    """Why a hook runs the old checker: a repo script named `check_memory.py` (or with `-`, or
+    another script suffix) that names the memory folder and reads no path of the new layout. Any
+    other name is not that checker, and neither is a checker that runs `memory check` or that
+    its owner already pointed at `memory-bank/notes/`."""
+    if OWN_HOOK_RE.search(command):
+        return None
+    for rel, kind, text in _hook_scripts(root, command):
+        if not CHECKER_SCRIPT_RE.fullmatch(PurePosixPath(rel).name):
+            continue
+        reads = list(folder_reads(text, kind))
+        if FOLDER_RE.search(_code(text, kind)) and not any(
+            path and is_new_layout(path) for path in reads
+        ):
+            return (
+                f"It runs the old checker ({rel}), which names {LINK_NAME} and reads no path of "
+                "the new layout."
+            )
     return None
 
 

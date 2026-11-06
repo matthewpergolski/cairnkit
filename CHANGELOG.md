@@ -268,10 +268,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The task item for such a hook names the path that it reads and asks the agent to compare the hook
   with `memory load`, `memory check` and the memory hooks. It says to remove the hook only when
   they do all that it does. Before, a mention of a path was enough to say "Remove this hook
-  handler".
-- `memory migrate` reads a long hook script or hook command in a time that grows with its size.
-  Before, the time grew with the square of the size for a long word of `memory-bank/notes/`
-  parts, a run of spaces after `"memory-bank"`, and a long hook command.
+  handler". A hook that runs the old checker now gets the same item. It counts only when it runs
+  a repo script named `check_memory.py` (or `check-memory.sh` and the like) that names
+  `memory-bank` and reads no path of the new layout. Before, `check_memory` anywhere in the
+  command counted, so `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that
+  was already updated got "Remove this hook handler". A doc line or a script name counts as the
+  old checker only for the whole name `check_memory` or `check-memory` too.
+- `memory migrate` reads a long hook script, hook command or doc line in a time that grows with
+  its size. Before, the time grew with the square of the size for a long word of
+  `memory-bank/notes/` parts, a run of spaces after `"memory-bank"`, a long doc line that names
+  the checker, and a long hook command.
 - `memory change --unlink` alone writes a change that the 0.3.1 build also accepts. That build
   knew no `remove_links`, so its check reported the record as bad. Now the change also holds an
   empty `add_links`. The older build keeps the link, and this build removes it.

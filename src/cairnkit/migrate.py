@@ -36,7 +36,6 @@ from cairnkit.init import STATUS, plan_link, run_init
 from cairnkit.memory import Memory
 from cairnkit.migrate_refs import (
     CANDIDATES,
-    CHECKER_RE,
     OLD_COPIES,
     OLD_SUFFIX,
     TASK,
@@ -57,6 +56,7 @@ from cairnkit.migrate_refs import (
     render_followups,
     rewrite_text,
     rewritten_docs,
+    runs_old_checker,
     stray_files,
     stub_text,
 )
@@ -484,22 +484,18 @@ def _hooks(project: Project) -> list[Item]:
     """Old hooks in settings files: the checker, and any other that reads the old notes."""
     root = project.root
 
-    def is_old(command: str) -> bool:
-        return bool(CHECKER_RE.search(command) or hook_reads_old_notes(root, command))
+    def why_old(command: str) -> str | None:
+        return hook_reads_old_notes(root, command) or runs_old_checker(root, command)
 
+    fix = (
+        "A path is no proof that the hook is dead. Compare what it does with what "
+        "`memory load`, `memory check` and the memory hooks next to it do now. If they "
+        "do all of it, remove it. If it does more, keep it and point that path at "
+        f"{LINK_NAME}/notes/."
+    )
     items = []
-    for hook in adapters.stale_hooks(project, is_old):
-        if CHECKER_RE.search(hook.command):
-            why = "This hook runs the old checker, which reads the old layout."
-            fix = "Remove this hook handler. The memory hooks are already installed next to it."
-        else:
-            why = f"{hook_reads_old_notes(root, hook.command)} It runs at each {hook.event}."
-            fix = (
-                "A path is no proof that the hook is dead. Compare what it does with what "
-                "`memory load`, `memory check` and the memory hooks next to it do now. If they "
-                "do all of it, remove it. If it does more, keep it and point that path at "
-                f"{LINK_NAME}/notes/."
-            )
+    for hook in adapters.stale_hooks(project, lambda command: bool(why_old(command))):
+        why = f"{why_old(hook.command)} It runs at each {hook.event}."
         note = " The tool changes no tracked file, so this edit is yours." if hook.tracked else ""
         items.append(
             Item(
