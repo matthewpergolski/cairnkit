@@ -61,8 +61,9 @@ ENDED = "ended"
 # A heading word and what it means for an import. The first word that a heading holds wins, so
 # "Traps and lessons" is a lesson and "Project state" is state. Each export title reads back.
 PERSONAL_WORDS = (
-    "identity", "career", "personal", "about me", "about the user", "profile", "education",
-    "family", "health", "relationship", "work history", "biography",
+    "identity", "career", "personal", "about me", "about the user", "about you", "profile",
+    "education", "family", "health", "relationship", "work history", "biography", "me",
+    "myself", "location", "job", "hobby", "hobbies", "interests", "life",
 )  # fmt: skip
 HEADINGS = (
     ("ended", ENDED),
@@ -78,9 +79,9 @@ HEADINGS = (
     ("state", "event"),
     ("status", "event"),
     ("progress", "event"),
+    ("other", "fact"),
     ("project", PROJECTS),
     ("preference", "preference"),
-    ("other", "fact"),
     ("fact", "fact"),
     ("note", "fact"),
 )
@@ -91,15 +92,20 @@ INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md", "AGENTS.local.md", "CLAUDE.local.
 MAX_BYTES = 1024 * 1024
 SHOWN = 120
 
-_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$|^([A-Z][A-Za-z &/()-]{1,40}):$")
+_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$")
+# A line alone that is short and ends no sentence is a heading too, such as `Identity` or
+# `Personal details, preferences:`. A heading this import does not know skips what is under it.
+_PLAIN_HEADING = re.compile(r"^([^\s\[].{0,58}?):?$")
+_SENTENCE_END = (".", "!", "?")
 _BULLET = re.compile(r"^\s*(?:[-*+\N{BULLET}]|\d+[.)])\s+(.*)$")
 _DATED = re.compile(r"^\[([^\]]{0,20})\]\s*(?:[-\N{EN DASH}\N{EM DASH}:]\s*)?(.*)$")
+_DAY = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T][\d:.]+Z?)?")
 _NO_DATE = re.compile(r"(?i)unknown|undated|no date|n/?a|\?*|yyyy-mm-dd|-*")
 _RULE_LIKE = re.compile(
     r"(?i)^(?:always|never|do not|don't|use|prefer|avoid|must|only|keep|run|write|make|put)\b"
     r"|\b(?:must|never|always|do not|don't)\b"
 )
-_FRONT = re.compile(r"\A---\n(.*?)\n---\n?(.*)\Z", re.DOTALL)
+_FRONT = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.DOTALL)
 _LIST_MARK = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 
@@ -148,9 +154,9 @@ def _status_entries(memory: Memory) -> tuple[list[Entry], int]:
     day = date.fromtimestamp(path.stat().st_mtime).isoformat()
     found = []
     for line in lines:
-        text = _LIST_MARK.sub("", line).strip()
+        dated, text, _ = _dated(_LIST_MARK.sub("", line).strip())
         if text and not text.startswith("#"):
-            found.append(Entry("Project state", text, day))
+            found.append(Entry("Project state", text, dated or day))
     return found, left
 
 
@@ -204,21 +210,17 @@ def export_text(memory: Memory, include_ended: bool) -> str:
     return "\n".join(out) + "\n"
 
 
-def _refuse_tracked(memory: Memory, path: Path) -> None:
-    """Refuse a place inside a checkout that git does not ignore: a commit could take it."""
-    project = memory.project
-    if not project.is_git:
+def _refuse_tracked(path: Path) -> None:
+    """Refuse a place inside any git work tree that does not ignore it: a commit could take it."""
+    top = run_git(path.parent, "rev-parse", "--show-toplevel")
+    if top is None:
         return
-    for root in {project.root, *project.checkouts}:
-        try:
-            rel = path.relative_to(root.resolve())
-        except ValueError:
-            continue
-        if run_git(root, "check-ignore", "-q", "--", str(rel)) is None:
-            raise Refused(
-                f"{path} is inside the checkout {root}, and git does not ignore it, so a commit "
-                "could take the memory. Write it outside the repo, or to an ignored path."
-            )
+    root = Path(top.strip()).resolve()
+    if run_git(root, "check-ignore", "-q", "--", str(path.relative_to(root))) is None:
+        raise Refused(
+            f"{path} is inside the git work tree {root}, and git does not ignore it, so a commit "
+            "could take the memory. Write it outside the repo, or to an ignored path."
+        )
 
 
 def run_export(memory: Memory, output: str | None, include_ended: bool, force: bool) -> int:
@@ -227,14 +229,21 @@ def run_export(memory: Memory, output: str | None, include_ended: bool, force: b
         sys.stdout.write(text)
         return 0
     path = Path(output).expanduser().absolute()
+    if not path.parent.is_dir():
+        raise Refused(f"{path.parent} is not a folder")
     path = path.parent.resolve() / path.name
-    _refuse_tracked(memory, path)
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_TRUNC if force else os.O_EXCL)
+    if path.is_symlink():
+        raise Refused(f"{path} is a link. Name the file itself.")
+    _refuse_tracked(path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_TRUNC if force else os.O_EXCL)
     try:
         fd = os.open(path, flags, 0o600)
     except FileExistsError:
         raise Refused(f"{path} exists. Add --force to replace it.") from None
+    except OSError as exc:
+        raise Refused(f"cannot write {path}: {exc.strerror or exc}") from None
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        os.fchmod(fh.fileno(), 0o600)
         fh.write(text)
     print(f"wrote {path}")
     return 0
@@ -246,9 +255,12 @@ def _dated(body: str) -> tuple[str | None, str, bool]:
     if not match:
         return None, body, False
     mark, rest = match[1].strip(), match[2].strip()
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", mark):
+    day = _DAY.fullmatch(mark)
+    if day:
         with contextlib.suppress(ValueError):
-            return date.fromisoformat(mark).isoformat(), rest, True
+            found = date(int(day[1]), int(day[2]), int(day[3]))
+            if found <= now().date():
+                return found.isoformat(), rest, True
         return None, rest, True
     if _NO_DATE.fullmatch(mark):
         return None, rest, True
@@ -271,6 +283,10 @@ def parse_sections(text: str) -> list[Entry]:
         day, body, marked = _dated(bullet[1].strip() if bullet else line)
         if (bullet or marked) and body:
             found.append(Entry(section, body, day))
+            continue
+        plain = _PLAIN_HEADING.match(line)
+        if plain and not line.endswith(_SENTENCE_END):
+            section = plain[1].strip()
     return found
 
 
@@ -299,7 +315,7 @@ def _read(path: Path) -> str:
     try:
         if path.stat().st_size > MAX_BYTES:
             raise Refused(f"{path} is larger than {MAX_BYTES // 1024} KB")
-        return path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise Refused(f"cannot read {path}: {exc.strerror or exc}") from None
 
@@ -310,9 +326,10 @@ def parse_native(text: str) -> list[Entry]:
     if not match:
         return parse_sections(text)
     front, body = match[1], " ".join(match[2].split())
-    kind = re.search(r"(?m)^\s*type:\s*(\w+)", front)
-    day = re.search(r"(?m)^\s*modified:\s*(\d{4}-\d{2}-\d{2})", front)
-    section = NATIVE_TYPES.get(kind[1] if kind else "", "Other")
+    kind = re.search(r"(?m)^\s*type:\s*[\"']?([\w-]+)", front)
+    day = re.search(r"(?m)^\s*modified:\s*[\"']?(\d{4}-\d{2}-\d{2})", front)
+    # A type this table does not know is no heading this import maps, so its note is skipped.
+    section = NATIVE_TYPES.get(kind[1], f"type {kind[1]}") if kind else "no type"
     return [Entry(section, body, day[1] if day else None)] if body else []
 
 
@@ -323,7 +340,10 @@ def read_source(memory: Memory, target: str | None, native: bool) -> list[tuple[
         if not Path(target).is_dir():
             raise Refused(f"Claude Code keeps no memory notes for this project ({target})")
     if target in (None, "-"):
-        return [("paste", e) for e in parse_sections(sys.stdin.read(MAX_BYTES))]
+        text = sys.stdin.read(MAX_BYTES + 1)
+        if len(text) > MAX_BYTES:
+            raise Refused(f"the paste is larger than {MAX_BYTES // 1024} KB")
+        return [("paste", e) for e in parse_sections(text.removeprefix("\ufeff"))]
     path = Path(target).expanduser()
     if path.name == "MEMORY.md":
         notes = [p for p in path.parent.glob("*.md") if p.name != "MEMORY.md"]
@@ -338,15 +358,22 @@ def read_source(memory: Memory, target: str | None, native: bool) -> list[tuple[
 
 
 def heading_kind(section: str) -> str | None:
-    lowered = section.lower()
-    return next((kind for word, kind in HEADINGS if word in lowered), None)
+    """What a heading's title means, matched on whole words. `Other: facts about the project`
+    has the title `Other`."""
+    title = section.split(":", 1)[0].lower()
+    return next((kind for word, kind in HEADINGS if _has_words(title, word)), None)
+
+
+def _has_words(text: str, words: str) -> bool:
+    """`words` in `text` as whole words; a plural `s` counts, so `Decisions` holds `decision`."""
+    return re.search(rf"(?<![\w-]){re.escape(words)}s?(?![\w-])", text) is not None
 
 
 def _kind(entry: Entry, project: str) -> tuple[str | None, str]:
     """The kind an entry is written as, or None and why it is skipped."""
     kind = heading_kind(entry.section)
     if kind == PROJECTS:
-        if project in entry.text.lower():
+        if _has_words(entry.text.lower(), project):
             return "fact", ""
         return None, f"about another project, not {project}"
     skips = {

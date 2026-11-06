@@ -222,8 +222,8 @@ ANSWER = f"""Here is what I know.
 [2026-10-03] - The staging token is {TOKEN}.
 [2026-10-04] - The beta went out to 20 users.
 
-## Hobbies
-[2026-01-01] - Sam plays chess.
+## Reading list
+[2026-01-01] - Dune, then Foundation.
 ```
 
 This is everything I know about the project.
@@ -238,7 +238,7 @@ def test_a_pasted_answer_keeps_project_facts_and_skips_personal_and_secret(tmp_p
     assert TOKEN not in plan
     assert "3 personal" in plan and "Identity 2" in plan and "Career 1" in plan
     assert "Sam" not in plan.split("personal", 1)[1].split("\n", 1)[0]
-    assert "Hobbies" in plan
+    assert "Reading list" in plan
     out = ok(root, "import", "-", "--yes", stdin=ANSWER)
     assert TOKEN not in out
     new = {f["text"]: f for f in added(memdir)}

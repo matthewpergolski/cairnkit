@@ -13,15 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first, under the headings Instructions, Decisions, Traps and lessons, Project state, Preferences
   and Other. It marks which rules the owner confirmed and which load as data, masks each secret as
   the load does, and ends with a line that says the set is complete or what it left out. `--all`
-  adds ended facts with their status. `--output` refuses a path in a checkout that git does not
-  ignore, and it replaces a file only with `--force`. No model and no network.
+  adds ended facts with their status. `--output` refuses a path in any git work tree that does not
+  ignore it and a path that is a link, writes mode 600, and replaces a file only with `--force`.
+  No model and no network.
 - `memory import --prompt` prints a short prompt for another assistant. It asks for this project
   only, in the export shape. `memory import FILE|-|--native` reads that answer, an export, Claude
   Code's notes of this project, or the rule-like list items of an `AGENTS.md` or `CLAUDE.md`. It
   shows the plan, and it writes only with `--yes`. It skips personal entries with a count, secrets,
   ended facts and text that the memory has. Each fact gets basis `seen`, author `import` and source
   `import:<name>:<date>`, so an imported rule loads as data until the owner states it with
-  `--basis told`. A second import of the same text writes nothing.
+  `--basis told`. A second import of the same text writes nothing. Headings match on whole words,
+  and the entries under a heading that the import does not know are skipped. A paste over 1 MB is
+  refused, not cut.
 - The memory keeps why each Claude Code helper started, from the moment that it starts. Before, a
   Ctrl+C while a helper worked left nothing of its aim, because no stop runs in a killed process.
   Now `PreToolUse` on the `Agent` tool records the description and the start of the prompt, masked,
@@ -199,6 +202,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Stored text no longer carries bidi control marks (U+202A to U+202E, U+2066 to U+2069) into a
+  load or an export. They can make a line show in another order than an agent reads it.
 - Fixes from an independent review of the load and the hooks. A load that is too big for the hook
   limit keeps its one-time notices (the update line, a rule that changed), runs at most 4 passes
   or stops near the end of the hook's time, and its cut keeps the rules and the frame and now also

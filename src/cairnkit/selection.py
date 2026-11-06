@@ -139,7 +139,10 @@ NAME_WIDTH = 80
 # warns at 500, so this limit acts only on a set that has had that warning for a long time.
 RULE_WORD_LIMIT = 1000
 
-_CONTROL = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0e-\x1f\x7f-\x9f]")
+# Terminal codes, control characters, and the bidi marks that make text show in another order.
+_CONTROL = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]"
+)
 _FRAME_END = re.compile(r"(?i)-*\s*end\s+of\s+stored\s+notes\s*-*")
 _PLAIN_NAME = re.compile(r"\w[\w./:@+=-]*")
 
