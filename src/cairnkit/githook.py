@@ -30,6 +30,7 @@ from typing import NamedTuple
 
 from cairnkit import markers
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, run_git
+from cairnkit.selection import clean
 
 START = "# >>> cairnkit >>>"
 END = "# <<< cairnkit <<<"
@@ -810,7 +811,8 @@ def hook_state(project: Project) -> HookState:
             else f"Git {CONFIG_HOOKS_SINCE} or newer can run them beside it."
         )
         return HookState(
-            f"warning: core.hooksPath is {setting}, so git does not run the memory hooks. {fix}",
+            f"warning: core.hooksPath is {clean(setting)}, so git does not run the memory hooks. "
+            f"{fix}",
             fixable=can_fix,
         )
     if len(missing) == len(PERSONAL_HOOKS):
@@ -823,8 +825,8 @@ def hook_state(project: Project) -> HookState:
         where.relative_to(project.root).as_posix() if where.is_relative_to(project.root) else where
     )
     if setting and where == _private_dir(project):
-        return HookState(f"git hooks: on, beside core.hooksPath {setting} ({shown})")
-    return HookState(f"git hooks: on ({shown})")
+        return HookState(f"git hooks: on, beside core.hooksPath {clean(setting)} ({clean(shown)})")
+    return HookState(f"git hooks: on ({clean(shown)})")
 
 
 def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:

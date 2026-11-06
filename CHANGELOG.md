@@ -298,9 +298,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The load line that names files outside `notes/` cleans each file name and cuts it at 40
   characters. A file name with a line break could put a line of its own in the load.
   `memory migrate` now cleans each file name that it prints too: a stray file in the memory
-  folder, a note, a kept copy, a pointer, a moved folder and a doc that names the old checker.
-  Before, a name with a line break, a terminal code or the end line of the stored notes printed
-  as it was.
+  folder, a note, a kept copy, a pointer, a moved folder, a doc that names the old checker, each
+  file of the candidate count, a worktree and each checkout path. Before, a name with a line
+  break, a terminal code or the end line of the stored notes printed as it was. `memory init`,
+  `memory check`, `memory status`, `memory load`, `memory hooks install`,
+  `memory instructions` and `memory docs` now clean each path that they print too, so a
+  checkout or memory folder with a terminal code in its name cannot forge a line.
 
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the

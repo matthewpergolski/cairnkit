@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from cairnkit import deadline
+from cairnkit.selection import clean
 
 LINK_NAME = "memory-bank"
 PATH_FILE = ".memory-path"
@@ -445,7 +446,7 @@ def _repo_of(key: Path) -> Path:
 
 
 def _shown(owner: Path | None) -> str:
-    return f"another project ({_repo_of(owner)})" if owner else "another project"
+    return f"another project ({clean(_repo_of(owner))})" if owner else "another project"
 
 
 def _other_claimants(project: Project, memdir: Path, gone: Path) -> list[Path]:
@@ -466,7 +467,7 @@ def _keep_apart(project: Project, memdir: Path) -> str:
     place = default_memory_dir(project)
     if place.exists():
         place = place.with_name(f"{project.home.name}-own.memory")
-    return f"`cp -R {memdir} {place} && memory init --path {place}`"
+    return f"`cp -R {clean(memdir)} {clean(place)} && memory init --path {clean(place)}`"
 
 
 def owner_line(project: Project, memdir: Path) -> str | None:
@@ -476,7 +477,8 @@ def owner_line(project: Project, memdir: Path) -> str | None:
         return None
     if state == COPY:
         return (
-            f"note: {memdir} belongs to {_shown(owner)}, and this repo holds a record from before "
+            f"note: {clean(memdir)} belongs to {_shown(owner)}, and this repo holds a record from "
+            "before "
             "a copy or a move. What you add here goes there. To keep these facts in a memory of "
             f"this repo: {_keep_apart(project, memdir)}."
         )
@@ -488,17 +490,19 @@ def owner_line(project: Project, memdir: Path) -> str | None:
         others = _other_claimants(project, memdir, owner)
         if not others:
             return None
-        names = " and ".join(str(folder) for folder in others)
+        names = " and ".join(clean(folder) for folder in others)
         return (
-            f"note: {memdir} was set up by {_repo_of(owner)}, which is gone, and {names} also "
+            f"note: {clean(memdir)} was set up by {clean(_repo_of(owner))}, which is gone, and "
+            f"{names} also "
             "uses it. Each can be that repo moved or a copy of it, so each reads and writes its "
             "facts. `memory init` in the repo that keeps it takes it. To keep these facts in a "
             f"memory of this repo: {_keep_apart(project, memdir)}."
         )
     share = f" To share on purpose: `git config {SHARED_SETTING} true`." if project.is_git else ""
     return (
-        f"note: {memdir} belongs to {_shown(owner)}, so both projects read and write its facts. "
-        f"For a memory of its own: `memory init --path {default_memory_dir(project)}`.{share}"
+        f"note: {clean(memdir)} belongs to {_shown(owner)}, so both projects read and write "
+        "its facts. For a memory of its own: "
+        f"`memory init --path {clean(default_memory_dir(project))}`.{share}"
     )
 
 
@@ -602,7 +606,7 @@ def lost_memory(project: Project) -> LostMemory | None:
 
 def earlier_note(found: list[Path]) -> str:
     """One short note. It names only a folder under a name this project is known to have had."""
-    commands = " or ".join(f"`memory init --path {folder}`" for folder in found)
+    commands = " or ".join(f"`memory init --path {clean(folder)}`" for folder in found)
     return f"A memory beside this project could be its own under an earlier name: {commands}."
 
 
@@ -611,7 +615,7 @@ def beside_line(project: Project, memdir: Path) -> str | None:
     found = [f for f in _earlier_memories(project) if f.resolve() != memdir.resolve()]
     if not found:
         return None
-    deny = " and ".join(f"`git config --add {NOT_EARLIER_SETTING} {f.name}`" for f in found)
+    deny = " and ".join(f"`git config --add {NOT_EARLIER_SETTING} {clean(f.name)}`" for f in found)
     return f"note: {earlier_note(found)} If not: {deny}."
 
 
@@ -620,13 +624,13 @@ def lost_note(lost: LostMemory) -> str:
     if lost.gone is None:
         return f"{earlier_note(lost.found)} If not, run `memory init`."
     # A bare init would hide a memory that this project is known to have.
-    parts = [f"This project's memory was at {lost.gone}, and it is not there."]
+    parts = [f"This project's memory was at {clean(lost.gone)}, and it is not there."]
     if lost.found:
-        names = " or ".join(f"`memory init --path {folder}`" for folder in lost.found)
+        names = " or ".join(f"`memory init --path {clean(folder)}`" for folder in lost.found)
         parts.append(f"Found, and each can be an old copy, so choose the newest: {names}.")
     else:
         parts.append("If you moved it, run `memory init --path NEW_PLACE`.")
-    parts.append(f"To start a new memory instead: `memory init --path {lost.default}`.")
+    parts.append(f"To start a new memory instead: `memory init --path {clean(lost.default)}`.")
     return " ".join(parts)
 
 

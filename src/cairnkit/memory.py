@@ -15,6 +15,7 @@ from cairnkit.secretscan import (
     mask_closed_fields,
     mask_record,
 )
+from cairnkit.selection import clean
 from cairnkit.state import fold
 from cairnkit.store import encode, fact_files, repaired_lines, scan
 
@@ -78,7 +79,9 @@ class Memory:
             lost = lost_memory(project)
             if lost:
                 raise MemoryMissing(lost_note(lost))
-            raise MemoryMissing(f"no memory folder at {memdir} (from {source}); run `memory init`")
+            raise MemoryMissing(
+                f"no memory folder at {clean(memdir)} (from {source}); run `memory init`"
+            )
         memory = cls(project, memdir, source, load_config(memdir), env=read_env_values(project))
         memory.reload()
         return memory

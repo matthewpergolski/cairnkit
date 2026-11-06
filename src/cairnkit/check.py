@@ -58,7 +58,7 @@ from cairnkit.store import Located, fact_files, read_located, repaired_lines
 def _repair_cmd(memdir) -> str:
     """The command that links a checkout to memdir. Never bare init when memory exists."""
     if memdir.is_dir():
-        return f"`memory init --path {memdir}`"
+        return f"`memory init --path {clean(memdir)}`"
     return "`memory init`"
 
 
@@ -69,20 +69,22 @@ def check_links(project: Project, memdir) -> list[str]:
         link = checkout / LINK_NAME
         if link.is_symlink():
             if not link.exists():
-                errors.append(f"{link}: broken link; run {repair} to relink it")
+                errors.append(f"{clean(link)}: broken link; run {repair} to relink it")
             elif link.resolve() != memdir.resolve():
                 errors.append(
-                    f"{link}: points to {link.resolve()}, not {memdir}; run {repair} to relink it"
+                    f"{clean(link)}: points to {clean(link.resolve())}, not {clean(memdir)}; "
+                    f"run {repair} to relink it"
                 )
         elif link.is_dir():
             errors.append(
-                f"{link}: a real folder, not a link; move its files to {memdir / 'notes'}/, "
+                f"{clean(link)}: a real folder, not a link; move its files to "
+                f"{clean(memdir / 'notes')}/, "
                 f"remove the folder, then run {repair}"
             )
         elif link.exists():
-            errors.append(f"{link}: a file, not a link; move it away, then run {repair}")
+            errors.append(f"{clean(link)}: a file, not a link; move it away, then run {repair}")
         else:
-            errors.append(f"{link}: missing; run {repair} from {checkout}")
+            errors.append(f"{clean(link)}: missing; run {repair} from {clean(checkout)}")
     return errors
 
 
@@ -449,8 +451,9 @@ class Health:
             if count
         ]
         if counts:
-            return f"memory check: {', '.join(counts)} in {self.memdir} (from {self.source})"
-        return f"memory check: ok ({len(fact_files(self.memdir))} fact file(s) in {self.memdir})"
+            return f"memory check: {', '.join(counts)} in {clean(self.memdir)} (from {self.source})"
+        files = len(fact_files(self.memdir))
+        return f"memory check: ok ({files} fact file(s) in {clean(self.memdir)})"
 
     @property
     def is_ok(self) -> bool:
@@ -521,11 +524,11 @@ def _read_health(project: Project, flag: str | None) -> Health:
             health.missing, health.gone = lost_note(lost), bool(lost.gone)
             return health
     if not memdir.is_dir() and not any((c / LINK_NAME).is_symlink() for c in project.checkouts):
-        health.missing = f"no memory folder at {memdir} (from {source}); run `memory init`"
+        health.missing = f"no memory folder at {clean(memdir)} (from {source}); run `memory init`"
         return health
     health.errors += check_links(project, memdir)
     if not has_facts:
-        health.errors.append(f"{memdir}: no facts/ folder; run `memory init`")
+        health.errors.append(f"{clean(memdir)}: no facts/ folder; run `memory init`")
         return health
     health.errors += keep_out_of_git(memdir)
     memory = health.memory = Memory.open(project, flag)
