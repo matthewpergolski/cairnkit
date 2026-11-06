@@ -375,7 +375,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "export",
         parents=[common],
-        help="print this project's facts as dated lines, to paste elsewhere or keep",
+        help="print this project's facts as dated lines, to paste into another assistant",
+        description="Print the active facts as `[YYYY-MM-DD] - text` lines under headings. "
+        "This is no backup: an import of it loses pins, links, areas and tags, and a branch note "
+        "comes back as a fact that does not end. For a backup, copy the memory folder.",
     )
     p.add_argument(
         "--output",

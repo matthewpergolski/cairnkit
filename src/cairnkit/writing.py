@@ -37,6 +37,9 @@ from cairnkit.store import append_records, drop_id, drop_line, fact_files, scan,
 
 DEFAULT_BASIS = "guess"
 REASON_WIDTH = 200
+# A fact that opens like an order. In a real project "Never list processes with full command
+# lines" went in as a plain fact, and the session start held it back.
+RULE_START = re.compile(r"(?i)\s*(?:never|always|do not|don't|must)\b")
 DATA_RULE = (
     "This rule loads as data, because an agent wrote it. "
     "If the owner stated it, the same command with --basis told lifts it."
@@ -340,6 +343,12 @@ def add_fact(memory: Memory, args) -> str | None:
     data_rule = fact["kind"] == "rule" and not owner_rule(fact)
     if data_rule:
         print(f"note: {DATA_RULE}")
+    if fact["kind"] == "fact" and not args.pinned and RULE_START.match(fact["text"]):
+        print(
+            "note: this reads as a rule. A plain fact can be held back from the session start; "
+            f'a rule loads each time. To make it one: memory add "TEXT" --kind rule '
+            f"--supersedes {fact['id']}"
+        )
     if target and supersedes:
         note_change(memory, target, f"replaced by {fact['id']}")
     if not data_rule and not claimed and fact["basis"] == DEFAULT_BASIS:

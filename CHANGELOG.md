@@ -202,6 +202,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `{"family_key": "birch"}` in a note no longer reads as a secret. A name that ends in `key` is a
+  strong secret name only when the part before it names a key to sign in or to sign (`api`,
+  `deploy`, `ssh`, `secret` and the like). Behind another `X_key`, only a value that reads as no
+  word is a secret. In a real project the same false note came back on each `memory check`.
+- `memory add` says when a plain fact opens like an order ("Never", "Always", "Do not", "Must"):
+  a fact can be held back from the session start, and a rule loads each time. It prints the
+  command that makes it a rule. In a real project a safety lesson about a leaked key went in as a
+  fact and did not load.
 - Stored text no longer carries bidi control marks (U+202A to U+202E, U+2066 to U+2069) into a
   load or an export. They can make a line show in another order than an agent reads it.
 - Fixes from an independent review of the load and the hooks. A load that is too big for the hook

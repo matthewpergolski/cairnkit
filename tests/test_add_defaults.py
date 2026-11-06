@@ -137,3 +137,20 @@ def test_the_first_line_names_the_new_fact_before_any_older_one(mem, capsys):
     new = lines[0].removeprefix("added ")
     assert lines[0].startswith("added f-") and new != OLD
     assert OLD in "\n".join(lines[1:])
+
+
+@pytest.mark.parametrize(
+    ("args", "hint"),
+    [
+        (["Never list processes with full command lines."], True),
+        (["Don't run the migration twice."], True),
+        (["The queue never drops jobs."], False),
+        (["Never deploy on Friday.", "--kind", "trap"], False),
+        (["Never deploy on Friday.", "--pinned"], False),
+    ],
+)
+def test_a_fact_that_opens_like_an_order_gets_the_rule_hint(mem, capsys, args, hint):
+    fact, out = _add(capsys, *args, "--basis", "seen")
+    assert ("reads as a rule" in out) is hint
+    if hint:
+        assert f"--supersedes {fact}" in out

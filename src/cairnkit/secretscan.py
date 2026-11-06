@@ -122,6 +122,39 @@ DATA_KEYS = frozenset(
         "unique",
     ]
 )
+# The part before `key` that names a key used to sign in or to sign. Another, such as
+# `family_key: birch` in a real project, names a record, so only a value that reads as no word
+# is a secret behind it.
+KEY_OWNERS = frozenset(
+    [
+        "access",
+        "account",
+        "admin",
+        "api",
+        "app",
+        "auth",
+        "client",
+        "crypto",
+        "deploy",
+        "encryption",
+        "gpg",
+        "hmac",
+        "jwt",
+        "license",
+        "master",
+        "pgp",
+        "private",
+        "root",
+        "secret",
+        "service",
+        "session",
+        "signing",
+        "ssh",
+        "ssl",
+        "tls",
+        "webhook",
+    ]
+)
 ORDINARY_CODES = frozenset(
     [
         "exit",
@@ -236,7 +269,9 @@ def label_of(name: str) -> Label:
     if parts[-1] in ("pass", "auth", "cookie"):
         return Label.STRONG
     if parts[-1] == "key":
-        return Label.NONE if parts[-2] in DATA_KEYS else Label.STRONG
+        if parts[-2] in DATA_KEYS:
+            return Label.NONE
+        return Label.STRONG if parts[-2] in KEY_OWNERS else Label.WEAK
     if parts[-1] == "code" and name.isupper() and parts[0] not in ORDINARY_CODES:
         return Label.WEAK
     return Label.NONE

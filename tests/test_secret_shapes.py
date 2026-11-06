@@ -96,6 +96,7 @@ def test_a_harmless_value_does_not_hide_a_real_one_later_in_the_text():
         "DEPLOY_KEY=dragonflies",
         "SSH_KEY=dragonflies",
         "deploy_key=dragonflies",
+        'family_key = "x7Fq9pL2mZ"',
         "db_password=dragonflies",
         "HTTP_PASSWORD=dragonflies",
         "spring.datasource.password=dragonflies",
@@ -127,6 +128,7 @@ def test_a_value_behind_a_secret_label_is_refused(text):
         "token_type: bearer",
         "PASSWORD_FILE=hunter2hunter2",
         "CACHE_KEY=user_session",
+        '{"family_key": "birch"}',
         "password: required",
     ],
 )

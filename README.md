@@ -819,9 +819,14 @@ level only. It writes nothing into a repo.
 
 The memory stays per project. Export and import move one project's facts, never a profile of you.
 
-To take the memory to another assistant (Claude.ai, ChatGPT, Grok), or to keep a backup, run
-`memory export` and paste the output, or write it with `memory export --output ~/proj-memory.md`.
-The output has no code fence, so the same bytes go to the screen, a pipe and a file.
+To take the memory to another assistant (Claude.ai, ChatGPT, Grok), run `memory export` and paste
+the output, or write it with `memory export --output ~/proj-memory.md`. The output has no code
+fence, so the same bytes go to the screen, a pipe and a file.
+
+An export is no backup. It holds the text, the kind and the date of each fact. An import of it
+does not bring back pins, links, areas, tags or summaries. A branch note comes back as a fact that
+does not end, a trap comes back as a lesson, and each fact comes back with basis `seen`. For a
+backup, copy the whole memory folder beside the repo (`<repo>.memory`).
 
 To bring in what another assistant knows:
 
