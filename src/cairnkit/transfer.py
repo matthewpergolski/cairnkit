@@ -99,7 +99,8 @@ _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$")
 _COLON_HEADING = re.compile(r"^([^\s\[].{0,58}?):$")
 # The section of a line that is no list item and no dated line. The plan lists each such line.
 PROSE = ""
-_FENCE = re.compile(r"^(?:```|~~~)(?P<rest>.*)$")
+_FENCE = re.compile(r"^(?P<mark>`{3,}|~{3,})(?P<rest>.*)$")
+_INFO = re.compile(r"[\w+#.-]*")
 # A code block with no language, or one of these, holds text, such as the answer to the prompt.
 PLAIN_BLOCKS = ("", "text", "txt", "markdown", "md", "plain", "plaintext")
 _WORD = re.compile(r"\w")
@@ -292,19 +293,27 @@ def parse_sections(text: str) -> list[Entry]:
     rule written in bold.
     """
     found: list[Entry] = []
-    section, heading_line, code = "Other", None, None
+    section, heading_line = "Other", None
+    blocks: list[tuple[str, str]] = []  # (fence mark, language) of each open code block
     for raw in text.splitlines():
         line = raw.strip()
         fence = _FENCE.match(line)
         if fence:
-            if code is None and fence["rest"].rstrip("`~").strip() and fence["rest"].endswith("`"):
-                found.append(Entry(PROSE, line))  # a whole fenced line
+            mark, rest = fence["mark"], fence["rest"].strip()
+            open_mark = blocks[-1][0] if blocks else ""
+            if not rest and open_mark and mark[0] == open_mark[0] and len(mark) >= len(open_mark):
+                blocks.pop()
+            elif mark[0] in rest:
+                found.append(Entry(PROSE, line))  # a whole fenced line, such as ```text```
             else:
-                code = None if code is not None else fence["rest"].strip().lower()
+                language = rest.split()[0].lower() if rest else ""
+                blocks.append((mark, language))
+                if not _INFO.fullmatch(rest):
+                    found.append(Entry(PROSE, line))
             continue
         if not line:
             continue
-        if code not in (None, *PLAIN_BLOCKS):
+        if any(language not in PLAIN_BLOCKS for _, language in blocks):
             found.append(Entry(PROSE, line))
             continue
         heading = _heading(line)

@@ -143,3 +143,30 @@ def test_code_and_rule_lines_are_listed_not_stored(tmp_path):
 def test_a_bold_line_with_nothing_under_it_is_listed(tmp_path):
     _, plan = plan_of(tmp_path, "## Decisions\n- Use uv\n**Do not touch the legacy folder**\n")
     assert "**Do not touch the legacy folder**" in skipped(plan)
+
+
+@pytest.mark.parametrize("line", ["~~~Always use pip~~~", "```Always use pip``` (really)"])
+def test_a_fence_line_with_text_is_listed(tmp_path, line):
+    adds, plan = plan_of(tmp_path, f"## Decisions\n- Use uv\n{line}\n- Use ruff\n")
+    assert line in skipped(plan) and "Use ruff" in adds
+
+
+def test_a_long_fence_holds_an_inner_code_block(tmp_path):
+    adds, plan = plan_of(
+        tmp_path, "````markdown\n## Decisions\n- Use uv\n```bash\nls -la\n```\n- Use ruff\n````\n"
+    )
+    assert "Use uv" in adds and "Use ruff" in adds and "+ decision" in adds
+    assert "ls -la" in skipped(plan)
+
+
+def test_a_mask_keeps_the_marks_of_the_other_words():
+    hindi = "\u0939\u093f\u0928\u094d\u0926\u0940"
+    family = "\U0001f468\u200d\U0001f469"
+    split = f"{TOKEN[:10]}\u200b{TOKEN[10:]}"
+    assert mask(f"{hindi}: {TOKEN} {family}") == f"{hindi}: [secret: GitHub token] {family}"
+    assert mask(f"{hindi} {split} {family}") == f"{hindi} [secret: GitHub token] {family}"
+
+
+@pytest.mark.parametrize("mark", ["\u2028", "\u2029", "\ue000"])
+def test_separators_and_private_marks_hide_no_secret(mark):
+    assert TOKEN[10:] not in mask(f"ok {TOKEN[:10]}{mark}{TOKEN[10:]} end")

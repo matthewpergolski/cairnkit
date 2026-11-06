@@ -495,7 +495,7 @@ _ASCII_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
 _BLANK_SHAPES = frozenset("\u115f\u1160\u17b4\u17b5\u2800\u3164\uffa0")
 # Control and format characters, and the marks that join the letter before them, which take in
 # zero-width marks, bidi controls, the soft hyphen and all variation selectors.
-_UNSEEN_KINDS = frozenset({"Cc", "Cf", "Mn", "Me"})
+_UNSEEN_KINDS = frozenset({"Cc", "Cf", "Mn", "Me", "Co", "Cn", "Zl", "Zp"})
 
 
 _ORDINARY_SPACE = frozenset(" \t\n\r\x0b\x0c")
@@ -624,14 +624,25 @@ def _outside_masks(text: str, change: Callable[[str], str]) -> str:
     return "".join(part if index % 2 else change(part) for index, part in enumerate(parts))
 
 
+def _join_split_words(text: str, known: KnownValues | None) -> str:
+    """Each word whose marks split a secret, without them. A mark can split a token so that only
+    its head has the shape. The other words keep their marks: a virama or a joiner is part of a
+    word in Hindi or in an emoji."""
+    words = re.split(r"(\s+)", text)
+    for index, word in enumerate(words):
+        seen = without_unseen(word)
+        if seen != word and _found(seen, known):
+            words[index] = seen
+    return "".join(words)
+
+
 def mask(text: str, known: KnownValues | None = None) -> str:
     """The text with each value that looks secret replaced. A second mask changes nothing."""
     if not find_secrets(text, known):
         return text
-    seen = without_unseen(text)
-    if seen != text and _found(seen, known):
-        # A mark can split a token so that only its head has the shape: mask the whole token.
-        text = seen
+    text = _join_split_words(text, known)
+    if not _found(text, known):
+        text = without_unseen(text)
     if known:
         text = _outside_masks(text, known.mask)
     for shape in SHAPES:
