@@ -30,7 +30,8 @@ PATH_RE = re.compile(rf"(?<![\w-]){LINK_NAME}/([A-Za-z0-9_.\-/]*[A-Za-z0-9_/])")
 OLD_DOC_RE = re.compile(rf"(?<![\w-]){LINK_NAME}(?:[-_.][\w-]+)")
 OLD_DOC_NAME_RE = re.compile(r"memory[-_]?bank", re.IGNORECASE)
 CHECKER_RE = re.compile(r"check[_-]?memory", re.IGNORECASE)
-OLD_NOTES_RE = re.compile(r"memory[-_ ]?bank", re.IGNORECASE)
+# A path that code builds from parts, as in `Path("memory-bank", "status.md")`.
+JOINED_PATH_RE = re.compile(rf"""["']{LINK_NAME}["']\s*,\s*["']([\w.-]+)["']""")
 OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
 HOOK_SCRIPT_RE = re.compile(r"[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
 CHECKER_CMD_RE = re.compile(
@@ -360,17 +361,25 @@ def checker_references(root: Path, files: Iterable[str], scripts: list[str]) -> 
     return refs[:MAX_REFS]
 
 
+def names_old_notes(text: str) -> bool:
+    """True when the text names a path in the memory folder that the new layout has no place for.
+
+    The link keeps its name, so `memory-bank/notes/status.md` is the new layout. A word with no
+    path after it shows nothing about which layout a script reads.
+    """
+    rels = [*PATH_RE.findall(text), *JOINED_PATH_RE.findall(text)]
+    return any(not is_new_layout(rel) for rel in rels)
+
+
 def hook_reads_old_notes(root: Path, command: str) -> str | None:
     """What ties a hook to the old notes: its command, or a repo script that it runs."""
     if OWN_HOOK_RE.search(command):
         return None
-    if OLD_NOTES_RE.search(command.replace(str(root), "")):
+    if names_old_notes(command.replace(str(root), "")):
         return "Its command names the old notes folder."
     for found in HOOK_SCRIPT_RE.findall(command):
         rel = found.lstrip("/").removeprefix("./")
-        if ".." not in PurePosixPath(rel).parts and OLD_NOTES_RE.search(
-            read_text(root / rel) or ""
-        ):
+        if ".." not in PurePosixPath(rel).parts and names_old_notes(read_text(root / rel) or ""):
             return f"The script it runs ({rel}) reads the old notes folder."
     return None
 

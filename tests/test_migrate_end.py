@@ -701,7 +701,7 @@ def hook_repo(repo: Path, command: str, script: str = "") -> Path:
 
 
 def test_a_prompt_hook_whose_script_reads_the_old_notes_is_named(repo, capsys):
-    hook_repo(repo, RECALL, 'NOTES = Path("memory-bank", "notes")\n')
+    hook_repo(repo, RECALL, 'STATUS = Path("memory-bank", "status.md")\n')
     before = (repo / ".claude" / "settings.json").read_text()
     migrate(capsys, "--yes")
     task = task_path(repo).read_text()
@@ -712,7 +712,7 @@ def test_a_prompt_hook_whose_script_reads_the_old_notes_is_named(repo, capsys):
 
 
 def test_removing_the_old_hook_closes_its_item(repo, capsys):
-    hook_repo(repo, RECALL, 'NOTES = Path("memory-bank", "notes")\n')
+    hook_repo(repo, RECALL, 'STATUS = Path("memory-bank", "status.md")\n')
     migrate(capsys, "--yes")
     write(repo / ".claude" / "settings.json", '{"hooks":{}}\n')
     assert "Migration finished" in migrate(capsys, "--yes")
@@ -769,3 +769,24 @@ def test_the_load_names_files_outside_the_notes_in_one_short_line(repo, capsys):
     assert "`memory migrate`" in lines[0]
     assert len(lines[0]) <= 240
     assert "memory-bank/status.md is outside notes/" in check_strict(capsys)
+
+
+def test_a_hook_that_reads_the_new_notes_is_no_old_layout(tmp_path):
+    """A real project was told to remove two working hooks that read memory-bank/notes/."""
+    from cairnkit.migrate_refs import hook_reads_old_notes
+
+    write(tmp_path / "tools" / "check.py", 'NOTES = "memory-bank/notes/status.md"\n')
+    write(tmp_path / "tools" / "old.py", 'STATUS = "memory-bank/status.md"\n')
+    write(tmp_path / "tools" / "word.py", "# keeps the memory-bank link in place\n")
+    assert hook_reads_old_notes(tmp_path, "uv run tools/check.py") is None
+    assert hook_reads_old_notes(tmp_path, "cat memory-bank/notes/status.md") is None
+    assert hook_reads_old_notes(tmp_path, "uv run tools/word.py") is None
+    assert "tools/old.py" in hook_reads_old_notes(tmp_path, "uv run tools/old.py")
+    assert hook_reads_old_notes(tmp_path, "cat memory-bank/status.md")
+
+
+def test_a_prompt_hook_whose_script_reads_the_new_notes_is_not_named(repo, capsys):
+    hook_repo(repo, RECALL, 'NOTES = Path("memory-bank", "notes")\n')
+    migrate(capsys, "--yes")
+    task = task_path(repo).read_text() if task_path(repo).exists() else ""
+    assert "tools/recall.py" not in task

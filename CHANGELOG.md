@@ -186,6 +186,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `memory migrate` no longer asks to remove a repo's own hook whose script reads
+  `memory-bank/notes/`. It counted any mention of `memory-bank` as the old layout, but the new
+  layout lives under that link too. In a real project it asked to remove two working hooks that
+  also checked the push hook, secrets in notes and open worktrees. Now a hook counts only when its
+  command or script names a path that the move changed, also when code builds the path from parts.
+
 - The rules block of each session start says to add `--basis told` when the owner said it. In a
   busy-memory eval, Sonnet wrote the owner's open question before any stop asked, with no basis,
   so it ranked as a guess and the next load held it back.
