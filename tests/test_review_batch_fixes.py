@@ -195,3 +195,21 @@ def test_a_split_label_keeps_the_marks_of_the_other_words():
     assert mask(f"{words} pass\u200bword = hunter2x") == (
         f"{words} password = [secret: assigned secret]"
     )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "## Notes\n- Run tests with uv\n    ```bash\n    - rm -rf build\n    ```\n- Ship weekly\n",
+        "1. Run tests with uv\n\t```yaml\n\t- rm -rf build\n\t```\n2. Ship weekly\n",
+    ],
+)
+def test_a_code_block_under_a_list_item_is_code(tmp_path, text):
+    adds, plan = plan_of(tmp_path, text)
+    assert "Run tests with uv" in adds and "Ship weekly" in adds
+    assert "rm -rf build" not in adds and "rm -rf build" in skipped(plan)
+
+
+def test_a_closer_closes_its_own_block_past_another_mark(tmp_path):
+    adds, _ = plan_of(tmp_path, "```md\n- a\n~~~\n- b\n```\n- c\n")
+    assert all(f"so today: {word}\n" in adds for word in "abc")

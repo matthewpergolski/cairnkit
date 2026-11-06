@@ -99,8 +99,10 @@ _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$|^\*\*([^*]+)\*\*:?$")
 _COLON_HEADING = re.compile(r"^([^\s\[].{0,58}?):$")
 # The section of a line that is no list item and no dated line. The plan lists each such line.
 PROSE = ""
-# At most 3 spaces in front: a fence indented more is text in the block.
-_FENCE = re.compile(r"^ {0,3}(?P<mark>`{3,}|~{3,})(?P<rest>.*)$")
+# A fence can sit under a list item, so any indent opens one. A closer may sit at most 3 columns
+# right of its opener; one further in is text in the block.
+_FENCE = re.compile(r"^(?P<indent>[ \t]*)(?P<mark>`{3,}|~{3,})(?P<rest>.*)$")
+CLOSER_SLACK = 3
 _INFO = re.compile(r"[\w+#.-]*")
 # A code block with no language, or one of these, holds text, such as the answer to the prompt.
 PLAIN_BLOCKS = ("", "text", "txt", "markdown", "md", "plain", "plaintext")
@@ -275,6 +277,15 @@ def _dated(body: str) -> tuple[str | None, str, bool]:
     return None, body, False
 
 
+class _Block(NamedTuple):
+    """An open code block: its fence mark, its language, its first entry and its indent."""
+
+    mark: str
+    language: str
+    start: int
+    indent: int
+
+
 def _heading(line: str) -> str | None:
     """A `#` line, a bold line or a line that ends with a colon, and no list item."""
     if _BULLET.match(line):
@@ -295,27 +306,38 @@ def parse_sections(text: str) -> list[Entry]:
     """
     found: list[Entry] = []
     section, heading_line = "Other", None
-    # (fence mark, language, the first entry inside) of each open code block
-    blocks: list[tuple[str, str, int]] = []
+    blocks: list[_Block] = []
     for raw in text.splitlines():
         line = raw.strip()
         fence = _FENCE.match(raw.rstrip())
+        in_code = any(block.language not in PLAIN_BLOCKS for block in blocks)
         if fence:
             mark, rest = fence["mark"], fence["rest"].strip()
-            open_mark = blocks[-1][0] if blocks else ""
-            if not rest and open_mark and mark[0] == open_mark[0] and len(mark) >= len(open_mark):
-                blocks.pop()
+            indent = len(fence["indent"].expandtabs(4))
+            closes = [
+                index
+                for index, block in enumerate(blocks)
+                if not rest
+                and mark[0] == block.mark[0]
+                and len(mark) >= len(block.mark)
+                and indent <= block.indent + CLOSER_SLACK
+            ]
+            if closes:
+                del blocks[closes[-1] :]
+                continue
+            if in_code:
+                found.append(Entry(PROSE, line))  # a fence in code is code
             elif mark[0] == "`" and "`" in rest:
                 found.append(Entry(PROSE, line))  # a whole fenced line, such as ```text```
             else:
                 language = rest.split()[0].lower() if rest else ""
-                blocks.append((mark, language, len(found)))
+                blocks.append(_Block(mark, language, len(found), indent))
                 if not _INFO.fullmatch(rest):
                     found.append(Entry(PROSE, line))
             continue
         if not line:
             continue
-        if any(language not in PLAIN_BLOCKS for _, language, _ in blocks):
+        if in_code:
             found.append(Entry(PROSE, line))
             continue
         heading = _heading(line)
@@ -335,7 +357,7 @@ def parse_sections(text: str) -> list[Entry]:
         found.append(Entry(PROSE, heading_line))
     if blocks:
         # A block that never closes can hold code, so nothing from it on is written.
-        start = blocks[0][2]
+        start = blocks[0].start
         found[start:] = [
             entry if entry.section == PROSE else Entry(PROSE, entry.text) for entry in found[start:]
         ]
