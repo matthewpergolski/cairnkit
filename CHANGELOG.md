@@ -227,7 +227,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `package.json`, `tsconfig.json` or `pyproject.toml` that nests 100000 deep. A line of 400000
   minus signs ran the Python parser out of memory. Now a file that cannot be read or parsed counts
   as empty, and the other files still map. The toolchain scan of the presets also reads such a
-  manifest as empty.
+  manifest as empty, and `memory hooks install` reports such an agent settings file as not valid
+  JSON. Before, it stopped with RecursionError.
 - `memory docs` reads a script or an `index.html` in a time that grows with its size, not with the
   square of its size. A `web/index.js` of 50000 `import a ` words ran for more than 30 s of CPU,
   and so did a run of blank lines or of open `<script` tags. That stopped `memory docs`,

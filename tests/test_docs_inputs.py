@@ -219,6 +219,16 @@ def test_a_file_too_deep_to_parse_counts_as_empty(mem: Path, repo: Path, capsys,
     assert "docs/state" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("rel", [".claude/settings.json", ".cursor/hooks.json"])
+def test_a_too_deep_agent_settings_file_stops_no_command(mem: Path, repo: Path, capsys, rel):
+    write(repo / rel, "[" * 200_000)
+    assert main(["status"]) == 0
+    assert main(["load"]) == 0
+    capsys.readouterr()
+    assert main(["migrate"]) == 0
+    assert main(["hooks", "install"]) in (0, 1)
+
+
 @pytest.mark.parametrize(
     ("rel", "text"),
     [("package.json", "[" * 200_000), ("pyproject.toml", "a=" + "[" * 100_000)],
