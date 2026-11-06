@@ -810,8 +810,34 @@ level only. It writes nothing into a repo.
 | `memory check --advisory` | you, sometimes | Also lists the rules that no check enforces. |
 | `memory instructions [--write-instructions[=local\|shared]] [--instructions-file PATH]` | anyone | Prints the rules block for agents. With `--write-instructions`, writes it to the same files as `memory init`. `shared` is refused. |
 | `memory docs [--dry-run] [--force] [--check]` | you, after `memory init` for a write; you or CI for `--check` | Writes a Nessa Docs atlas under `docs/state`. No model and no network. In cairnkit itself: the system map, the agent session flow, the fact lifecycle and the package architecture. In any other project: one system page (`README.md`) and one page for each component under `components/`. A component is a top-level package or folder of a source root. A Python source root is the folder that its imports resolve from, such as `backend/` with `manage.py` or `src/`. A TypeScript or JavaScript source root is a folder with `package.json` or `tsconfig.json`, with its `src/` folders as components. The pages show which component imports which, the imports between the files of a component (relative imports, and `tsconfig` `paths` and `baseUrl`), entry points (`manage.py`, `[project.scripts]`, `__main__` blocks, `package.json` `main`, `bin` and `scripts`, and the scripts that `index.html` loads), and HTTP routes (Django `urlpatterns` through each `include()`, and `@app.get("/path")` style routes of FastAPI, Flask and Django Ninja, under their `urls.py` mount). It reads only files that git does not ignore, and it skips tests, migrations, build output, `node_modules`, `vendor` and generated files. A diagram shows at most 30 files, and the table lists all of them. It reads at most 6000 code files, in path order. Refuses an existing atlas unless `--force`. `--force` rewrites only the atlas pages, and it removes an atlas page that no longer has a source. An atlas page is a page with the exact front matter that this command writes. All other Markdown in that folder stays and never counts as stale, and a file at an atlas path stays too, with a `keep` line. A hand-written page with that same front matter, line for line, counts as an atlas page. An atlas page whose front matter was changed counts as hand-written. No hook runs it, because the folder may be tracked. `memory status` shows one line when the pages differ from the code. A load and `memory check` do not, because no session can act on it. `--check` compares `docs/state` to a fresh atlas and writes nothing. No `memory init` is required. Exit 0 and no output when the folder holds no atlas page or the pages match. Exit 1 and one repo-relative path per line when an atlas page differs, is missing, or has no source now. `sourceRevision` lines are ignored. Combining `--check` with `--force` or `--dry-run` is an error. Browse the folder with [Nessa Docs](https://github.com/nessalabs/nessa-docs). |
+| `memory export [--output PATH [--force]] [--all]` | you, to paste the memory into another assistant or to keep a copy | Prints this project's active facts as `[YYYY-MM-DD] - text` lines, oldest first, under the headings Instructions (owner-confirmed rules, then rules that load as data), Decisions, Traps and lessons, Project state (short-term notes, events and the head of `notes/status.md`), Preferences and Other. The text is verbatim, with each secret masked as the load masks it. The last line says the set is complete, or what it left out. `--all` adds ended facts under `Ended (STATUS)`. No model and no network. `--output` writes a file with mode 600. It refuses a path inside a checkout that git does not ignore, and it replaces a file only with `--force`. |
+| `memory import FILE\|-\|--native [--yes]`, `memory import --prompt` | you | See [Move memory in and out](#move-memory-in-and-out). Without `--yes`, prints the plan and changes nothing. |
 | `memory repair` | an agent, when a stop or `memory check` names it | Settles a bad line with an appended record, and the bytes stay. It prints only plain words and masks. It does not settle a value that looks secret. Drops a bad setting from `config.toml`, masks each value, and keeps a copy in the next free `config.toml.bad` name. It deletes no fact. |
 | `memory purge ID --reason secret --yes` | an agent, after a clean replacement | Removes a secret for good. `ID` can be `line-HASH` for a damaged line. |
+
+### Move memory in and out
+
+The memory stays per project. Export and import move one project's facts, never a profile of you.
+
+To take the memory to another assistant (Claude.ai, ChatGPT, Grok), or to keep a backup, run
+`memory export` and paste the output, or write it with `memory export --output ~/proj-memory.md`.
+The output has no code fence, so the same bytes go to the screen, a pipe and a file.
+
+To bring in what another assistant knows:
+
+1. Run `memory import --prompt`, and paste the prompt into the other assistant. It asks for this
+   project only, under the export headings, in the same line shape, in one code block.
+2. Save its answer to a file, or pipe it: `pbpaste | memory import -`. Read the plan.
+3. Run the same command with `--yes` to write it.
+
+`memory import` also reads an export, Claude Code's own notes of this project (`--native`, or a
+`MEMORY.md` or note file), and the rule-like list items of an `AGENTS.md` or `CLAUDE.md`. It skips
+personal entries (Identity, Career and the like) with a count, entries under a heading that it does
+not know, ended facts, a line that looks like a secret, a masked line, and a text that this memory
+already has, active or ended. A near repeat is written with a `similar_to` link. Each fact gets
+basis `seen`, author `import` and source `import:<file name or paste>:<date>`. An imported rule
+loads as data. If you stated it, lift it with `memory add "TEXT" --kind rule --basis told`. A
+second import of the same text writes nothing.
 
 ### Where the memory lives
 
