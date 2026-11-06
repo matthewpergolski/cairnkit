@@ -485,12 +485,17 @@ def _hooks(project: Project) -> list[Item]:
 
     items = []
     for hook in adapters.stale_hooks(project, is_old):
-        why = (
-            "This hook runs the old checker, which reads the old layout."
-            if CHECKER_RE.search(hook.command)
-            else f"{hook_reads_old_notes(root, hook.command)} It runs at each {hook.event}, and "
-            "`memory load` now brings the memory."
-        )
+        if CHECKER_RE.search(hook.command):
+            why = "This hook runs the old checker, which reads the old layout."
+            fix = "Remove this hook handler. The memory hooks are already installed next to it."
+        else:
+            why = f"{hook_reads_old_notes(root, hook.command)} It runs at each {hook.event}."
+            fix = (
+                "A path is no proof that the hook is dead. Compare what it does with what "
+                "`memory load`, `memory check` and the memory hooks next to it do now. If they "
+                "do all of it, remove it. If it does more, keep it and point that path at "
+                f"{LINK_NAME}/notes/."
+            )
         note = " The tool changes no tracked file, so this edit is yours." if hook.tracked else ""
         items.append(
             Item(
@@ -499,7 +504,7 @@ def _hooks(project: Project) -> list[Item]:
                 "hook",
                 f"{hook.event}: {hook.command}"[:200],
                 why + note,
-                "Remove this hook handler. The memory hooks are already installed next to it.",
+                fix,
             )
         )
     return items

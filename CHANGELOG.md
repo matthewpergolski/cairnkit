@@ -211,6 +211,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is more than one plain word, so `pytest -x && ls` and `FOO=1 ls` are no pair. An owner prompt
   that says "run memory check" still counts as the owner's. Temp files of a killed hook go after
   an hour, and the index copy can no longer raise or be left half written.
+- One odd Python file no longer stops `memory docs`, `memory docs --check` or the atlas line of
+  `memory status`. A sum of 5000 terms in `urlpatterns` raised RecursionError. Now a file that
+  cannot be read or parsed counts as empty, and the other files still map.
+- `memory docs` reads no file outside the repo. A tracked link to a file outside put that file's
+  first line in `docs/state`. Now it skips each link, also a link to a manifest such as
+  `pyproject.toml`. It also refuses a `docs/state` that is a link, and it writes or removes no page
+  that is a link or is under one. Before, `--force` could write or delete outside the repo.
+- `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
+  files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
+  list a repo, it stops with an error and changes nothing. Before, it walked the folder and read
+  ignored files. A folder with no git is walked to at most 50000 files, and a file bigger than 1 MB
+  counts as empty.
+- A file that starts with a UTF-8 byte order mark keeps its summary and its imports in the atlas.
+- The parent id of the atlas comes only from the front matter of a hand-written
+  `docs/state/README.md`. Before, an `id:` line in the body could set it.
+- `memory migrate` names a repo hook that reads the old notes in more forms: a glob
+  (`memory-bank/*.md`), the folder itself (`ls memory-bank`, `ls memory-bank/`,
+  `test -d memory-bank`, `os.listdir("memory-bank")`), a `$VAR`, a brace set,
+  `Path("memory-bank") / "status.md"` and `["memory-bank", "a/b.md"]`. A path under `notes/`,
+  `facts/`, `branches/`, `proposals/`, `config.toml` or `README.md` is still the new layout.
+- The task item for such a hook names the path that it reads and asks the agent to compare the hook
+  with `memory load`, `memory check` and the memory hooks. It says to remove the hook only when
+  they do all that it does. Before, a mention of a path was enough to say "Remove this hook
+  handler".
+- `memory change --unlink` alone writes a change that the 0.3.1 build also accepts. That build
+  knew no `remove_links`, so its check reported the record as bad. Now the change also holds an
+  empty `add_links`. The older build keeps the link, and this build removes it.
+- The load line that names files outside `notes/` cleans each file name and cuts it at 40
+  characters. A file name with a line break could put a line of its own in the load.
 
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the

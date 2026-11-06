@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from cairnkit.docs_inventory import SCRIPT_SUFFIXES, first_sentence, join, parent
+from cairnkit.docs_inventory import SCRIPT_SUFFIXES, first_sentence, join, parent, read_file
 
 _FROM = re.compile(
     r"""\b(?:import|export)\s+(?:type\s+)?[\w*{}\s,$]*?\bfrom\s*["']([^"'\n]+)["']"""
@@ -88,8 +88,8 @@ def _strip_jsonc(text: str) -> str:
 def _read_config(root: Path, rel: str, depth: int = 0) -> tuple[dict, str | None, str | None]:
     """compilerOptions after `extends`, with the folders that baseUrl and paths are relative to."""
     try:
-        data = json.loads(_strip_jsonc((root / rel).read_text(encoding="utf-8")))
-    except (OSError, ValueError, UnicodeError):
+        data = json.loads(_strip_jsonc(read_file(root, rel) or "null"))
+    except ValueError:
         return {}, None, None
     if not isinstance(data, dict):
         return {}, None, None

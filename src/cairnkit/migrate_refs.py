@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from cairnkit.paths import LINK_NAME
+from cairnkit.selection import clean
 
 # Names in the new layout. A path that starts with one of these is not an old path.
 OLD_SUFFIX = ".memory-old"
@@ -30,8 +31,23 @@ PATH_RE = re.compile(rf"(?<![\w-]){LINK_NAME}/([A-Za-z0-9_.\-/]*[A-Za-z0-9_/])")
 OLD_DOC_RE = re.compile(rf"(?<![\w-]){LINK_NAME}(?:[-_.][\w-]+)")
 OLD_DOC_NAME_RE = re.compile(r"memory[-_]?bank", re.IGNORECASE)
 CHECKER_RE = re.compile(r"check[_-]?memory", re.IGNORECASE)
-# A path that code builds from parts, as in `Path("memory-bank", "status.md")`.
-JOINED_PATH_RE = re.compile(rf"""["']{LINK_NAME}["']\s*,\s*["']([\w.-]+)["']""")
+# The memory folder in a hook command or script. `memory-bank.md` is a doc name, not the folder.
+FOLDER_RE = re.compile(rf"(?<![\w.-]){LINK_NAME}(?![\w-]|\.\w)")
+# What follows `memory-bank/`: a path, a glob, a `$VAR` or a brace set, up to the end of the word.
+FOLDER_TAIL_RE = re.compile(r"/([^\s'\"`;|&()<>]*)")
+# The next part after a quoted `"memory-bank"`: `, "status.md"` or `) / 'status.md'`.
+FOLDER_PART_RE = re.compile(r"""\s*\)?\s*[,/]\s*["']([^"'\n]*)["']""")
+# Code that reads the folder itself: `Path("memory-bank").glob(...)`, `os.listdir("memory-bank")`.
+FOLDER_METHOD_RE = re.compile(r"\s*\)\s*\.\s*(?:r?glob|iterdir|exists|is_dir)\b")
+FOLDER_CALL_RE = re.compile(
+    r"\b(?:listdir|scandir|glob|iglob|walk|isdir|exists|readdirSync|readdir|opendir)"
+    r"\s*\(\s*(?:Path\s*\(\s*)?$"
+)
+# The word before a bare `memory-bank` that makes it a file argument: `ls`, `test -d`, `[ -d`.
+FOLDER_ARG_RE = re.compile(
+    r"-\w[\w-]*|ls|cat|cd|find|test|\[\[?|tree|du|stat|cp|mv|rm|rsync|tar|head|tail|wc"
+)
+WORD_END = ("", " ", "\t", "\n", ";", "&", "|", ")", "]", "`")
 OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
 HOOK_SCRIPT_RE = re.compile(r"[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
 CHECKER_CMD_RE = re.compile(
@@ -167,9 +183,15 @@ def check_notes(memdir: Path) -> list[str]:
         "empty template there. A note with other text stays, and this file goes to "
         f"{LINK_NAME}/{OLD_COPIES}/{rel} with a task to compare them. No text is lost. "
         "`memory migrate` prints the plan and changes nothing."
-        for rel in stray_files(memdir)
+        for rel in map(clean, stray_files(memdir))
     ]
     return notes
+
+
+def _shown(rel: str, width: int = 40) -> str:
+    """A file name from the memory folder, on one line and short. It can hold any text."""
+    text = clean(rel)
+    return text if len(text) <= width else text[: width - 3] + "..."
 
 
 def is_stray_note(line: str) -> bool:
@@ -180,7 +202,9 @@ def stray_line(rels: list[str]) -> str | None:
     """One line for a load, which every session reads. `memory check` explains each file."""
     if not rels:
         return None
-    shown = ", ".join(rels[:3]) + (f" and {len(rels) - 3} more" if len(rels) > 3 else "")
+    shown = ", ".join(map(_shown, rels[:3])) + (
+        f" and {len(rels) - 3} more" if len(rels) > 3 else ""
+    )
     return (
         f"note: {len(rels)} file(s) in {LINK_NAME} are outside notes/, so no load reads them: "
         f"{shown}. `memory migrate` prints the plan."
@@ -361,26 +385,62 @@ def checker_references(root: Path, files: Iterable[str], scripts: list[str]) -> 
     return refs[:MAX_REFS]
 
 
-def names_old_notes(text: str) -> bool:
-    """True when the text names a path in the memory folder that the new layout has no place for.
+def folder_reads(text: str) -> Iterator[str]:
+    """The path in the memory folder that each read names: `status.md` for
+    `memory-bank/status.md`, and "" for the folder itself, as in `ls memory-bank`.
 
-    The link keeps its name, so `memory-bank/notes/status.md` is the new layout. A word with no
-    path after it shows nothing about which layout a script reads.
+    A path, a glob, a `$VAR`, a brace set, `Path("memory-bank") / "x"` and
+    `["memory-bank", "x"]` each name what follows. A bare `memory-bank` is a read only as a file
+    argument (`ls`, `test -d`, `os.listdir(...)`). A word in a comment, or a name that code joins
+    with a part later, names no path, so it shows nothing about the layout.
     """
-    rels = [*PATH_RE.findall(text), *JOINED_PATH_RE.findall(text)]
-    return any(not is_new_layout(rel) for rel in rels)
+    for match in FOLDER_RE.finditer(text):
+        before, after = text[: match.start()], text[match.end() :]
+        tail = FOLDER_TAIL_RE.match(after)
+        if tail:
+            yield tail.group(1)
+            continue
+        quoted = before[-1:] in ("'", '"') and after[:1] == before[-1:]
+        if quoted:
+            before, after = before[:-1], after[1:]
+            part = FOLDER_PART_RE.match(after)
+            if part:
+                yield part.group(1)
+                continue
+            if FOLDER_METHOD_RE.match(after) or FOLDER_CALL_RE.search(before):
+                yield ""
+                continue
+        words = before.split()
+        is_arg = bool(words) and FOLDER_ARG_RE.fullmatch(words[-1]) is not None
+        if is_arg and (quoted or after[:1] in WORD_END):
+            yield ""
+
+
+def old_note_path(text: str) -> str | None:
+    """The first path in the memory folder that the text reads and the new layout has no place
+    for, as `memory-bank/REL`. The link keeps its name, so `memory-bank/notes/` is the new layout.
+    """
+    for rel in folder_reads(text):
+        if not is_new_layout(rel):
+            return _shown(f"{LINK_NAME}/{rel}" if rel else LINK_NAME, 80).replace("`", "'")
+    return None
 
 
 def hook_reads_old_notes(root: Path, command: str) -> str | None:
-    """What ties a hook to the old notes: its command, or a repo script that it runs."""
+    """What ties a hook to the old notes, with the path it reads: its command, or a repo script
+    that it runs."""
     if OWN_HOOK_RE.search(command):
         return None
-    if names_old_notes(command.replace(str(root), "")):
-        return "Its command names the old notes folder."
-    for found in HOOK_SCRIPT_RE.findall(command):
-        rel = found.lstrip("/").removeprefix("./")
-        if ".." not in PurePosixPath(rel).parts and names_old_notes(read_text(root / rel) or ""):
-            return f"The script it runs ({rel}) reads the old notes folder."
+    found = old_note_path(command.replace(str(root), ""))
+    if found:
+        return f"Its command reads `{found}`, which is outside the new layout."
+    for script in HOOK_SCRIPT_RE.findall(command):
+        rel = script.lstrip("/").removeprefix("./")
+        if ".." in PurePosixPath(rel).parts:
+            continue
+        found = old_note_path(read_text(root / rel) or "")
+        if found:
+            return f"The script it runs ({rel}) reads `{found}`, which is outside the new layout."
     return None
 
 
