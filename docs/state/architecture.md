@@ -67,6 +67,7 @@ sources:
   - src/cairnkit/state.py
   - src/cairnkit/store.py
   - src/cairnkit/tidy.py
+  - src/cairnkit/transfer.py
   - src/cairnkit/update.py
   - src/cairnkit/usage.py
   - src/cairnkit/writing.py
@@ -143,6 +144,7 @@ flowchart TB
     Library --> similar[similar]
     Library --> state[state]
     Library --> store[store]
+    Library --> transfer[transfer]
     Library --> usage[usage]
     memory --> store
     load --> memory

@@ -308,7 +308,9 @@ def add_fact(memory: Memory, args) -> str | None:
         }
         if summary:
             fact["summary"] = summary
-        if running_tool():
+        if getattr(args, "author", None):
+            fact["author"] = args.author
+        elif running_tool():
             fact["author"] = f"agent:{running_tool()}"
         if args.tag:
             fact["tags"] = args.tag

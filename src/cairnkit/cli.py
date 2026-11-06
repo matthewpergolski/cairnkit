@@ -373,6 +373,38 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=20)
 
     p = sub.add_parser(
+        "export",
+        parents=[common],
+        help="print this project's facts as dated lines, to paste elsewhere or keep",
+    )
+    p.add_argument(
+        "--output",
+        metavar="PATH",
+        help="write to PATH (mode 600); a path that git does not ignore is refused",
+    )
+    p.add_argument("--force", action="store_true", help="with --output: replace a file")
+    p.add_argument("--all", action="store_true", help="also ended facts, with their status")
+
+    p = sub.add_parser(
+        "import",
+        parents=[common],
+        help="add facts from an export, another assistant's answer, or Claude Code's notes",
+        description="Read dated lines under headings (an export, or an answer to "
+        "`memory import --prompt`), Claude Code memory notes, or the rule-like list items of an "
+        "AGENTS.md or CLAUDE.md. Personal entries, secrets and text this memory has are skipped. "
+        "Each fact gets basis seen; a rule loads as data until the owner states it with "
+        "`memory add --basis told`. Without --yes it shows the plan and changes nothing.",
+    )
+    p.add_argument("file", nargs="?", metavar="FILE|-", help="a file or folder; - reads stdin")
+    p.add_argument(
+        "--prompt", action="store_true", help="print the prompt to paste into another assistant"
+    )
+    p.add_argument(
+        "--native", action="store_true", help="read Claude Code's own memory of this project"
+    )
+    p.add_argument("--yes", action="store_true", help="write the facts; without it, only plan")
+
+    p = sub.add_parser(
         "docs",
         parents=[common],
         help="write a Nessa Docs atlas (docs/state) for this project",
@@ -518,8 +550,23 @@ def run(args) -> int:
         return run_hook(project, args.path, args.event, args.agent)
     if args.command == "load":
         return run_load(project, args.path, args.area, max(args.budget, 0), args.explain)
+    if args.command == "import" and args.prompt:
+        from cairnkit.transfer import prompt_text
+
+        print(prompt_text(project.main_root.name), end="")
+        return 0
+    if args.command == "import" and not (args.file or args.native):
+        return fail("name a FILE, - for stdin, or --native; --prompt prints the prompt")
     try:
         memory = _open(project, args)
+        if args.command in ("export", "import"):
+            from cairnkit import transfer
+
+            if args.command == "export":
+                if args.force and not args.output:
+                    return fail("--force goes with --output")
+                return transfer.run_export(memory, args.output, args.all, args.force)
+            return transfer.run_import(memory, args.file, args.native, args.yes)
         if args.command == "add":
             new = add_fact(memory, args)
             line = copy_line_once(project, memory.dir)
