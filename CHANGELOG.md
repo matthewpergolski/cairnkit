@@ -222,9 +222,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is more than one plain word, so `pytest -x && ls` and `FOO=1 ls` are no pair. An owner prompt
   that says "run memory check" still counts as the owner's. Temp files of a killed hook go after
   an hour, and the index copy can no longer raise or be left half written.
-- One odd Python file no longer stops `memory docs`, `memory docs --check` or the atlas line of
-  `memory status`. A sum of 5000 terms in `urlpatterns` raised RecursionError. Now a file that
-  cannot be read or parsed counts as empty, and the other files still map.
+- One odd file no longer stops `memory docs`, `memory docs --check` or the atlas line of
+  `memory status`. A sum of 5000 terms in `urlpatterns` raised RecursionError, and so did a
+  `package.json`, `tsconfig.json` or `pyproject.toml` that nests 100000 deep. A line of 400000
+  minus signs ran the Python parser out of memory. Now a file that cannot be read or parsed counts
+  as empty, and the other files still map. The toolchain scan of the presets also reads such a
+  manifest as empty.
 - `memory docs` reads no file outside the repo. A tracked link to a file outside put that file's
   first line in `docs/state`. Now it skips each link, also a link to a manifest such as
   `pyproject.toml`. It also refuses a `docs/state` that is a link, and it writes or removes no page

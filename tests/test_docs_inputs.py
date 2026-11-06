@@ -186,3 +186,45 @@ def test_only_the_front_matter_of_a_hand_page_gives_its_id(mem: Path, repo: Path
     assert main(["docs"]) == 0
     parents = {front(page(repo, rel)).get("parent") for rel in pages(repo) - {"README.md"}}
     assert parents and "evil" not in parents
+
+
+@pytest.mark.parametrize(
+    ("rel", "text"),
+    [
+        ("site/deep.py", "x = " + "-" * 400_000 + "1\n"),
+        ("package.json", "[" * 200_000),
+        ("web/tsconfig.json", "[" * 200_000),
+        ("pyproject.toml", "a=" + "[" * 100_000),
+    ],
+    ids=["python-parser-stack", "package-json", "tsconfig", "pyproject"],
+)
+def test_a_file_too_deep_to_parse_counts_as_empty(mem: Path, repo: Path, capsys, rel, text):
+    """A parser ran out of stack (MemoryError, RecursionError) and stopped docs and status."""
+    write(repo / "site" / "__init__.py", "")
+    write(repo / "site" / "good.py", '"""Good module."""\n')
+    write(repo / "web" / "package.json", '{"name": "web"}\n')
+    write(repo / "web" / "main.ts", "// The web entry.\nexport {};\n")
+    write(repo / rel, text)
+    assert main(["docs"]) == 0
+    assert "Good module." in all_text(repo)
+    capsys.readouterr()
+    assert main(["docs", "--check"]) == 0
+    assert capsys.readouterr().out == ""
+    write(repo / "site" / "good.py", '"""Better module."""\n')
+    assert main(["status"]) == 0
+    assert "docs/state" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("rel", "text"),
+    [("package.json", "[" * 200_000), ("pyproject.toml", "a=" + "[" * 100_000)],
+    ids=["package-json", "pyproject"],
+)
+def test_the_toolchain_scan_reads_a_too_deep_manifest_as_empty(tmp_path: Path, rel, text):
+    from cairnkit.detect import detect
+
+    write(tmp_path / "biome.json", "{}\n")
+    write(tmp_path / rel, text)
+    found = detect(tmp_path)
+    assert not found["uv"].found and not found["ruff"].found
+    assert found["biome"].found and not found["biome-run"].found

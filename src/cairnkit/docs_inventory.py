@@ -59,6 +59,9 @@ SCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 MAX_CODE_FILES = 6000
 MAX_FILE_BYTES = 1_000_000  # a bigger file is generated or data; the atlas reads it as empty
 MAX_WALK = 50_000  # files listed in a folder with no git, so the run stays bounded
+# What a parser raises on a file it cannot read. Deep nesting runs a parser out of stack:
+# json and tomllib raise RecursionError, and the Python parser raises MemoryError.
+PARSE_ERRORS = (ValueError, RecursionError, MemoryError)
 
 
 class ProjectKind(StrEnum):
@@ -187,7 +190,7 @@ def read_file(root: Path, rel: str) -> str | None:
 def _read_pyproject(root: Path, rel: str) -> dict:
     try:
         data = tomllib.loads(read_file(root, rel) or "")
-    except tomllib.TOMLDecodeError:
+    except PARSE_ERRORS:
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -195,7 +198,7 @@ def _read_pyproject(root: Path, rel: str) -> dict:
 def read_json(root: Path, rel: str) -> dict:
     try:
         raw = json.loads(read_file(root, rel) or "null")
-    except ValueError:
+    except PARSE_ERRORS:
         return {}
     return raw if isinstance(raw, dict) else {}
 
