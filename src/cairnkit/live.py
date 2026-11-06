@@ -186,6 +186,10 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
     return (f", branch {name(branch)}" if branch else ""), held
 
 
+# Only an end that the hooks saw ends a record. A missed one is no proof that the helper runs.
+NO_END = "no end recorded, so it may have ended unseen"
+
+
 def _helper_line(memory: Memory, helper: helpers.Helper) -> str:
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
@@ -196,13 +200,13 @@ def _helper_line(memory: Memory, helper: helpers.Helper) -> str:
     elif helper.has_checkout:
         branch, held = _helper_work(memory, helper)
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}{branch}"
-        state = ["no end recorded", held]
+        state = [NO_END, held]
     elif helper.checkout:
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}"
-        state = ["no end recorded", "that checkout is gone now"]
+        state = [NO_END, "that checkout is gone now"]
     else:
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.parent)}"
-        state = ["no end recorded"]
+        state = [NO_END]
     task = [f"task: {helper.task}"] if helper.task else []
     return mask(clean(f"- [helper] {head}: {'; '.join([*task, *state])}."), memory.env)
 

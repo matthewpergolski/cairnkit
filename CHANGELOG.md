@@ -186,6 +186,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
+  a review that ended two days before read as still running, because its end never reached the
+  hooks.
+
 - `memory migrate` no longer asks to remove a repo's own hook whose script reads
   `memory-bank/notes/`. It counted any mention of `memory-bank` as the old layout, but the new
   layout lives under that link too. In a real project it asked to remove two working hooks that

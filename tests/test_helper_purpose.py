@@ -159,6 +159,8 @@ def test_a_killed_session_leaves_the_purpose_of_its_helper_for_the_next_one(repo
     assert "host link for each invitation" in line
     assert ".worktrees/host-link-per-invitation" in line
     assert "no end recorded" in line
+    # A missed end is not a running helper. One that ended two days before read as still running.
+    assert "may have ended unseen" in line and "running" not in line
     assert "no uncommitted change and no commit" in line
 
 
