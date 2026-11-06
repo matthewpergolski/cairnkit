@@ -281,10 +281,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they do all that it does. Before, a mention of a path was enough to say "Remove this hook
   handler". A hook that runs the old checker now gets the same item. It counts only when it runs
   a repo script named `check_memory.py` (or `check-memory.sh` and the like) that names
-  `memory-bank` and reads no path of the new layout. Before, `check_memory` anywhere in the
-  command counted, so `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that
-  was already updated got "Remove this hook handler". A doc line or a script name counts as the
-  old checker only for the whole name `check_memory` or `check-memory` too.
+  `memory-bank` and reads no path of the new layout, also as `$CLAUDE_PROJECT_DIR/tools/...`
+  with or without quotes or braces. Before, `check_memory` anywhere in the command counted, so
+  `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that was already updated
+  got "Remove this hook handler". A doc line or a script name counts as the old checker only
+  for the whole name `check_memory` or `check-memory` too. The task section "The old checker"
+  asks for the same comparison before the script goes. Before, it said to remove the script
+  once nothing named it.
 - `memory migrate` reads a long hook script, hook command or doc line in a time that grows with
   its size. Before, the time grew with the square of the size for a long word of
   `memory-bank/notes/` parts, a run of spaces after `"memory-bank"`, a long doc line that names

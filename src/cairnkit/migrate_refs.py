@@ -59,7 +59,9 @@ BRACE_RE = re.compile(r"\{([^{}]*)\}")
 MAX_BRACE_PATHS = 64
 WORD_END = ("", " ", "\t", "\n", ";", "&", "|", ")", "]", "`")
 OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
-HOOK_SCRIPT_RE = re.compile(r"(?<![\w./-])[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
+# A script path in a hook command. A `$VAR/` or `${VAR}/` in front, such as the project folder,
+# is no part of the path in the repo.
+HOOK_SCRIPT_RE = re.compile(r"(?<![\w./$-])(?:\$\{?\w+\}?(?=/))?([\w./-]+\.(?:py|sh|mjs|js|ts))\b")
 CHECKER_CMD_RE = re.compile(
     r"(?<![^\s`'\"(])(?:uv run(?: --no-project)? |python3? )?(?:[^\s`'\"()]*/)?"
     r"check[_-]?memory\.(?:py|sh|mjs|js|ts)\b",
@@ -636,7 +638,11 @@ def render_followups(
             )
         if refs:
             lines.append("- Still run or named at: " + ", ".join(f"`{r}`" for r in refs))
-        lines.append("- Remove the script only after nothing names it.")
+        lines.append(
+            "- Compare what the script checks with what `memory check` and `memory load` do "
+            "now. Remove it only when they do all of it and nothing names it. If it does "
+            f"more, keep it and point its paths at {LINK_NAME}/notes/."
+        )
     if drops:
         lines += ["", "## What the old tooling checked", ""]
         lines += [f"- {drop}" for drop in drops]
