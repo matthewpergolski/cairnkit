@@ -245,7 +245,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
   list a repo, it stops with an error and changes nothing. Before, it walked the folder and read
   ignored files. A folder with no git is walked to at most 50000 files, and a file bigger than 1 MB
-  counts as empty.
+  counts as empty. A global ignore of one machine can still change the list, so the help of
+  `memory docs --check` and the README say to run the check in CI on a clean checkout.
 - A file that starts with a UTF-8 byte order mark keeps its summary and its imports in the atlas.
 - The parent id of the atlas comes only from the front matter of a hand-written
   `docs/state/README.md`. Before, an `id:` line in the body could set it.
