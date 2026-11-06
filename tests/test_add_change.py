@@ -142,3 +142,22 @@ def test_change_removes_a_link_that_was_wrong(mem, capsys):
     assert main(["change", second, "--unlink", f"related:{third}"]) != 0
     assert "has no link related:" in capsys.readouterr().err
     assert main(["check"]) == 0
+
+
+# What the check of 0.3.1 asks of a change. It knows no remove_links, and it drops the record.
+OLDER_BUILD_FIELDS = ("status", "add_links", "scope", "enforced_by")
+
+
+def test_an_unlink_alone_is_a_change_that_an_older_build_accepts(mem, capsys):
+    from cairnkit.memory import Memory
+    from cairnkit.paths import find_project
+
+    first = add(capsys, "The report script exits 3 without a locale.")
+    second = add(capsys, "Set REPORT_LOCALE=C for the report script.", "--kind", "lesson")
+    assert main(["change", second, "--link", f"related:{first}"]) == 0
+    assert main(["change", second, "--unlink", f"related:{first}"]) == 0
+    change = read_jsonl(mem / "facts" / "main.jsonl")[-1]
+    assert change["remove_links"] == [{"rel": "related", "id": first}]
+    assert any(name in change for name in OLDER_BUILD_FIELDS)
+    assert Memory.open(find_project()).states[second]["links"] == []
+    assert main(["check"]) == 0

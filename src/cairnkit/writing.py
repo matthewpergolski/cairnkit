@@ -449,6 +449,8 @@ def change_fact(memory: Memory, args) -> None:
             raise Refused(f"{args.id} has no link {link['rel']}:{link['id']}")
     if gone:
         change["remove_links"] = gone
+        # The tool of 0.3.1 knows no remove_links and refuses a change with none of its fields.
+        change.setdefault("add_links", [])
     if args.enforced_by:
         if state.get("kind") != "rule":
             raise Refused(f"{args.id} is a {state.get('kind')}; --enforced-by is only for rules")

@@ -211,6 +211,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `memory load`, `memory check` and the memory hooks. It says to remove the hook only when
   they do all that it does. Before, a mention of a path was enough to say "Remove this hook
   handler".
+- `memory change --unlink` alone writes a change that the 0.3.1 build also accepts. That build
+  knew no `remove_links`, so its check reported the record as bad. Now the change also holds an
+  empty `add_links`. The older build keeps the link, and this build removes it.
 - The load line that names files outside `notes/` cleans each file name and cuts it at 40
   characters. A file name with a line break could put a line of its own in the load.
 
