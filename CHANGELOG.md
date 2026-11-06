@@ -202,6 +202,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The parent id of the atlas comes only from the front matter of a hand-written
   `docs/state/README.md`. Before, an `id:` line in the body could set it.
 
+- `memory migrate` names a repo hook that reads the old notes in more forms: a glob
+  (`memory-bank/*.md`), the folder itself (`ls memory-bank`, `ls memory-bank/`,
+  `test -d memory-bank`, `os.listdir("memory-bank")`), a `$VAR`, a brace set,
+  `Path("memory-bank") / "status.md"` and `["memory-bank", "a/b.md"]`. A path under `notes/`,
+  `facts/`, `branches/`, `proposals/`, `config.toml` or `README.md` is still the new layout.
+- The task item for such a hook names the path that it reads and asks the agent to compare the hook
+  with `memory load`, `memory check` and the memory hooks. It says to remove the hook only when
+  they do all that it does. Before, a mention of a path was enough to say "Remove this hook
+  handler".
+- The load line that names files outside `notes/` cleans each file name and cuts it at 40
+  characters. A file name with a line break could put a line of its own in the load.
+
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the
   hooks.
