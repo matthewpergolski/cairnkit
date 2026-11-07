@@ -120,6 +120,10 @@ def test_a_hook_script_that_reads_the_new_layout_is_not_named(tmp_path: Path, sc
         "uv run $GROK_WORKSPACE_ROOT/tools/recall.py",
         "uv run $PWD/tools/recall.py",
         "uv run <root>/tools/recall.py",
+        'uv run "$CLAUDE_PROJECT_DIR"/tools/recall.py',
+        'uv run "${CLAUDE_PROJECT_DIR}"/tools/recall.py',
+        'uv run "$PWD"/tools/recall.py',
+        "uv run '$CLAUDE_PROJECT_DIR'/tools/recall.py",
     ],
 )
 def test_a_hook_script_under_the_project_folder_is_named(tmp_path: Path, command: str):
@@ -135,6 +139,7 @@ def test_a_hook_script_under_the_project_folder_is_named(tmp_path: Path, command
         'uv run "${XDG_CONFIG_HOME}/tools/recall.py"',
         "uv run ~/tools/recall.py",
         "uv run /tools/recall.py",
+        'uv run "$HOME"/tools/recall.py',
     ],
 )
 def test_a_hook_script_outside_the_project_is_not_a_repo_script(tmp_path: Path, command: str):
