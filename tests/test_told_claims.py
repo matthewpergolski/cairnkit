@@ -359,6 +359,23 @@ def test_the_stored_approval_is_the_closing_question_only(mem, capsys, monkeypat
     assert "audit.example.com" not in stored and "uv run pytest -x" in stored
 
 
+def test_a_notification_prompt_ends_the_turn_of_an_approval(mem, capsys, monkeypatch, tmp_path):
+    path = session_with_proposal(tmp_path)
+    prompt(capsys, monkeypatch, "yes", transcript_path=path)
+    note = "<task-notification>The build finished.</task-notification>"
+    prompt(capsys, monkeypatch, note, transcript_path=path)
+    agent_add(capsys, monkeypatch, RULE)
+    assert not binds(capsys, "uv run pytest -x before every commit")
+
+
+def test_a_notification_prompt_ends_the_turn_of_an_answer(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "set up commit signing")
+    answer(capsys, monkeypatch, SIGNING, {"answers": {SIGNING["question"]: PICKED}})
+    prompt(capsys, monkeypatch, "<task-notification>done</task-notification>")
+    agent_add(capsys, monkeypatch, "Sign every commit with GPG.")
+    assert not binds(capsys, "Sign every commit with GPG.")
+
+
 def test_a_transcript_that_cannot_be_read_confirms_nothing(mem, capsys, monkeypatch, tmp_path):
     prompt(capsys, monkeypatch, "yes", transcript_path=str(tmp_path / "missing.jsonl"))
     agent_add(capsys, monkeypatch, RULE)

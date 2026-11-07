@@ -113,22 +113,24 @@ def _list(data: dict, name: str) -> list[dict]:
 
 
 def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
-    """Keep an owner prompt. For a short yes, keep the agent's question that it answered."""
+    """Keep an owner prompt. For a short yes, keep the agent's question that it answered.
+
+    Each prompt starts a turn, so it ends the choices and the approval of the turn before, also a
+    prompt that is not the owner's words (a notification), which keeps nothing of its own.
+    """
     prompt = str(payload.get("prompt") or "")
-    if not prompt.strip() or NOT_THE_OWNER.search(prompt):
-        return
     path = evidence_path(memory, key)
     old = _read(path)
     transcript = str(payload.get("transcript_path") or "") or None
     if old.get("transcript") and transcript != old["transcript"]:
         return  # a prompt from another transcript is no prompt of this session
     moment = time.time()
-    own = _own_words(memory, prompt)
+    own = "" if NOT_THE_OWNER.search(prompt) else _own_words(memory, prompt)
     prompts = _list(old, "prompts")
     if own:
         prompts.append({"at": moment, "text": own})
     approval = None
-    if is_approval(prompt):
+    if own and is_approval(prompt):
         message = last_agent_message(agent, transcript, prompt)
         question = final_question(message) if message else None
         if question:
