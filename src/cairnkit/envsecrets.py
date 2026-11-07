@@ -82,6 +82,7 @@ class EnvValues:
             re.compile(rf"(?<![A-Za-z0-9_])(?:{words})(?![A-Za-z0-9_])") if words else None
         )
         self._plain = {item.label for item in self._found.values() if item.plain}
+        self._names = frozenset(item.name for item in self._found.values())
 
     def __repr__(self) -> str:
         return f"EnvValues({len(self._found)} value(s))"
@@ -99,6 +100,10 @@ class EnvValues:
     @staticmethod
     def _token(name: str) -> str:
         return mask_token(name if re.fullmatch(r"[A-Z][A-Z0-9_]{0,39}", name) else ENV_VALUE)
+
+    def names(self) -> frozenset[str]:
+        """The variables, each a name that a mask can hold."""
+        return self._names
 
     def only_plain(self, names: list[str]) -> bool:
         """Each name comes from a plain word in a `.env` file, and no shape matched."""

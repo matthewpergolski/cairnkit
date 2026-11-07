@@ -370,7 +370,7 @@ def write(memdir: Path, planned: list[Planned]) -> int:
         used.add(fid)
         records.append(_record(item.rule, fid, moment, item.enforced_by))
     if records:
-        append_records(memdir / "facts" / f"{WRITER}.jsonl", records)
+        append_records(memdir / "facts" / f"{WRITER}.jsonl", records, root=memdir)
     return len(records)
 
 

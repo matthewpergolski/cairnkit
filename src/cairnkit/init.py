@@ -113,11 +113,11 @@ def _write_skeleton(memdir: Path) -> list[str]:
     made = []
     for sub in ("facts", "notes", "branches"):
         if not (memdir / sub).is_dir():
-            (memdir / sub).mkdir(parents=True)
+            plainfile.inside(memdir, memdir / sub).mkdir(parents=True)
             made.append(f"{sub}/")
     for rel, text in (("README.md", README), ("config.toml", CONFIG), ("notes/status.md", STATUS)):
-        if not (memdir / rel).exists():
-            plainfile.write_text(memdir / rel, text)
+        if not os.path.lexists(memdir / rel):
+            plainfile.write_text(plainfile.inside(memdir, memdir / rel), text)
             made.append(rel)
     return made
 

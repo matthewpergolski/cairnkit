@@ -128,9 +128,12 @@ def test_a_lock_wait_ends_with_a_clear_result(tmp_path, monkeypatch):
     lock = tmp_path / ".lock"
     with lock.open("ab") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
-        with pytest.raises(store.LockBusy, match="Nothing was written"), store.locked(lock):
+        with (
+            pytest.raises(store.LockBusy, match="Nothing was written"),
+            store.locked(lock, root=tmp_path),
+        ):
             pytest.fail("the block must not run")
-    with store.locked(lock):
+    with store.locked(lock, root=tmp_path):
         pass
 
 
@@ -139,7 +142,11 @@ def test_a_lock_wait_stays_inside_the_budget(tmp_path):
     with lock.open("ab") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
         begun = time.monotonic()
-        with deadline.within(0.1), pytest.raises(store.LockBusy), store.locked(lock):
+        with (
+            deadline.within(0.1),
+            pytest.raises(store.LockBusy),
+            store.locked(lock, root=tmp_path),
+        ):
             pytest.fail("the block must not run")
     assert time.monotonic() - begun < 2
 

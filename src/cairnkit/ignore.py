@@ -46,7 +46,11 @@ def drop_lines(project: Project, lines: list[str]) -> list[str]:
 
 
 def remove_file(path: Path, checkout: Path) -> None:
-    """Remove a file the tool wrote, and each folder that this leaves empty, up to the checkout."""
+    """Remove a file the tool wrote, and each folder that this leaves empty, up to the checkout.
+
+    Nothing behind a link goes: the file there is not one that the tool wrote."""
+    if plainfile.through_link(checkout, path):
+        return
     path.unlink()
     for folder in path.parents:
         if folder == checkout or any(folder.iterdir()):

@@ -105,8 +105,8 @@ def _read(memory: Memory) -> list[Helper]:
 
 
 def _write(memory: Memory, helpers: list[Helper]) -> None:
-    path = _file(memory)
-    for old in path.parent.glob(".open-*.tmp"):  # left by a write that a kill ended
+    path = plainfile.inside(memory.dir, _file(memory))
+    for old in plainfile.files_in(memory.dir, path.parent, ".open-*.tmp"):  # a killed write
         with contextlib.suppress(OSError):
             if old.stat().st_mtime < time.time() - 3600:
                 old.unlink()
@@ -123,11 +123,11 @@ def _write(memory: Memory, helpers: list[Helper]) -> None:
 
 def _update(memory: Memory, change: Callable[[list[Helper]], list[Helper]]) -> None:
     """Apply `change` to the records under the lock. A lock held past LOCK_WAIT skips it."""
-    _folder(memory).mkdir(parents=True, exist_ok=True)
+    plainfile.inside(memory.dir, _folder(memory)).mkdir(parents=True, exist_ok=True)
     with (
         contextlib.suppress(LockBusy),
         deadline.within(LOCK_WAIT),
-        locked(_folder(memory) / ".lock"),
+        locked(_folder(memory) / ".lock", root=memory.dir),
     ):
         helpers = _read(memory)
         changed = change(helpers)

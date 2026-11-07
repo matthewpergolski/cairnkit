@@ -6,6 +6,7 @@ import atexit
 import contextlib
 import functools
 import os
+import stat
 import subprocess
 import tempfile
 import time
@@ -64,15 +65,30 @@ def _drop_index_copies() -> None:
                 os.unlink(name)
 
 
+class NotPrivate(OSError):
+    """The folder for index copies is a link, or another user owns it or can write in it."""
+
+
 def _copies_folder() -> Path:
-    """One folder for the index copies. A copy of a killed hook is gone after an hour there."""
+    """One folder for the index copies. A copy of a killed hook is gone after an hour there.
+
+    The temp folder can be shared, so another user can make this name first. Only a real folder
+    that this user owns, with no access for others, is used or cleaned.
+    """
     folder = Path(tempfile.gettempdir()) / f"cairnkit-index-{os.getuid()}"
     folder.mkdir(mode=0o700, exist_ok=True)
+    info = os.lstat(folder)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise NotPrivate(f"not a private folder: {folder}")
     limit = time.time() - 3600
-    for old in folder.iterdir():
-        with contextlib.suppress(OSError):
-            if old.stat().st_mtime < limit:
-                old.unlink()
+    with os.scandir(folder) as entries:
+        for old in entries:
+            with contextlib.suppress(OSError):
+                if (
+                    old.is_file(follow_symlinks=False)
+                    and old.stat(follow_symlinks=False).st_mtime < limit
+                ):
+                    os.unlink(old.path)
     return folder
 
 
@@ -96,8 +112,8 @@ def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
             _INDEX_PATHS[where] = found.stdout.strip() if found.returncode == 0 else ""
         real = Path(_INDEX_PATHS[where]) if _INDEX_PATHS[where] else None
         if real and real.is_file():
-            stat = real.stat()
-            key = (str(real), stat.st_mtime_ns, stat.st_size)
+            info = real.stat()
+            key = (str(real), info.st_mtime_ns, info.st_size)
             if key not in _INDEX_COPIES:
                 if not _INDEX_COPIES:
                     atexit.register(_drop_index_copies)
@@ -364,7 +380,7 @@ def read_identity(folder: Path) -> Identity | None:
 def write_identity(folder: Path, identity: Identity) -> None:
     """Replace the file whole, so a reader never sees half of it."""
     roots = " ".join(sorted(identity.roots))
-    temp = folder / f"{IDENTITY_FILE}.{os.getpid()}"
+    temp = plainfile.inside(folder, folder / f"{IDENTITY_FILE}.{os.getpid()}")
     plainfile.write_text(temp, f"{identity.id}\n{roots}\n{identity.owner}\n")
     os.replace(temp, folder / IDENTITY_FILE)
 

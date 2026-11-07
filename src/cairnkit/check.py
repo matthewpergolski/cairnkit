@@ -491,7 +491,7 @@ def _untold(memdir: Path, catches: list[NoteCatch]) -> list[NoteCatch]:
     fresh = [catch for key, catch in keys.items() if key not in told]
     if fresh:
         try:
-            temp = path.with_name(f"{PLAIN_TOLD}.{os.getpid()}.tmp")
+            temp = plainfile.inside(memdir, path.with_name(f"{PLAIN_TOLD}.{os.getpid()}.tmp"))
             plainfile.write_text(temp, json.dumps(sorted(told | set(keys))), encoding="utf-8")
             os.replace(temp, path)
         except OSError:

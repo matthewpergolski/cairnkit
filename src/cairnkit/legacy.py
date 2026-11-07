@@ -101,10 +101,12 @@ def clean(memory: Memory) -> list[str]:
                 ended.append(Retirement(fact_id, "mined", "expired", REASON))
         if ended:
             at = stamp(now())
-            append_records(memory.writer_file(WRITER), [item.record(at) for item in ended])
+            append_records(
+                memory.writer_file(WRITER), [item.record(at) for item in ended], root=memory.dir
+            )
             write_log(memory, ended, at)
             memory.reload()
     for rel in (CANDIDATE_FILE, *LEFTOVERS):
         with contextlib.suppress(OSError):
-            (memory.dir / rel).unlink()
+            plainfile.inside(memory.dir, memory.dir / rel).unlink()
     return [item.id for item in ended]

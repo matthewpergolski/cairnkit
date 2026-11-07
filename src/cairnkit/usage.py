@@ -61,12 +61,11 @@ def record(memory: Memory, ids: Iterable[str], moment: datetime) -> None:
         known = [fact_id for fact_id in ids if fact_id in memory.states]
         if not known:
             return
-        folder = memory.dir / FOLDER
+        folder = plainfile.inside(memory.dir, memory.dir / FOLDER)
         folder.mkdir(exist_ok=True)
         payload = "".join(f"{stamp(moment)}\t{fact_id}\n" for fact_id in known)
-        with plainfile.open_write(
-            folder / f"{writer_name(memory.project.root)}.log", "a", encoding="utf-8"
-        ) as fh:
+        log = plainfile.inside(memory.dir, folder / f"{writer_name(memory.project.root)}.log")
+        with plainfile.open_write(log, "a", encoding="utf-8") as fh:
             fh.write(payload)
 
 
@@ -74,7 +73,7 @@ def compact(memory: Memory, threshold: int | None = None) -> None:
     """Rewrite each long file to its latest line per id. Safe to skip. Never raises."""
     limit = COMPACT_AT if threshold is None else threshold
     with contextlib.suppress(Exception):
-        for path in sorted((memory.dir / FOLDER).glob("*.log")):
+        for path in plainfile.files_in(memory.dir, memory.dir / FOLDER, "*.log"):
             if len(plainfile.read_text(path, encoding="utf-8").splitlines()) <= limit:
                 continue
             latest: dict[str, datetime] = {}

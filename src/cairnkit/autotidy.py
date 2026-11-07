@@ -170,7 +170,7 @@ def write_log(memory: Memory, found: list[Retirement], at: str) -> None:
     path = memory.dir / LOG_NAME
     with contextlib.suppress(OSError):
         old = plainfile.read_text(path, encoding="utf-8") if path.exists() else ""
-        with plainfile.open_write(path, "a", encoding="utf-8") as log:
+        with plainfile.open_write(plainfile.inside(memory.dir, path), "a", encoding="utf-8") as log:
             for item in found:
                 if f"cid {item.cid}" in old:
                     continue
@@ -212,7 +212,7 @@ def record_branch_tips(memory: Memory) -> None:
                 }
             )
     if records:
-        append_records(memory.writer_file(WRITER), records)
+        append_records(memory.writer_file(WRITER), records, root=memory.dir)
         memory.reload()
 
 
@@ -249,7 +249,7 @@ def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
     if dry_run:
         return find(memory)
     record_branch_tips(memory)
-    with locked(memory.dir / LOCK_NAME):
+    with locked(memory.dir / LOCK_NAME, root=memory.dir):
         memory.reload()
         found = find(memory)
         if found:
@@ -261,7 +261,7 @@ def retire(memory: Memory, dry_run: bool = False) -> list[Retirement]:
                 if problems:
                     raise ValueError(f"{item.id}: {'; '.join(problems)}")
                 records.append(rec)
-            append_records(memory.writer_file(WRITER), records)
+            append_records(memory.writer_file(WRITER), records, root=memory.dir)
             write_log(memory, found, at)
     if found:
         memory.reload()
@@ -276,11 +276,13 @@ def report(memory: Memory) -> list[Retirement]:
         return found
     line = f"would retire {len(found)}: {', '.join(item.id for item in found)}"
     path = memory.dir / LOG_NAME
-    with contextlib.suppress(OSError), locked(memory.dir / LOCK_NAME):
+    with contextlib.suppress(OSError), locked(memory.dir / LOCK_NAME, root=memory.dir):
         old = plainfile.read_text(path, encoding="utf-8").splitlines() if path.exists() else []
         last = next((ln.split(" ", 1)[1] for ln in reversed(old) if " would retire " in ln), "")
         if last != line:
-            with plainfile.open_write(path, "a", encoding="utf-8") as log:
+            with plainfile.open_write(
+                plainfile.inside(memory.dir, path), "a", encoding="utf-8"
+            ) as log:
                 log.write(f"{stamp(now())} {line}\n")
     return found
 
@@ -323,9 +325,8 @@ def _state(memory: Memory) -> dict:
 
 def _save(memory: Memory, data: dict) -> None:
     with contextlib.suppress(OSError):
-        plainfile.write_text(
-            memory.dir / STATE_NAME, json.dumps(data, sort_keys=True), encoding="utf-8"
-        )
+        path = plainfile.inside(memory.dir, memory.dir / STATE_NAME)
+        plainfile.write_text(path, json.dumps(data, sort_keys=True), encoding="utf-8")
 
 
 def open_undos(memory: Memory) -> list[dict]:
@@ -355,7 +356,7 @@ def decide(memory: Memory, *, count_session: bool = True) -> Decision:
     It does not add a session, and it does not write the state file.
     """
     moment = now()
-    with locked(memory.dir / LOCK_NAME):
+    with locked(memory.dir / LOCK_NAME, root=memory.dir):
         data = _state(memory)
         if count_session:
             data.setdefault("started_at", stamp(moment))
@@ -398,7 +399,7 @@ def decide(memory: Memory, *, count_session: bool = True) -> Decision:
 def release(memory: Memory) -> None:
     """After a review: forget the undos and start a new window."""
     moment = stamp(now())
-    with locked(memory.dir / LOCK_NAME):
+    with locked(memory.dir / LOCK_NAME, root=memory.dir):
         _save(
             memory,
             {"started_at": moment, "sessions": 0, "on": False, "released_at": moment},
@@ -426,7 +427,7 @@ def _age_days(data: dict, memory: Memory) -> float | None:
 
 
 def mark_tidied(memory: Memory) -> None:
-    with locked(memory.dir / LOCK_NAME):
+    with locked(memory.dir / LOCK_NAME, root=memory.dir):
         data = _state(memory)
         data["last_tidy_at"] = stamp(now())
         _save(memory, data)

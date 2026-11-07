@@ -35,7 +35,9 @@ def note_change(memory: Memory, state: dict, what: str) -> None:
     record = {"id": state["id"], "what": what, "by": by}
     with (
         contextlib.suppress(OSError),
-        plainfile.open_write(memory.dir / PENDING, "a", encoding="utf-8") as out,
+        plainfile.open_write(
+            plainfile.inside(memory.dir, memory.dir / PENDING), "a", encoding="utf-8"
+        ) as out,
     ):
         out.write(json.dumps(record) + "\n")
 

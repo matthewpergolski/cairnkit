@@ -47,5 +47,5 @@ def sync_guard(memory, guarded: bool) -> list[str]:
     if problems:
         raise ValueError("; ".join(problems))
     if records:
-        append_records(memory.writer_file(WRITER), records)
+        append_records(memory.writer_file(WRITER), records, root=memory.dir)
     return steps

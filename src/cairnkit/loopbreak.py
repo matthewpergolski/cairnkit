@@ -50,7 +50,8 @@ def _load(memory: Memory) -> dict:
 
 
 def _save(memory: Memory, data: dict) -> None:
-    plainfile.write_text(_path(memory), json.dumps(data, sort_keys=True), encoding="utf-8")
+    path = plainfile.inside(memory.dir, _path(memory))
+    plainfile.write_text(path, json.dumps(data, sort_keys=True), encoding="utf-8")
 
 
 def normalize_command(command: str) -> str:
@@ -77,7 +78,7 @@ def observe(memory: Memory, command: str, *, ok: bool) -> str | None:
     cmd = without_secret(normalize_command(command), memory.env)
     if not cmd:
         return None
-    with locked(memory.dir / LOCK_NAME):
+    with locked(memory.dir / LOCK_NAME, root=memory.dir):
         data = _load(memory)
         if ok or data.get("command") != cmd:
             data = {"command": cmd, "streak": 0 if ok else 1}

@@ -176,7 +176,9 @@ def _mask_bad_copies(memdir: Path, known: KnownValues | None) -> list[str]:
         if any(real_secrets(line, known) for line in text.splitlines()):
             lines = text.splitlines(keepends=True)
             plainfile.write_text(
-                path, "".join(mask(line, known) for line in lines), encoding="utf-8"
+                plainfile.inside(memdir, path),
+                "".join(mask(line, known) for line in lines),
+                encoding="utf-8",
             )
             done.append(f"{path.name}: masked the values that look secret.")
     return done
@@ -198,7 +200,9 @@ def repair_config(memdir: Path, known: KnownValues | None = None) -> list[str]:
         return done
     copy = _next_bad_copy(memdir)
     has_secret = any(real_secrets(line, known) for line in text.splitlines())
-    plainfile.write_bytes(copy, mask(text, known).encode() if has_secret else raw)
+    plainfile.write_bytes(
+        plainfile.inside(memdir, copy), mask(text, known).encode() if has_secret else raw
+    )
     kept: list[str] = []
     dropped: list[str] = []
     for line in text.splitlines():
@@ -216,7 +220,7 @@ def repair_config(memdir: Path, known: KnownValues | None = None) -> list[str]:
     data = tomllib.loads("\n".join(kept))
     if any(_might_be_auto_tidy(line) for line in dropped) and not _mode_ok(data.get("auto_tidy")):
         kept.insert(0, 'auto_tidy = "off"')
-    plainfile.write_text(path, "\n".join(kept) + "\n", encoding="utf-8")
+    plainfile.write_text(plainfile.inside(memdir, path), "\n".join(kept) + "\n", encoding="utf-8")
     # A key can hold the value too, so each name passes the mask.
     keys = [mask(m.group(1), known) for x in dropped if (m := _KEY_LINE.match(x))]
     shown = ", ".join(keys) or "bad bytes"

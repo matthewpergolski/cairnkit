@@ -543,6 +543,12 @@ def _apply_file(
     text = adapter.render()
     for checkout in project.checkouts if checkouts is None else checkouts:
         path = checkout / adapter.rel
+        if plainfile.through_link(checkout, path):
+            steps.append(
+                f"skip {path}: it is a link, or a folder above it is. The tool writes no file "
+                "through a link, because it can lead to a tracked file or out of the checkout."
+            )
+            continue
         if install:
             if path.exists() and MARK not in plainfile.read_text(path, encoding="utf-8"):
                 steps.append(f"skip {path}: the file is not ours")
@@ -580,6 +586,12 @@ def apply(
                     f"skip {path}: it is tracked by git. The tool writes no tracked file. "
                     f"Add the hooks by hand in a file that git ignores. Commands: {commands}"
                 )
+            continue
+        if plainfile.through_link(checkout, path):
+            steps.append(
+                f"skip {path}: it is a link, or a folder above it is. The tool writes no file "
+                "through a link, because it can lead to a tracked file or out of the checkout."
+            )
             continue
         if not install and not path.exists():
             continue

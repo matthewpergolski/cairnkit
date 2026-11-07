@@ -212,6 +212,20 @@ def migrate_shared_blocks(
     return steps, broken
 
 
+def _tracked_link(project, rel: str) -> str | None:
+    """The first folder or file in rel that is a link that git tracks. The repo brought that
+    link, so a write through it can land in a tracked file or out of the repo. A link that the
+    owner made is not tracked, and it stays usable."""
+    from cairnkit.ignore import is_tracked
+
+    parts = Path(rel).parts
+    for end in range(1, len(parts) + 1):
+        sub = "/".join(parts[:end])
+        if (project.root / sub).is_symlink() and is_tracked(project, sub):
+            return sub
+    return None
+
+
 def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> int:
     """Write the block to an untracked local file. Never write a tracked rules file."""
     from cairnkit import harness_local, rules_target
@@ -260,6 +274,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             "--instructions-file"
         )
         return 1
+    linked = _tracked_link(project, rel)
+    if linked:
+        print(
+            f"error: {clean_path(linked)} is a link that git tracks. Nothing was written. "
+            "Pick an untracked file with --instructions-file."
+        )
+        return 1
     real = rules_target.link_target(root, rel)
     if real not in (None, rel) and is_tracked(project, real):
         print(
@@ -285,6 +306,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             path = root / harness.rel
             if is_tracked(project, harness.rel):
                 print(f"note: {harness.rel} is tracked; skipped the {harness.harness} local copy")
+                continue
+            linked = _tracked_link(project, harness.rel)
+            if linked:
+                print(
+                    f"note: {clean_path(linked)} is a link that git tracks; "
+                    f"skipped the {harness.harness} local copy"
+                )
                 continue
             real_h = rules_target.link_target(root, harness.rel)
             if real_h not in (None, harness.rel) and is_tracked(project, real_h):

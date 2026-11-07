@@ -353,7 +353,7 @@ def load_state(memory: Memory, session_id: str) -> dict | None:
 
 def save_state(memory: Memory, session_id: str, state: dict) -> None:
     path = _path(memory, session_id)
-    path.parent.mkdir(exist_ok=True)
+    plainfile.inside(memory.dir, path.parent).mkdir(exist_ok=True)
     # Another hook of the same session may read it now. A rename gives it all or nothing.
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".state-", suffix=".tmp")
     try:
@@ -364,17 +364,17 @@ def save_state(memory: Memory, session_id: str, state: dict) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
-    _prune(path.parent)
+    _prune(memory.dir, path.parent)
 
 
 # A temp file of a write that a kill ended. A live write holds its file for far less.
 STALE_TEMP = 3600
 
 
-def _prune(folder: Path) -> None:
+def _prune(memdir: Path, folder: Path) -> None:
     now_s = time.time()
-    old_files = [(p, KEEP_DAYS * 86400) for p in folder.glob("*.json")]
-    old_files += [(p, STALE_TEMP) for p in folder.glob(".state-*.tmp")]
+    old_files = [(p, KEEP_DAYS * 86400) for p in plainfile.files_in(memdir, folder, "*.json")]
+    old_files += [(p, STALE_TEMP) for p in plainfile.files_in(memdir, folder, ".state-*.tmp")]
     for old, age in old_files:
         try:
             if old.stat().st_mtime < now_s - age:

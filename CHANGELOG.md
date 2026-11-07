@@ -232,6 +232,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--no-config` and your own `uv.toml` as `--config-file`. Before, uv read `uv.toml`,
   `[tool.uv]` and a `.venv` from the folder of the caller. An update from a repo then built the
   tool with the package index of that repo, and `uv build` ran its `.venv/bin/python`.
+- A hook or a command changes nothing outside the memory folder through a link in it. A repo
+  can bring such a link along. Before, session start removed old files where a `.sessions` or
+  `.sessions/live` link went and wrote its state there, a shell result rewrote the file that a
+  `.loop-breaker.json` link named, a lock file was made where a dangling link went, and
+  `memory migrate --yes` removed files under a linked folder and made files where a dangling
+  note link went. Now each write, removal, prune and walk in the memory folder takes its path
+  from one check that refuses a link from the memory folder down to the file. A test makes each
+  file that a command or hook writes there, and each folder above it, a link in turn, and finds
+  that nothing outside changes.
+- A hook install writes no file through a link. `git ls-files -- .codex/hooks.json` prints
+  nothing when `.codex` is a link that git tracks, so a repo with such a link made the install
+  rewrite a tracked file or write a hook file outside the checkout, and an uninstall removed a
+  file there. Now each adapter file with a link in its path is skipped with one line, and an
+  uninstall removes nothing behind a link. `memory instructions --write-instructions` writes no
+  rules file through a link that git tracks, such as a committed `.cursor` link: before, the
+  Cursor copy went where that link led. A link that the owner made stays usable.
+- The folder for copies of the index, `cairnkit-index-<uid>` in the temp folder, is used only
+  when it is a real folder that this user owns and that others cannot open. Another user could
+  make that name first in a shared temp folder, as a link or open to all, and change the index
+  that the pre-commit check reads, or make the clean remove files where the link goes. Now the
+  diff uses the real index then, and the clean never follows a link.
+- A value in the form of a mask, such as `[secret: AKIAIOSFODNN7EXAMPLE]`, is a secret again. The
+  scan read each `[secret: X]` as a mask, so `memory add`, `memory check` and each read let such a
+  value through in a tag, a source or a reason. Now only a shape name, `hidden text`, `env value`
+  or the name of a `.env` variable makes a mask. `memory add`, `change`, `keep` and `purge` also
+  refuse a mask in each free text that they store, not only in the text, summary and area.
+- `memory add` scans `--enforced-by` and the `--until-merged` branch for secrets before the
+  write, and `memory change` scans `--enforced-by` and `--held-by`. Before, a token in these fields
+  went into the fact file, and a note or an error printed it.
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.
