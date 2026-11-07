@@ -210,6 +210,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `memory add` scans `--enforced-by` and the `--until-merged` branch for secrets before the
+  write, and `memory change` scans `--enforced-by` and `--held-by`. Before, a token in these fields
+  went into the fact file, and a note or an error printed it.
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.

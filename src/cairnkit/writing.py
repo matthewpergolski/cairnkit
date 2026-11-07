@@ -70,8 +70,13 @@ def _new_id(memory: Memory, day: str) -> str:
     raise Refused(f"no free id left for {day}")
 
 
-def _check_secrets(memory: Memory, *texts: str | None) -> None:
-    found = sorted({name for text in texts if text for name in find_secrets(text, memory.env)})
+def _check_secrets(memory: Memory, *texts: str | None, names: tuple[str | None, ...] = ()) -> None:
+    """Refuse a value that looks secret. A name, such as a branch, is read for shapes only, as
+    `find_in_closed_fields` reads it: a branch can have the name of a plain word in `.env`."""
+    found = sorted(
+        {name for text in texts if text for name in find_secrets(text, memory.env)}
+        | {name for text in names if text for name in find_secrets(text)}
+    )
     if found:
         raise Refused(
             f"this looks like a secret ({', '.join(found)}); facts must not hold secrets. "
@@ -238,7 +243,14 @@ def add_fact(memory: Memory, args) -> str | None:
         print("note: a rule always loads in full, so its --summary is not stored")
         summary = None
     _check_secrets(
-        memory, args.text, summary, args.source, args.reason, args.area, *(args.tag or [])
+        memory,
+        args.text,
+        summary,
+        args.source,
+        args.reason,
+        args.area,
+        args.enforced_by,
+        *(args.tag or []),
     )
     if args.enforced_by and args.kind != "rule":
         raise Refused("--enforced-by is only for --kind rule")
@@ -259,6 +271,7 @@ def add_fact(memory: Memory, args) -> str | None:
         if not branch and not branch_note:
             why = "git did not answer" if deadline.git_cuts() > cuts else "HEAD is detached"
             raise Refused(f"--until-merged needs a branch name ({why})")
+        _check_secrets(memory, names=(branch,))
         if branch:
             ends["until_branch_merged"] = branch
             tip = branch_tip(root, branch)
@@ -432,6 +445,8 @@ def _print_conflicts(memory: Memory, fact: dict, moment, skip: set) -> None:
 
 def change_fact(memory: Memory, args) -> None:
     state = _need_fact(memory, args.id)
+    # First, because a refusal below can name the value.
+    _check_secrets(memory, args.reason, args.enforced_by, names=(args.held_by,))
     moment = now()
     change: dict = {"type": "change", "id": args.id, "at": stamp(moment)}
     if args.status:
@@ -468,7 +483,6 @@ def change_fact(memory: Memory, args) -> None:
         change["enforced_by"] = args.enforced_by
     elif args.no_enforced_by:
         change["enforced_by"] = None
-    _check_secrets(memory, args.reason)
     change["writer"] = writer_name(memory.project.root)
     append_records(memory.writer_file(change["writer"]), [_validated(change)])
     _refresh_followups(memory)
