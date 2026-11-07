@@ -94,7 +94,7 @@ def write_block(path: Path, *, prefix: str = "") -> str:
     new = block()
     if not path.exists():
         path.resolve().parent.mkdir(parents=True, exist_ok=True)  # a dangling link: its target
-        path.write_text(prefix + new)
+        plainfile.write_text(path, prefix + new)
         return "created"
     old = plainfile.read_text(path, encoding="utf-8")
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
@@ -105,10 +105,10 @@ def write_block(path: Path, *, prefix: str = "") -> str:
         updated = old[:start] + new + old[end + len(end_mark) :].removeprefix("\n")
         if updated == old:
             return "unchanged"
-        path.write_text(updated)
+        plainfile.write_text(path, updated)
         return "updated"
     sep = "" if old.endswith("\n\n") else ("\n" if old.endswith("\n") else "\n\n")
-    path.write_text(old + sep + new)
+    plainfile.write_text(path, old + sep + new)
     return "appended"
 
 
@@ -129,7 +129,7 @@ def remove_block(path: Path, dry_run: bool = False) -> str:
     if updated == old:
         return "unchanged"
     if not dry_run:
-        path.write_text(updated, encoding="utf-8")
+        plainfile.write_text(path, updated, encoding="utf-8")
     return "removed"
 
 
@@ -165,7 +165,7 @@ def replace_block(path: Path, dry_run: bool = False) -> str:
     if updated == old:
         return "unchanged"
     if not dry_run:
-        path.write_text(updated, encoding="utf-8")
+        plainfile.write_text(path, updated, encoding="utf-8")
     return "updated"
 
 

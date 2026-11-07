@@ -260,7 +260,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file without a wait and reads only a regular file. Such a file counts as one that cannot be
   read, and `memory hooks install` reports an agent settings file that is not a plain file and
   changes nothing in it. A regular file of any size is read in full, so a fact file over 64 MB
-  still loads and `memory purge` still rewrites it.
+  still loads and `memory purge` still rewrites it. The same holds for each file that the tool
+  writes: a pipe at `.auto-tidy-state.json`, `.auto-tidy.lock`, `.agents-seen.json`,
+  `tool-version.json`, `facts/main.jsonl` or `facts/.write.lock` made the session start hook,
+  `memory add`, `memory init --refresh` or `memory hooks install` wait for ever. Now each write,
+  append and lock opens the file without a wait and writes only a regular file. A pipe or a
+  device there counts as a file that cannot be written, and `memory export --output` refuses it.
 - `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
   files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
   list a repo, it stops with an error and changes nothing. Before, it walked the folder and read

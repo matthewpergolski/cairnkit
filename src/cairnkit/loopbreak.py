@@ -50,7 +50,7 @@ def _load(memory: Memory) -> dict:
 
 
 def _save(memory: Memory, data: dict) -> None:
-    _path(memory).write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+    plainfile.write_text(_path(memory), json.dumps(data, sort_keys=True), encoding="utf-8")
 
 
 def normalize_command(command: str) -> str:

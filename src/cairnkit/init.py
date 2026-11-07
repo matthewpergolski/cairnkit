@@ -116,7 +116,7 @@ def _write_skeleton(memdir: Path) -> list[str]:
             made.append(f"{sub}/")
     for rel, text in (("README.md", README), ("config.toml", CONFIG), ("notes/status.md", STATUS)):
         if not (memdir / rel).exists():
-            (memdir / rel).write_text(text)
+            plainfile.write_text(memdir / rel, text)
             made.append(rel)
     return made
 
@@ -168,7 +168,7 @@ def remember(project: Project, memdir: Path, source: str, chosen: bool = False) 
         text = f"{identity.id}\n{memdir.resolve()}\n{repo}\n"
         if not path.is_file() or plainfile.read_text(path) != text:
             keep_out_of_git(memdir)
-            path.write_text(text)
+            plainfile.write_text(path, text)
     except (OSError, UnicodeDecodeError):
         return
 
@@ -349,7 +349,7 @@ def run_init(
         if not current.is_file() or plainfile.read_text(current).splitlines()[:1] != [rel]:
             steps.append(f"write {current}: {rel}")
             if not dry_run:
-                current.write_text(rel + "\n")
+                plainfile.write_text(current, rel + "\n")
     if not dry_run:
         memdir.mkdir(parents=True, exist_ok=True)
         steps += [f"add {memdir / m}" for m in _write_skeleton(memdir)]

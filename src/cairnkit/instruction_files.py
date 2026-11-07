@@ -164,7 +164,7 @@ def older_layout_line(memory: Memory) -> str | None:
     new = [place for place in places if place not in known]
     if not new:
         return None
-    path.write_text(json.dumps(sorted(known | set(new))), encoding="utf-8")
+    plainfile.write_text(path, json.dumps(sorted(known | set(new))), encoding="utf-8")
     return (
         f"{', '.join(new)} teaches an older memory layout. For the memory, `memory load` and "
         "`memory instructions` win. The rest of that file still stands. This tool edits no "

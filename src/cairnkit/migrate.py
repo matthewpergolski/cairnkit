@@ -227,7 +227,7 @@ def _sync_stubs(memdir: Path, named: set[str], dry_run: bool) -> None:
             print(f"{would}leave a pointer to the note at {clean(path)}")
             if not dry_run:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(stub_text(rel), encoding="utf-8")
+                plainfile.write_text(path, stub_text(rel), encoding="utf-8")
 
 
 def scan_folder(
@@ -541,7 +541,7 @@ def _write_task(
     text = render_followups(ordered, scripts, refs, _drops(project, source))
     if not dry_run and (not path.is_file() or plainfile.read_text(path, encoding="utf-8") != text):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        plainfile.write_text(path, text, encoding="utf-8")
 
 
 def _say_where(project: Project, dry_run: bool) -> None:
@@ -782,7 +782,7 @@ def run_migrate(
         print(f"{would}write worklist {clean_path(work)}")
         if not dry_run:
             work.parent.mkdir(parents=True, exist_ok=True)
-            work.write_text(text, encoding="utf-8")
+            plainfile.write_text(work, text, encoding="utf-8")
 
     if untrack and tracked:
         if len(project.checkouts) > 1:

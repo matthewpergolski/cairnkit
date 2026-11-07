@@ -87,7 +87,9 @@ def needs_import(root: Path, rel: str) -> bool:
 
 def add_import(path: Path) -> None:
     """Put the import and a blank line at the top, before any text that is already there."""
-    path.write_text(f"{IMPORT}\n\n" + plainfile.read_text(path, encoding="utf-8"), encoding="utf-8")
+    plainfile.write_text(
+        path, f"{IMPORT}\n\n" + plainfile.read_text(path, encoding="utf-8"), encoding="utf-8"
+    )
 
 
 def present(root: Path) -> list[str]:

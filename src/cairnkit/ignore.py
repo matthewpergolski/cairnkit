@@ -22,7 +22,7 @@ def append_lines(path: Path, lines: list[str], header: str = HEADER) -> None:
     first = old.index(header) if header in old else len(old)
     kept = old[: first + 1] + [line for line in old[first + 1 :] if line != header]
     head = [] if header in old else [header]
-    path.write_text("\n".join([*kept, *head, *lines]) + "\n")
+    plainfile.write_text(path, "\n".join([*kept, *head, *lines]) + "\n")
 
 
 def exclude_file(project: Project) -> Path | None:
@@ -39,7 +39,7 @@ def drop_lines(project: Project, lines: list[str]) -> list[str]:
     old = plainfile.read_text(target).splitlines()
     found = [line for line in lines if line in old]
     if found:
-        target.write_text("\n".join(line for line in old if line not in found) + "\n")
+        plainfile.write_text(target, "\n".join(line for line in old if line not in found) + "\n")
         return [f"remove {', '.join(found)} from {target}"]
     return []
 

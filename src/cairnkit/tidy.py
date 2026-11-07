@@ -12,7 +12,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 
-from cairnkit import followups
+from cairnkit import followups, plainfile
 from cairnkit.autotidy import outranks, print_unknown
 from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
@@ -120,7 +120,7 @@ def write_report(memory: Memory, proposals: list[Proposal]) -> str:
     for p in proposals:
         lines.append(f"- {p.id} [{p.kind}] {p.summary}")
     lines += ["", "To apply: `memory tidy --apply ID [ID ...]`.", ""]
-    path.write_text("\n".join(lines))
+    plainfile.write_text(path, "\n".join(lines))
     return str(path)
 
 

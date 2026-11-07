@@ -180,7 +180,7 @@ def _seen(memdir: Path) -> list[str] | None:
 def _remember_seen(memdir: Path, names: list[str]) -> None:
     merged = sorted({*(_seen(memdir) or []), *names} - {"generic"})
     with contextlib.suppress(OSError):
-        (memdir / SEEN_FILE).write_text(json.dumps(merged) + "\n", encoding="utf-8")
+        plainfile.write_text(memdir / SEEN_FILE, json.dumps(merged) + "\n", encoding="utf-8")
 
 
 def connect_new_tools(project: Project, flag: str | None) -> None:

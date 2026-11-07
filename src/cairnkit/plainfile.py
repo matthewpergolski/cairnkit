@@ -1,10 +1,11 @@
-"""Read a file of a project or of the memory folder. It can be a pipe or a device.
+"""Read or write a file of a project or of the memory folder. It can be a pipe or a device.
 
-The open of a pipe waits for a writer, and none comes, so `mkfifo CLAUDE.md` made
-`memory status` wait for ever. A read of a device such as /dev/zero never ends. So each read
-here opens with O_NONBLOCK and reads only a regular file. A caller that must not read a big
-file gives a `limit`. For a regular file the result is the same as `Path.read_text` or
-`Path.read_bytes`.
+The open of a pipe waits for the other end, and none comes, so `mkfifo CLAUDE.md` made
+`memory status` wait for ever, and a pipe at `.auto-tidy-state.json` did the same to each
+session start. A read of a device such as /dev/zero never ends. So each open here uses
+O_NONBLOCK, and only a regular file is read or written. A caller that must not read a big
+file gives a `limit`. For a regular file the result is the same as `Path.read_text`,
+`Path.read_bytes`, `Path.write_text`, `Path.write_bytes` or `Path.open`.
 """
 
 from __future__ import annotations
@@ -13,9 +14,11 @@ import io
 import os
 import stat
 from pathlib import Path
-from typing import TextIO
+from typing import IO, TextIO
 
-_FLAGS = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+_FLAGS = os.O_RDONLY | _NONBLOCK | getattr(os, "O_BINARY", 0)
+_WRITE = os.O_WRONLY | os.O_CREAT | _NONBLOCK | getattr(os, "O_BINARY", 0)
 _NO_LINK = getattr(os, "O_NOFOLLOW", 0)
 
 
@@ -66,3 +69,64 @@ def read_text(
 def open_text(path: Path | str, encoding: str | None = None, errors: str | None = None) -> TextIO:
     """As `Path.open` for reading text."""
     return open(open_fd(path), encoding=encoding, errors=errors)
+
+
+def open_write_fd(
+    path: Path | str,
+    append: bool = False,
+    follow: bool = True,
+    new: bool = False,
+    perms: int = 0o666,
+) -> int:
+    """An open file descriptor to write a regular file, made when it is missing.
+
+    The open does not wait: a pipe with no reader fails with ENXIO, and a pipe with a reader, a
+    device or a folder is refused before a byte is written. Without append the file is emptied,
+    after that check. With new=True a file that exists is refused (FileExistsError).
+    """
+    flags = (
+        _WRITE
+        | (os.O_APPEND if append else 0)
+        | (0 if follow else _NO_LINK)
+        | (os.O_EXCL if new else 0)
+    )
+    fd = os.open(path, flags, perms)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise NotPlain(f"not a regular file: {path}")
+        if not append:
+            os.ftruncate(fd, 0)
+        if _NONBLOCK:
+            os.set_blocking(fd, True)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def open_write(
+    path: Path | str,
+    mode: str = "w",
+    encoding: str | None = None,
+    errors: str | None = None,
+    follow: bool = True,
+    new: bool = False,
+    perms: int = 0o666,
+) -> IO:
+    """As `Path.open` with mode "w", "a", "wb" or "ab"."""
+    fd = open_write_fd(path, "a" in mode, follow, new, perms)
+    return open(fd, mode, encoding=encoding, errors=errors)
+
+
+def write_text(
+    path: Path | str, data: str, encoding: str | None = None, errors: str | None = None
+) -> int:
+    """As `Path.write_text`."""
+    with open_write(path, "w", encoding=encoding, errors=errors) as fh:
+        return fh.write(data)
+
+
+def write_bytes(path: Path | str, data: bytes) -> int:
+    """As `Path.write_bytes`."""
+    with open_write(path, "wb") as fh:
+        return fh.write(data)

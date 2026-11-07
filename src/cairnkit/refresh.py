@@ -65,7 +65,7 @@ def record(project: Project, flag: str | None, block_file: str | None = None) ->
         if old.get("version") == tool_version() and old.get("blocks") == sorted(blocks):
             return  # nothing new: a second run changes nothing
         data = {"version": tool_version(), "at": stamp(now()), "blocks": sorted(blocks)}
-        (memdir / STAMP).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        plainfile.write_text(memdir / STAMP, json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def _holds(path: Path, *marks: str) -> bool:

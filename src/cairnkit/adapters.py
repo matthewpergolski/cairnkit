@@ -549,7 +549,7 @@ def _apply_file(
             steps.append(f"write {path}")
             if not dry_run:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(text, encoding="utf-8")
+                plainfile.write_text(path, text, encoding="utf-8")
         elif path.exists() and MARK in plainfile.read_text(path, encoding="utf-8"):
             steps.append(f"remove {path}")
             if not dry_run:
@@ -598,7 +598,7 @@ def apply(
             remove_file(path, checkout)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2) + "\n")
+        plainfile.write_text(path, json.dumps(data, indent=2) + "\n")
     if install and not tracked:
         steps += exclude(project, [adapter.rel], dry_run)
     return steps

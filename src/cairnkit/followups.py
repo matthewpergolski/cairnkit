@@ -243,7 +243,7 @@ def refresh(memory: Memory) -> int:
     old = plainfile.read_text(path, encoding="utf-8") if path.exists() else None
     if old != text:
         path.parent.mkdir(exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        plainfile.write_text(path, text, encoding="utf-8")
     return len(pairs) + len(items)
 
 

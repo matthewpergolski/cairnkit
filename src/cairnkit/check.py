@@ -491,7 +491,7 @@ def _untold(memdir: Path, catches: list[NoteCatch]) -> list[NoteCatch]:
     if fresh:
         try:
             temp = path.with_name(f"{PLAIN_TOLD}.{os.getpid()}.tmp")
-            temp.write_text(json.dumps(sorted(told | set(keys))), encoding="utf-8")
+            plainfile.write_text(temp, json.dumps(sorted(told | set(keys))), encoding="utf-8")
             os.replace(temp, path)
         except OSError:
             return catches

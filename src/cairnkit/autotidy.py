@@ -170,7 +170,7 @@ def write_log(memory: Memory, found: list[Retirement], at: str) -> None:
     path = memory.dir / LOG_NAME
     with contextlib.suppress(OSError):
         old = plainfile.read_text(path, encoding="utf-8") if path.exists() else ""
-        with path.open("a", encoding="utf-8") as log:
+        with plainfile.open_write(path, "a", encoding="utf-8") as log:
             for item in found:
                 if f"cid {item.cid}" in old:
                     continue
@@ -280,7 +280,7 @@ def report(memory: Memory) -> list[Retirement]:
         old = plainfile.read_text(path, encoding="utf-8").splitlines() if path.exists() else []
         last = next((ln.split(" ", 1)[1] for ln in reversed(old) if " would retire " in ln), "")
         if last != line:
-            with path.open("a", encoding="utf-8") as log:
+            with plainfile.open_write(path, "a", encoding="utf-8") as log:
                 log.write(f"{stamp(now())} {line}\n")
     return found
 
@@ -323,7 +323,9 @@ def _state(memory: Memory) -> dict:
 
 def _save(memory: Memory, data: dict) -> None:
     with contextlib.suppress(OSError):
-        (memory.dir / STATE_NAME).write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+        plainfile.write_text(
+            memory.dir / STATE_NAME, json.dumps(data, sort_keys=True), encoding="utf-8"
+        )
 
 
 def open_undos(memory: Memory) -> list[dict]:

@@ -134,7 +134,7 @@ def latest_version(force: bool = False) -> str | None:
         record["failed"] = True
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        plainfile.write_text(path, json.dumps(record) + "\n", encoding="utf-8")
     return version or old
 
 
@@ -223,7 +223,7 @@ def record_catalog(count: int, names: list[str] | None = None) -> None:
     with contextlib.suppress(OSError):
         path = cache_dir() / CATALOG
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        plainfile.write_text(path, json.dumps(record) + "\n", encoding="utf-8")
 
 
 def catalog_count() -> int | None:
@@ -426,7 +426,7 @@ def _state(memdir: Path) -> dict:
 def _save(memdir: Path, state: dict) -> None:
     with contextlib.suppress(OSError):
         if memdir.is_dir():
-            (memdir / STATE_NAME).write_text(json.dumps(state) + "\n", encoding="utf-8")
+            plainfile.write_text(memdir / STATE_NAME, json.dumps(state) + "\n", encoding="utf-8")
 
 
 def once_line(memdir: Path, record: bool = True) -> str | None:
@@ -540,7 +540,7 @@ def copy_skills(
         "catalog": len(names),
         "installed_at": stamp(now()),
     }
-    (meta / MARKER).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    plainfile.write_text(meta / MARKER, json.dumps(record, indent=2) + "\n", encoding="utf-8")
     return installed, adopted, skipped
 
 

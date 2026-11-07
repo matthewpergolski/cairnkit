@@ -339,7 +339,7 @@ def write_identity(folder: Path, identity: Identity) -> None:
     """Replace the file whole, so a reader never sees half of it."""
     roots = " ".join(sorted(identity.roots))
     temp = folder / f"{IDENTITY_FILE}.{os.getpid()}"
-    temp.write_text(f"{identity.id}\n{roots}\n{identity.owner}\n")
+    plainfile.write_text(temp, f"{identity.id}\n{roots}\n{identity.owner}\n")
     os.replace(temp, folder / IDENTITY_FILE)
 
 
@@ -522,7 +522,7 @@ def copy_line_once(project: Project, memdir: Path) -> str | None:
     except (OSError, UnicodeDecodeError):
         pass
     with contextlib.suppress(OSError):
-        marker.write_text(noted)
+        plainfile.write_text(marker, noted)
     return line
 
 

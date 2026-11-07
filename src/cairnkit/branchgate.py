@@ -205,7 +205,7 @@ def on_push(project: Project, flag: str | None, refs: str) -> str | None:
             refusals.append(_same_note(branch))
         else:
             record["pending"] = {"note": note, "sha": local}
-    path.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    plainfile.write_text(path, json.dumps(state, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return "\n".join(refusals) or None
 
 

@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import Project
 from cairnkit.selection import clean_path
@@ -126,7 +127,7 @@ def write_atlas(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
         if dry_run:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_page(page), encoding="utf-8")
+        plainfile.write_text(path, render_page(page), encoding="utf-8")
     return written
 
 

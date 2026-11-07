@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -87,6 +88,44 @@ def test_the_reader_gives_what_read_text_gives(tmp_path: Path, data: bytes, enco
         assert fh.read() == want
 
 
+def test_the_writer_refuses_a_pipe_a_device_and_a_folder_without_a_wait(tmp_path: Path):
+    from cairnkit import plainfile
+
+    pipe(tmp_path / "pipe")
+    for path in (tmp_path / "pipe", Path(os.devnull), tmp_path):
+        for write in (
+            lambda p: plainfile.write_text(p, "x"),
+            lambda p: plainfile.write_bytes(p, b"x"),
+            lambda p: plainfile.open_write(p, "a").close(),
+            lambda p: plainfile.open_write(p, "ab").close(),
+        ):
+            with pytest.raises(OSError):
+                write(path)
+    assert (tmp_path / "pipe").is_fifo()
+
+
+def test_the_writer_gives_what_path_gives(tmp_path: Path):
+    from cairnkit import plainfile
+
+    path, want = tmp_path / "f", tmp_path / "want"
+    for target, write in ((path, plainfile.write_text), (want, Path.write_text)):
+        target.write_text("old text that is long\n")
+        write(target, "newü\n", encoding="utf-8")
+        with plainfile.open_write(target, "a", encoding="utf-8") as fh:
+            fh.write("more\n")
+    assert path.read_bytes() == want.read_bytes() == "newü\nmore\n".encode()
+    plainfile.write_bytes(path, b"\x00bytes")
+    assert path.read_bytes() == b"\x00bytes"
+    with pytest.raises(FileExistsError):
+        plainfile.open_write(path, "w", new=True)
+    (tmp_path / "link").symlink_to(path)
+    with pytest.raises(OSError):
+        plainfile.open_write(tmp_path / "link", "w", follow=False)
+    assert path.read_bytes() == b"\x00bytes"
+    plainfile.open_write(tmp_path / "new", "w", new=True, perms=0o600).close()
+    assert (tmp_path / "new").stat().st_mode & 0o777 == 0o600
+
+
 def test_a_link_is_refused_only_when_asked(tmp_path: Path):
     from cairnkit import plainfile
 
@@ -136,6 +175,62 @@ def test_each_read_of_a_project_or_memory_file_goes_through_the_plain_reader():
     assert found == []
 
 
+OWN_WRITE_SITES = {("cli.py", "os.open(os.devnull")}
+
+
+def _mode(node: ast.Call, at: int) -> str:
+    """The mode argument of an open call, or "r"."""
+    for kw in node.keywords:
+        if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+            return str(kw.value.value)
+    arg = node.args[at] if len(node.args) > at else None
+    return str(arg.value) if isinstance(arg, ast.Constant) else "r"
+
+
+def _raw_writes(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    found = []
+    for node in ast.walk(ast.parse(text)):
+        if not isinstance(node, ast.Call):
+            continue
+        func, call = node.func, ast.get_source_segment(text, node) or ""
+        if isinstance(func, ast.Name):
+            writes = func.id == "open" and any(c in _mode(node, 1) for c in "wax+")
+        elif isinstance(func, ast.Attribute):
+            owner = func.value.id if isinstance(func.value, ast.Name) else None
+            if owner == "plainfile":
+                continue
+            if owner == "os":
+                writes = func.attr == "open" and "O_RDONLY" not in call
+            else:
+                writes = func.attr in ("write_text", "write_bytes") or (
+                    func.attr == "open"
+                    and owner not in OPENERS
+                    and any(c in _mode(node, 0) for c in "wax+")
+                )
+        else:
+            continue
+        line = lines[node.lineno - 1]
+        if writes and not any(path.name == f and s in line for f, s in OWN_WRITE_SITES):
+            found.append(f"{path.name}:{node.lineno}: {line.strip()}")
+    return found
+
+
+def test_each_write_of_a_project_or_memory_file_goes_through_the_plain_writer():
+    """A new `Path.write_text` or `open(..., "a")` would bring the hang of a pipe back."""
+    import cairnkit
+
+    src = Path(cairnkit.__file__).parent
+    found = [
+        line
+        for path in sorted(src.glob("*.py"))
+        if path.name not in OWN_FILES
+        for line in _raw_writes(path)
+    ]
+    assert found == []
+
+
 def test_a_fact_file_over_64_mb_still_loads_and_purges(mem: Path, repo: Path, capsys):
     """Only a pipe or a device is refused; a big regular fact file is read in full."""
     from conftest import make_fact, write_facts
@@ -154,3 +249,75 @@ def test_a_fact_file_over_64_mb_still_loads_and_purges(mem: Path, repo: Path, ca
     capsys.readouterr()
     main(["load"])
     assert "We chose SQLite over Postgres." in capsys.readouterr().out
+
+
+SESSION = {"session_id": "s1", "cwd": "."}
+SWEEP = {
+    "load": (("load",), None),
+    "check": (("check",), None),
+    "status": (("status",), None),
+    "add": (("add", "We chose SQLite over Postgres for the cache."), None),
+    "search": (("search", "SQLite"), None),
+    "tidy": (("tidy",), None),
+    "export": (("export",), None),
+    "repair": (("repair",), None),
+    "init --refresh": (("init", "--refresh"), None),
+    "hooks install": (("hooks", "install", "--agent", "claude"), None),
+    "instructions": (("instructions", "--write-instructions", "local"), None),
+    "hook session-start": (
+        ("hook", "session-start", "--agent", "claude"),
+        {**SESSION, "source": "startup"},
+    ),
+    "hook prompt": (("hook", "prompt", "--agent", "claude"), {**SESSION, "prompt": "Use uv."}),
+    "hook before-shell": (
+        ("hook", "before-shell", "--agent", "claude"),
+        {**SESSION, "tool_name": "Bash", "tool_input": {"command": "pip install requests"}},
+    ),
+    "hook pre-compact": (("hook", "pre-compact", "--agent", "claude"), SESSION),
+    "hook pre-commit": (("hook", "pre-commit"), None),
+    "hook stop": (("hook", "stop", "--agent", "claude"), SESSION),
+}
+# Files that hung a command before each write opened without a wait. The sweep must reach them.
+REACHED = {
+    "hook session-start": ["memory/.auto-tidy-state.json", "memory/.auto-tidy.lock"],
+    "hooks install": ["memory/.agents-seen.json", "memory/tool-version.json"],
+    "init --refresh": ["memory/tool-version.json"],
+    "add": ["memory/facts/main.jsonl", "memory/facts/.write.lock"],
+}
+
+
+@pytest.mark.parametrize("name", SWEEP)
+def test_a_pipe_at_any_file_that_a_command_opens_hangs_nothing(
+    mem: Path, repo: Path, tmp_path: Path, name: str
+):
+    """Each file in the project or the memory folder that the command opens, read or write, is
+    a pipe in turn. The sweep finds the files itself, so a new file is in it."""
+    from cairnkit.cli import main
+
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    assert main(["add", "We chose uv over pip for installs."]) == 0
+    args, payload = SWEEP[name]
+    work = tmp_path / "sweep"
+    work.mkdir()
+    plan = {
+        "root": str(repo),
+        "memdir": str(mem),
+        "args": list(args),
+        "stdin": json.dumps(payload) if payload else "",
+        "timeout": 10,
+    }
+    (work / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    driver = Path(__file__).with_name("odd_file_sweep.py")
+    subprocess.run(
+        [sys.executable, str(driver), str(work / "plan.json"), str(work / "result.json")],
+        check=True,
+        timeout=900,
+    )
+    result = json.loads((work / "result.json").read_text(encoding="utf-8"))
+    names = {
+        "memory/" + Path(p).relative_to(mem.resolve()).as_posix()
+        for p in result["opened"]
+        if Path(p).is_relative_to(mem.resolve())
+    }
+    assert set(REACHED.get(name, [])) <= names
+    assert result["problems"] == {}

@@ -64,7 +64,9 @@ def record(memory: Memory, ids: Iterable[str], moment: datetime) -> None:
         folder = memory.dir / FOLDER
         folder.mkdir(exist_ok=True)
         payload = "".join(f"{stamp(moment)}\t{fact_id}\n" for fact_id in known)
-        with (folder / f"{writer_name(memory.project.root)}.log").open("a", encoding="utf-8") as fh:
+        with plainfile.open_write(
+            folder / f"{writer_name(memory.project.root)}.log", "a", encoding="utf-8"
+        ) as fh:
             fh.write(payload)
 
 
