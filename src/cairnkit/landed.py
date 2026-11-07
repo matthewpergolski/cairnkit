@@ -37,6 +37,18 @@ _EXTENSION = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
 # Python strips the separators U+001C to U+001F as white space, so these are NUL and SOH.
 _COMMIT = "\x00"
 _FIELD = "\x01"
+# The owner's yes to one piece of work, or a name of one piece of work. "approve" alone is out:
+# "ask the owner to approve each deploy" is a lasting policy.
+_ONE_WORK = re.compile(
+    r"(?i)\byes,?\s+to\b|\bapproved\b|\bgo\s+ahead\s+with\b|\bsigned\s+off\s+on\b"
+    r"|\bfor\s+this\s+(?:release|sprint|branch|pr)\b"
+    r"|\b(?:migration|spec|pr)\s*#?\d+|(?<![\w&])#\d+\b"
+)
+
+
+def one_work(text: str) -> bool:
+    """True when the text reads as approval of one piece of work, not as a lasting policy."""
+    return bool(_ONE_WORK.search(text))
 
 
 @dataclass(frozen=True)

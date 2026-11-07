@@ -464,6 +464,10 @@ start names those facts in one line. Auto-tidy ends none of them: the agent
 decides. If one still holds, `memory change ID --status active --reason "..."`
 marks it as reviewed, and only a later commit names it again. One `git log` reads
 all facts, and `<memory>/.landed.json` keeps the answer until a main branch moves.
+When `memory add` writes a rule whose text reads as approval of one piece of work
+("yes to", "approved", "go ahead with", "for this release", a migration or PR
+number), it suggests `--kind decision` with `--files` or `--until-merged`, so the
+fact can end with the work. A lasting policy stays a rule.
 
 **A source that is gone is named, not ended.** `memory load` prints one line with
 the facts whose `file:` or `commit:` source no longer exists. A long-term fact stays

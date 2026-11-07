@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all
   facts, and `<memory>/.landed.json` keeps the answer until a main branch moves. `memory tidy` also
   proposes to supersede an active rule that a newer fact names by id and says it replaces.
+- `memory add --kind rule` (any basis) whose text reads as approval of one piece of work ("yes
+  to", "approved", "go ahead with", "signed off on", "for this release", a migration, spec or PR
+  number, `#158`) prints a note: write it as `--kind decision --supersedes ID` with
+  `--files PATHS` (tidy proposes the end when they land) or `--until-merged BRANCH`, and keep
+  `rule` for a lasting policy.
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path

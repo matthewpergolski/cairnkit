@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from cairnkit import deadline, followups, owner_evidence
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
+from cairnkit.landed import one_work
 from cairnkit.memory import Memory
 from cairnkit.paths import (
     branch_exists,
@@ -451,6 +452,14 @@ def add_fact(memory: Memory, args) -> str | None:
             "note: this reads as a rule. A plain fact can be held back from the session start; "
             f'a rule loads each time. To make it one: memory add "TEXT" --kind rule '
             f"--supersedes {fact['id']}"
+        )
+    if fact["kind"] == "rule" and one_work(fact["text"]):
+        print(
+            "note: this rule reads as approval of one piece of work, and a rule loads in each "
+            'session. If it holds only for that work, write it as: memory add "TEXT" --kind '
+            f"decision --supersedes {fact['id']} with --files PATHS (tidy proposes the end when "
+            "they land) or --until-merged BRANCH (it ends at the merge). Keep --kind rule for a "
+            "lasting policy."
         )
     if target and supersedes:
         note_change(memory, target, f"replaced by {fact['id']}")
