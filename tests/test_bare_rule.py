@@ -102,7 +102,8 @@ def test_the_instructions_show_the_rule_of_an_owner_with_told():
     assert '`memory add "TEXT" --kind rule --basis told`' in words
 
 
-def test_parallel_bare_and_told_adds_leave_one_lifted_rule(mem, repo):
+def test_parallel_bare_and_told_adds_leave_one_lifted_rule(mem, repo, monkeypatch):
+    owner_said(monkeypatch, RULE)
     env = {**os.environ, "CLAUDECODE": "1"}
     adders = [
         subprocess.Popen(
