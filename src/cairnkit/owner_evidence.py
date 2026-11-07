@@ -5,7 +5,7 @@ state (see session.py), so the other hooks of a session do not read or write it.
 
     {"root": checkout path,
      "prompts": [{"at", "text"}],               # the newest PROMPTS_KEPT owner prompts
-     "choices": [{"at", "kind", "text", "drop"}],  # answers to agent questions, this turn only
+     "choices": [{"at", "kind", "text"}],      # answers to agent questions, this turn only
      "approval": {"at", "text"} | null}         # the proposal that this turn's "yes" approved
 
 Each text is masked and cut. A new owner prompt starts a turn, so it clears the choices and the
@@ -134,12 +134,9 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
         if not isinstance(item, dict):
             continue
         question = str(item.get("question") or "")
-        options = [
-            (str(opt.get("label") or ""), str(opt.get("description") or ""))
-            for opt in item.get("options") or []
-            if isinstance(opt, dict)
-        ]
-        evidence = choice_evidence(question, options, answers.get(question, ""))
+        options = [opt for opt in item.get("options") or [] if isinstance(opt, dict)]
+        labels = [str(opt.get("label") or "") for opt in options]
+        evidence = choice_evidence(labels, answers.get(question, ""))
         if evidence:
             found.append(evidence)
     if not found:
@@ -153,7 +150,6 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
             "at": moment,
             "kind": item.kind,
             "text": _kept(memory, item.text, CHOICE_CHARS),
-            "drop": sorted(item.drop),
         }
         for item in found
     ]
@@ -275,11 +271,7 @@ def _session_file(memory: Memory) -> Path | None:
 def evidence(data: dict) -> list[Evidence]:
     items = [Evidence("prompt", str(row.get("text", ""))) for row in _list(data, "prompts")]
     items += [
-        Evidence(
-            "choice" if row.get("kind") == "choice" else "prompt",
-            str(row.get("text", "")),
-            frozenset(str(word) for word in row.get("drop") or []),
-        )
+        Evidence("choice" if row.get("kind") == "choice" else "prompt", str(row.get("text", "")))
         for row in _list(data, "choices")
     ]
     approval = data.get("approval")
@@ -296,5 +288,5 @@ def check_claim(memory: Memory, text: str) -> Verdict:
         return Verdict(False, "no owner prompt of this session was found")
     found = best_match(text, evidence(data))
     if found is None:
-        return Verdict(False, "its key words are not in what the owner said in this session")
+        return Verdict(False, "it is no copy of one sentence the owner said in this session")
     return Verdict(True, VIA[found.kind])

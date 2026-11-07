@@ -19,9 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files you changed" hint and the load rank match a changed file to `files` directly, also a file
   in a folder that `files` names.
 - A `told` claim that an agent makes (`memory add --basis told` with an agent marker) binds only
-  when its key words match the owner in that session: a prompt the owner typed, the option the
-  owner picked in an agent question (Claude Code's AskUserQuestion), or the agent proposal that a
-  short approval such as "yes" approved, read from the end of the Claude Code or Codex transcript.
+  when it is a near-verbatim copy of one sentence of the owner's evidence in that session: a
+  prompt the owner typed, the option the owner picked in an agent question (Claude Code's
+  AskUserQuestion), or the agent proposal that a short approval such as "yes" approved, read from
+  the end of the Claude Code or Codex transcript. The words must be the same and in the same
+  order; only articles, `please`, pronouns, punctuation, case, word endings and a rule frame
+  (`always`, `from now on`) may differ. A word that turns or limits the rule (`not`, `stop`,
+  `skip`, `except`, `until`, `only`, `before`, `yet`, ...), a number, a path or a name may not be
+  dropped or changed, and the claim must hold 80 percent of the sentence. A typed question and a
+  sentence that opens with `if` state no rule.
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
   loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
   confirms it. The prompt hook keeps this evidence, masked and cut, in
