@@ -368,7 +368,8 @@ After that, **agents do the rest**:
 - During the session, the agent hears news where its tool allows this (see
   [Agent hooks](#agent-hooks)): facts that another branch or auto-tidy wrote or
   ended, and stored facts that match files it changed after the load. Each item is
-  named once.
+  named once. The file hint shows at most 2 facts and leaves out a fact whose work
+  landed, unless it is a trap, a lesson or a preference.
 - At session end, a hook runs the checks of `memory check --strict`. When a check
   finds a problem, the agent must fix it before it finishes (in tools that support
   it). The hook also names events: a command that failed and then passed, a command

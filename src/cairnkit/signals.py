@@ -10,7 +10,7 @@ import os
 import re
 from pathlib import PurePosixPath
 
-from cairnkit import loopbreak
+from cairnkit import landed, loopbreak
 from cairnkit.beforeshell import added_in_front
 from cairnkit.clock import now, parse_time
 from cairnkit.load import active_states, changed_paths
@@ -40,6 +40,8 @@ from cairnkit.similar import analyze
 
 FIX_MIN_FAILS = 2
 MAX_LINES = 5
+HINT_LINES = 2
+OUTLAST_WORK = ("trap", "lesson", "preference")
 REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
 REFLOG_TIME = re.compile(r"@\{(\d+)\}")
 COMMAND_WIDTH = 200
@@ -426,13 +428,13 @@ def _for_this_branch(memory: Memory):
     return check
 
 
-def _capped(lines: list[str], ids: list[str]) -> list[str]:
+def _capped(lines: list[str], ids: list[str], limit: int = MAX_LINES) -> list[str]:
     """Show the first lines. Name the rest, so that nothing is lost."""
-    if len(lines) <= MAX_LINES:
+    if len(lines) <= limit:
         return lines
-    rest = ids[MAX_LINES:]
+    rest = ids[limit:]
     more = clean(f"- and {len(rest)} more: {', '.join(rest)}. Read one with `memory show ID`.")
-    return [*lines[:MAX_LINES], more]
+    return [*lines[:limit], more]
 
 
 def _changed_elsewhere(memory: Memory, state: dict) -> list[str]:
@@ -469,7 +471,11 @@ def _changed_elsewhere(memory: Memory, state: dict) -> list[str]:
 
 
 def _now_relevant(memory: Memory, state: dict) -> tuple[list[str], list[str]]:
-    """Facts that match the files changed since the load and did not show. Traps first."""
+    """Facts that match the files changed since the load and did not show. Traps first.
+
+    A fact whose work landed is history, not help for this change, so it is left out. A trap, a
+    lesson and a preference still hold after the work they name. At most HINT_LINES show.
+    """
     root = memory.project.root
     areas = areas_for_paths(changed_paths(root, current_branch(root)), memory.config["areas"])
     known = set(state.get("areas", []))
@@ -486,11 +492,13 @@ def _now_relevant(memory: Memory, state: dict) -> tuple[list[str], list[str]]:
         parts = score_parts(fact, moment, new, set())
         if parts["area"] or parts["mention"]:
             rows.append((-(parts["trap"] + parts["area"] + parts["recency"]), fact["id"], fact))
+    done = landed.find(memory) if rows else {}
+    rows = [row for row in rows if row[1] not in done or row[2].get("kind") in OUTLAST_WORK]
     rows.sort(key=lambda row: row[:2])
     facts = [row[2] for row in rows]
     state["shown"] = sorted(shown | {fact["id"] for fact in facts})
     lines = [clean(f"- [{fact['id']}] {load_text(fact)}") for fact in facts]
-    return _capped(lines, [fact["id"] for fact in facts]), sorted(known | areas)
+    return _capped(lines, [fact["id"] for fact in facts], HINT_LINES), sorted(known | areas)
 
 
 def news(memory: Memory, key: str) -> str | None:

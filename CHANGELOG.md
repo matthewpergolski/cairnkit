@@ -164,6 +164,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The "facts that match the files you changed" hint leaves out a fact, decision or event whose
+  work landed (a trap, lesson or preference still shows), and shows at most 2 facts. It names the
+  rest by id.
 - `memory docs` in a project that is not cairnkit writes one system page and one page for each
   component: a top-level package or folder of a source root. Before, it wrote one import graph of
   the top-level Python packages only. In a real Django and TypeScript project, it showed only the
