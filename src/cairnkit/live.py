@@ -197,13 +197,18 @@ def _helper_line(memory: Memory, helper: helpers.Helper) -> str:
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]
-    elif helper.has_checkout:
+    elif helpers.is_checkout(memory.project, helper.checkout):
         branch, held = _helper_work(memory, helper)
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}{branch}"
         state = [NO_END, held]
     elif helper.checkout:
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}"
-        state = [NO_END, "that checkout is gone now"]
+        gone = (
+            "that folder is no checkout of this project"
+            if helper.has_checkout
+            else "that checkout is gone now"
+        )
+        state = [NO_END, gone]
     else:
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.parent)}"
         state = [NO_END]

@@ -33,7 +33,7 @@ from pathlib import Path
 
 from cairnkit import deadline, plainfile
 from cairnkit.memory import Memory
-from cairnkit.paths import run_git
+from cairnkit.paths import Project, run_git
 from cairnkit.secretscan import mask
 from cairnkit.selection import clean
 from cairnkit.store import LockBusy, locked
@@ -70,6 +70,18 @@ class Helper:
     @property
     def has_checkout(self) -> bool:
         return bool(self.checkout) and Path(self.checkout or "").is_dir()
+
+
+def is_checkout(project: Project, path: str | None) -> bool:
+    """True when path is one of this project's checkouts, the only folders where git runs.
+
+    A record or a payload can name any folder, and a folder can hold a git config that runs a
+    command. `git worktree list` names the project's own checkouts.
+    """
+    if not path:
+        return False
+    real = Path(path).resolve()
+    return any(real == checkout.resolve() for checkout in project.checkouts)
 
 
 def _folder(memory: Memory) -> Path:
@@ -194,7 +206,8 @@ def on_start(memory: Memory, session: str, payload: dict) -> None:
             mine = min(waiting, key=lambda h: h.started_at, default=None)
         if mine is None or mine.checkout:
             return helpers
-        own = cwd if cwd and not _same(cwd, mine.parent) and Path(cwd).is_dir() else None
+        here = cwd and not _same(cwd, mine.parent) and is_checkout(memory.project, cwd)
+        own = cwd if here else None
         base = run_git(Path(own), "rev-parse", "HEAD", timeout=GIT_TIMEOUT) if own else None
         found = replace(mine, agent=agent, checkout=own, base=base or None)
         return [found if h.call == mine.call else h for h in helpers]

@@ -223,6 +223,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repo, and its rules with no author printed above the frame as rules of the owner. Outside
   git, a link or a `.memory-path` of another user does not count. `memory init --path` does not
   write a `.memory-path` that git tracks.
+- The load runs git about a helper only in a checkout that `git worktree list` names. Before, a
+  helper record could name any folder, and the load ran `git status` there. Git then ran a
+  command that the git config of that folder names, such as `core.fsmonitor`. The start of a
+  helper records its worktree only when it is a checkout of this project.
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.
