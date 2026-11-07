@@ -7,7 +7,7 @@ from pathlib import Path
 
 from cairnkit.config import load_config
 from cairnkit.envsecrets import EnvValues, read_env_values
-from cairnkit.paths import Project, lost_memory, lost_note, resolve_memory_dir
+from cairnkit.paths import Project, lost_memory, lost_note, resolve_memory_dir, tracking_tree
 from cairnkit.secretscan import (
     find_in_closed_fields,
     find_in_record,
@@ -15,7 +15,7 @@ from cairnkit.secretscan import (
     mask_closed_fields,
     mask_record,
 )
-from cairnkit.selection import clean_path
+from cairnkit.selection import clean_path, shell_word
 from cairnkit.state import fold
 from cairnkit.store import encode, fact_files, repaired_lines, scan
 
@@ -29,6 +29,20 @@ LEAVE_IT = (
 
 class MemoryMissing(Exception):
     """The memory folder does not exist."""
+
+
+class MemoryTracked(MemoryMissing):
+    """Git tracks files in the memory folder, so anyone who commits to that repo can write them."""
+
+
+def tracked_line(tree: Path, memdir: Path) -> str:
+    rel = memdir.resolve().relative_to(tree).as_posix()
+    return (
+        f"git in {clean_path(tree)} tracks files in the memory folder {clean_path(memdir)}. "
+        "Anyone who commits to that repo can write them, so the tool does not read them. "
+        "Check what git holds there, then remove it from the index: "
+        f"git -C {shell_word(tree)} rm -r --cached -- {shell_word(rel)}"
+    )
 
 
 @dataclass
@@ -82,6 +96,9 @@ class Memory:
             raise MemoryMissing(
                 f"no memory folder at {clean_path(memdir)} (from {source}); run `memory init`"
             )
+        tree = tracking_tree(memdir.resolve(), unknown_is_tracked=False)
+        if tree is not None:
+            raise MemoryTracked(tracked_line(tree, memdir))
         memory = cls(project, memdir, source, load_config(memdir), env=read_env_values(project))
         memory.reload()
         return memory

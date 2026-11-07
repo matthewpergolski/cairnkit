@@ -210,6 +210,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Each start of the tool now uses `python -P`: the agent hooks, the Pi and OpenCode plugins, the
+  git hooks (also the `import cairnkit` test of pre-commit) and the background update check.
+  Before, Python put the folder of the hook first on the import path. A `cairnkit/` folder or a
+  `json.py` that a pull, a merge or an agent put in the repo then ran in place of the tool. A
+  repo with hooks from before this change gets the line `Run memory init --refresh now`, and the
+  refresh rewrites them.
+- A repo can no longer choose the memory. A `.memory-path` or a `memory-bank` link that git
+  tracks does not count, and the load and `memory check` say so. A memory folder in which git
+  tracks a file does not load in any hook or load, and `memory check` fails with the command
+  that takes it out of the index. Before, a pulled `.memory-path` could load a folder from the
+  repo, and its rules with no author printed above the frame as rules of the owner. Outside
+  git, a link or a `.memory-path` of another user does not count. `memory init --path` does not
+  write a `.memory-path` that git tracks.
+- The load runs git about a helper only in a checkout that `git worktree list` names. Before, a
+  helper record could name any folder, and the load ran `git status` there. Git then ran a
+  command that the git config of that folder names, such as `core.fsmonitor`. The start of a
+  helper records its worktree only when it is a checkout of this project.
+- `memory update` runs `uv build` and `uv tool install` in the cache folder of the tool, with
+  `--no-config` and your own `uv.toml` as `--config-file`. Before, uv read `uv.toml`,
+  `[tool.uv]` and a `.venv` from the folder of the caller. An update from a repo then built the
+  tool with the package index of that repo, and `uv build` ran its `.venv/bin/python`.
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.

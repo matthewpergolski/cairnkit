@@ -26,7 +26,7 @@ from cairnkit.clock import now
 from cairnkit.config import config_problems, secrets_in_config
 from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
-from cairnkit.memory import Memory, MemoryMissing, listed
+from cairnkit.memory import Memory, MemoryMissing, MemoryTracked, listed
 from cairnkit.migrate_refs import OLD_SUFFIX
 from cairnkit.paths import (
     ENV_DIR,
@@ -40,6 +40,7 @@ from cairnkit.paths import (
     owner_line,
     resolve_memory_dir,
     run_git,
+    tracked_pointers,
 )
 from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
@@ -522,6 +523,12 @@ def _read_health(project: Project, flag: str | None) -> Health:
     memdir, source = resolve_memory_dir(project, flag)
     health = Health(memdir, source, linked=ensure_all_linked(project, flag))
     health.warnings += _bad_path_file(project)
+    health.todo += [
+        f"memory: git tracks {clean_path(path)}, so the tool does not use it to find the memory. "
+        f"A file that git tracks comes with the repo, not from you. "
+        f"`git log -- {path.name}` shows who added it."
+        for path in tracked_pointers(project)
+    ]
     has_facts = (memdir / "facts").is_dir()
     if not has_facts and source not in ("flag", ENV_DIR):
         lost = lost_memory(project)
@@ -579,6 +586,8 @@ def read_health(project: Project, flag: str | None = None) -> Health:
     """Compute the answer once. A command never fails on the way to saying what is wrong."""
     try:
         return _read_health(project, flag)
+    except MemoryTracked as exc:
+        return Health(missing=str(exc), gone=True)
     except MemoryMissing as exc:
         return Health(missing=str(exc))
     except Exception as exc:

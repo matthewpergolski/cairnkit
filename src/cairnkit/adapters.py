@@ -61,8 +61,11 @@ CODEX_TRUST = "Codex: approve the hooks once with /hooks, because Codex asks for
 
 
 def hook_command(event: str, agent: str) -> str:
-    """The command a hook runs. It uses this Python, so PATH does not matter."""
-    return f"{shlex.quote(sys.executable)} -m cairnkit hook {event} --agent {agent}"
+    """The command a hook runs. It uses this Python, so PATH does not matter.
+
+    `-P` keeps the session folder off the import path, so a file there cannot stand in for the tool.
+    """
+    return f"{shlex.quote(sys.executable)} -P -m cairnkit hook {event} --agent {agent}"
 
 
 def holds_ours(path: Path) -> bool:
@@ -262,7 +265,7 @@ const PYTHON = __PYTHON__;
 
 function hook(event: string, payload: object): string {
   try {
-    const args = ["-m", "cairnkit", "hook", event, "--agent", "pi"];
+    const args = ["-P", "-m", "cairnkit", "hook", event, "--agent", "pi"];
     return execFileSync(PYTHON, args, {
       input: JSON.stringify(payload),
       encoding: "utf8",
@@ -356,7 +359,7 @@ import { spawnSync } from "node:child_process";
 const PYTHON = __PYTHON__;
 
 function hook(event, payload, cwd) {
-  const args = ["-m", "cairnkit", "hook", event, "--agent", "opencode"];
+  const args = ["-P", "-m", "cairnkit", "hook", event, "--agent", "opencode"];
   const result = spawnSync(PYTHON, args, {
     input: JSON.stringify(payload),
     encoding: "utf8",

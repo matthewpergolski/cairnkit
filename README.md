@@ -857,6 +857,17 @@ The tool uses the first of these:
    `<outer repo>.<path inside it>.memory/` beside the outermost repo, so the memory
    stays out of the outer work tree.
 
+A `.memory-path` or a `memory-bank` link counts only when it is your file and git does not
+track it. A copy that git tracks came with the repo, from anyone who can commit to it. The load
+and `memory check` name it, and the tool goes on to the next place in the list. `memory init
+--path` does not write a `.memory-path` that git tracks. A memory folder that git tracks does
+not load: each hook and `memory load` say why in one line, and `memory check` fails.
+
+Outside git, the walk to a folder with a link or a `.memory-path` takes only your own files. A
+file of another user, such as one in a shared temporary folder, does not count. Outside git no
+record shows where a file came from, so the tool trusts a file of yours, as it trusts your
+memory folder.
+
 Rename or move the project, and the memory comes along. No step is needed. Move the
 memory folder beside the project or beside its old place, under its recorded name or the
 project's name, and the next load finds it by its id and relinks. With another name, or with
@@ -910,7 +921,7 @@ That file is local, and it covers every worktree. Nothing in the repo changes.
 | Grok Build | `SessionStart`: reads only `systemMessage`, so the load waits for the first tool result | `Stop`: `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact`; the load waits for the next tool result | `SubagentStart` hook is written, not tested |
 | Pi | `session_start`; the load goes out at `before_agent_start` | `agent_end`: a follow-up that starts a turn, once | `before_agent_start`, `tool_call` and `tool_result` for `bash` | `session_compact`; the load goes out at the next `before_agent_start` | None |
 | OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `chat.message` reads the prompt. `tool.execute.before` and `tool.execute.after` for `bash` | `session.compacted` reloads | None |
-| Generic | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | None | None | None |
+| Generic | `python -P -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | None | None | None |
 
 **Long sessions.** News covers facts from other branches, auto-tidy changes, and
 stored facts that match files changed after the load. Traps come first, and each
@@ -998,8 +1009,9 @@ Rules for every adapter:
   files. The tool keeps a file of that name that it did not write.
 - It never writes a config file that git tracks. It prints the lines instead.
 - It is safe to run again. It writes each hook once.
-- The hooks call `python -m cairnkit` with the full path of the Python
-  that runs the tool, so they do not depend on `PATH`.
+- The hooks call `python -P -m cairnkit` with the full path of the Python
+  that runs the tool, so they do not depend on `PATH`. `-P` keeps the folder that a hook runs in
+  off the import path, so a file in the repo cannot take the place of the tool.
 - The session-start hook never blocks a session. It has a total budget of 7 seconds, under the
   shortest hook timeout of any adapter. Optional steps stop first and run at a later session
   start, and the load still prints the facts. A lock wait ends after 5 seconds. Then a hook goes

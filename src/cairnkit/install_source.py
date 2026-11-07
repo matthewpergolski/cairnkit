@@ -172,7 +172,7 @@ def spawn_check() -> None:
     """Run `memory update --check` in the background. It writes the cache."""
     with contextlib.suppress(OSError):
         subprocess.Popen(
-            [sys.executable, "-m", "cairnkit", "update", "--check"],
+            [sys.executable, "-P", "-m", "cairnkit", "update", "--check"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

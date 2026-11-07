@@ -34,6 +34,7 @@ from cairnkit.paths import (
     recorded_repo,
     resolve_memory_dir,
     root_commits,
+    tracking_tree,
     write_identity,
 )
 from cairnkit.presets import NONE, apply
@@ -346,7 +347,12 @@ def run_init(
     if path_flag:
         rel = os.path.relpath(memdir, project.home)
         current = project.home / PATH_FILE
-        if not current.is_file() or plainfile.read_text(current).splitlines()[:1] != [rel]:
+        if project.is_git and current.is_file() and tracking_tree(current):
+            say(
+                f"note: git tracks {clean_path(current)}, so the tool does not write it or read "
+                "it. The link and this repo's record name the memory."
+            )
+        elif not current.is_file() or plainfile.read_text(current).splitlines()[:1] != [rel]:
             steps.append(f"write {current}: {rel}")
             if not dry_run:
                 plainfile.write_text(current, rel + "\n")

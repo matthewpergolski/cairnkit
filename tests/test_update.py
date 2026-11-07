@@ -99,9 +99,10 @@ def test_update_from_a_local_folder_shows_each_step_and_both_versions(machine, c
         assert f"  {step}... done" in out
     assert "0.1.0 -> 0.2.0" in out
     calls = machine.uv_calls()
-    build = next(c for c in calls if c.startswith("build --wheel --out-dir "))
+    build = next(c for c in calls if c.startswith("build --no-config "))
     assert not build.endswith(str(machine.source))  # a fixed copy, not the live folder
-    assert install_line(machine).startswith("tool install --force --reinstall cairnkit @ file:")
+    assert install_line(machine).startswith("tool install --no-config ")
+    assert " --force --reinstall cairnkit @ file:" in install_line(machine)
     assert install_line(machine).endswith(".whl")
     record = machine.record()
     assert record["source"] == str(machine.source)
@@ -155,7 +156,8 @@ def test_an_install_under_the_old_name_updates_to_cairnkit(machine, monkeypatch,
     assert install_source.installed(None) == (install_source.parse(str(machine.source)), "0" * 40)
     assert main(["update"]) == 0
     out = capsys.readouterr().out
-    assert install_line(machine).startswith("tool install --force --reinstall cairnkit @ file:")
+    assert install_line(machine).startswith("tool install --no-config ")
+    assert " --force --reinstall cairnkit @ file:" in install_line(machine)
     assert machine.record()["commit"] == head(machine.source)  # in the new cairnkit env
     assert "uv tool uninstall project-memory" in out
     # Old hooks call the old environment: refresh each repo before the old tool goes.
@@ -658,14 +660,14 @@ def record_runs(
     runs: list[list[str]] = []
     real_run = update._run
 
-    def run(argv, timeout=900):
+    def run(argv, timeout=900, **kw):
         runs.append(argv)
         by_id = "fetch" in argv and argv[-1] != "+refs/heads/*:refs/remotes/origin/*"
         if refuse_by_id and by_id:
             return 1, "error: Server does not allow request for unadvertised object"
         if fail_with and by_id:
             return 128, fail_with
-        return real_run(argv, timeout)
+        return real_run(argv, timeout, **kw)
 
     monkeypatch.setattr(update, "_run", run)
     return runs
@@ -1254,11 +1256,11 @@ def test_sha_refusal_retries_the_tag_ref(machine, monkeypatch, capsys, tmp_path)
     runs: list[list[str]] = []
     real_run = update._run
 
-    def run(argv, timeout=900):
+    def run(argv, timeout=900, **kw):
         runs.append(list(argv))
         if "fetch" in argv and _is_sha(argv[-1]):
             return 1, "fatal: remote error: upload-pack: not our ref"
-        return real_run(argv, timeout)
+        return real_run(argv, timeout, **kw)
 
     monkeypatch.setattr(update, "_run", run)
     assert main(["update"]) == 0
