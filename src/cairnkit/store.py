@@ -122,6 +122,8 @@ def unusable(record: dict) -> str | None:
             return f"{name} must be a list of links"
     if record.get("tags") is not None and not isinstance(record["tags"], list):
         return "tags must be a list"
+    if record.get("files") is not None and not isinstance(record["files"], list):
+        return "files must be a list"
     return None
 
 

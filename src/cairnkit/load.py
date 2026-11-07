@@ -278,6 +278,7 @@ def run_load(
     update_notice: bool = True,
     session: str | None = None,
     hide_helpers_of: str | None = None,
+    own_helpers_of: str | None = None,
     notices: list[str] | None = None,
 ) -> int:
     """Print the load. `notices` stands in for the one-time notices, which a caller took once."""
@@ -291,7 +292,7 @@ def run_load(
         memory = health.memory or Memory.open(project, flag)
         lines = build_output(memory, area, budget, explain)
         with contextlib.suppress(Exception):  # after the build, so that a slow git cuts only this
-            lines = live.add_lines(memory, lines, session, hide_helpers_of)
+            lines = live.add_lines(memory, lines, session, hide_helpers_of, own_helpers_of)
         # Right under the header, so the agent sees them first. No detail from a stored record
         # goes here: this text is outside the frame that marks stored text as data.
         notice = install_source.notice_once() if update_notice and notices is None else None

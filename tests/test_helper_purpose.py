@@ -166,13 +166,41 @@ def test_a_killed_session_leaves_the_purpose_of_its_helper_for_the_next_one(repo
 
 def test_the_same_session_resumed_hears_it_too(repo, hooks):
     killed_mid_helper(repo, hooks)
-    assert helper_lines(hooks.load(repo, "s1", source="resume"))
+    [line] = helper_lines(hooks.load(repo, "s1", source="resume"))
+    # A resume is a new process, so a helper of the old one cannot still run.
+    assert "may have ended unseen" in line and "may still be running" not in line
 
 
-def test_a_compaction_of_the_live_session_does_not_call_its_running_helper_unfinished(repo, hooks):
+@pytest.mark.parametrize("source", ["compact", "reload"])
+def test_a_compaction_names_the_helpers_this_session_started_as_maybe_running(repo, hooks, source):
     killed_mid_helper(repo, hooks)
+    [line] = helper_lines(hooks.load(repo, "s1", source=source))
+    assert f'"{PURPOSE}"' in line
+    assert "started by this session, may still be running" in line
+    assert "may have ended unseen" not in line
+    [other] = helper_lines(hooks.load(repo, "s2"))
+    assert "may have ended unseen" in other and "may still be running" not in other
+
+
+def test_a_compaction_keeps_the_helpers_of_other_sessions_as_before(repo, hooks):
+    hooks.call(repo, "toolu_9", description="read the old docs", session="s0")
+    hooks.start(repo, "a9", repo, session="s0")
+    killed_mid_helper(repo, hooks)
+    lines = helper_lines(hooks.load(repo, "s1", source="compact"))
+    [old] = [line for line in lines if "read the old docs" in line]
+    [mine] = [line for line in lines if PURPOSE in line]
+    assert "may have ended unseen" in old and "this session" not in old
+    assert "started by this session, may still be running" in mine
+
+
+def test_a_helper_named_on_compaction_outlives_the_next_stop_of_its_session(repo, hooks):
+    hooks.call(repo, "toolu_1")
+    hooks.start(repo, "a1", repo)
+    assert helper_lines(hooks.load(repo, "s1", source="compact"))
+    hooks.run("stop", repo, session="s1")
+    assert helper_lines(hooks.load(repo, "s1", source="compact"))
+    hooks.subagent_stop(repo, "a1", repo)
     assert not helper_lines(hooks.load(repo, "s1", source="compact"))
-    assert helper_lines(hooks.load(repo, "s2"))
 
 
 def test_a_sibling_helper_does_not_hear_of_the_running_helper(repo, hooks):

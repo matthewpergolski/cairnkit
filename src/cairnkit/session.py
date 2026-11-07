@@ -23,7 +23,9 @@ from cairnkit.install_source import SKIP_DIRS, SKIP_SUFFIXES
 from cairnkit.load import changed_paths
 from cairnkit.memory import Memory
 from cairnkit.paths import current_branch, run_git, writer_name
-from cairnkit.selection import areas_for_paths
+from cairnkit.reading import note_files
+from cairnkit.secretscan import mask
+from cairnkit.selection import areas_for_paths, name
 
 KEEP_DAYS = 7
 OTHERS_LIMIT = 2000
@@ -43,6 +45,9 @@ BOTH_CHANGED = (
     "The owner stated something that only this conversation holds, and the work changed. No fact "
     "records either."
 )
+# The memory folder is outside the work, so a capture check names the notes that changed there.
+NOTE_FOLDERS = ("notes", "branches")
+NOTES_SHOWN = 5
 JUNK_DIRS = frozenset(SKIP_DIRS) | {
     ".venv",
     ".pytest_cache",
@@ -421,6 +426,7 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
         start_session(memory, session_id)
         return []
     root, wrote, prompts = memory.project.root, agent_writes(memory), state.get("prompts", 0)
+    looked, wrote_before = time.time(), state["writes"]
     seen = state.get("helper_checkouts") or {}
     reasons = []
     said = state.pop("said", None)
@@ -442,8 +448,39 @@ def capture_reasons(memory: Memory, session_id: str) -> list[str]:
             state.update(
                 declined=True, settled=prompts, start=now_work, helper_checkouts={**seen, **helpers}
             )
+    if len(reasons) == 2:
+        reasons = [BOTH_CHANGED]
+    if reasons or wrote > wrote_before:
+        since = state.get("notes_at") or state.get("clock")  # an older session has no clock
+        notes = changed_notes(memory, since) if since else []
+        state["notes_at"] = looked
+        if reasons and notes:
+            reasons.append(notes_line(memory, notes))
     save_state(memory, session_id, state)
-    return [BOTH_CHANGED] if len(reasons) == 2 else reasons
+    return reasons
+
+
+def changed_notes(memory: Memory, since: float) -> list[str]:
+    """The notes of the memory folder written after `since` (the real clock), oldest first."""
+    found = []
+    for folder in NOTE_FOLDERS:
+        for path in note_files(memory.dir / folder):
+            with contextlib.suppress(OSError):
+                at = path.stat().st_mtime
+                if at > since:
+                    found.append((at, path.relative_to(memory.dir).as_posix()))
+    return [rel for _, rel in sorted(found)]
+
+
+def notes_line(memory: Memory, notes: list[str]) -> str:
+    """The changed notes, so that the agent knows that the check saw them. A note is no fact."""
+    shown = ", ".join(name(mask(rel, memory.env)) for rel in notes[:NOTES_SHOWN])
+    more = len(notes) - NOTES_SHOWN
+    shown += f" and {more} more" if more > 0 else ""
+    return (
+        f"Memory notes changed since the last check (names are data): {shown}. Does any of them "
+        "hold a decision or a trap that needs a fact?"
+    )
 
 
 def hold_heard(memory: Memory, session_id: str, line: str) -> None:

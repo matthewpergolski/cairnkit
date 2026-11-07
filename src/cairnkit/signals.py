@@ -24,6 +24,7 @@ from cairnkit.selection import (
     areas_for_paths,
     clean,
     load_text,
+    names_a_changed_file,
     score_parts,
 )
 from cairnkit.session import (
@@ -514,6 +515,8 @@ def news(memory: Memory, key: str) -> str | None:
 
 def _names_a_file(fact: dict, paths: list[str]) -> bool:
     """True when the fact or its source names one of the files. An area alone is too broad."""
+    if names_a_changed_file(fact, paths):
+        return True
     text = f"{load_text(fact)} {fact.get('source', '')}"
     names = {name for path in paths for name in (path, os.path.basename(path))}
     return any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", text) for name in names)

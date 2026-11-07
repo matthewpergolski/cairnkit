@@ -184,3 +184,49 @@ def test_a_second_write_of_the_same_version_leaves_the_record_alone(repo, monkey
     assert main(["hooks", "install", "--agent", "generic"]) == 0
     assert main(["init", "--refresh"]) == 0
     assert path.read_text() == first
+
+
+OLD_BUILD = "6b4bdf0" + "1" * 33
+NEW_BUILD = "81f8499" + "2" * 33
+
+
+def _stale_post_merge(repo):
+    """A post-merge block that an older build of the same version wrote."""
+    hook = repo / ".git" / "hooks" / "post-merge"
+    body = f"# cairnkit:docs-check\necho old\n{githook.quiet_body('post-merge')}"
+    hook.write_text(f"#!/bin/sh\n{githook.START}\n{body}{githook.END}\n")
+
+
+def test_a_notice_for_one_version_names_the_build_that_wrote_the_files(repo, monkeypatch):
+    monkeypatch.setattr(refresh, "build_commit", lambda: OLD_BUILD)
+    assert main(["init"]) == 0
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    assert stamp(repo)["commit"] == OLD_BUILD
+    _stale_post_merge(repo)
+    monkeypatch.setattr(refresh, "build_commit", lambda: NEW_BUILD)
+    line = refresh.repo_line(find_project(), None)
+    assert f"come from memory {__version__} @6b4bdf0; this is {__version__} @81f8499" in line
+    assert "memory init --refresh" in line
+
+
+def test_a_record_with_no_build_names_an_older_build(repo, monkeypatch):
+    monkeypatch.setattr(refresh, "build_commit", lambda: NEW_BUILD)
+    assert main(["init"]) == 0
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    path = repo.parent / "proj.memory" / refresh.STAMP
+    path.write_text(json.dumps({"version": __version__, "at": "2026-10-30T00:00:00+00:00"}))
+    _stale_post_merge(repo)
+    line = refresh.repo_line(find_project(), None)
+    assert (
+        f"come from an older build of memory {__version__}; this is {__version__} @81f8499" in line
+    )
+
+
+def test_a_new_build_of_the_same_version_records_its_commit(repo, monkeypatch):
+    monkeypatch.setattr(refresh, "build_commit", lambda: OLD_BUILD)
+    assert main(["init"]) == 0
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    monkeypatch.setattr(refresh, "build_commit", lambda: NEW_BUILD)
+    assert main(["init", "--refresh"]) == 0
+    assert stamp(repo)["commit"] == NEW_BUILD
+    assert refresh.repo_line(find_project(), None) is None

@@ -180,8 +180,8 @@ waits. Offline, the line does not show.
 ## Repo files
 
 `memory` writes some files into a repo: the rules block, the agent hooks and
-the git hooks. It records its version in the memory folder
-(`tool-version.json`) when it writes them.
+the git hooks. It records its version, and the commit of its build when it
+knows it, in the memory folder (`tool-version.json`) when it writes them.
 
 When the tool is newer than that version, `memory status` and the session
 start show one line: run `memory init --refresh`. They show the same line
@@ -190,6 +190,9 @@ when the local post-merge hook holds a cairnkit block that either lacks
 version matches. The agent runs the refresh. That command rewrites these
 files in place. It replaces the rules block between its markers and never
 adds a second block. It only touches files that already hold memory's text.
+Two dev builds can have one version number, so the line names each build by its
+commit, as `memory --version` does: "come from memory 0.3.1 @6b4bdf0; this is
+0.3.1 @81f8499". A record with no commit reads as "an older build".
 
 The line compares version numbers, and it also reads that post-merge block.
 A release that changes these files raises the version in `__init__.py`.

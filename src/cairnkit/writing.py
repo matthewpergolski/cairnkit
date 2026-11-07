@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import re
 import secrets
 import sys
+from pathlib import Path, PurePosixPath
 
 from cairnkit import deadline, followups
 from cairnkit.autotidy import outranks
@@ -20,7 +22,7 @@ from cairnkit.paths import (
     writer_name,
 )
 from cairnkit.rule_notices import note_change
-from cairnkit.schema import RELS, validate_record
+from cairnkit.schema import MAX_FILES, RELS, file_problem, validate_record
 from cairnkit.secretscan import (
     MASK,
     find_in_record,
@@ -85,6 +87,35 @@ def _check_secrets(memory: Memory, *texts: str | None, names: tuple[str | None, 
             f"this looks like a secret ({', '.join(found)}); facts must not hold secrets. "
             "Write the fact again and name where the value is, not the value."
         )
+
+
+def clean_files(root: Path, values: list[str] | None) -> list[str]:
+    """The paths of --files, repo-relative with / between parts, in order and each once.
+
+    A relative path is taken from the repo root. An absolute path must be inside the repo.
+    """
+    found: list[str] = []
+    for value in values or []:
+        raw = str(value).strip().replace("\\", "/")
+        text = os.path.normpath(raw) if raw else ""
+        path = PurePosixPath(text)
+        if path.is_absolute():
+            for base in (root, root.resolve()):
+                with contextlib.suppress(ValueError):
+                    path = path.relative_to(base.as_posix())
+                    break
+        rel = path.as_posix()
+        problem = None if text else "is empty"
+        if text and (path.is_absolute() or rel == "." or rel.split("/")[0] == ".."):
+            problem = "is not inside the repo"
+        problem = problem or file_problem(rel)
+        if problem:
+            raise Refused(f"--files {clean(repr(value))}: {problem}. Give paths in the repo.")
+        if rel not in found:
+            found.append(rel)
+    if len(found) > MAX_FILES:
+        raise Refused(f"--files names {len(found)} paths; the limit is {MAX_FILES}")
+    return found
 
 
 def _need_fact(memory: Memory, fact_id: str) -> dict:
@@ -252,7 +283,9 @@ def add_fact(memory: Memory, args) -> str | None:
         args.area,
         args.enforced_by,
         *(args.tag or []),
+        *(getattr(args, "files", None) or []),
     )
+    files = clean_files(memory.project.root, getattr(args, "files", None))
     if args.enforced_by and args.kind != "rule":
         raise Refused("--enforced-by is only for --kind rule")
     ends: dict = {}
@@ -306,6 +339,8 @@ def add_fact(memory: Memory, args) -> str | None:
             raise Refused(f"{supersedes} is {target['status']}, not active")
         if target and args.supersedes and not masked_target and outranks(target, mine):
             kept, supersedes = target, None
+        if supersedes and target and not files:  # a new text keeps what the fact is about
+            files = [str(f) for f in target.get("files") or [] if not holds_mask(str(f))]
         for other in (near[0] if near else None, kept, retired[0] if retired else None):
             if other and {"rel": "similar_to", "id": other["id"]} not in links:
                 links.append({"rel": "similar_to", "id": other["id"]})
@@ -331,6 +366,8 @@ def add_fact(memory: Memory, args) -> str | None:
             fact["author"] = f"agent:{running_tool()}"
         if args.tag:
             fact["tags"] = args.tag
+        if files:
+            fact["files"] = files
         if links:
             fact["links"] = links
         if args.pinned:

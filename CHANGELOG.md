@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
+  400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
+  (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path
+  outside the repo, a comma, a character that does not print or a value that looks secret is
+  refused. The load line shows the first 3, `memory show` and `memory search` read them all, a
+  change keeps them, and a supersede with no `--files` keeps the old fact's files. `memory export`
+  writes them as `(files: a, b)` and `memory import` reads them back. The "facts that match the
+  files you changed" hint and the load rank match a changed file to `files` directly, also a file
+  in a folder that `files` names.
 - `memory export` prints the active facts of this project as `[YYYY-MM-DD] - text` lines, oldest
   first, under the headings Instructions, Decisions, Traps and lessons, Project state, Preferences
   and Other. It marks which rules the owner confirmed and which load as data, masks each secret as
@@ -210,6 +219,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- When two dev builds share a version number, the refresh line at session start names the build
+  that wrote the repo files and the build that runs now, for example "come from memory 0.3.1
+  @6b4bdf0; this is 0.3.1 @81f8499". Before, it said "come from memory 0.3.1. This is memory
+  0.3.1", which read as no change. `tool-version.json` now also records the commit of the build.
+- The end-of-turn capture check names the memory notes (`notes/` and `branches/`) that changed
+  since the last check, at most 5 and as data, and asks whether one holds a decision or a trap that
+  needs a fact. Before, it said only "no fact records it", so an agent that had edited
+  `notes/status.md` and its specs read that as if the check did not see them. A note edit alone
+  still does not block.
+- After a compaction, the session start names the helpers that this session started under
+  `## Live work`, as "started by this session, may still be running". Before, a compaction hid
+  them, so a lead lost the work that its running helpers did. The next stop of the session does
+  not end their records. A resume still names them as having no recorded end.
 - Each start of the tool now uses `python -P`: the agent hooks, the Pi and OpenCode plugins, the
   git hooks (also the `import cairnkit` test of pre-commit) and the background update check.
   Before, Python put the folder of the hook first on the import path. A `cairnkit/` folder or a

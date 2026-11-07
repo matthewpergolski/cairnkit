@@ -15,6 +15,8 @@ TYPES = ("fact", "change", "tombstone", "repair")
 MAX_TEXT = 2000  # fact body, every kind except rule
 RULE_MAX_TEXT = 400  # kind == rule; each rule loads in every session
 MAX_SUMMARY = 200  # optional load line
+MAX_FILES = 10  # repo paths beside the text, outside its limit
+MAX_FILE_PATH = 200
 ID_RE = re.compile(r"^f-\d{8}-[0-9a-f]{4}$")
 SOURCE_RE = re.compile(r"^(default$|[a-z][a-z0-9_-]*:\S)")
 # The check that fails when a rule is broken: githook:commit-msg, lint:ruff:T201, ci:<job>.
@@ -69,6 +71,29 @@ def _check_summary(value: object, kind: object) -> list[str]:
     return []
 
 
+def file_problem(path: object) -> str | None:
+    """Why one entry of `files` is no clean repo path, or None."""
+    if not isinstance(path, str) or not path:
+        return "each path must be a non-empty string"
+    if len(path) > MAX_FILE_PATH:
+        return f"a path has {len(path)} characters; the limit is {MAX_FILE_PATH}"
+    if path.startswith("/") or "\\" in path or any(p in ("", ".", "..") for p in path.split("/")):
+        return f"{path!r} is not a path inside the repo, with / between its parts"
+    if "," in path or not path.isprintable() or path != path.strip():
+        return f"{path!r} holds a comma, an outer space or a character that does not print"
+    return None
+
+
+def _check_files(value: object) -> list[str]:
+    if not isinstance(value, list) or not value:
+        return ["files must be a non-empty list of repo paths"]
+    if len(value) > MAX_FILES:
+        return [f"files has {len(value)} paths; the limit is {MAX_FILES}"]
+    if len(set(map(str, value))) != len(value):
+        return ["files must name each path once"]
+    return [f"files: {problem}" for problem in map(file_problem, value) if problem]
+
+
 def _check_fact(rec: dict) -> list[str]:
     errors = [f"missing field {name!r}" for name in FACT_REQUIRED if name not in rec]
     if "id" in rec and not ID_RE.match(str(rec["id"])):
@@ -100,6 +125,8 @@ def _check_fact(rec: dict) -> list[str]:
         isinstance(rec["tags"], list) and all(isinstance(t, str) for t in rec["tags"])
     ):
         errors.append("tags must be a list of strings")
+    if "files" in rec:
+        errors += _check_files(rec["files"])
     if "links" in rec:
         errors += _check_links(rec["links"], "links")
     if "enforced_by" in rec:

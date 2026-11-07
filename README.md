@@ -525,6 +525,13 @@ reopened and its history stays. The write never fails because of it.
 The default budget is 600 words. A subagent load uses 300 words. Each fact that
 loads shows its text. A fact may carry an optional `--summary`, so the load line
 stays short while the body can be longer (up to 2000 characters; rules stay at 400).
+`--files PATH [PATH ...]` (repeat it for more) keeps up to 10 repo paths beside the text, so
+paths do not use the text limit. A relative path starts at the repo root; an absolute path must
+be inside the repo. The load line shows the first 3, and `memory show` shows all. A changed file
+that one of them names, or that sits in a folder that one names, ranks the fact higher and puts
+it in the "match the files you changed" hint. A supersede with no `--files` keeps the files of
+the old fact. `memory export` writes them as `(files: a, b)` at the end of the line, and
+`memory import` reads them back. A path holds no comma.
 
 The rank is the sum of seven parts: recency, kind, area, mention, trap, branch and
 use. `memory load --explain` prints each part. Recency only orders facts. It ends
@@ -553,8 +560,10 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   `SubagentStart` adds the helper's id and worktree. An event ends the record, never a clock: the
   helper's `SubagentStop`, the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. A compaction does not name the helpers of its own session, and a
-  helper's load does not name its siblings, because they can still run. The tool writes no fact.
+  stays while the worktree does. A compaction (or a reload) names the helpers of its own session
+  first, as "started by this session, may still be running", because the same process runs them,
+  and its next stop does not end them. A resume is a new process, so it names them as having no
+  recorded end. A helper's load does not name its siblings. The tool writes no fact.
 
 This does not use the word budget. It reads each checkout with `git status`, with no optional lock,
 and with 1.5 seconds in total. A checkout that it could not read is counted in the list. It never
@@ -957,8 +966,11 @@ no fact followed:
 
 The block gives the test, the moments and the `memory add` line, in 87 words. It says that a
 commit, a branch or the diff is no fact, because git holds them. `memory instructions` holds the
-same guide. A stop that only names an event gives the `memory add` line and no guide, because the
-event asks its own question. A command that passes with a setting in front of it is no event when an
+same guide. The memory folder is outside the work, so an edit of a note there does not block. When a
+check blocks, it names the notes under `notes/` and `branches/` that changed since the last check
+(at most 5, as data) and asks whether one holds a decision or a trap that needs a fact. So the
+agent knows that the check saw them. A stop that only names an event gives the `memory add` line
+and no guide, because the event asks its own question. A command that passes with a setting in front of it is no event when an
 active fact already names that setting and the command: the session had the fix in its load. In 20 ordinary turns, an agent that never writes sees 1 block on a plain script, on
 each adapter, and "format the code" never blocks. An agent that writes a fact at each block sees at
 most 3. A subagent gets no capture check, because it never saw the conversation. Its stop has an

@@ -228,6 +228,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="commit:<hash>, file:<path>, pr:<n>, person:<role> (default: session:<today>)",
     )
     p.add_argument("--tag", action="append", help="a search word (repeat for more)")
+    p.add_argument(
+        "--files",
+        nargs="+",
+        action="extend",
+        metavar="PATH",
+        help="repo paths the fact is about, kept beside the text and outside its limit",
+    )
     p.add_argument("--happened-at", type=_time, help="when it became true (default: today)")
     p.add_argument("--link", action="append", help="<rel>:<id>, rel related|depends_on|...")
     p.add_argument("--pinned", action="store_true", help="show this fact on every load")
