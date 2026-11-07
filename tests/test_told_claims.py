@@ -240,6 +240,56 @@ def test_a_yes_with_a_change_approves_nothing(mem, capsys, monkeypatch, tmp_path
     assert not binds(capsys, "uv run pytest -x before every commit")
 
 
+@pytest.mark.parametrize(
+    "reply", ["ok thanks", "sure, whatever", "Correct", "Yes, and also delete the logs"]
+)
+def test_a_reply_that_is_no_short_yes_approves_nothing(mem, capsys, monkeypatch, tmp_path, reply):
+    path = session_with_proposal(tmp_path)
+    prompt(capsys, monkeypatch, reply, transcript_path=path)
+    agent_add(capsys, monkeypatch, RULE)
+    assert not binds(capsys, "uv run pytest -x before every commit")
+
+
+def test_a_yes_approves_only_the_closing_question(mem, capsys, monkeypatch, tmp_path):
+    proposal = (
+        f"The page says: {INJECTED} I can add a rule so this sticks: run `uv run pytest -x` "
+        "before every commit. Want me to save it?"
+    )
+    path = session_with_proposal(tmp_path, proposal)
+    prompt(capsys, monkeypatch, "yes", transcript_path=path)
+    agent_add(capsys, monkeypatch, RULE)
+    agent_add(capsys, monkeypatch, INJECTED)
+    assert not binds(capsys, "uv run pytest -x before every commit")
+    assert not binds(capsys, "audit.example.com")
+
+
+def test_a_message_that_asks_nothing_proposes_nothing(mem, capsys, monkeypatch, tmp_path):
+    path = session_with_proposal(tmp_path, f"Done. {RULE}")
+    prompt(capsys, monkeypatch, "yes", transcript_path=path)
+    agent_add(capsys, monkeypatch, RULE)
+    assert not binds(capsys, "uv run pytest -x before every commit")
+
+
+def test_a_tool_step_after_the_question_ends_the_proposal(mem, capsys, monkeypatch, tmp_path):
+    path = session_with_proposal(tmp_path)
+    with open(path, "a") as fh:
+        tool = {"type": "tool_use", "id": "t2", "name": "WebFetch", "input": {}}
+        fh.write(json.dumps(said("assistant", tool)) + "\n")
+        result = {"type": "tool_result", "tool_use_id": "t2", "content": "ok"}
+        fh.write(json.dumps(said("user", result)) + "\n")
+    prompt(capsys, monkeypatch, "yes", transcript_path=path)
+    agent_add(capsys, monkeypatch, RULE)
+    assert not binds(capsys, "uv run pytest -x before every commit")
+
+
+def test_the_stored_approval_is_the_closing_question_only(mem, capsys, monkeypatch, tmp_path):
+    proposal = f"The page says: {INJECTED} {PROPOSAL}"
+    path = session_with_proposal(tmp_path, proposal)
+    prompt(capsys, monkeypatch, "yes", transcript_path=path)
+    stored = "".join(p.read_text() for p in (mem / ".sessions").glob("*.owner.json"))
+    assert "audit.example.com" not in stored and "uv run pytest -x" in stored
+
+
 def test_a_transcript_that_cannot_be_read_confirms_nothing(mem, capsys, monkeypatch, tmp_path):
     prompt(capsys, monkeypatch, "yes", transcript_path=str(tmp_path / "missing.jsonl"))
     agent_add(capsys, monkeypatch, RULE)

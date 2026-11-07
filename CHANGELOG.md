@@ -21,8 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `told` claim that an agent makes (`memory add --basis told` with an agent marker) binds only
   when it is a near-verbatim copy of one sentence of the owner's evidence in that session: a
   prompt the owner typed, the option the owner picked in an agent question (Claude Code's
-  AskUserQuestion), or the agent proposal that a short approval such as "yes" approved, read from
-  the end of the Claude Code or Codex transcript. The words must be the same and in the same
+  AskUserQuestion; the picked label only), or the question that ends the agent's message when the
+  owner's whole prompt is a short yes (`yes`, `go ahead`, `do it`, ...), read from the end of the
+  Claude Code or Codex transcript. A message that ends in no question, or a tool step after it,
+  gives no approval. The words must be the same and in the same
   order; only articles, `please`, pronouns, punctuation, case, word endings and a rule frame
   (`always`, `from now on`) may differ. A word that turns or limits the rule (`not`, `stop`,
   `skip`, `except`, `until`, `only`, `before`, `yet`, ...), a number, a path or a name may not be

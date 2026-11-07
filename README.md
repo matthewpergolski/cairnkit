@@ -493,9 +493,13 @@ rule from their own shell lifts it.
 **An agent's `told` claim needs the owner's words.** The prompt hook keeps the owner's
 evidence of the session: the last 12 prompts that the owner typed (a fenced paste and a
 notification do not count), the option that the owner picked in an agent question
-(Claude Code's AskUserQuestion), and, when the prompt is a short approval such as
-"yes" or "go ahead", the end of the agent's message just before it, read from the
-transcript that the hook names. A `told` claim binds only when it is a near-verbatim
+(Claude Code's AskUserQuestion; only the label the owner picked counts, not the agent's
+question or option descriptions), and, when the whole prompt is a short yes (`yes`,
+`y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`), the
+question that ends the agent's message just before it, read from the transcript that
+the hook names. Only that closing question counts, so the claim must be in it. A
+message that ends in no question, or a tool step after it, gives no approval. `ok
+thanks`, `correct` and `yes, and also ...` approve nothing. A `told` claim binds only when it is a near-verbatim
 copy of one sentence of this evidence. Each sentence of the claim (or a run of them)
 must match one sentence of the owner, word for word and in the same order. Only
 articles, `please`, pronouns, punctuation, case, word endings (`commits`, `committing`)
@@ -511,7 +515,8 @@ and a sentence that opens with `if` state no rule. An approval and an answer cou
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
 confirmed)` data, and the add output says so and how the owner confirms it. Nothing
 here proves what the owner said: an agent that writes the evidence file itself, or an
-owner who approves a proposal that quotes injected text, still gets a rule that binds.
+owner who says yes to a closing question that quotes injected text, still gets a rule
+that binds.
 `memory add` finds its session by the session id in the agent's shell (Claude Code,
 Codex, Grok), else by the one session in this checkout with an owner prompt in the last
 30 minutes. The approval reads Claude Code and Codex transcripts. Another tool gets the

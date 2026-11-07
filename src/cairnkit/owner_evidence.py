@@ -6,12 +6,17 @@ state (see session.py), so the other hooks of a session do not read or write it.
     {"root": checkout path,
      "prompts": [{"at", "text"}],               # the newest PROMPTS_KEPT owner prompts
      "choices": [{"at", "kind", "text"}],      # answers to agent questions, this turn only
-     "approval": {"at", "text"} | null}         # the proposal that this turn's "yes" approved
+     "approval": {"at", "text"} | null}         # the question that this turn's "yes" answered
 
 Each text is masked and cut. A new owner prompt starts a turn, so it clears the choices and the
-approval of the turn before. The prompt hook writes it (an approval also reads the agent's last
-message from the transcript that the payload names), and the hook after a tool adds the answer of
-an agent question. `memory add` reads it (`check_claim`).
+approval of the turn before. The prompt hook writes it, and the hook after a tool adds the label
+that the owner picked in an agent question. `memory add` reads it (`check_claim`).
+
+The approval. When the owner's whole prompt is a short yes (see `is_approval`), the prompt hook
+reads the agent's last message from the transcript that the payload names. Only the sentence that
+ends that message counts, and only when it is a question: that is what the "yes" answers. The rest
+of the message is often a report of what a tool or a page said, which the owner did not approve.
+A tool step after the message, or a message that ends in no question, gives no approval.
 
 How `memory add` finds its session. Claude Code, Codex and Grok put the session id in the shell of
 the agent, and the hooks get the same id. For another agent, it takes the one session in this
@@ -34,14 +39,18 @@ from cairnkit.memory import Memory
 from cairnkit.secretscan import mask
 from cairnkit.session import state_path, write_state
 from cairnkit.signals import NOT_THE_OWNER
-from cairnkit.told_match import Evidence, best_match, choice_evidence, is_approval
+from cairnkit.told_match import (
+    Evidence,
+    best_match,
+    choice_evidence,
+    final_question,
+    is_approval,
+)
 
 PROMPTS_KEPT = 12
 PROMPT_CHARS = 1500
 CHOICES_KEPT = 8
 CHOICE_CHARS = 1000
-# The proposal is at the end of the agent's message. Text far before it is often a report of
-# what a tool or a page said, which the owner did not approve.
 PROPOSAL_CHARS = 1200
 TAIL_BYTES = 512 * 1024
 OPEN_SECONDS = 1800
@@ -88,7 +97,7 @@ def _list(data: dict, name: str) -> list[dict]:
 
 
 def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
-    """Keep an owner prompt. For an approval, keep the agent message that it approved."""
+    """Keep an owner prompt. For a short yes, keep the agent's question that it answered."""
     prompt = str(payload.get("prompt") or "")
     if not prompt.strip() or NOT_THE_OWNER.search(prompt):
         return
@@ -100,10 +109,10 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
         prompts.append({"at": moment, "text": _kept(memory, own, PROMPT_CHARS)})
     approval = None
     if is_approval(prompt):
-        proposal = last_agent_message(agent, payload.get("transcript_path"), prompt)
-        if proposal:
-            masked = mask(proposal[-PROPOSAL_CHARS * 2 :], memory.env)
-            approval = {"at": moment, "text": masked[-PROPOSAL_CHARS:]}
+        message = last_agent_message(agent, payload.get("transcript_path"), prompt)
+        question = final_question(message) if message else None
+        if question:
+            approval = {"at": moment, "text": _kept(memory, question, PROPOSAL_CHARS)}
     data = {
         "root": str(memory.project.root),
         "prompts": prompts[-PROMPTS_KEPT:],
@@ -194,7 +203,8 @@ def _last_reply(turns, prompt: str) -> str | None:
     """The agent's last message before the owner's prompt, from (role, texts) newest first.
 
     The role is "agent", "owner" or "tool". The prompt itself may be in the transcript already. A
-    tool step between the message and the prompt ends the message. Another owner prompt ends it.
+    tool step after the message gives None, because the message did not end the turn. Another
+    owner prompt after it gives None too.
     """
     found: list[str] = []
     for role, texts in turns:
@@ -202,18 +212,21 @@ def _last_reply(turns, prompt: str) -> str | None:
             found = texts + found
         elif found:
             break
-        elif role == "owner" and " ".join(texts).strip() != prompt.strip():
+        elif role == "tool" or " ".join(texts).strip() != prompt.strip():
             return None
     return "\n".join(found).strip() or None
 
 
 def _claude_turns(lines: list[str]):
-    """Claude Code: `type: assistant` records hold text blocks. A `type: user` record is a prompt,
-    or a tool result. An `isMeta` record is text that the tool added."""
+    """Claude Code: `type: assistant` records hold text, tool_use or thinking blocks. A
+    `type: user` record is a prompt, or a tool result. An `isMeta` record is text that the tool
+    added. A thinking block is no step."""
     for record in _records(lines):
         kind, message = record.get("type"), record.get("message")
         content = message.get("content") if isinstance(message, dict) else None
-        if kind == "assistant":
+        if kind == "assistant" and _texts(content, ("tool_use", "server_tool_use")) != []:
+            yield "tool", []
+        elif kind == "assistant" and _texts(content, ("text",)):
             yield "agent", _texts(content, ("text",))
         elif kind == "user" and not record.get("isMeta"):
             if _texts(content, ("tool_result",)) or not _texts(content, ("text",)):
@@ -223,10 +236,13 @@ def _claude_turns(lines: list[str]):
 
 
 def _codex_turns(lines: list[str]):
-    """Codex rollout: `response_item` records with a message `payload` and a role."""
+    """Codex rollout: `response_item` records with a message `payload` and a role. A reasoning
+    item is no step."""
     for record in _records(lines):
         payload = record.get("payload")
         if record.get("type") != "response_item" or not isinstance(payload, dict):
+            continue
+        if payload.get("type") == "reasoning":
             continue
         if payload.get("type") != "message":
             yield "tool", []
