@@ -71,8 +71,11 @@ def _new_id(memory: Memory, day: str) -> str:
 
 
 def _check_secrets(memory: Memory, *texts: str | None, names: tuple[str | None, ...] = ()) -> None:
-    """Refuse a value that looks secret. A name, such as a branch, is read for shapes only, as
-    `find_in_closed_fields` reads it: a branch can have the name of a plain word in `.env`."""
+    """Refuse a mask or a value that looks secret in each free text that a write stores. A name,
+    such as a branch, is read for shapes only, as `find_in_closed_fields` reads it: a branch can
+    have the name of a plain word in `.env`."""
+    if any(holds_mask(text) for text in texts if text):
+        raise Refused(MASK_COPY)
     found = sorted(
         {name for text in texts if text for name in find_secrets(text, memory.env)}
         | {name for text in names if text for name in find_secrets(text)}
@@ -237,8 +240,6 @@ def add_fact(memory: Memory, args) -> str | None:
     summary = getattr(args, "summary", None)
     if isinstance(summary, str):
         summary = summary.strip() or None
-    if any(holds_mask(text) for text in (args.text.strip(), summary, args.area) if text):
-        raise Refused(MASK_COPY)
     if summary and args.kind == "rule":
         print("note: a rule always loads in full, so its --summary is not stored")
         summary = None

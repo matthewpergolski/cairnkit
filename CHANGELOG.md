@@ -210,6 +210,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A value in the form of a mask, such as `[secret: AKIAIOSFODNN7EXAMPLE]`, is a secret again. The
+  scan read each `[secret: X]` as a mask, so `memory add`, `memory check` and each read let such a
+  value through in a tag, a source or a reason. Now only a shape name, `hidden text`, `env value`
+  or the name of a `.env` variable makes a mask. `memory add`, `change`, `keep` and `purge` also
+  refuse a mask in each free text that they store, not only in the text, summary and area.
 - `memory add` scans `--enforced-by` and the `--until-merged` branch for secrets before the
   write, and `memory change` scans `--enforced-by` and `--held-by`. Before, a token in these fields
   went into the fact file, and a note or an error printed it.

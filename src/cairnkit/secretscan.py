@@ -486,6 +486,8 @@ class KnownValues(Protocol):
 
     def only_plain(self, names: list[str]) -> bool: ...
 
+    def names(self) -> frozenset[str]: ...
+
 
 # A terminal code is removed as a whole, so its letters cannot stay between two halves.
 _TERMINAL_CODE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -519,10 +521,12 @@ def without_unseen(text: str) -> str:
 
 HIDDEN = "hidden text"
 ENV_VALUE = "env value"
-_MASK_NAMES = "|".join(re.escape(name) for name in [*(s.name for s in SHAPES), HIDDEN, ENV_VALUE])
-# A snippet can cut a mask, so the end of a text can end one too. The names are closed sets, so a
-# token inside the brackets is no mask.
+_CLOSED_NAMES = frozenset([*(s.name for s in SHAPES), HIDDEN, ENV_VALUE])
+_MASK_NAMES = "|".join(re.escape(name) for name in _CLOSED_NAMES)
+# A snippet can cut a mask, so the end of a text can end one too. This finds the form of a mask.
+# Only `_is_mask` says that it holds a name and no value.
 MASK = re.compile(rf"(\[secret: (?:(?:{_MASK_NAMES}|[A-Z][A-Z0-9_]{{0,39}})\]|[A-Za-z_ ]*$))")
+_MASK_HEAD = len("[secret: ")
 PLAIN_WORD = re.compile(r"[(\[]?[A-Za-z][a-z]{0,20}(?:['-][a-z]{1,20})*[.,;:!?)\]]?|\d{1,4}[.,;:]?")
 # A search snippet can cut a mask at either end, and it marks the cut with dots.
 _CUT_MASK = re.compile(r"\[secret:\s*[A-Za-z_ ]*(?:\.{3}|…|$)|^(?:\.{3}|…)[A-Za-z_: ]*\]")
@@ -530,6 +534,29 @@ _CUT_MASK = re.compile(r"\[secret:\s*[A-Za-z_ ]*(?:\.{3}|…|$)|^(?:\.{3}|…)[A
 
 def mask_token(name: str) -> str:
     return f"[secret: {name}]"
+
+
+def _is_mask(match: re.Match[str], known: KnownValues | None) -> bool:
+    """The match holds the name that a mask writes: a shape name, HIDDEN, ENV_VALUE or the name
+    of a `.env` variable, or the start of one where a snippet cut it. `[secret: AKIA...]` has the
+    form of a mask, and it holds a value."""
+    whole = match[0]
+    cut = not whole.endswith("]")
+    token = whole[_MASK_HEAD:] if cut else whole[_MASK_HEAD:-1]
+
+    def named(names: frozenset[str]) -> bool:
+        return any(name.startswith(token) for name in names) if cut else token in names
+
+    if named(_CLOSED_NAMES):
+        return True
+    return known is not None and named(known.names()) and not _found(token, known)
+
+
+def _without_masks(text: str, known: KnownValues | None) -> str:
+    """`<...>` stands in for a value in each shape, and a mask holds no value."""
+    if "[secret: " not in text:
+        return text
+    return MASK.sub(lambda match: "<secret>" if _is_mask(match, known) else match[0], text)
 
 
 def holds_mask(text: str) -> bool:
@@ -592,9 +619,7 @@ def find_secrets(text: str, known: KnownValues | None = None) -> list[str]:
     A mark that shows as nothing, inside a token, breaks its shape. A load removes such marks, so
     the text without them is read too.
     """
-    if "[secret: " in text:
-        # `<...>` stands in for a value in each shape, and a mask holds no value.
-        text = MASK.sub("<secret>", text)
+    text = _without_masks(text, known)
     found = _found(text, known)
     seen = without_unseen(text)
     return found or (_found(seen, known) if seen != text else [])
@@ -619,9 +644,16 @@ def _mask_shape(shape: Shape, text: str) -> str:
     return text
 
 
-def _outside_masks(text: str, change: Callable[[str], str]) -> str:
-    parts = MASK.split(text)
-    return "".join(part if index % 2 else change(part) for index, part in enumerate(parts))
+def _outside_masks(
+    text: str, change: Callable[[str], str], known: KnownValues | None = None
+) -> str:
+    out: list[str] = []
+    at = 0
+    for match in MASK.finditer(text):
+        if _is_mask(match, known):
+            out += [change(text[at : match.start()]), match[0]]
+            at = match.end()
+    return "".join([*out, change(text[at:])])
 
 
 def _join_split_words(text: str, known: KnownValues | None) -> str:
@@ -663,9 +695,9 @@ def mask(text: str, known: KnownValues | None = None) -> str:
     if not _found(text, known):
         text = without_unseen(text)
     if known:
-        text = _outside_masks(text, known.mask)
+        text = _outside_masks(text, known.mask, known)
     for shape in SHAPES:
-        text = _outside_masks(text, partial(_mask_shape, shape))
+        text = _outside_masks(text, partial(_mask_shape, shape), known)
     return mask_token(HIDDEN) if find_secrets(text, known) else text
 
 
@@ -713,8 +745,7 @@ def only_plain_words(text: str, known: KnownValues | None = None) -> bool:
     A fact refuses this word, because a fact loads in each session. A note is the owner's prose,
     so `--strict` must not fail on a word that prose can hold by chance.
     """
-    if "[secret: " in text:
-        text = MASK.sub("<secret>", text)
+    text = _without_masks(text, known)
     for shape in SHAPES:
         for match in shape.pattern.finditer(text):
             if shape.harmless(match):
