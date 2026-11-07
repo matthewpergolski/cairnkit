@@ -315,7 +315,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   break, a terminal code or the end line of the stored notes printed as it was. `memory init`,
   `memory check`, `memory status`, `memory load`, `memory hooks install`,
   `memory instructions` and `memory docs` now clean each path that they print too, so a
-  checkout or memory folder with a terminal code in its name cannot forge a line.
+  checkout or memory folder with a terminal code in its name cannot forge a line. The clean of a
+  path removes only line breaks, control characters, terminal codes and bidi marks, and keeps
+  each other character: a memory folder `mem  two` (two spaces) prints as it is, not as
+  `mem two`. A path in a command to copy, such as `memory init --path PATH`, is in shell quotes
+  when the shell would split it.
 
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the

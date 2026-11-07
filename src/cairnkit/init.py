@@ -37,7 +37,7 @@ from cairnkit.paths import (
     write_identity,
 )
 from cairnkit.presets import NONE, apply
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path
 
 IGNORE_LINES = [LINK_NAME, PATH_FILE]
 
@@ -101,10 +101,10 @@ def plan_link(
         files = _real_files(link)
         if files:
             shown = ", ".join(files[:10]) + (" ..." if len(files) > 10 else "")
-            return "refuse", f"{clean(link)} is a real folder with files: {clean(shown)}"
+            return "refuse", f"{clean_path(link)} is a real folder with files: {clean_path(shown)}"
         return "replace-empty", None
     if link.exists():
-        return "refuse", f"{clean(link)} is a file, not a link"
+        return "refuse", f"{clean_path(link)} is a file, not a link"
     return "create", None
 
 
@@ -202,7 +202,9 @@ def ensure_linked(
         link.symlink_to(target, target_is_directory=True)
     except OSError:
         return None
-    return f"memory: {'relinked' if repaired else 'linked'} {clean(link)} -> {clean(target)}"
+    return (
+        f"memory: {'relinked' if repaired else 'linked'} {clean_path(link)} -> {clean_path(target)}"
+    )
 
 
 def ensure_all_linked(project: Project, flag: str | None = None) -> list[str]:
@@ -235,9 +237,9 @@ def real_folder_warning(project: Project, memdir: Path) -> str | None:
         else "not a link"
     )
     return (
-        f"warning: {clean(link)} is a {what}, {cause}. It is not your memory, and what it "
+        f"warning: {clean_path(link)} is a {what}, {cause}. It is not your memory, and what it "
         f"says can be old, such as a status. Trust this load. The memory is at "
-        f"{clean(memdir)}."
+        f"{clean_path(memdir)}."
     )
 
 
@@ -247,7 +249,8 @@ def _empty_path_refusal(project: Project, memdir: Path) -> str | None:
     if linked is None or linked == memdir.resolve():
         return None
     return (
-        f"{LINK_NAME} points to the memory at {clean(linked)}, and {clean(memdir)} holds no "
+        f"{LINK_NAME} points to the memory at {clean_path(linked)}, and "
+        f"{clean_path(memdir)} holds no "
         "memory. "
         "To move the memory: move the folder, then run `memory init --path NEW_PLACE`."
     )
@@ -268,8 +271,8 @@ def _own_memory_note(project: Project, memdir: Path, source: str) -> tuple[Path,
     return (
         own,
         "default",
-        f"{clean(memdir)} belongs to another project, so this project now has its own memory "
-        f"at {clean(own)}. What was added here before this stays in {clean(memdir)}.",
+        f"{clean_path(memdir)} belongs to another project, so this project now has its own memory "
+        f"at {clean_path(own)}. What was added here before this stays in {clean_path(memdir)}.",
     )
 
 
@@ -292,8 +295,9 @@ def run_init(
     if not project.is_git and project.root != cwd:
         memdir, _ = resolve_memory_dir(project, None)
         print(
-            f"error: {clean(cwd)} is inside the project at {clean(project.root)}, which already "
-            f"has a memory ({clean(memdir)}).\nNothing changed. The memory commands work from "
+            f"error: {clean_path(cwd)} is inside the project at {clean_path(project.root)}, "
+            "which already "
+            f"has a memory ({clean_path(memdir)}).\nNothing changed. The memory commands work from "
             "this subfolder. To change the project, run `memory init` in its root folder.",
             file=sys.stderr,
         )
@@ -306,18 +310,18 @@ def run_init(
         if lost and lost.gone:
             refusal = lost_note(lost)
         if refusal:
-            print(f"error: {clean(refusal)}\nNothing changed.", file=sys.stderr)
+            print(f"error: {clean_path(refusal)}\nNothing changed.", file=sys.stderr)
             return 1
     say = print
     if dry_run:
         say("Dry run: nothing will change.")
-    say(f"Memory folder: {clean(memdir)} (from {source})")
+    say(f"Memory folder: {clean_path(memdir)} (from {source})")
 
     plans = [(c, *plan_link(c, memdir, moved)) for c in project.checkouts]
     problems = [p for _, _, p in plans if p]
     if problems:
         for problem in problems:
-            print(f"error: {clean(problem)}", file=sys.stderr)
+            print(f"error: {clean_path(problem)}", file=sys.stderr)
         print(
             "Nothing changed. Move these files into the memory folder first (migrate),\n"
             "then remove the real folder and run `memory init` again.",
@@ -328,7 +332,7 @@ def run_init(
         leaks = keep_out_of_git(memdir)
         if leaks:
             for leak in leaks:
-                print(f"error: {clean(leak)}", file=sys.stderr)
+                print(f"error: {clean_path(leak)}", file=sys.stderr)
             print("Nothing changed.", file=sys.stderr)
             return 1
 
@@ -378,13 +382,15 @@ def run_init(
 
     if verbose or dry_run:
         for step in steps:
-            say(("would " if dry_run else "") + clean(step))
+            say(("would " if dry_run else "") + clean_path(step))
     for line in rule_lines:
         say(line)
     if not dry_run:
         state = "ready" if steps else "already set up"
-        say(f"Memory {state}: {clean(memdir)} (linked as {LINK_NAME}; nothing in git changes).")
+        say(
+            f"Memory {state}: {clean_path(memdir)} (linked as {LINK_NAME}; nothing in git changes)."
+        )
     for note in (left_note, beside_line(project, memdir), owner_line(project, memdir)):
         if note:
-            say(clean(note))
+            say(clean_path(note))
     return 0

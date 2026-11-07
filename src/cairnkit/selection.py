@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from datetime import datetime
 
 from cairnkit.clock import parse_time
@@ -143,6 +144,8 @@ RULE_WORD_LIMIT = 1000
 _CONTROL = re.compile(
     r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]"
 )
+# Each character that `str.splitlines` splits on.
+_LINE_BREAK = re.compile(r"[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]")
 _FRAME_END = re.compile(r"(?i)-*\s*end\s+of\s+stored\s+notes\s*-*")
 _PLAIN_NAME = re.compile(r"\w[\w./:@+=-]*")
 
@@ -154,6 +157,21 @@ def clean(value: object) -> str:
     """
     flat = _CONTROL.sub("", " ".join(str(value).split()))
     return _FRAME_END.sub("[frame text removed]", flat)
+
+
+def clean_path(value: object) -> str:
+    """A path, or a line that holds one, on one line. Each line separator becomes a space, and
+    terminal codes, control characters, bidi marks and the frame end go. Unlike `clean`, it keeps
+    every other character, such as two spaces, a tab or a no-break space, so a person can copy
+    the path."""
+    flat = _CONTROL.sub("", _LINE_BREAK.sub(" ", str(value)))
+    return _FRAME_END.sub("[frame text removed]", flat)
+
+
+def shell_word(value: object) -> str:
+    """A path in a command that a person copies: cleaned, and quoted when the shell would split
+    or expand it."""
+    return shlex.quote(clean_path(value))
 
 
 def name(value: object) -> str:

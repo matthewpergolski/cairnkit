@@ -8,7 +8,7 @@ from cairnkit import markers, plainfile
 from cairnkit.discover import CAPTURE_GUIDE
 from cairnkit.rules import DEFAULT_RULES
 from cairnkit.schema import BASES, KINDS
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path
 
 START = "<!-- cairnkit:start -->"
 END = "<!-- cairnkit:end -->"
@@ -239,14 +239,14 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
 
     migrate_steps, broken = migrate_shared_blocks(project, dry_run)
     for step in migrate_steps:
-        print(said + clean(step))
+        print(said + clean_path(step))
     for path in broken:
         print(markers.broken_message(path, "memory instructions --write-instructions"))
     if broken:
         return 1
 
     if file:
-        rel, why = file, f"--instructions-file: the block goes to {clean(file)}."
+        rel, why = file, f"--instructions-file: the block goes to {clean_path(file)}."
     else:
         rel, why = (
             rules_target.LOCAL,
@@ -256,14 +256,14 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     target = root / rel
     if is_tracked(project, rel):
         print(
-            f"error: {clean(rel)} is tracked by git; pick an untracked file with "
+            f"error: {clean_path(rel)} is tracked by git; pick an untracked file with "
             "--instructions-file"
         )
         return 1
     real = rules_target.link_target(root, rel)
     if real not in (None, rel) and is_tracked(project, real):
         print(
-            f"error: {clean(rel)} is a link to {clean(real)}, which is tracked by git. "
+            f"error: {clean_path(rel)} is a link to {clean_path(real)}, which is tracked by git. "
             "Nothing was written. Remove the link, or pick another untracked file."
         )
         return 1
@@ -271,13 +271,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     if result == "broken":
         print(markers.broken_message(target, "memory instructions --write-instructions"))
         return 1
-    print(f"{said}{result} the rules block in {clean(target)}")
+    print(f"{said}{result} the rules block in {clean_path(target)}")
     if rules_target.needs_import(root, rel):
         if not dry_run:
             rules_target.add_import(target)
         print(
-            f"{said}add {rules_target.IMPORT} at the top of {clean(rel)}. Claude Code skips "
-            f"AGENTS.md when {clean(rel)} exists, so the import makes it load both."
+            f"{said}add {rules_target.IMPORT} at the top of {clean_path(rel)}. Claude Code skips "
+            f"AGENTS.md when {clean_path(rel)} exists, so the import makes it load both."
         )
     written = [rel]
     if not file:
@@ -289,7 +289,7 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             real_h = rules_target.link_target(root, harness.rel)
             if real_h not in (None, harness.rel) and is_tracked(project, real_h):
                 print(
-                    f"note: {harness.rel} links to tracked {clean(real_h)}; "
+                    f"note: {harness.rel} links to tracked {clean_path(real_h)}; "
                     f"skipped the {harness.harness} local copy"
                 )
                 continue
@@ -310,7 +310,7 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             record(project, None, name)
     exclude_lines = list(dict.fromkeys(written))
     for step in exclude(project, exclude_lines, dry_run):
-        print(said + clean(step))
+        print(said + clean_path(step))
     old = root / rules_target.OLD_LOCAL
     if rel != rules_target.OLD_LOCAL and rules_target.holds_block(old):
         print(

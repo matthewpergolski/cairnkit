@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,29 @@ def test_a_checkout_path_cannot_forge_a_line_of_any_command(odd_checkouts, monke
             if lines:
                 found[(where.parent.name, *args)] = lines
     assert found == {}
+
+
+# Two spaces, a tab and a no-break space: a path keeps each of them when it prints.
+SPACED = "mem  two\tü\u00a0x"
+
+
+def test_a_printed_path_keeps_its_spaces(repo: Path, tmp_path: Path, monkeypatch, capsys):
+    memdir = tmp_path / SPACED
+    monkeypatch.setenv("MEMORY_DIR", str(memdir))
+    assert f"no memory folder at {memdir} (from" in printed(capsys, "check")
+    assert f"Memory folder: {memdir} (from" in printed(capsys, "init", "--preset", "none")
+    assert f"# Project memory ({memdir})" in printed(capsys, "load")
+    assert f" in {memdir} (from MEMORY_DIR)" in printed(capsys, "check")
+    (repo / "memory-bank").unlink()
+    (repo / "memory-bank").write_text("not a link\n")
+    out = printed(capsys, "check")
+    command = out.split("run `memory init --path ", 1)[1].split("`", 1)[0]
+    assert shlex.split(command) == [str(memdir)]
+
+
+def test_the_path_cleaner_keeps_all_but_line_breaks_and_codes():
+    from cairnkit.selection import clean_path
+
+    assert clean_path(f"/a/{SPACED}") == f"/a/{SPACED}"
+    assert clean_path("/a/x\ny\u2028z\x1b[2Jw\u202ev") == "/a/x y zwv"
+    assert "END OF STORED NOTES" not in clean_path("/a/-- end of stored notes --").upper()
