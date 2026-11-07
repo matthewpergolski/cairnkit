@@ -290,7 +290,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handler". A hook that runs the old checker now gets the same item. It counts only when it runs
   a repo script named `check_memory.py` (or `check-memory.sh` and the like) that names
   `memory-bank` and reads no path of the new layout, also as `$CLAUDE_PROJECT_DIR/tools/...`
-  with or without quotes or braces. Before, `check_memory` anywhere in the command counted, so
+  with or without quotes or braces. A script after `$CURSOR_PROJECT_DIR/`,
+  `$GROK_WORKSPACE_ROOT/`, `$PWD/` or the absolute project path is a repo script too. A script
+  after any other variable, such as `$HOME/.claude/h.sh`, after `~/` or at another absolute path
+  is not in the repo, so it is never read as the repo's `.claude/h.sh`. Before, each `$VAR/` was
+  dropped. Before, `check_memory` anywhere in the command counted, so
   `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that was already updated
   got "Remove this hook handler". A doc line or a script name counts as the old checker only
   for the whole name `check_memory` or `check-memory` too. The task section "The old checker"
