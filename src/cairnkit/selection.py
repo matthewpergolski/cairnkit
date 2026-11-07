@@ -69,13 +69,23 @@ def areas_for_paths(paths: list[str], area_map: dict[str, str]) -> set[str]:
     return found
 
 
+def names_a_changed_file(state: dict, paths) -> bool:
+    """True when one of the fact's `files` is a changed path, or a folder that holds one."""
+    files = {str(f).strip("/").lower() for f in state.get("files") or []} - {""}
+    changed = [str(path).lower() for path in paths]
+    return any(path == f or path.startswith(f + "/") for f in files for path in changed)
+
+
 def _mentions(state: dict, areas: set[str]) -> bool:
     """True when the fact names a changed file or a distinctive word of its path.
 
-    A path or a file name must appear whole, in the fact's text or its `file:` source. A stem or a
-    folder name counts as a word, unless it is too short or too common to mean this file. Other
-    sources are not read: each `session:DATE` would match a changed `session.py`.
+    A path or a file name must appear whole, in the fact's `files`, its text or its `file:`
+    source. A stem or a folder name counts as a word, unless it is too short or too common to
+    mean this file. Other sources are not read: each `session:DATE` would match a changed
+    `session.py`. The areas hold each changed path whole, so `files` can match it.
     """
+    if names_a_changed_file(state, areas):
+        return True
     source = str(state.get("source", ""))
     text = f"{state.get('text', '')} {source if source.startswith('file:') else ''}".lower()
     words = set(re.findall(r"[a-z0-9_-]+", text))
@@ -200,6 +210,19 @@ def load_text(state: dict) -> str:
     return str(state.get("text", ""))
 
 
+# A fact's files on its load line. `memory show` lists them all.
+FILES_SHOWN = 3
+
+
+def files_label(state: dict) -> str:
+    files = state.get("files")
+    if not isinstance(files, list) or not files:
+        return ""
+    shown = ", ".join(str(path) for path in files[:FILES_SHOWN])
+    more = len(files) - FILES_SHOWN
+    return f"; files: {shown}" + (f" and {more} more" if more > 0 else "")
+
+
 def render(state: dict) -> str:
     extra = ""
     if state.get("scope") == "short":
@@ -211,6 +234,7 @@ def render(state: dict) -> str:
         extra += f"; enforced by {name(state['enforced_by'])}"
     if state.get("kind") == "rule" and state.get("author"):
         extra += f"; by {name(state['author'])}"
+    extra += files_label(state)
     return clean(
         f"- [{state['id']}] {load_text(state)} "
         f"({state.get('happened_at', '?')}; {state.get('basis', '?')}{extra})"

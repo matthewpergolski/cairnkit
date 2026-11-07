@@ -118,6 +118,21 @@ _RULE_LIKE = re.compile(
 )
 _FRONT = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.DOTALL)
 _LIST_MARK = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+# The end of an exported line that holds the fact's files. A path holds no comma.
+_FILES_END = re.compile(r"\s\(files: ([^,]+(?:, [^,]+)*)\)$")
+
+
+def _with_files(text: str, files: object) -> str:
+    if not isinstance(files, list) or not files:
+        return text
+    return f"{text} (files: {', '.join(map(str, files))})"
+
+
+def _split_files(text: str) -> tuple[str, tuple[str, ...]]:
+    match = _FILES_END.search(text)
+    if not match:
+        return text, ()
+    return text[: match.start()].rstrip(), tuple(match[1].split(", "))
 
 
 @dataclass(frozen=True)
@@ -127,6 +142,7 @@ class Entry:
     section: str
     text: str
     date: str | None = None  # YYYY-MM-DD; None when the source gives none
+    files: tuple[str, ...] = ()  # repo paths, from a `(files: a, b)` end
 
 
 class Step(NamedTuple):
@@ -183,7 +199,8 @@ def export_text(memory: Memory, include_ended: bool) -> str:
         count["active" if status == "active" else "ended"] += 1
         if status == "active" or include_ended:
             day = str(state.get("happened_at") or "")[:10] or "unknown"
-            entry = Entry(_export_section(state, status), str(state.get("text", "")), day)
+            text = _with_files(str(state.get("text", "")), state.get("files"))
+            entry = Entry(_export_section(state, status), text, day)
             rows.append((entry, str(state.get("learned_at", ""))))
     status_lines, status_left = _status_entries(memory)
     rows += [(entry, "") for entry in status_lines]
@@ -354,7 +371,8 @@ def parse_sections(text: str) -> list[Entry]:
         bullet = _BULLET.match(line)
         day, body, marked = _dated(bullet[1].strip() if bullet else line)
         if body and (bullet or marked) and _WORD.search(body):
-            found.append(Entry(section, body, day))
+            body, files = _split_files(body)
+            found.append(Entry(section, body, day, files))
             heading_line = None
         else:
             found.append(Entry(PROSE, line))
@@ -475,6 +493,7 @@ def _args(entry: Entry, kind: str, source: str) -> Namespace:
         text=entry.text, kind=kind, area="general", basis="seen", source=source, tag=None,
         happened_at=entry.date, link=None, pinned=False, enforced_by=None, supersedes=None,
         reason=None, short=False, expires=None, until_merged=None, summary=None, author="import",
+        files=list(entry.files) or None,
     )  # fmt: skip
 
 

@@ -114,7 +114,7 @@ def query_terms(query: str) -> list[str]:
 
 
 def fact_text(state: dict) -> str:
-    """The text of a fact that search reads: id, summary, body, area, tags, change reasons."""
+    """The text of a fact that search reads: id, summary, body, area, tags, files, reasons."""
     return " ".join(
         [
             state.get("id", ""),
@@ -122,6 +122,7 @@ def fact_text(state: dict) -> str:
             state.get("text", ""),
             state.get("area", ""),
             " ".join(state.get("tags", [])),
+            " ".join(map(str, state.get("files") or [])),
             " ".join(c.get("reason", "") for c in state["history"]),
         ]
     )

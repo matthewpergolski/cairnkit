@@ -41,6 +41,7 @@ def run_show(memory: Memory, fact_id: str) -> int:
         "kind",
         "area",
         "tags",
+        "files",
         "scope",
         "source",
         "author",
@@ -54,7 +55,10 @@ def run_show(memory: Memory, fact_id: str) -> int:
     )
     for name in fields:
         if name in state:
-            print(f"  {name}: {clean(state[name])}")
+            value = state[name]
+            if name == "files" and isinstance(value, list):
+                value = ", ".join(map(str, value))
+            print(f"  {name}: {clean(value)}")
     for link in state.get("links", []):
         print(f"  link: {clean(link['rel'])} {clean(link['id'])}")
     print("History:")

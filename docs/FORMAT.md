@@ -179,6 +179,7 @@ hex characters. A new id must not exist in any fact file.
 | `summary` | no | Short load line. At most 200 characters. Not for rules. Load shows this instead of the full body when set. |
 | `area` | yes | One area of the work, for example `deploy` or `database`. |
 | `tags` | no | A list of words for search and ranking. |
+| `files` | no | A list of 1 to 10 paths that the fact is about, relative to the repo root, each once. A path has `/` between its parts, at most 200 characters, no `.` or `..` part, no comma and no character that does not print. They do not count in the `text` limit. A changed file that a path names, or that sits under it, counts as a mention in the load rank and in the "match the files you changed" hint. A fact that supersedes another with no `files` keeps the old fact's files. |
 | `happened_at` | yes | When it happened or became true. A date (`2026-10-03`) or a date-time. |
 | `learned_at` | yes | When it was written. A date-time with an offset. |
 | `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. `memory add` writes `session:<today>` when no source is given. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. `memory import` writes `import:<name>:<date>`: the file name with each run of white space as `-` (`paste` for stdin), and the date of the import. |
