@@ -48,6 +48,7 @@ sources:
   - src/cairnkit/migrate_refs.py
   - src/cairnkit/native.py
   - src/cairnkit/paths.py
+  - src/cairnkit/plainfile.py
   - src/cairnkit/presets.py
   - src/cairnkit/progress.py
   - src/cairnkit/ranking.py
@@ -130,6 +131,7 @@ flowchart TB
     Library --> memory[memory]
     Library --> native[native]
     Library --> paths[paths]
+    Library --> plainfile[plainfile]
     Library --> progress[progress]
     Library --> ranking[ranking]
     Library --> repair[repair]
