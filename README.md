@@ -959,8 +959,11 @@ no fact followed:
 
 The block gives the test, the moments and the `memory add` line, in 87 words. It says that a
 commit, a branch or the diff is no fact, because git holds them. `memory instructions` holds the
-same guide. A stop that only names an event gives the `memory add` line and no guide, because the
-event asks its own question. A command that passes with a setting in front of it is no event when an
+same guide. The memory folder is outside the work, so an edit of a note there does not block. When a
+check blocks, it names the notes under `notes/` and `branches/` that changed since the last check
+(at most 5, as data) and asks whether one holds a decision or a trap that needs a fact. So the
+agent knows that the check saw them. A stop that only names an event gives the `memory add` line
+and no guide, because the event asks its own question. A command that passes with a setting in front of it is no event when an
 active fact already names that setting and the command: the session had the fix in its load. In 20 ordinary turns, an agent that never writes sees 1 block on a plain script, on
 each adapter, and "format the code" never blocks. An agent that writes a fact at each block sees at
 most 3. A subagent gets no capture check, because it never saw the conversation. Its stop has an

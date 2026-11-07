@@ -210,6 +210,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The end-of-turn capture check names the memory notes (`notes/` and `branches/`) that changed
+  since the last check, at most 5 and as data, and asks whether one holds a decision or a trap that
+  needs a fact. Before, it said only "no fact records it", so an agent that had edited
+  `notes/status.md` and its specs read that as if the check did not see them. A note edit alone
+  still does not block.
 - After a compaction, the session start names the helpers that this session started under
   `## Live work`, as "started by this session, may still be running". Before, a compaction hid
   them, so a lead lost the work that its running helpers did. The next stop of the session does
