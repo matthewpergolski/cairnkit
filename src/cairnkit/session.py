@@ -16,7 +16,7 @@ import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
-from cairnkit import deadline
+from cairnkit import deadline, plainfile
 from cairnkit.autotidy import WRITER as AUTO_TIDY_WRITER
 from cairnkit.clock import now, stamp
 from cairnkit.install_source import SKIP_DIRS, SKIP_SUFFIXES
@@ -346,7 +346,7 @@ def take_load(memory: Memory, session_id: str) -> str | None:
 
 def load_state(memory: Memory, session_id: str) -> dict | None:
     try:
-        return json.loads(_path(memory, session_id).read_text())
+        return json.loads(plainfile.read_text(_path(memory, session_id)))
     except (OSError, ValueError):
         return None
 

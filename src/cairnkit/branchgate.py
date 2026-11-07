@@ -18,7 +18,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from cairnkit import skills
+from cairnkit import plainfile, skills
 from cairnkit.memory import Memory
 from cairnkit.paths import Project, default_branch, run_git
 from cairnkit.state import effective_status
@@ -136,7 +136,7 @@ def on_commit(project: Project, flag: str | None) -> str | None:
 
 def _read_state(path: Path) -> dict:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

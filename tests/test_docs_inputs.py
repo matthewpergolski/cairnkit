@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+import re
 import subprocess
 import sys
 import time
@@ -300,10 +302,34 @@ def test_a_page_full_of_open_script_tags_maps_in_time(mem: Path, repo: Path):
         ('const s = "x";import y from "./y"', ["./y"]),
         ('importer from "./no";\nexport default from "./no2";\n', ["./no2"]),
         ('const from = "./nope";\n', []),
+        ('"use strict"; import b from "./y"', ["./y"]),
+        ('f("a");import b from "./y"', ["./y"]),
+        ('var a="x";import b from "./y";', ["./y"]),
+        ('import a from "import b from "z"', ["import b from "]),
     ],
 )
 def test_the_import_scan_finds_each_import(text: str, found: list[str]):
     assert specifiers(text) == found
+
+
+_OLD_FROM = re.compile(
+    r"""\b(?:import|export)\s+(?:type\s+)?[\w*{}\s,$]*?\bfrom\s*["']([^"'\n]+)["']"""
+)
+_OLD_BARE = re.compile(r"""(?:^|[;\n])\s*import\s*["']([^"'\n]+)["']""")
+_OLD_CALL = re.compile(r"""\b(?:import|require)\s*\(\s*["']([^"'\n]+)["']\s*\)""")
+_PIECES = [
+    "import", "export", "from", "type", "require", " ", "  ", "\n", "\t", '"', "'", ";",
+    "(", ")", "{", "}", ",", "*", "$", "a", "b", "./y", "x=", "use strict", "=", ".", "importer",
+]  # fmt: skip
+
+
+def test_the_import_scan_agrees_with_the_quadratic_regexes():
+    """The linear scan replaced three regexes. On normal text it must find what they found."""
+    rng = random.Random(20261106)
+    for _ in range(20_000):
+        text = "".join(rng.choice(_PIECES) for _ in range(rng.randint(1, 30)))
+        old = _OLD_FROM.findall(text) + _OLD_BARE.findall(text) + _OLD_CALL.findall(text)
+        assert specifiers(text) == sorted(set(old)), repr(text)
 
 
 def test_a_link_that_a_check_saw_as_a_file_is_not_followed(mem: Path, repo: Path, monkeypatch):

@@ -20,6 +20,7 @@ from datetime import date
 from pathlib import Path
 from typing import NamedTuple
 
+from cairnkit import plainfile
 from cairnkit.clock import now
 from cairnkit.instruction_files import BLOCK_ENDS, FENCE_RE, home
 from cairnkit.instruction_files import items as instruction_items
@@ -310,14 +311,17 @@ def parse_sections(text: str) -> list[Entry]:
     for raw in text.splitlines():
         line = raw.strip()
         fence = _FENCE.match(raw.rstrip())
-        in_code = any(block.language not in PLAIN_BLOCKS for block in blocks)
+        code = [index for index, block in enumerate(blocks) if block.language not in PLAIN_BLOCKS]
+        in_code = bool(code)
         if fence:
             mark, rest = fence["mark"], fence["rest"].strip()
             indent = len(fence["indent"].expandtabs(4))
+            # In code, a closer of an outer block is code too, so it cannot end the code block.
             closes = [
                 index
                 for index, block in enumerate(blocks)
-                if not rest
+                if index >= (code[-1] if code else 0)
+                and not rest
                 and mark[0] == block.mark[0]
                 and len(mark) >= len(block.mark)
                 and indent <= block.indent + CLOSER_SLACK
@@ -389,7 +393,7 @@ def _read(path: Path) -> str:
     try:
         if path.stat().st_size > MAX_BYTES:
             raise Refused(f"{path} is larger than {MAX_BYTES // 1024} KB")
-        return path.read_text(encoding="utf-8-sig", errors="replace")
+        return plainfile.read_text(path, encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise Refused(f"cannot read {path}: {exc.strerror or exc}") from None
 
@@ -475,7 +479,9 @@ def _args(entry: Entry, kind: str, source: str) -> Namespace:
 
 def _status_keys(memory: Memory) -> set[str]:
     try:
-        text = (memory.dir / "notes" / "status.md").read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(
+            memory.dir / "notes" / "status.md", encoding="utf-8", errors="replace"
+        )
     except OSError:
         return set()
     return {repeat_key(_LIST_MARK.sub("", line)) for line in text.splitlines()}

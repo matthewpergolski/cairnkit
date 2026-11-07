@@ -17,9 +17,10 @@ from cairnkit.docs_inventory import (
     read_file,
 )
 
-# Each regex here runs over project files, so each must be linear in the text. A clause starts only
-# where the run of clause characters starts, so no later start scans the same run again.
-_CLAUSE = re.compile(r"""(?<![\w*{}\s,$])([\w*{}\s,$]+)["']([^"'\n]+)["']""")
+# Each regex here runs over project files, so each must be linear in the text. A clause is a whole
+# run of clause characters, so no later start scans the same run again.
+_CLAUSE = re.compile(r"[\w*{}\s,$]+")
+_QUOTED = re.compile(r"""["']([^"'\n]+)["']""")
 _CLAUSE_KEYWORD = re.compile(r"\b(?:import|export)\s")
 _CLAUSE_FROM = re.compile(r"\bfrom\s*\Z")
 _BARE = re.compile(r"""(?:^|[;\n])[^\S\n]*import\s*["']([^"'\n]+)["']""")
@@ -45,12 +46,16 @@ class Aliases:
 
 def _from_specifiers(text: str) -> list[str]:
     """`import ... from "x"` and `export ... from "x"`: a keyword, then a clause, then `from`."""
-    found = []
-    for clause, spec in _CLAUSE.findall(text):
-        keyword = _CLAUSE_KEYWORD.search(clause)
-        tail = _CLAUSE_FROM.search(clause, keyword.end()) if keyword else None
-        if tail:
-            found.append(spec)
+    found, taken = [], 0
+    for clause in _CLAUSE.finditer(text):
+        if clause.start() < taken:  # a run inside the name of the last import is no clause
+            continue
+        start, end = clause.span()
+        keyword = _CLAUSE_KEYWORD.search(text, start, end)
+        spec = _QUOTED.match(text, end)
+        if keyword and spec and _CLAUSE_FROM.search(text, keyword.end(), end):
+            found.append(spec[1])
+            taken = spec.end()
     return found
 
 

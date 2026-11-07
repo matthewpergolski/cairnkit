@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whole words. A line in a code block that names a language, such as `bash`, is code: it is
   listed and not read. Fences follow CommonMark: a fence closes only on the same mark of at
   least the same length, so a `````` ````markdown `````` block can hold a `bash` block, and a
-  fence indented 4 spaces is text. Nothing from a block that never closes is written. A bold or colon heading with no entry under it is listed too. The
+  fence indented 4 spaces is text. Nothing from a block that never closes is written. A fence in
+  a code block is code: it cannot close an outer text block and so end the code block too. A bold or colon heading with no entry under it is listed too. The
   entries under a heading that the import does not know are skipped. A paste over 1 MB is
   refused, not cut.
 - The memory keeps why each Claude Code helper started, from the moment that it starts. Before, a
@@ -241,7 +242,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory docs` reads a script or an `index.html` in a time that grows with its size, not with the
   square of its size. A `web/index.js` of 50000 `import a ` words ran for more than 30 s of CPU,
   and so did a run of blank lines or of open `<script` tags. That stopped `memory docs`,
-  `memory docs --check` and `memory status`.
+  `memory docs --check` and `memory status`. The scan still finds an import after a string on
+  the same line, such as `"use strict"; import b from "./y"`.
 - `memory docs` reads no file outside the repo. A tracked link to a file outside put that file's
   first line in `docs/state`. Now it skips each link, also a link to a manifest such as
   `pyproject.toml`. It also refuses a `docs/state` that is a link, and it writes or removes no page
@@ -250,7 +252,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into a link after a check is not read either.
 - A pipe or another file that is not a regular file in `docs/state` no longer hangs
   `memory docs`, `memory docs --check` or `memory status`. Before, `mkfifo docs/state/x.md` made
-  each of them wait for ever.
+  each of them wait for ever. The same holds for each other file of the project or of the memory
+  folder that a command reads: a pipe at `.cursor/hooks.json`, `.codex/hooks.json`,
+  `.claude/settings.local.json`, `CLAUDE.md`, `AGENTS.md`, `CLAUDE.local.md` or `.memory-path`,
+  or at a fact file, a note or `config.toml` in the memory folder, made `memory status`,
+  `memory check`, `memory load` or `memory hooks install` wait for ever. Now each read opens the
+  file without a wait, reads only a regular file, and reads at most 64 MB. Such a file counts as
+  one that cannot be read, and `memory hooks install` reports an agent settings file that is not
+  a plain file and changes nothing in it.
 - `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
   files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
   list a repo, it stops with an error and changes nothing. Before, it walked the folder and read
@@ -279,10 +288,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they do all that it does. Before, a mention of a path was enough to say "Remove this hook
   handler". A hook that runs the old checker now gets the same item. It counts only when it runs
   a repo script named `check_memory.py` (or `check-memory.sh` and the like) that names
-  `memory-bank` and reads no path of the new layout. Before, `check_memory` anywhere in the
-  command counted, so `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that
-  was already updated got "Remove this hook handler". A doc line or a script name counts as the
-  old checker only for the whole name `check_memory` or `check-memory` too.
+  `memory-bank` and reads no path of the new layout, also as `$CLAUDE_PROJECT_DIR/tools/...`
+  with or without quotes or braces. Before, `check_memory` anywhere in the command counted, so
+  `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that was already updated
+  got "Remove this hook handler". A doc line or a script name counts as the old checker only
+  for the whole name `check_memory` or `check-memory` too. The task section "The old checker"
+  asks for the same comparison before the script goes. Before, it said to remove the script
+  once nothing named it.
 - `memory migrate` reads a long hook script, hook command or doc line in a time that grows with
   its size. Before, the time grew with the square of the size for a long word of
   `memory-bank/notes/` parts, a run of spaces after `"memory-bank"`, a long doc line that names
@@ -293,9 +305,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The load line that names files outside `notes/` cleans each file name and cuts it at 40
   characters. A file name with a line break could put a line of its own in the load.
   `memory migrate` now cleans each file name that it prints too: a stray file in the memory
-  folder, a note, a kept copy, a pointer, a moved folder and a doc that names the old checker.
-  Before, a name with a line break, a terminal code or the end line of the stored notes printed
-  as it was.
+  folder, a note, a kept copy, a pointer, a moved folder, a doc that names the old checker, each
+  file of the candidate count, a worktree and each checkout path. Before, a name with a line
+  break, a terminal code or the end line of the stored notes printed as it was. `memory init`,
+  `memory check`, `memory status`, `memory load`, `memory hooks install`,
+  `memory instructions` and `memory docs` now clean each path that they print too, so a
+  checkout or memory folder with a terminal code in its name cannot forge a line.
 
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the

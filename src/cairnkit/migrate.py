@@ -27,7 +27,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from cairnkit import adapters, githook, hooks_cmd, instruction_files, skills
+from cairnkit import adapters, githook, hooks_cmd, instruction_files, plainfile, skills
 from cairnkit.candidates import Candidate, Counts, mark_repeats, scan_text
 from cairnkit.check import run_check
 from cairnkit.envsecrets import EnvValues, read_env_values
@@ -84,7 +84,7 @@ def _files(folder: Path) -> list[str]:
 
 
 def _fail(message: str) -> int:
-    print(f"error: {message}\nNothing changed.", file=sys.stderr)
+    print(f"error: {clean(message)}\nNothing changed.", file=sys.stderr)
     return 1
 
 
@@ -241,7 +241,7 @@ def scan_folder(
         if Path(rel).suffix.lower() not in TEXT_SUFFIXES:
             skipped += 1
             continue
-        text = (source / old_rel).read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(source / old_rel, encoding="utf-8", errors="replace")
         items, count = scan_text(rel, text)
         found += items
         counts[rel] = count
@@ -300,11 +300,10 @@ def worktree_only(main: Path, name: str, folder: Path, final: Path) -> list[Cand
             continue
         known: set[str] = set()
         if theirs.is_file():
-            known = {
-                _norm(c.text)
-                for c in scan_text(rel, theirs.read_text(encoding="utf-8", errors="replace"))[0]
-            }
-        for cand in scan_text(rel, mine.read_text(encoding="utf-8", errors="replace"))[0]:
+            text = plainfile.read_text(theirs, encoding="utf-8", errors="replace")
+            known = {_norm(c.text) for c in scan_text(rel, text)[0]}
+        text = plainfile.read_text(mine, encoding="utf-8", errors="replace")
+        for cand in scan_text(rel, text)[0]:
             if _norm(cand.text) not in known:
                 cand.worktree, cand.origin = name, str(final / rel)
                 found.append(cand)
@@ -380,7 +379,7 @@ def _report_counts(
     for rel, count in counts.items():
         total.add(count)
         print(
-            f"  {rel}: {count.lines} lines = {count.candidates} candidate, "
+            f"  {clean(rel)}: {count.lines} lines = {count.candidates} candidate, "
             f"{count.continuation} continued, {count.headings} heading, {count.code} code, "
             f"{count.table} table, {count.other} other"
             + (f", {count.instructions} in an instruction file" if count.instructions else "")
@@ -408,7 +407,7 @@ def _report_counts(
         )
     for name in names:
         n = sum(c.worktree == name for c in found)
-        print(f"{n} worktree-only line(s) from {name} (in the worklist, tier worktree-only)")
+        print(f"{n} worktree-only line(s) from {clean(name)} (in the worklist, tier worktree-only)")
     long_ones = sum(c.too_long for c in found)
     if long_ones:
         print(
@@ -537,7 +536,7 @@ def _write_task(
     scripts, refs = _old_checker(project)
     ordered = sorted(items, key=lambda i: (i.file, i.line))
     text = render_followups(ordered, scripts, refs, _drops(project, source))
-    if not dry_run and (not path.is_file() or path.read_text(encoding="utf-8") != text):
+    if not dry_run and (not path.is_file() or plainfile.read_text(path, encoding="utf-8") != text):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
@@ -545,11 +544,12 @@ def _write_task(
 def _say_where(project: Project, dry_run: bool) -> None:
     if dry_run:
         print("Plan only: nothing will change without --yes.")
-    print(f"It acts on the main checkout {project.main_root}.")
+    print(f"It acts on the main checkout {clean(project.main_root)}.")
     if project.root != project.main_root:
         print(
-            f"You ran it from the worktree {project.root}. The old notes and links are handled "
-            "from the main checkout. The docs for the agent task are read from this worktree."
+            f"You ran it from the worktree {clean(project.root)}. The old notes and links are "
+            "handled from the main checkout. The docs for the agent task are read from this "
+            "worktree."
         )
 
 
@@ -561,16 +561,16 @@ def _say_install(project: Project, would: str) -> None:
     if names:
         print(
             f"{would}connect the agent tools ({', '.join(names)}) in this checkout: "
-            f"{project.root}. Each file it writes there is untracked."
+            f"{clean(project.root)}. Each file it writes there is untracked."
         )
-        others = [str(checkout) for checkout in project.checkouts if checkout != project.root]
+        others = [clean(checkout) for checkout in project.checkouts if checkout != project.root]
         if others:
             print(f"It writes no agent file in the other checkouts: {', '.join(others)}.")
     folder = githook.hooks_dir(project) if project.is_git else None
     if folder:
         print(
             f"{would}add the git hooks pre-commit, post-checkout, pre-push and post-merge to "
-            f"{folder}, which every checkout runs. They are not shared. "
+            f"{clean(folder)}, which every checkout runs. They are not shared. "
             "It also adds commit-msg when a rule forbids AI attribution."
         )
 
@@ -587,7 +587,7 @@ def _close(project: Project, path_flag: str | None, memdir: Path, source: Path, 
     _write_task(memdir, project, source, items, dry)
     code = 0 if dry else run_check(project, path_flag)
     if items:
-        print(f"Migration not finished: {len(items)} item(s) left in {memdir / TASK}.")
+        print(f"Migration not finished: {len(items)} item(s) left in {clean(memdir / TASK)}.")
         print("Do them, then run `memory migrate --yes` again. That task says how it ends.")
     elif dry and strays:
         print("This was the plan. Nothing changed. Read it, then run `memory migrate --yes`.")
@@ -620,16 +620,16 @@ def run_migrate(
             if (memdir / TASK).is_file() or (memdir / OLD_COPIES).is_dir() or stray_files(memdir):
                 _say_where(project, dry_run)
                 return _close(project, path_flag, memdir, memdir / "notes", dry_run)
-            print(f"{src} is already a link to {memdir}. Nothing to migrate.")
+            print(f"{clean(src)} is already a link to {clean(memdir)}. Nothing to migrate.")
             return 0
         if src.is_symlink():
             print(
-                f"error: {src} is a link to {src.resolve()}, not a folder with notes. "
-                "Nothing changed. Point --from at the real folder.",
+                f"error: {clean(src)} is a link to {clean(src.resolve())}, not a folder with "
+                "notes. Nothing changed. Point --from at the real folder.",
                 file=sys.stderr,
             )
         else:
-            print(f"error: nothing to migrate: no files in {src}.", file=sys.stderr)
+            print(f"error: nothing to migrate: no files in {clean(src)}.", file=sys.stderr)
         return 1
     if real and holder.exists():
         return _fail(f"{holder} exists. Move it away, then run `memory migrate` again")
@@ -651,7 +651,7 @@ def run_migrate(
     problems = [p for c in project.checkouts for p in [plan_link(c, memdir, moved)[1]] if p]
     if problems:
         for problem in problems:
-            print(f"error: {problem}", file=sys.stderr)
+            print(f"error: {clean(problem)}", file=sys.stderr)
         print(
             "Nothing changed. Use --from for the folder that holds the old notes.",
             file=sys.stderr,
@@ -677,7 +677,7 @@ def run_migrate(
     if not moves and not tracked and work.is_file():
         return _close(project, path_flag, memdir, source_dir, dry_run)
 
-    print(f"Old notes: {source_dir} ({len(_files(source_dir))} file(s))")
+    print(f"Old notes: {clean(source_dir)} ({len(_files(source_dir))} file(s))")
     would = "would " if dry_run else ""
     for path, target, _ in moves:
         print(f"{would}move {clean(path)} -> {clean(target)}")
@@ -689,7 +689,7 @@ def run_migrate(
     code = run_init(project, path_flag, dry_run, presets, moved)
     if code != 0:
         print(
-            f"The old notes are safe in {holder}. Fix the problem, then run "
+            f"The old notes are safe in {clean(holder)}. Fix the problem, then run "
             "`memory migrate` again.",
             file=sys.stderr,
         )
@@ -698,7 +698,7 @@ def run_migrate(
     notes = memdir / "notes"
     layout, losers = note_layout(source_dir)
     copied, same, differing = copy_notes(source_dir, notes, layout, dry_run)
-    print(f"{would}copy {copied} file(s) to {notes}; {same} already there")
+    print(f"{would}copy {copied} file(s) to {clean(notes)}; {same} already there")
     for rel in differing:
         print(f"note {clean(notes / rel)} differs from the old file. Left as it is.")
         _keep_old_copy(memdir, rel, source_dir / layout[rel], dry_run)
@@ -706,12 +706,15 @@ def run_migrate(
         _keep_old_copy(memdir, old_rel.removeprefix("notes/"), source_dir / old_rel, dry_run)
     links = [p for p in _entries(source_dir) if p.is_symlink()]
     if links:
-        print(f"{len(links)} link(s) in the old folder were not copied. They stay in {source_dir}.")
+        print(
+            f"{len(links)} link(s) in the old folder were not copied. "
+            f"They stay in {clean(source_dir)}."
+        )
     for path, target, checkout in extras:
         count = _differing(path if dry_run else target, source_dir)
         print(
-            f"checkout {checkout} has its own old notes: {count} file(s) differ from the main "
-            f"copy. They {'go' if dry_run else 'are'} at {target}, not merged. "
+            f"checkout {clean(checkout)} has its own old notes: {count} file(s) differ from the "
+            f"main copy. They {'go' if dry_run else 'are'} at {clean(target)}, not merged. "
             "Their new lines are in the worklist."
         )
 
@@ -724,8 +727,9 @@ def run_migrate(
     if held:
         print(
             f"{len(held)} candidate(s) look like a secret and stay out of the worklist: "
-            f"{', '.join(held)}. This may be a false catch, and then the line can stay. If the "
-            "value is real, change it where it is used, then replace the value in the note."
+            f"{', '.join(map(clean, held))}. This may be a false catch, and then the line can "
+            "stay. If the value is real, change it where it is used, then replace the value in "
+            "the note."
         )
     stored = {}
     if not dry_run and (memdir / "facts").is_dir():
@@ -756,17 +760,17 @@ def run_migrate(
         _sync_stubs(memdir, named, dry_run)
         items += references + _hooks(project)
     if items:
-        print(f"{would}write the follow-up task {memdir / TASK}")
+        print(f"{would}write the follow-up task {clean(memdir / TASK)}")
     _write_task(memdir, project, source_dir, items, dry_run)
 
     text = _worklist(found, counts, homed)
     if work.is_file():
-        if work.read_text(encoding="utf-8") == text:
-            print(f"worklist {work} is up to date")
+        if plainfile.read_text(work, encoding="utf-8") == text:
+            print(f"worklist {clean(work)} is up to date")
         else:
-            print(f"worklist {work} exists and differs. Not overwritten.")
+            print(f"worklist {clean(work)} exists and differs. Not overwritten.")
     else:
-        print(f"{would}write worklist {work}")
+        print(f"{would}write worklist {clean(work)}")
         if not dry_run:
             work.parent.mkdir(parents=True, exist_ok=True)
             work.write_text(text, encoding="utf-8")
@@ -781,11 +785,11 @@ def run_migrate(
             rel = os.path.relpath(path, checkout)
             if checkout != project.root:
                 print(
-                    f"The index of {checkout} stays as it is. "
-                    f"To stage the removal there: git -C {checkout} rm -r --cached {rel}"
+                    f"The index of {clean(checkout)} stays as it is. To stage the removal "
+                    f"there: git -C {clean(checkout)} rm -r --cached {clean(rel)}"
                 )
                 continue
-            print(f"{would}run git rm -r --cached {rel} in {checkout}")
+            print(f"{would}run git rm -r --cached {clean(rel)} in {clean(checkout)}")
             if not dry_run:
                 run_git(checkout, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", rel)
         print("Nothing is committed. Review `git status`, then commit the removal yourself.")
@@ -812,8 +816,8 @@ def run_migrate(
         )
     print(f"Optional: add facts from {LINK_NAME}/{CANDIDATES}: `memory add ... --source file:...`.")
     print("A rule that the owner stated needs `--kind rule --basis told`, or it loads as data.")
-    print(f"The old folder is kept at {holder}. Delete it yourself when you are sure.")
+    print(f"The old folder is kept at {clean(holder)}. Delete it yourself when you are sure.")
     if items:
-        print(f"Follow-up task for an agent ({len(items)} item(s)): {memdir / TASK}")
+        print(f"Follow-up task for an agent ({len(items)} item(s)): {clean(memdir / TASK)}")
         print("`memory load` shows a one-line reminder until the task is done.")
     return code

@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.candidates import BULLET_RE, FENCE_RE, HEADING_RE
 from cairnkit.instructions import PAIRS
 from cairnkit.memory import Memory
@@ -122,7 +123,7 @@ def items(root: Path) -> list[Item]:
     found: list[Item] = []
     for name in FILES:
         try:
-            text = (root / name).read_text(encoding="utf-8", errors="replace")
+            text = plainfile.read_text(root / name, encoding="utf-8", errors="replace")
         except OSError:
             continue
         found += _items(name, text)
@@ -157,7 +158,7 @@ def older_layout_line(memory: Memory) -> str | None:
     places = older_layout_places(memory.project.root, FILES)
     path = memory.dir / OLDER_STATE
     try:
-        known = set(json.loads(path.read_text(encoding="utf-8")))
+        known = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
     except (OSError, ValueError, TypeError):
         known = set()
     new = [place for place in places if place not in known]

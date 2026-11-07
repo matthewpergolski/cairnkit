@@ -20,6 +20,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from cairnkit import plainfile
 from cairnkit.paths import LINK_NAME
 from cairnkit.selection import clean
 
@@ -59,7 +60,9 @@ BRACE_RE = re.compile(r"\{([^{}]*)\}")
 MAX_BRACE_PATHS = 64
 WORD_END = ("", " ", "\t", "\n", ";", "&", "|", ")", "]", "`")
 OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
-HOOK_SCRIPT_RE = re.compile(r"(?<![\w./-])[\w./-]+\.(?:py|sh|mjs|js|ts)\b")
+# A script path in a hook command. A `$VAR/` or `${VAR}/` in front, such as the project folder,
+# is no part of the path in the repo.
+HOOK_SCRIPT_RE = re.compile(r"(?<![\w./$-])(?:\$\{?\w+\}?(?=/))?([\w./-]+\.(?:py|sh|mjs|js|ts))\b")
 CHECKER_CMD_RE = re.compile(
     r"(?<![^\s`'\"(])(?:uv run(?: --no-project)? |python3? )?(?:[^\s`'\"()]*/)?"
     r"check[_-]?memory\.(?:py|sh|mjs|js|ts)\b",
@@ -185,7 +188,7 @@ def stub_text(rel: str) -> str:
 def pending_items(memdir: Path) -> int | None:
     """The item count while the task is open, else None."""
     try:
-        with (memdir / TASK).open(encoding="utf-8") as fh:
+        with plainfile.open_text(memdir / TASK, encoding="utf-8") as fh:
             found = re.match(rf"{re.escape(PENDING)}: (\d+) item", fh.readline())
     except OSError:
         return None
@@ -385,9 +388,7 @@ def doc_files(root: Path) -> list[str]:
 
 def read_text(path: Path) -> str | None:
     try:
-        if path.stat().st_size > MAX_BYTES:
-            return None
-        return path.read_bytes().decode("utf-8")
+        return plainfile.read_bytes(path, MAX_BYTES).decode("utf-8")
     except (OSError, UnicodeDecodeError):
         return None
 
@@ -636,7 +637,11 @@ def render_followups(
             )
         if refs:
             lines.append("- Still run or named at: " + ", ".join(f"`{r}`" for r in refs))
-        lines.append("- Remove the script only after nothing names it.")
+        lines.append(
+            "- Compare what the script checks with what `memory check` and `memory load` do "
+            "now. Remove it only when they do all of it and nothing names it. If it does "
+            f"more, keep it and point its paths at {LINK_NAME}/notes/."
+        )
     if drops:
         lines += ["", "## What the old tooling checked", ""]
         lines += [f"- {drop}" for drop in drops]

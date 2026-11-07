@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from cairnkit import deadline
+from cairnkit import deadline, plainfile
 
 try:
     import fcntl
@@ -139,7 +139,7 @@ def scan(files: list[Path]) -> tuple[list[Located], list[BadLine]]:
     bad: list[BadLine] = []
     for path in files:
         try:
-            lines = path.read_bytes().split(b"\n")
+            lines = plainfile.read_bytes(path).split(b"\n")
         except OSError as exc:
             bad.append(BadLine(path, 0, f"{path}: cannot read: {exc}"))
             continue
@@ -176,7 +176,7 @@ def repaired_lines(memdir: Path, located: list[Located]) -> set[tuple[str, str]]
         if item.record.get("type") == "repair"
     }
     with contextlib.suppress(OSError):
-        for raw in (memdir / REPAIRS).read_bytes().split(b"\n"):
+        for raw in plainfile.read_bytes(memdir / REPAIRS).split(b"\n"):
             with contextlib.suppress(ValueError, TypeError, KeyError):
                 row = json.loads(raw)
                 done.add((row["file"], row["sha"]))
@@ -205,7 +205,7 @@ def append_records(path: Path, records: list[dict]) -> None:
     with locked(path.parent / WRITE_LOCK, WRITE_LOCK_FLOOR), path.open("ab") as fh:
         size = fh.seek(0, os.SEEK_END)
         if size:
-            with path.open("rb") as check:
+            with os.fdopen(plainfile.open_fd(path), "rb") as check:
                 check.seek(size - 1)
                 if check.read(1) != b"\n":
                     payload = b"\n" + payload
@@ -271,7 +271,7 @@ def _drop_lines(memdir: Path, is_gone: Callable[[bytes], bool]) -> int:
 
 
 def _rewrite(path: Path, is_gone: Callable[[bytes], bool]) -> int:
-    lines = list(io.BytesIO(path.read_bytes()))
+    lines = list(io.BytesIO(plainfile.read_bytes(path)))
     kept = [raw for raw in lines if not is_gone(raw)]
     if len(kept) == len(lines):
         return 0

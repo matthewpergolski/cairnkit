@@ -13,7 +13,7 @@ from __future__ import annotations
 import contextlib
 import re
 
-from cairnkit import autotidy, deadline, presets
+from cairnkit import autotidy, deadline, plainfile, presets
 from cairnkit.autotidy import _protected, outranks
 from cairnkit.clock import now
 from cairnkit.memory import Memory
@@ -240,7 +240,7 @@ def refresh(memory: Memory) -> int:
         path.unlink(missing_ok=True)
         return 0
     text = render(pairs, items)
-    old = path.read_text(encoding="utf-8") if path.exists() else None
+    old = plainfile.read_text(path, encoding="utf-8") if path.exists() else None
     if old != text:
         path.parent.mkdir(exist_ok=True)
         path.write_text(text, encoding="utf-8")
@@ -250,7 +250,7 @@ def refresh(memory: Memory) -> int:
 def pending_line(memory: Memory) -> str | None:
     """The one line for `memory load`, from the task file's first line."""
     try:
-        with (memory.dir / TASK_PATH).open(encoding="utf-8") as fh:
+        with plainfile.open_text(memory.dir / TASK_PATH, encoding="utf-8") as fh:
             first = fh.readline()
     except OSError:
         return None

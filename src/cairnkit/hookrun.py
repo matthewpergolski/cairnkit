@@ -31,6 +31,7 @@ from cairnkit import (
     live,
     loopbreak,
     native,
+    plainfile,
     signals,
     skills,
     usage,
@@ -413,7 +414,7 @@ def _new_problems(project: Project, flag: str | None, problems: list[str]) -> li
     memdir, _ = resolve_memory_dir(project, flag)
     path = memdir / STOP_SEEN
     try:
-        seen = set(json.loads(path.read_text(encoding="utf-8")))
+        seen = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
     except (OSError, ValueError, TypeError):
         seen = set()
     keys = {problem: hashlib.sha1(problem.encode()).hexdigest()[:16] for problem in problems}

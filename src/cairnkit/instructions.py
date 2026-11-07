@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import markers
+from cairnkit import markers, plainfile
 from cairnkit.discover import CAPTURE_GUIDE
 from cairnkit.rules import DEFAULT_RULES
 from cairnkit.schema import BASES, KINDS
+from cairnkit.selection import clean
 
 START = "<!-- cairnkit:start -->"
 END = "<!-- cairnkit:end -->"
@@ -95,7 +96,7 @@ def write_block(path: Path, *, prefix: str = "") -> str:
         path.resolve().parent.mkdir(parents=True, exist_ok=True)  # a dangling link: its target
         path.write_text(prefix + new)
         return "created"
-    old = path.read_text(encoding="utf-8")
+    old = plainfile.read_text(path, encoding="utf-8")
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
     if found == "broken":
         return "broken"
@@ -117,7 +118,7 @@ def remove_block(path: Path, dry_run: bool = False) -> str:
     Return missing, broken, unchanged or removed.
     """
     try:
-        old = path.read_text(encoding="utf-8")
+        old = plainfile.read_text(path, encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return "missing"
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
@@ -140,7 +141,7 @@ def take_back_block(path: Path, checkout: Path, dry_run: bool = False) -> str:
     result = remove_block(path, dry_run)
     if result != "removed" or dry_run:
         return result
-    left = path.read_text(encoding="utf-8").strip()
+    left = plainfile.read_text(path, encoding="utf-8").strip()
     if left in ("", rules_target.IMPORT, *(t.prefix.strip() for t in harness_local.TARGETS)):
         remove_file(path, checkout)
     return result
@@ -153,7 +154,7 @@ def replace_block(path: Path, dry_run: bool = False) -> str:
     blocks), unchanged or updated.
     """
     try:
-        old = path.read_text(encoding="utf-8")
+        old = plainfile.read_text(path, encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return "missing"
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
@@ -171,7 +172,7 @@ def replace_block(path: Path, dry_run: bool = False) -> str:
 def planned(path: Path) -> str:
     if not path.exists():
         return "create"
-    old = path.read_text(encoding="utf-8")
+    old = plainfile.read_text(path, encoding="utf-8")
     found, _ = markers.find(old, PAIRS)
     if found == "ok":
         return "unchanged" if block() in old else "update"
@@ -197,7 +198,7 @@ def migrate_shared_blocks(
             if not path.is_file() or rules_target.is_loop(path):
                 continue
             if is_tracked(project, name):
-                if markers.find(path.read_text(encoding="utf-8"), PAIRS)[0] != "missing":
+                if markers.find(plainfile.read_text(path, encoding="utf-8"), PAIRS)[0] != "missing":
                     steps.append(
                         f"note: tracked {name} holds an old cairnkit block. The tool does not "
                         f"change a tracked file. {rules_target.LOCAL} holds the current rules."
@@ -238,14 +239,14 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
 
     migrate_steps, broken = migrate_shared_blocks(project, dry_run)
     for step in migrate_steps:
-        print(said + step)
+        print(said + clean(step))
     for path in broken:
         print(markers.broken_message(path, "memory instructions --write-instructions"))
     if broken:
         return 1
 
     if file:
-        rel, why = file, f"--instructions-file: the block goes to {file}."
+        rel, why = file, f"--instructions-file: the block goes to {clean(file)}."
     else:
         rel, why = (
             rules_target.LOCAL,
@@ -254,12 +255,15 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     print(why)
     target = root / rel
     if is_tracked(project, rel):
-        print(f"error: {rel} is tracked by git; pick an untracked file with --instructions-file")
+        print(
+            f"error: {clean(rel)} is tracked by git; pick an untracked file with "
+            "--instructions-file"
+        )
         return 1
     real = rules_target.link_target(root, rel)
     if real not in (None, rel) and is_tracked(project, real):
         print(
-            f"error: {rel} is a link to {real}, which is tracked by git. "
+            f"error: {clean(rel)} is a link to {clean(real)}, which is tracked by git. "
             "Nothing was written. Remove the link, or pick another untracked file."
         )
         return 1
@@ -267,13 +271,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
     if result == "broken":
         print(markers.broken_message(target, "memory instructions --write-instructions"))
         return 1
-    print(f"{said}{result} the rules block in {target}")
+    print(f"{said}{result} the rules block in {clean(target)}")
     if rules_target.needs_import(root, rel):
         if not dry_run:
             rules_target.add_import(target)
         print(
-            f"{said}add {rules_target.IMPORT} at the top of {rel}. Claude Code skips AGENTS.md "
-            f"when {rel} exists, so the import makes it load both."
+            f"{said}add {rules_target.IMPORT} at the top of {clean(rel)}. Claude Code skips "
+            f"AGENTS.md when {clean(rel)} exists, so the import makes it load both."
         )
     written = [rel]
     if not file:
@@ -285,7 +289,7 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             real_h = rules_target.link_target(root, harness.rel)
             if real_h not in (None, harness.rel) and is_tracked(project, real_h):
                 print(
-                    f"note: {harness.rel} links to tracked {real_h}; "
+                    f"note: {harness.rel} links to tracked {clean(real_h)}; "
                     f"skipped the {harness.harness} local copy"
                 )
                 continue
@@ -306,7 +310,7 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
             record(project, None, name)
     exclude_lines = list(dict.fromkeys(written))
     for step in exclude(project, exclude_lines, dry_run):
-        print(said + step)
+        print(said + clean(step))
     old = root / rules_target.OLD_LOCAL
     if rel != rules_target.OLD_LOCAL and rules_target.holds_block(old):
         print(

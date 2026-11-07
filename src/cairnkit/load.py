@@ -17,6 +17,7 @@ from cairnkit import (
     hygiene,
     install_source,
     migrate_refs,
+    plainfile,
     rule_notices,
     usage,
 )
@@ -75,11 +76,11 @@ def changed_paths(root: Path, branch: str | None) -> list[str]:
 
 def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
     try:
-        text = path.read_bytes().decode("utf-8", errors="replace")
+        text = plainfile.read_bytes(path).decode("utf-8", errors="replace")
     except (FileNotFoundError, NotADirectoryError):
         return []
     except OSError:
-        return [f"(This file could not be read: {path}.)"]
+        return [f"(This file could not be read: {clean(path)}.)"]
     body = [
         line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("<!--")
     ]
@@ -89,7 +90,7 @@ def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
         body = body[1:]
     clipped = len(body) - NOTE_LINES
     more = (
-        [f"({NOTE_LINES} of {len(body)} lines shown. The rest is in {path}.)"]
+        [f"({NOTE_LINES} of {len(body)} lines shown. The rest is in {clean(path)}.)"]
         if clipped > 0
         else []
     )
@@ -140,7 +141,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     long_budget = max(budget - used, 1) if budget else 0
     long_shown = pick(long, long_budget, moment, areas, words, used_at)
 
-    out = [f"# Project memory ({memory.dir})"]
+    out = [f"# Project memory ({clean(memory.dir)})"]
     if memory.errors:
         out.append(f"warning: {len(memory.errors)} bad line(s) skipped; run `memory repair`")
     stale = hygiene.hygiene_line(memory)

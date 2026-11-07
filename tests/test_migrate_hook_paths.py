@@ -302,12 +302,33 @@ def test_a_hook_that_does_not_run_the_old_checker_is_not_named(repo, capsys, com
     assert not task.exists() or "(hook)" not in task.read_text()
 
 
-def test_the_old_checker_hook_asks_for_a_comparison(repo, capsys):
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run tools/check_memory.py",
+        'python3 "$CLAUDE_PROJECT_DIR/tools/check_memory.py"',
+        "python3 ${CLAUDE_PROJECT_DIR}/tools/check_memory.py",
+        "python3 $CLAUDE_PROJECT_DIR/tools/check_memory.py",
+    ],
+)
+def test_the_old_checker_hook_asks_for_a_comparison(repo, capsys, command):
     write(repo / "tools" / "check_memory.py", OLD_CHECKER_SCRIPT)
     write(repo / "memory-bank" / "status.md", "# Status\nOpen.\n")
-    hook_repo(repo, "uv run tools/check_memory.py")
+    hook_repo(repo, command)
     migrate(capsys, "--yes")
     item = hook_item(task_path(repo).read_text())
     assert "tools/check_memory.py" in item
     assert "Compare" in item
     assert "Remove this hook handler." not in item
+
+
+def test_the_old_checker_section_asks_for_a_comparison(repo, capsys):
+    write(repo / "tools" / "check_memory.py", OLD_CHECKER_SCRIPT)
+    write(repo / "memory-bank" / "status.md", "# Status\nOpen.\n")
+    write(repo / "CLAUDE.md", "Run `uv run tools/check_memory.py` at the start.\n")
+    migrate(capsys, "--yes")
+    task = task_path(repo).read_text()
+    section = task.split("## The old checker", 1)[1].split("\n## ", 1)[0]
+    assert "CLAUDE.md:1" in section
+    assert "Compare" in section and "memory check" in section
+    assert "only after nothing names it" not in section

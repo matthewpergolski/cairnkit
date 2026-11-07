@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import json
 
+from cairnkit import plainfile
 from cairnkit.autotidy import WRITER, Retirement, write_log
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
@@ -93,7 +94,7 @@ def clean(memory: Memory) -> list[str]:
     ended: list[Retirement] = []
     if path.exists():
         # A damaged file holds no fact, so each line that can be read is enough.
-        text = path.read_bytes().decode("utf-8", errors="replace")
+        text = plainfile.read_bytes(path).decode("utf-8", errors="replace")
         for fact_id, (candidate, decision) in sorted(_accepted_candidates(text).items()):
             state = memory.states.get(fact_id)
             if state and _gate_wrote(state, candidate) and _inside_a_hook(candidate, decision):

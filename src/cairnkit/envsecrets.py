@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import unquote
 
+from cairnkit import plainfile
 from cairnkit.paths import Project, run_git
 from cairnkit.secretscan import (
     ENV_VALUE,
@@ -173,7 +174,7 @@ def _values_in(path: Path) -> list[tuple[str, str, bool]]:
     try:
         if path.stat().st_size > MAX_FILE_BYTES:
             return []
-        text = path.read_text(encoding="utf-8")
+        text = plainfile.read_text(path, encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
     found = []

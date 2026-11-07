@@ -9,6 +9,7 @@ from pathlib import Path
 
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import Project
+from cairnkit.selection import clean
 from cairnkit.writing import fail
 
 STATE_DIR = Path("docs") / "state"
@@ -267,26 +268,26 @@ def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> 
     mine = [page for page in pages if root / STATE_DIR / page.state_path not in kept]
     paths = write_atlas(root, mine, dry_run=dry_run)
     removed = _prune_old_pages(root, atlas, paths, dry_run=dry_run) if force else []
-    rels = [p.relative_to(root).as_posix() for p in paths]
+    rels = [clean(p.relative_to(root).as_posix()) for p in paths]
     if dry_run:
         print(f"Would write {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
         for path in removed:
-            print(f"  remove {path.relative_to(root).as_posix()}")
+            print(f"  remove {clean(path.relative_to(root).as_posix())}")
     else:
         print(f"Wrote {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
         for path in removed:
-            print(f"  removed {path.relative_to(root).as_posix()}")
+            print(f"  removed {clean(path.relative_to(root).as_posix())}")
     for path in kept:
         why = (
             "it is a link or is under one"
             if _through_link(root, path)
             else "it is not an atlas page"
         )
-        print(f"  keep {path.relative_to(root).as_posix()}: {why}")
+        print(f"  keep {clean(path.relative_to(root).as_posix())}: {why}")
     print(
         "Browse with Nessa Docs: https://github.com/nessalabs/nessa-docs "
         "(open this project folder in the app)."

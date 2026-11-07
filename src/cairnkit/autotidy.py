@@ -31,6 +31,7 @@ import math
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
+from cairnkit import plainfile
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import UNKNOWN, branch_reader, branch_tip, merged_checker
@@ -168,7 +169,7 @@ def write_log(memory: Memory, found: list[Retirement], at: str) -> None:
     """
     path = memory.dir / LOG_NAME
     with contextlib.suppress(OSError):
-        old = path.read_text(encoding="utf-8") if path.exists() else ""
+        old = plainfile.read_text(path, encoding="utf-8") if path.exists() else ""
         with path.open("a", encoding="utf-8") as log:
             for item in found:
                 if f"cid {item.cid}" in old:
@@ -276,7 +277,7 @@ def report(memory: Memory) -> list[Retirement]:
     line = f"would retire {len(found)}: {', '.join(item.id for item in found)}"
     path = memory.dir / LOG_NAME
     with contextlib.suppress(OSError), locked(memory.dir / LOCK_NAME):
-        old = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        old = plainfile.read_text(path, encoding="utf-8").splitlines() if path.exists() else []
         last = next((ln.split(" ", 1)[1] for ln in reversed(old) if " would retire " in ln), "")
         if last != line:
             with path.open("a", encoding="utf-8") as log:
@@ -314,7 +315,7 @@ def undone(memory: Memory) -> list[dict]:
 
 def _state(memory: Memory) -> dict:
     try:
-        data = json.loads((memory.dir / STATE_NAME).read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(memory.dir / STATE_NAME, encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}

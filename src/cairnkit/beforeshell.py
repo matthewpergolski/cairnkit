@@ -22,6 +22,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
@@ -252,7 +253,7 @@ def _take_untold(memory: Memory, key: str, found: list[Hit]) -> list[Hit]:
     path = _told_path(memory, key)
     with locked(memory.dir / ".sessions" / TOLD_LOCK):
         try:
-            told = set(json.loads(path.read_text(encoding="utf-8")))
+            told = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
         except (OSError, ValueError, TypeError):
             told = set()
         fresh = [hit for hit in found if hit.fact_id not in told]

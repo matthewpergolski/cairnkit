@@ -14,10 +14,11 @@ import re
 import sys
 from pathlib import Path
 
-from cairnkit import __version__, adapters, githook, instructions, markers, rules_target
+from cairnkit import __version__, adapters, githook, instructions, markers, plainfile, rules_target
 from cairnkit.clock import now, stamp
 from cairnkit.ignore import exclude
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir
+from cairnkit.selection import clean
 from cairnkit.skills import is_behind
 
 STAMP = "tool-version.json"
@@ -45,7 +46,7 @@ def _memdir(project: Project, flag: str | None) -> Path | None:
 
 def read_stamp(memdir: Path) -> dict:
     try:
-        data = json.loads((memdir / STAMP).read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(memdir / STAMP, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -69,7 +70,7 @@ def record(project: Project, flag: str | None, block_file: str | None = None) ->
 
 def _holds(path: Path, *marks: str) -> bool:
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(path, encoding="utf-8", errors="replace")
     except OSError:
         return False
     return any(mark in text for mark in marks)
@@ -165,7 +166,7 @@ def gone_pythons(project: Project) -> list[str]:
     found = set()
     for path in files:
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = plainfile.read_text(path, encoding="utf-8", errors="replace")
         except OSError:
             continue
         found.update(a or b for a, b in _HOOK_PYTHON.findall(text))
@@ -219,7 +220,7 @@ def repo_line(project: Project, flag: str | None) -> str | None:
 def _ensure_local_block(project: Project, dry_run: bool) -> list[str]:
     """A block that stays in a tracked file still gets its current copy in the local file."""
     path = project.root / rules_target.LOCAL
-    if path.exists() and instructions.START in path.read_text(encoding="utf-8"):
+    if path.exists() and instructions.START in plainfile.read_text(path, encoding="utf-8"):
         return []
     if not dry_run:
         instructions.write_block(path)
@@ -274,7 +275,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         for name, holders in _agents(project).items():
             steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
     except adapters.BadConfig as exc:
-        print(f"error: {exc}")
+        print(f"error: {clean(exc)}")
         return 1
     patterns = guard_patterns(project, flag)
     bodies = {

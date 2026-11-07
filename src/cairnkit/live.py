@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from cairnkit import deadline, helpers
+from cairnkit import deadline, helpers, plainfile
 from cairnkit.load import note_head
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git, tree_env
@@ -73,7 +73,7 @@ def clear_working(memory: Memory, session: str) -> list[str]:
     paths = []
     for marker in _folder(memory).glob(f"{_key(session)}-*"):
         with contextlib.suppress(OSError, UnicodeDecodeError):
-            paths.append(marker.read_text(encoding="utf-8"))
+            paths.append(plainfile.read_text(marker, encoding="utf-8"))
         marker.unlink(missing_ok=True)
     return paths
 
@@ -89,7 +89,7 @@ def _others_at_work(memory: Memory, session: str | None) -> dict[str, float]:
         if seen_at < limit:
             marker.unlink(missing_ok=True)
         elif not (mine and marker.name.startswith(mine)):
-            path = marker.read_text(encoding="utf-8")
+            path = plainfile.read_text(marker, encoding="utf-8")
             found[path] = max(seen_at, found.get(path, 0.0))
     return found
 

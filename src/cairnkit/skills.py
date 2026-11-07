@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.config import load_config
 
@@ -107,7 +108,7 @@ def is_behind(installed: str | None, latest: str | None) -> bool:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None

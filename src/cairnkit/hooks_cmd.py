@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-from cairnkit import adapters, branchgate, githook, instructions, markers, refresh, rules
+from cairnkit import adapters, branchgate, githook, instructions, markers, plainfile, refresh, rules
 from cairnkit.ignore import drop_lines, is_tracked
 from cairnkit.init import can_link, ensure_all_linked, is_linked
 from cairnkit.memory import Memory, MemoryMissing
@@ -21,6 +21,7 @@ from cairnkit.paths import (
     resolve_memory_dir,
     run_git,
 )
+from cairnkit.selection import clean
 
 SEEN_FILE = ".agents-seen.json"
 # Grok also runs these tools' project hooks, and each hook must run once.
@@ -135,9 +136,9 @@ def sync_guard_only(project: Project, flag: str | None) -> None:
     if guard or remove:
         steps += _install_push_check(project, flag, bool(guard), False)
     for step in steps:
-        print(step)
+        print(clean(step))
     for step in _sync_rules(project, flag, False):
-        print(step)
+        print(clean(step))
 
 
 def _print_summary(
@@ -150,10 +151,10 @@ def _print_summary(
     if project.is_git and git_hook and not any(s.startswith(hook_skips) for s in steps):
         extra = ", and a commit-message check" if guard else ""
         folder = os.path.relpath(githook.hooks_dir(project), project.root)
-        print(f"Git hooks installed in {folder}{extra}. They are not shared.")
+        print(f"Git hooks installed in {clean(folder)}{extra}. They are not shared.")
     for step in steps:
         if step.startswith(("skip", "note")):
-            print(step)
+            print(clean(step))
     if "codex" in names and adapters.codex_in_use():
         print(adapters.CODEX_TRUST)
     if "generic" in names:
@@ -170,7 +171,7 @@ def _connect(project: Project, name: str, targets: list[Path], dry_run: bool) ->
 def _seen(memdir: Path) -> list[str] | None:
     """The tools that were on the machine at setup or at the last sync. None: no record."""
     try:
-        data = json.loads((memdir / SEEN_FILE).read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(memdir / SEEN_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, list) else None
@@ -309,7 +310,7 @@ def run_install(
         return code
     for step in steps:
         plain = step.startswith(("skip", "note"))
-        print(("would " if dry_run and not plain else "") + step)
+        print(("would " if dry_run and not plain else "") + clean(step))
     print(f"Agents: {', '.join(names)}")
     for name in names:
         if name == "generic":
@@ -370,7 +371,7 @@ def run_uninstall(project: Project, dry_run: bool) -> int:
         steps += _take_back_exclude(project)
     for step in steps:
         plain = step.startswith(("skip", "note"))
-        print(("would " if dry_run and not plain else "") + step)
+        print(("would " if dry_run and not plain else "") + clean(step))
     if not steps:
         print("No memory hooks found. Nothing to do.")
     return 1 if bad else 0

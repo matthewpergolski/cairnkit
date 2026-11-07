@@ -28,8 +28,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
-from cairnkit import markers
+from cairnkit import markers, plainfile
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, run_git
+from cairnkit.selection import clean
 
 START = "# >>> cairnkit >>>"
 END = "# <<< cairnkit <<<"
@@ -566,7 +567,7 @@ class BrokenBlock(Exception):
 
 def is_broken(path: Path) -> bool:
     try:
-        text = path.read_text(errors="replace")
+        text = plainfile.read_text(path, errors="replace")
     except OSError:
         return False
     return markers.find(text, PAIRS)[0] == "broken"
@@ -583,7 +584,7 @@ def write_block(path: Path, body: str, dry_run: bool) -> list[str]:
     if not path.exists():
         new = "#!/bin/sh\n" + ours
     else:
-        old = path.read_text()
+        old = plainfile.read_text(path)
         if markers.find(old, PAIRS)[0] == "broken":
             raise BrokenBlock(path)
         first, _, rest = old.partition("\n")
@@ -645,7 +646,7 @@ def _remove_block(path: Path, dry_run: bool) -> list[str]:
     if not path.is_file():
         return []
     # Bytes, because a foreign line can hold a CR or any encoding, and it must not change.
-    old = path.read_bytes().decode("utf-8", "surrogateescape")
+    old = plainfile.read_bytes(path).decode("utf-8", "surrogateescape")
     if not holds_block(old):
         return []
     new = _strip(old)
@@ -687,7 +688,7 @@ def _unwire(project: Project, hook: str, dry_run: bool) -> list[str]:
 def _runs_memory(path: Path, hook: str) -> bool:
     """True for a block of ours, or for a line that someone pasted into their own hook."""
     try:
-        text = path.read_text(errors="replace")
+        text = plainfile.read_text(path, errors="replace")
     except OSError:
         return False
     return holds_block(text) or f"-m cairnkit hook {hook}" in text
@@ -707,7 +708,7 @@ def _keep_guard_files(project: Project, body: str) -> None:
         fix.unlink(missing_ok=True)
         return
     running = _running_file(project, "pre-push")
-    was_on = running is not None and PUSH_MARK in running.read_text(errors="replace")
+    was_on = running is not None and PUSH_MARK in plainfile.read_text(running, errors="replace")
     if not was_on and not base.exists():
         tips = run_git(project.root, "for-each-ref", "--format=%(objectname)") or ""
         head = run_git(project.root, "rev-parse", "-q", "--verify", "HEAD") or ""
@@ -760,7 +761,7 @@ def is_running(project: Project, hook: str) -> bool:
 def guard_installed(project: Project) -> bool:
     """True when git runs our commit-msg guard, wherever that file is."""
     path = _running_file(project, "commit-msg")
-    return path is not None and GUARD_MARK in path.read_text(errors="replace")
+    return path is not None and GUARD_MARK in plainfile.read_text(path, errors="replace")
 
 
 def _dead_wiring(project: Project) -> str | None:
@@ -810,7 +811,8 @@ def hook_state(project: Project) -> HookState:
             else f"Git {CONFIG_HOOKS_SINCE} or newer can run them beside it."
         )
         return HookState(
-            f"warning: core.hooksPath is {setting}, so git does not run the memory hooks. {fix}",
+            f"warning: core.hooksPath is {clean(setting)}, so git does not run the memory hooks. "
+            f"{fix}",
             fixable=can_fix,
         )
     if len(missing) == len(PERSONAL_HOOKS):
@@ -823,8 +825,8 @@ def hook_state(project: Project) -> HookState:
         where.relative_to(project.root).as_posix() if where.is_relative_to(project.root) else where
     )
     if setting and where == _private_dir(project):
-        return HookState(f"git hooks: on, beside core.hooksPath {setting} ({shown})")
-    return HookState(f"git hooks: on ({shown})")
+        return HookState(f"git hooks: on, beside core.hooksPath {clean(setting)} ({clean(shown)})")
+    return HookState(f"git hooks: on ({clean(shown)})")
 
 
 def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
@@ -837,7 +839,7 @@ def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:
     if _is_private(project, folder):
         return steps + _remove_block(folder / hook, dry_run)
     steps += _remove_block(project.common_dir / "hooks" / hook, dry_run)
-    if (folder / hook).is_file() and holds_block((folder / hook).read_text()):
+    if (folder / hook).is_file() and holds_block(plainfile.read_text(folder / hook)):
         # That folder can be tracked, or other repos can use it.
         steps.append(
             f"skip {hook}: core.hooksPath is {folder}, and the tool does not change that folder. "

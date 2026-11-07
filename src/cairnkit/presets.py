@@ -18,7 +18,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.clock import now, stamp
+from cairnkit.selection import clean
 from cairnkit.skills import running_tool
 from cairnkit.state import fold
 from cairnkit.store import append_records, fact_files, read_records
@@ -114,7 +116,7 @@ def load_file(path: str) -> Preset:
         return BadPresetFile(f"preset file {path}: {why}")
 
     try:
-        data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+        data = tomllib.loads(plainfile.read_text(Path(path), encoding="utf-8"))
     except OSError as exc:
         raise bad(f"cannot read it ({exc.strerror or exc})") from exc
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
@@ -461,7 +463,7 @@ def run_add(
         return 1
     memdir, source = resolve_memory_dir(project, flag)
     if not (memdir / "facts").is_dir():
-        print(f"error: no memory folder at {memdir} (from {source}); run `memory init`")
+        print(f"error: no memory folder at {clean(memdir)} (from {source}); run `memory init`")
         return 1
     if dry_run:
         print("Dry run: nothing will change.")
@@ -473,7 +475,9 @@ def run_add(
 
             followups.refresh(Memory.open(project, flag))
     if count:
-        print(f"{'would add' if dry_run else 'add'} {count} rule fact(s) to {memdir / 'facts'}")
+        print(
+            f"{'would add' if dry_run else 'add'} {count} rule fact(s) to {clean(memdir / 'facts')}"
+        )
     for line in lines:
         print(line)
     if not count:
