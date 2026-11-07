@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 
-from cairnkit import followups, plainfile
-from cairnkit.autotidy import outranks, print_unknown
+from cairnkit import followups, landed, plainfile
+from cairnkit.autotidy import SNIPPET, outranks, print_unknown
 from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
@@ -89,6 +90,85 @@ def _chains(states: dict[str, dict]) -> list[Proposal]:
     return out
 
 
+# A rule or a decision about one piece of work can end when that work lands.
+ENDS_WITH_WORK = ("rule", "decision")
+NAMED = 5
+_REPLACES = re.compile(r"(?i)\b(?:replaces?|supersedes?|instead of|overrides?|no longer)\b")
+
+
+def _snippet(state: dict) -> str:
+    return " ".join(str(state.get("text", "")).split())[:SNIPPET]
+
+
+def landed_work(memory: Memory, active: list[dict]) -> dict[str, landed.Landed]:
+    """The active rules and decisions whose work landed, by id."""
+    done = landed.find(memory)
+    return {
+        s["id"]: done[s["id"]]
+        for s in active
+        if s.get("kind") in ENDS_WITH_WORK and s["id"] in done
+    }
+
+
+def _landed(memory: Memory, active: list[dict]) -> list[Proposal]:
+    """The agent decides: the work landed, but a rule can still hold after it."""
+    by_id = {s["id"]: s for s in active}
+    out = []
+    for fid, work in sorted(landed_work(memory, active).items()):
+        reason = f"Work landed in {work.commit} on {work.date}."
+        summary = clean(
+            f"{fid} ({by_id[fid].get('kind')}, {_snippet(by_id[fid])!r}): its work landed in "
+            f"{work.commit} on {work.date} ({work.subject!r}). End it: memory change {fid} "
+            f'--status expired --reason "{reason}" If it still holds: memory change {fid} '
+            f'--status active --reason "Still holds after {work.commit}."'
+        )
+        change = {"id": fid, "status": "expired", "reason": reason}
+        out.append(Proposal("landed", summary, [change]))
+    return out
+
+
+def _replaced_in_words(active: list[dict]) -> list[Proposal]:
+    """A newer fact says, by id, that it replaces an active rule, and no link ends that rule."""
+    rules = [s for s in active if s.get("kind") == "rule"]
+    out = []
+    for new in active:
+        text = str(new.get("text", ""))
+        if not _REPLACES.search(text):
+            continue
+        for old in rules:
+            newer = str(new.get("learned_at", "")) > str(old.get("learned_at", ""))
+            if old["id"] not in text or not newer or outranks(old, new):
+                continue
+            change = {
+                "id": old["id"],
+                "status": "superseded",
+                "superseded_by": new["id"],
+                "reason": f"{new['id']} says that it replaces {old['id']}.",
+            }
+            summary = clean(f"{new['id']} says that it replaces {old['id']}: {_snippet(old)!r}")
+            out.append(Proposal("replaced-in-words", summary, [change]))
+    return out
+
+
+def landed_line(memory: Memory) -> str | None:
+    """One session-start line that names the rules and decisions whose work landed. Ids only,
+    because this line is outside the frame of stored notes."""
+    moment, is_merged = now(), merged_checker(memory.project.root)
+    active = [
+        s for s in memory.states.values() if effective_status(s, moment, is_merged)[0] == "active"
+    ]
+    work = sorted(landed_work(memory, active))
+    if not work:
+        return None
+    names = ", ".join(work[:NAMED]) + (
+        f" and {len(work) - NAMED} more" if len(work) > NAMED else ""
+    )
+    return (
+        f"memory: the work of {len(work)} rule(s) or decision(s) landed on the main branch: "
+        f"{names}. `memory tidy` shows each commit, and the command to end it or keep it."
+    )
+
+
 def build_proposals(memory: Memory) -> list[Proposal]:
     moment = now()
     is_merged = merged_checker(memory.project.root)
@@ -106,7 +186,8 @@ def build_proposals(memory: Memory) -> list[Proposal]:
                 proposals.append(Proposal("pinned-expired", text, [change]))
 
     proposals += _chains(states)
-
+    proposals += _landed(memory, active)
+    proposals += _replaced_in_words(active)
     return proposals
 
 

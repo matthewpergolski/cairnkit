@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory tidy` proposes to end each active rule or decision whose work landed: the main branch
+  (the default branch, `dev` or `develop`, along first parents) has a commit on each path in its
+  `files`, or else on each repo path its text names, after the fact was written or last changed.
+  The proposal shows the commit, its date and subject, and the exact
+  `memory change ID --status expired --reason "..."` command. The session start names those facts
+  in one line. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
+  `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all
+  facts, and `<memory>/.landed.json` keeps the answer until a main branch moves. `memory tidy` also
+  proposes to supersede an active rule that a newer fact names by id and says it replaces.
+- `memory add --kind rule` (any basis) whose text reads as approval of one piece of work ("yes
+  to", "approved", "go ahead with", "signed off on", "for this release", a migration, spec or PR
+  number, `#158`) prints a note: write it as `--kind decision --supersedes ID` with
+  `--files PATHS` (tidy proposes the end when they land) or `--until-merged BRANCH`, and keep
+  `rule` for a lasting policy.
+- When the rules pass the word budget of a load, or the limit of 1000 words, the load names the
+  rules most likely stale in one line: rules whose work landed first, then the oldest rules that
+  read as approval of one piece of work. A lasting policy is not named. `memory check` prints the
+  same line when the active rules pass 500 words.
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path
@@ -166,6 +184,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The "facts that match the files you changed" hint leaves out a fact, decision or event whose
+  work landed (a trap, lesson or preference still shows), and shows at most 2 facts. It names the
+  rest by id.
+- A hook load cut to fit the hook's size limit drops stored lines in a fixed order: long-term
+  facts first, then branch notes, the status note, short-term facts, pinned facts and agent rules,
+  and `## Live work` last, at a startup, a resume or a compaction. Before, the cut dropped from the
+  end of the frame, so the status note went before the long-term facts.
 - `memory docs` in a project that is not cairnkit writes one system page and one page for each
   component: a top-level package or folder of a source root. Before, it wrote one import graph of
   the top-level Python packages only. In a real Django and TypeScript project, it showed only the

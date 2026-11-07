@@ -313,10 +313,10 @@ def test_matches_past_the_line_limit_are_counted_and_named(repo, mem, capsys, mo
     write_facts(mem, facts)
     touch_area(repo, "payments")
     out = prompt(capsys, monkeypatch)
-    assert out.count("Payments note") == 5
-    assert "and 3 more" in out
+    assert out.count("Payments note") == 2
+    assert "and 6 more" in out
     hidden = [i for i in range(8) if f"Payments note {i}." not in out]
-    assert len(hidden) == 3
+    assert len(hidden) == 6
     assert all(f"f-20261001-{i:04x}" in out for i in hidden)
     assert prompt(capsys, monkeypatch) == ""
 

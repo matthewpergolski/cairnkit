@@ -16,6 +16,7 @@ from cairnkit import (
     followups,
     hygiene,
     install_source,
+    landed,
     migrate_refs,
     plainfile,
     rule_notices,
@@ -165,6 +166,10 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             f"note: {len(rules) + len(held_rules)} rule(s) hold {rule_words} words, outside the "
             f"word budget of {budget}, because a rule binds in each session."
         )
+    if held_rules or (budget and rule_words > budget):
+        stale = landed.stale_line(memory, rules + held_rules)
+        if stale:
+            out.append(stale)
     rules.sort(key=lambda s: (s.get("learned_at") or "", s["id"]))
     instructions = [s for s in rules if owner_rule(s)]
     false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
