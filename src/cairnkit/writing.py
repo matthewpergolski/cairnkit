@@ -7,7 +7,7 @@ import re
 import secrets
 import sys
 
-from cairnkit import deadline, followups
+from cairnkit import deadline, followups, owner_evidence
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
@@ -20,7 +20,7 @@ from cairnkit.paths import (
     writer_name,
 )
 from cairnkit.rule_notices import note_change
-from cairnkit.schema import RELS, validate_record
+from cairnkit.schema import RELS, stated, validate_record
 from cairnkit.secretscan import (
     MASK,
     find_in_record,
@@ -29,7 +29,15 @@ from cairnkit.secretscan import (
     holds_mask,
     mask,
 )
-from cairnkit.selection import DATA_LABEL, clean, clean_path, load_text, name, owner_rule
+from cairnkit.selection import (
+    DATA_LABEL,
+    UNCONFIRMED,
+    clean,
+    clean_path,
+    load_text,
+    name,
+    owner_rule,
+)
 from cairnkit.similar import analyze, possible_conflicts, repeat_key, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
@@ -42,7 +50,7 @@ REASON_WIDTH = 200
 RULE_START = re.compile(r"(?i)\s*(?:never|always|do not|don['\u2019]t|must)(?![\w-])")
 DATA_RULE = (
     "This rule loads as data, because an agent wrote it. "
-    "If the owner stated it, the same command with --basis told lifts it."
+    "If the owner stated it in this turn, the same command with --basis told lifts it."
 )
 # Stored as text, a mask would take the place of the true word for good.
 MASK_COPY = (
@@ -199,15 +207,47 @@ def _keeps_the_words(old: str, new: str) -> bool:
     return all(word in words for part in kept for word in _WORD.findall(part))
 
 
-def _inherit(args, old: dict) -> None:
-    """A clean copy of a masked fact keeps what the fact was. Only a copy keeps a rule's force."""
+def _inherit(args, old: dict) -> bool:
+    """A clean copy of a masked fact keeps what the fact was. Only a copy keeps a rule's force.
+
+    True when the basis came from the old fact.
+    """
     args.kind = old.get("kind", args.kind)
     args.pinned = args.pinned or bool(old.get("pinned"))
     args.area = args.area or old.get("area")
     if old.get("kind") != "rule" or not owner_rule(old):
         args.basis = old.get("basis", args.basis)
-    elif _keeps_the_words(str(old.get("text", "")), args.text):
+        return True
+    if _keeps_the_words(str(old.get("text", "")), args.text):
         args.basis = "told"
+        return True
+    return False
+
+
+def _told_check(memory: Memory, args) -> owner_evidence.Verdict | None:
+    """The check of a `told` claim that an agent makes, or None for no such claim.
+
+    A person at a terminal sets no agent marker, and their word binds as before.
+    """
+    if args.basis != "told" or not running_tool() or getattr(args, "author", None):
+        return None
+    return owner_evidence.check_claim(memory, args.text)
+
+
+def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
+    rule = fact["kind"] == "rule"
+    if verdict.bound:
+        force = " This rule loads as the owner's instruction." if rule else ""
+        return f"told: confirmed by {verdict.via}.{force}"
+    kind = " --kind rule" if rule else ""
+    force = ", and this rule loads as data" if rule else ""
+    return (
+        f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not tell "
+        "the owner that it binds. It binds when you add the same text again with --basis told in "
+        "the turn where the owner types its key words, picks it in your question, or says yes to "
+        "your proposal of it. Or the owner runs this from their own shell: "
+        f'memory add "TEXT"{kind} --basis told'
+    )
 
 
 def add_fact(memory: Memory, args) -> str | None:
@@ -228,15 +268,19 @@ def add_fact(memory: Memory, args) -> str | None:
     claimed = args.basis
     args.basis = claimed or DEFAULT_BASIS
     args.source = args.source or f"session:{moment.date().isoformat()}"
-    mine = {"basis": args.basis}
     root = memory.project.root
     writer = writer_name(root)
     links = [parse_link(v) for v in args.link or []]
     _check_links(memory, links)
     # Before the lock, because the kind that a masked fact gives decides the checks below.
     masked_target = memory.fact(args.supersedes) if args.supersedes in memory.masked else None
-    if masked_target:
-        _inherit(args, masked_target)
+    inherited = bool(masked_target) and _inherit(args, masked_target)
+    verdict = None if inherited else _told_check(memory, args)
+    # A basis that comes from an older fact keeps whether the owner's words confirmed it.
+    unconfirmed = (verdict is not None and not verdict.bound) or (
+        inherited and args.basis == "told" and not stated(masked_target)
+    )
+    mine = {"basis": args.basis, **({"confirmed": False} if unconfirmed else {})}
     summary = getattr(args, "summary", None)
     if isinstance(summary, str):
         summary = summary.strip() or None
@@ -287,9 +331,11 @@ def add_fact(memory: Memory, args) -> str | None:
         old = None if args.supersedes else _find_repeat(memory, args, moment, is_merged)
         if old:
             data_rule = old.get("kind") == "rule" and not owner_rule(old)
-            lifts = data_rule and owner_rule({"author": running_tool(), "basis": claimed})
+            lifts = data_rule and owner_rule({"author": running_tool(), **mine})
             if (old.get("kind") == "rule" or old.get("pinned")) and not lifts:
                 hint = f" {DATA_RULE}" if data_rule else ""
+                if data_rule and verdict and not verdict.bound:
+                    hint = f" The told claim is not confirmed, because {verdict.via}.{hint}"
                 print(f"already exists: {old['id']} says this. Nothing written.{hint}")
                 return None
             near = None
@@ -299,7 +345,9 @@ def add_fact(memory: Memory, args) -> str | None:
                 repeat = old["id"]
                 retired = None
                 # No claim was made, and the text is the same, so the older claim still holds.
-                args.basis = claimed or old.get("basis", DEFAULT_BASIS)
+                if not claimed:
+                    args.basis = old.get("basis", DEFAULT_BASIS)
+                    unconfirmed = args.basis == "told" and not stated(old)
         supersedes = args.supersedes or repeat
         target = _need_fact(memory, supersedes) if supersedes else None
         if target and target["status"] != "active":
@@ -335,6 +383,8 @@ def add_fact(memory: Memory, args) -> str | None:
             fact["links"] = links
         if args.pinned:
             fact["pinned"] = True
+        if unconfirmed:
+            fact["confirmed"] = False
         if args.enforced_by:
             fact["enforced_by"] = args.enforced_by
         fact.update(ends)
@@ -355,7 +405,9 @@ def add_fact(memory: Memory, args) -> str | None:
     print(f"added {fact['id']}")
     _refresh_followups(memory)
     data_rule = fact["kind"] == "rule" and not owner_rule(fact)
-    if data_rule:
+    if verdict is not None:
+        print(_told_note(verdict, fact))
+    elif data_rule:
         print(f"note: {DATA_RULE}")
     if fact["kind"] == "fact" and not args.pinned and RULE_START.match(fact["text"]):
         print(
@@ -435,7 +487,7 @@ def _print_conflicts(memory: Memory, fact: dict, moment, skip: set) -> None:
         for old in possible_conflicts(memory, fact, moment, is_merged):
             if old["id"] in skip:
                 continue
-            told = old.get("basis") == "told"
+            told = stated(old)
             ask = " A person stated it, so ask before you end it." if told else ""
             print(
                 f"check: {old['id']} is in the same area and may now be stale ({DATA_LABEL}): "

@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 import pytest
-from conftest import make_fact, write_facts
+from conftest import make_fact, owner_said, write_facts
 
 from cairnkit.cli import main
 from cairnkit.instructions import text as instruction_text
@@ -70,6 +70,7 @@ def test_the_same_command_with_told_lifts_the_rule(mem, capsys, monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
     first = _add(capsys, BARE)
     old = re.search(r"f-\d+-[0-9a-f]+", first[0])[0]
+    owner_said(monkeypatch, RULE)
     lines = _add(capsys, TOLD)
     assert not any("loads as data" in line for line in lines)
     assert any(f"superseded {old}" in line for line in lines)
@@ -154,6 +155,7 @@ def test_an_attribution_rule_past_the_bound_installs_the_guard_at_once(
     _pile_of_owner_rules(mem)
     rule = "No AI attribution in commits or pull requests."
     monkeypatch.setenv("CLAUDECODE", "1")
+    owner_said(monkeypatch, rule)
     _add(capsys, ["add", rule, "--kind", "rule", *basis])
     _, whole = _load(capsys)
     assert (rule in whole) == bool(basis), "a data rule is held, and the newest told rule prints"

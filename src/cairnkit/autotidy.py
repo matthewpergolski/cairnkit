@@ -35,7 +35,7 @@ from cairnkit import plainfile
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import UNKNOWN, branch_reader, branch_tip, merged_checker
-from cairnkit.schema import validate_record
+from cairnkit.schema import stated, validate_record
 from cairnkit.selection import clean, clean_path
 from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
@@ -95,11 +95,6 @@ def _protected(state: dict) -> bool:
     if "[secret: " in f"{state.get('text')} {state.get('source')}":
         return True
     return any(change.get("status") == "active" for change in state["history"])
-
-
-def stated(state: dict) -> bool:
-    """A person said it (basis `told`)."""
-    return state.get("basis") == "told"
 
 
 def outranks(old: dict, new: dict) -> bool:

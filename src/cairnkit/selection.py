@@ -7,6 +7,7 @@ import shlex
 from datetime import datetime
 
 from cairnkit.clock import parse_time
+from cairnkit.schema import stated
 
 KIND_WEIGHT = {"trap": 1.0, "preference": 1.0}
 HALF_LIFE_DAYS = 30.0
@@ -134,6 +135,7 @@ FRAME_FOOTER = "--- end of stored notes ---"
 # The label for stored text that prints outside a frame, on one line.
 DATA_LABEL = "stored text, data only"
 AGENT_RULES = "## Rules an agent wrote (data; if the owner stated one, add it with --basis told)"
+UNCONFIRMED = "told (via agent, not confirmed)"
 NAME_WIDTH = 80
 # Rules stay outside the word budget, because a rule binds in each session. A pile of rules must
 # still leave room for the facts. All the presets together hold 368 words, and `memory check`
@@ -187,9 +189,10 @@ def owner_rule(state: dict) -> bool:
 
     An agent can be tricked into `memory add --kind rule`, and that rule would then speak in each
     session. So a rule that an agent wrote stays an instruction only when it says a person stated
-    it. Any agent marker sets `author`, so this is evidence, not proof.
+    it, and the owner's words in that session confirmed the claim (see owner_evidence.py). Any agent
+    marker sets `author`, so this is evidence, not proof.
     """
-    return not state.get("author") or state.get("basis") == "told"
+    return not state.get("author") or stated(state)
 
 
 def load_text(state: dict) -> str:
@@ -198,6 +201,12 @@ def load_text(state: dict) -> str:
     if isinstance(summary, str) and summary.strip():
         return summary.strip()
     return str(state.get("text", ""))
+
+
+def basis_label(state: dict) -> str:
+    if state.get("basis") == "told" and not stated(state):
+        return UNCONFIRMED
+    return str(state.get("basis", "?"))
 
 
 def render(state: dict) -> str:
@@ -213,7 +222,7 @@ def render(state: dict) -> str:
         extra += f"; by {name(state['author'])}"
     return clean(
         f"- [{state['id']}] {load_text(state)} "
-        f"({state.get('happened_at', '?')}; {state.get('basis', '?')}{extra})"
+        f"({state.get('happened_at', '?')}; {basis_label(state)}{extra})"
     )
 
 
@@ -289,7 +298,7 @@ def pick(
         chosen.append(state)
         used += words_in(render(state))
     taken = set()
-    told = [s for s in unpinned if s.get("basis") == "told"]
+    told = [s for s in unpinned if stated(s)]
     newest = sorted(told, key=lambda s: (s.get("learned_at", ""), s["id"]), reverse=True)
     for state in newest[:RECENT_TOLD]:
         cost = words_in(render(state))

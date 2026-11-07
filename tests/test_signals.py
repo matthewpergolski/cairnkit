@@ -433,7 +433,7 @@ def test_long_session_keys_with_one_prefix_do_not_share_a_state(repo, mem, capsy
 
 
 def test_keys_that_differ_only_in_a_replaced_character_do_not_share_a_state(repo, mem):
-    from cairnkit.session import _path
+    from cairnkit.session import state_path as _path
 
     memory = Memory.open(find_project(), None)
     assert _path(memory, "a/b") != _path(memory, "a-b")
