@@ -139,7 +139,15 @@ def _check_fact(rec: dict) -> list[str]:
         errors.append("author must be a non-empty string, for example agent:claude")
     if "pinned" in rec and not isinstance(rec["pinned"], bool):
         errors.append("pinned must be true or false")
+    if "confirmed" in rec and (rec["confirmed"] is not False or rec.get("basis") != "told"):
+        errors.append("confirmed is only false, on a fact with basis 'told'")
     return errors
+
+
+def stated(rec: dict) -> bool:
+    """A person said it: basis `told`, and not an agent's claim that the owner's words did not
+    confirm (`confirmed: false`)."""
+    return rec.get("basis") == "told" and rec.get("confirmed") is not False
 
 
 def _check_change(rec: dict) -> list[str]:

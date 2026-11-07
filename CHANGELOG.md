@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes them as `(files: a, b)` and `memory import` reads them back. The "facts that match the
   files you changed" hint and the load rank match a changed file to `files` directly, also a file
   in a folder that `files` names.
+- A `told` claim that an agent makes (`memory add --basis told` with an agent marker) binds only
+  when its key words match the owner in that session: a prompt the owner typed, the option the
+  owner picked in an agent question (Claude Code's AskUserQuestion), or the agent proposal that a
+  short approval such as "yes" approved, read from the end of the Claude Code or Codex transcript.
+  An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
+  loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
+  confirms it. The prompt hook keeps this evidence, masked and cut, in
+  `.sessions/<id>.owner.json`. A person at a terminal binds as before.
+
 - `memory export` prints the active facts of this project as `[YYYY-MM-DD] - text` lines, oldest
   first, under the headings Instructions, Decisions, Traps and lessons, Project state, Preferences
   and Other. It marks which rules the owner confirmed and which load as data, masks each secret as

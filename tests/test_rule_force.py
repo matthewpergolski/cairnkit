@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from conftest import owner_said
 
 from cairnkit.cli import main
 from cairnkit.discover import RULES_SHORT
@@ -70,8 +71,11 @@ def test_an_agent_replacing_a_persons_rule_says_so_at_once_and_at_the_next_load(
     assert fid not in load(capsys)
 
 
-def test_an_agent_replacing_a_told_rule_with_its_own_told_rule_is_not_silent(mem, agent, capsys):
+def test_an_agent_replacing_a_told_rule_with_its_own_told_rule_is_not_silent(
+    mem, agent, capsys, monkeypatch
+):
     fid = add_rule(capsys, "Never rebase shared branches.", "--basis", "told")
+    owner_said(monkeypatch, "Rebase when clean.")
     capsys.readouterr()
     agent("add", "Rebase when clean.", "--kind", "rule", "--basis", "told", "--supersedes", fid)
     assert fid in capsys.readouterr().out
@@ -132,9 +136,10 @@ def test_a_persons_rule_has_no_data_note(mem, capsys):
     assert binds(load(capsys), "Use tabs")
 
 
-def test_restating_a_data_rule_with_told_lifts_it(mem, agent, capsys):
+def test_restating_a_data_rule_with_told_lifts_it(mem, agent, capsys, monkeypatch):
     agent("add", "Use tabs in the build files", "--kind", "rule", *SOURCE)
     old = capsys.readouterr().out.split("added ")[1].split()[0]
+    owner_said(monkeypatch, "Use tabs in the build files.")
     agent("add", "Use tabs in the build files", "--kind", "rule", "--basis", "told", *SOURCE)
     out = capsys.readouterr().out
     assert "Nothing written" not in out
@@ -189,7 +194,8 @@ def test_two_markers_are_an_agent_and_name_both(mem, agent, capsys, markers):
     assert "+" in line
 
 
-def test_two_markers_with_told_bind_and_name_both(mem, agent, capsys):
+def test_two_markers_with_told_bind_and_name_both(mem, agent, capsys, monkeypatch):
+    owner_said(monkeypatch, "Keep the lockfile.")
     agent(
         "add",
         "Keep the lockfile",

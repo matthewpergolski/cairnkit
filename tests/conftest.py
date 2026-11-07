@@ -60,6 +60,7 @@ def clean_env(monkeypatch):
         "MEMORY_WRITER",
         "MEMORY_NOW",
         "CLAUDECODE",
+        "CLAUDE_CODE_SESSION_ID",
         "CODEX_CI",
         "CODEX_SANDBOX",
         "CODEX_THREAD_ID",
@@ -201,3 +202,17 @@ def write_facts(mem: Path, records: list[dict], name: str = "main.jsonl") -> Non
     with path.open("a") as fh:
         for rec in records:
             fh.write(json.dumps(rec) + "\n")
+
+
+def owner_said(monkeypatch, text: str, session: str = "s") -> None:
+    """The owner types `text` in a session, and the agent's shell joins that session. Then an
+    agent's `told` claim with these words binds."""
+    import io
+    import json
+
+    from cairnkit.cli import main
+
+    payload = {"session_id": session, "hook_event_name": "UserPromptSubmit", "prompt": text}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert main(["hook", "prompt", "--agent", "claude"]) == 0
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)

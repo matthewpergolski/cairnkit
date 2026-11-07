@@ -47,6 +47,7 @@ sources:
   - src/cairnkit/migrate.py
   - src/cairnkit/migrate_refs.py
   - src/cairnkit/native.py
+  - src/cairnkit/owner_evidence.py
   - src/cairnkit/paths.py
   - src/cairnkit/plainfile.py
   - src/cairnkit/presets.py
@@ -68,6 +69,7 @@ sources:
   - src/cairnkit/state.py
   - src/cairnkit/store.py
   - src/cairnkit/tidy.py
+  - src/cairnkit/told_match.py
   - src/cairnkit/transfer.py
   - src/cairnkit/update.py
   - src/cairnkit/usage.py
@@ -130,6 +132,7 @@ flowchart TB
     Library --> markers[markers]
     Library --> memory[memory]
     Library --> native[native]
+    Library --> owner_evidence[owner_evidence]
     Library --> paths[paths]
     Library --> plainfile[plainfile]
     Library --> progress[progress]
@@ -146,6 +149,7 @@ flowchart TB
     Library --> similar[similar]
     Library --> state[state]
     Library --> store[store]
+    Library --> told_match[told_match]
     Library --> transfer[transfer]
     Library --> usage[usage]
     memory --> store

@@ -10,7 +10,7 @@ import io
 import json
 
 import pytest
-from conftest import git
+from conftest import git, owner_said
 
 from cairnkit.cli import main
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean
@@ -391,6 +391,7 @@ def test_a_rule_an_agent_was_told_stays_an_instruction_and_names_the_agent(
     mem, capsys, monkeypatch
 ):
     monkeypatch.setenv("CLAUDECODE", "1")
+    owner_said(monkeypatch, "Squash each merge.")
     assert (
         main(
             [

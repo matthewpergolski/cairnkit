@@ -31,6 +31,7 @@ from cairnkit import (
     live,
     loopbreak,
     native,
+    owner_evidence,
     plainfile,
     signals,
     skills,
@@ -658,6 +659,8 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
             live.note_working(memory, key)
         with contextlib.suppress(Exception):
             helpers.on_result(memory, payload)
+        with contextlib.suppress(Exception):
+            owner_evidence.note_answer(memory, key, payload)
         held = take_load(memory, key)
         if held:
             parts.append(held)
@@ -725,6 +728,8 @@ def prompt(project: Project, flag: str | None, agent: str, payload: dict) -> int
         key = session_key(payload)
         with contextlib.suppress(Exception):
             live.note_working(memory, key)
+        with contextlib.suppress(Exception):
+            owner_evidence.note_prompt(memory, key, agent, payload)
         signals.note_prompt(memory, key, str(payload.get("prompt") or ""))
         lines = [] if agent in DROPS_PROMPT_OUTPUT else _quiet_lines(memory, key)
     if lines:
