@@ -123,3 +123,16 @@ def test_outside_git_a_pointer_of_another_user_is_not_followed(tmp_path, monkeyp
     monkeypatch.chdir(shared)
     memdir, source = resolve_memory_dir(find_project(), None)
     assert source == "default" and memdir.name != "planted"
+
+
+def test_a_memory_folder_in_a_git_repo_of_its_own_still_loads(repo, tmp_path, capsys, monkeypatch):
+    """An owner may version the memory privately. Only a repo that holds the project shares it."""
+    own = tmp_path / "own.memory"
+    (own / "facts").mkdir(parents=True)
+    (own / "facts" / "a.jsonl").write_text(evil_rule())
+    git(own, "init", "-q")
+    git(own, "add", "-A")
+    git(own, "-c", "user.name=t", "-c", "user.email=t@e.invalid", "commit", "-q", "-m", "m")
+    monkeypatch.setenv("MEMORY_DIR", str(own))
+    out = session_start(capsys, monkeypatch)
+    assert "tracks files in the memory folder" not in out and FRAME_HEADER in out

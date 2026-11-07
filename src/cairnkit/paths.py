@@ -575,7 +575,7 @@ def tree_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV}
 
 
-_TRACKED: dict[tuple[str, tuple], Path | None] = {}
+_TRACKED: dict[tuple[str, tuple, bool], Path | None] = {}
 
 
 def _index_key(folder: Path) -> tuple | None:
@@ -596,20 +596,26 @@ def _index_key(folder: Path) -> tuple | None:
     return tuple(found)
 
 
-def tracking_tree(path: Path, unknown_is_tracked: bool = True) -> Path | None:
+def tracking_tree(
+    path: Path, unknown_is_tracked: bool = True, own_repo_ok: bool = False
+) -> Path | None:
     """The nearest git work tree that tracks path, or a file in it. A link at path is not followed.
 
-    When git cannot answer, the nearest work tree, unless `unknown_is_tracked` is false.
+    When git cannot answer, the nearest work tree, unless `unknown_is_tracked` is false. With
+    `own_repo_ok`, a work tree at path or inside it does not count: an owner may keep the memory
+    folder in a git repo of its own, which no project shares.
     """
     place = Path(os.path.realpath(path.parent)) / path.name
     start = place if place.is_dir() and not place.is_symlink() else place.parent
     key = _index_key(start)
     if key == ():
         return None
-    if key is not None and (str(place), key) in _TRACKED:
-        return _TRACKED[str(place), key]
+    if key is not None and (str(place), key, own_repo_ok) in _TRACKED:
+        return _TRACKED[str(place), key, own_repo_ok]
     found, sure = None, True
     for tree in enclosing_trees(start):
+        if own_repo_ok and tree.resolve().is_relative_to(place):
+            continue
         rel = os.path.relpath(place, tree)
         listed = run_git(tree, "--literal-pathspecs", "ls-files", "--", rel, env=tree_env())
         sure = sure and listed is not None
@@ -617,7 +623,7 @@ def tracking_tree(path: Path, unknown_is_tracked: bool = True) -> Path | None:
             found = tree
             break
     if key is not None and sure:
-        _TRACKED[str(place), key] = found
+        _TRACKED[str(place), key, own_repo_ok] = found
     return found
 
 

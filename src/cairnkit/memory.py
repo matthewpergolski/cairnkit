@@ -96,7 +96,7 @@ class Memory:
             raise MemoryMissing(
                 f"no memory folder at {clean_path(memdir)} (from {source}); run `memory init`"
             )
-        tree = tracking_tree(memdir.resolve(), unknown_is_tracked=False)
+        tree = tracking_tree(memdir.resolve(), unknown_is_tracked=False, own_repo_ok=True)
         if tree is not None:
             raise MemoryTracked(tracked_line(tree, memdir))
         memory = cls(project, memdir, source, load_config(memdir), env=read_env_values(project))
