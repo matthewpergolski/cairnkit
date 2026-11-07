@@ -1,171 +1,255 @@
 """Does a `told` claim of an agent match what the owner said? Pure functions, no files.
 
 An agent that writes `memory add --basis told` claims that a person said the text. The claim binds
-only when the key words of the text are in the owner's own evidence of this session (see
-owner_evidence.py): a prompt the owner typed, the option the owner picked in an agent question, or
-the agent proposal that the owner approved with a short "yes".
+only when it is a near-verbatim copy of the owner's own evidence of this session (see
+owner_evidence.py): a sentence the owner typed, the label of the option the owner picked in an
+agent question, or the agent's closing question that the owner answered with a short "yes".
 
-The data shape. Each piece of evidence is a text with a kind. It splits into sentences, and a
-window of one to WINDOW sentences in a row is compared with the claim. A claim matches a window
-when the window holds at least THRESHOLD of the claim's key words, and both or neither say "not".
-Key words are words with their ending cut, so `commits` and `committing` are one word. Words that
-frame a rule (`always`, `must`, `please`, `the`) are no key words. Each word of negation reads as
-`not`, so `never` and `do not` are one word, and a "yes" to `do not X` is no match for `X`.
+The data shape. A text splits into units at `.`, `!`, `?`, `;`, `:` and line breaks. A unit is an
+ordered list of tokens. A token is a word with its ending cut (`commits` and `committing` are one
+token), or a literal kept whole and exact: a number, a path, a flag, a name with a dot, a slash, an
+underscore or a capital inside it. Each negation (`not`, `no`, `never`, `don't`) is the token
+`not`. Frame words go: articles, `please`, pronouns, punctuation and case. A rule frame at the
+start or the end of a unit goes too (`from now on`, `always`, `remember to`, `as a rule`).
+
+The match. The claim's units split into runs of units in a row, and each run must match one unit
+of one piece of evidence, so that no claim joins words from two of the owner's sentences into one
+statement. A run matches a unit when:
+
+- each token of the run is in the unit, in the same order (so `dev, never main` is not
+  `main, never dev`);
+- the unit's tokens that the run leaves out are no polarity or scope word and no literal, so
+  `until CI is green`, `except main and dev`, `stop` and `yet` cannot be dropped;
+- the run holds at least PRECISION of the unit's tokens, so a qualifier cannot be dropped.
+
+A unit of a typed prompt that asks (it ends in `?`, or it opens with `can you`, `what`, ...) or
+that opens with `if` states no rule, and no claim matches it.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import cache
 
-# The share of the claim's key words that one window of evidence must hold. A claim of up to four
-# key words needs all of them, and a longer claim may miss one word in five, for a paraphrase. On
-# the cases in tests/test_told_match.py each claim that must match has 0.9 or more, and each that
-# must not has 0.75 or less (a claim of four key words that adds one).
-THRESHOLD = 0.8
-WINDOW = 3
+# The share of the owner's unit that a run of the claim must hold. One word in five may go, for
+# a word such as `so` or `then`; a polarity word, a scope word or a literal may never go.
+PRECISION = 0.8
 NOT = "not"
-NEGATIONS = frozenset({"not", "no", "never", "nor", "without", "avoid", "neither", "none"})
-# Words that frame a rule or join a sentence. A rule and the owner's words for it differ in these.
+NEGATIONS = frozenset({"not", "no", "never", "nor", "neither", "none"})
+# Words that turn or limit a rule. They must be the same in the claim and the owner's unit.
+_STRICT_TEXT = (
+    "not stop skip quit refuse disallow forbid avoid except unless until without "
+    "only all always every any must may can before after yet if"
+)
 _FRAME_TEXT = (
-    "a an the this that these those it its is are was were be been being am do does did done "
-    "to of in on at for from by with as into onto about than then so and or if when while "
-    "i we you me us my our your they them their he she his her one ones "
-    "please should must shall will would can could may might need needs let lets "
-    "have has had having use uses used using get gets "
-    "always every each all any ever just also only sure ensure make "
-    "rule rules remember note save store record memory fact going forward now future time "
-    "ok okay yes yeah"
+    "a an the please i we you me us my our your yours it its they them their he she him his her "
+    "this that these those"
 )
 FRAME_WORDS = frozenset(_FRAME_TEXT.split())
-_WORD = re.compile(r"[^\W_]+")
+_TOKEN = re.compile(r"(?<![\w.])\.\w[\w./-]*|(?<![\w-])--?\w[\w-]*|\w[\w./@+-]*")
 _CONTRACTIONS = (
+    (re.compile(r"(?i)\b(?:do|does|did)\s+not\b|\b(?:don|doesn|didn)['\u2019]t\b"), "not"),
     (re.compile(r"(?i)\bcan['\u2019]t\b|\bcannot\b"), "can not"),
     (re.compile(r"(?i)\bwon['\u2019]t\b"), "will not"),
     (re.compile(r"(?i)n['\u2019]t\b"), " not"),
 )
-_SENTENCE_END = re.compile(r"(?<=[.!?;:])\s+|\n+")
+_UNIT_END = re.compile(r"(?<=[.!?;:])\s+|\n+")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 _DOUBLE_END = re.compile(r"([b-df-hj-np-tv-z])\1$")
-# An approval opens the prompt, and the prompt adds no change to it. `yes, but ...` amends the
-# proposal, so only the owner's own words count for it.
-_APPROVAL = re.compile(
-    r"(?i)^\W*(?:yes|yep|yeah|yup|sure|ok|okay|go ahead|go for it|do it|do that|do so|please do"
-    r"|sounds good|looks good|lgtm|approved?|agreed?|correct|exactly|perfect|ship it|that works"
-    r"|works for me|make it so|y)\b"
+_RULE_FRAME = (
+    r"from now on|going forward|in (?:the )?future|for the future|as a rule|"
+    r"remember(?: to| that)?|keep in mind(?: that)?|note(?: that)?|"
+    r"make sure(?: to| that| you)?|be sure to|please|always"
 )
-_AMENDS = re.compile(
-    r"(?i)\b(?:but|except|instead|however|although|though|not|no|never|don['\u2019]?t|wait|hold"
-    r"|rather|only if|unless)\b|\?"
+_LEAD = re.compile(rf"(?i)^(?:[\W_]*(?:{_RULE_FRAME})\b)+[\W_]*")
+_TRAIL = re.compile(r"(?i)(?:[\s,]*\b(?:from now on|going forward|as a rule|please))+[\W_]*$")
+# How an agent asks to save a rule, before the rule itself: `Shall I add a rule that ...`.
+_ASK = re.compile(
+    r"(?i)^\W*(?:shall|should|can|may) i|^\W*(?:do you want|would you like|want) me to"
+    r"|^\W*(?:ok|okay) to"
 )
-APPROVAL_WORDS = 15
-_NEGATIVE_CHOICE = re.compile(r"(?i)^\W*(?:no|nope|never|don['\u2019]?t|do not|skip|cancel)\b")
+_ASK_REST = re.compile(
+    r"(?i)^\s*(?:go ahead and\s+)?(?:(?:save|store|add|record|keep|write|remember|make)\b"
+    r"(?:\s+(?:it|this|that|a|the|this|one))?(?:\s+(?:rule|note|memory|fact))?"
+    r"(?:\s+as a rule)?(?:\s+(?:that|saying|to say))?)?[\s,:]*"
+)
+_QUESTION = re.compile(
+    r"(?i)^(?:(?:can|could|would|will|should|shall|do|does|did|is|are|was|were|may|might|have"
+    r"|has|had|am)\s+(?:you|we|i|it|they|this|that|there|someone|anyone|he|she)\b"
+    r"|(?:what|why|how|where|which|who|whom|whose)\b)"
+)
+_CONDITION = re.compile(r"(?i)^(?:if|what if|suppose)\b")
+APPROVALS = frozenset(
+    {"yes", "y", "yep", "go ahead", "do it", "do that", "approved", "sounds good", "ok do it"}
+)
 
 
 @dataclass(frozen=True)
 class Evidence:
-    """One piece of the owner's evidence. `drop` holds key words that must not count from it."""
+    """One piece of the owner's evidence."""
 
     kind: str  # "prompt", "choice" or "approval"
     text: str
-    drop: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
 class Match:
     kind: str
-    coverage: float
 
 
 def stem(word: str) -> str:
-    """One key for the forms of a word. It is a key, so it need not be a real word."""
-    if not word.isalpha() or len(word) < 4:
+    """One key for the forms of a word. It is a key, so it need not be a real word.
+
+    No word but a negation gives `not`: `noted` is `noted`.
+    """
+    if len(word) < 4 or not word.isalpha():
         return word
-    if word.endswith("ies"):
-        word = word[:-3] + "y"
-    elif word.endswith(("sses", "shes", "ches", "xes", "zes")):
-        word = word[:-2]
-    elif word.endswith("s") and not word.endswith(("ss", "us", "is")):
-        word = word[:-1]
+    base = word
+    if base.endswith("ies"):
+        base = base[:-3] + "y"
+    elif base.endswith(("sses", "shes", "ches", "xes", "zes")):
+        base = base[:-2]
+    elif base.endswith("s") and not base.endswith(("ss", "us", "is")):
+        base = base[:-1]
     for end in ("ing", "ed"):
-        if word.endswith(end) and len(word) - len(end) >= 3:
-            word = word[: -len(end)]
-            word = word[:-1] if _DOUBLE_END.search(word) and not word.endswith("ll") else word
+        if base.endswith(end) and len(base) - len(end) >= 3:
+            base = base[: -len(end)]
+            base = base[:-1] if _DOUBLE_END.search(base) and not base.endswith("ll") else base
             break
-    return word[:-1] if word.endswith("e") and len(word) > 3 else word
+    base = base[:-1] if base.endswith("e") and len(base) > 3 else base
+    return word if base == NOT else base
 
 
-def key_words(text: str) -> set[str]:
-    """The words of a text that a match compares. Each negation is `not`."""
+STRICT = frozenset(stem(word) for word in _STRICT_TEXT.split())
+
+
+def _literal(raw: str) -> bool:
+    """A number, a path, a flag or a name: kept whole, never cut, never left out."""
+    return bool(re.search(r"[\d/._@+]", raw)) or raw[0] in "-." or raw[1:] != raw[1:].lower()
+
+
+Token = tuple[str, bool]  # (the key, True for a token that may never be left out)
+
+
+def tokens(unit: str) -> tuple[Token, ...]:
+    """The tokens of one unit, in order. See the module text."""
     for pattern, plain in _CONTRACTIONS:
-        text = pattern.sub(plain, text)
-    found = set()
-    for word in _WORD.findall(text.lower()):
-        if word in NEGATIONS:
-            found.add(NOT)
-        elif word not in FRAME_WORDS:
-            found.add(stem(word))
+        unit = pattern.sub(plain, unit)
+    found: list[Token] = []
+    for raw in _TOKEN.findall(unit):
+        raw = raw.rstrip(".-/")
+        if not raw:
+            continue
+        if _literal(raw):
+            found.append((raw.lower(), True))
+            continue
+        for part in raw.lower().split("-"):
+            key = NOT if part in NEGATIONS else stem(part)
+            if part and part not in FRAME_WORDS:
+                found.append((key, key in STRICT))
+    return tuple(found)
+
+
+def _unframed(unit: str) -> str:
+    return _TRAIL.sub("", _LEAD.sub("", unit.strip()))
+
+
+def _states_a_rule(unit: str) -> bool:
+    text = unit.strip()
+    return not (text.endswith("?") or _QUESTION.match(text) or _CONDITION.match(text))
+
+
+def _asked(unit: str) -> str:
+    """The rule in a unit of the agent's question, with the asking words gone."""
+    text = unit.strip().rstrip("?")
+    asking = _ASK.match(text)
+    return _ASK_REST.sub("", text[asking.end() :], count=1) if asking else text
+
+
+def units(evidence: Evidence) -> list[tuple[Token, ...]]:
+    """The units of the evidence that state something, as tokens."""
+    found = []
+    for part in _UNIT_END.split(evidence.text):
+        if evidence.kind == "approval":
+            part = _asked(part)
+        elif evidence.kind == "prompt" and not _states_a_rule(_unframed(part)):
+            continue
+        words = tokens(_unframed(part))
+        if words:
+            found.append(words)
     return found
 
 
-def _windows(evidence: Evidence) -> list[set[str]]:
-    """The key words of each run of up to WINDOW sentences. The owner's question states nothing."""
-    parts = [
-        key_words(part)
-        for part in _SENTENCE_END.split(evidence.text)
-        if part.strip() and not (evidence.kind == "prompt" and part.rstrip().endswith("?"))
-    ]
-    return [
-        set().union(*parts[start : start + size])
-        for size in range(1, WINDOW + 1)
-        for start in range(len(parts) - size + 1)
-    ]
+def _claim_units(text: str) -> list[tuple[Token, ...]]:
+    return [words for part in _UNIT_END.split(text) if (words := tokens(_unframed(part)))]
 
 
-def coverage(claim: set[str], evidence: Evidence) -> float:
-    """The best share of the claim's key words in one window that agrees on `not`.
+def run_matches(run: tuple[Token, ...], unit: tuple[Token, ...]) -> bool:
+    """True when a run of the claim is a near-verbatim copy of one unit. See the module text."""
+    if not run or len(run) < PRECISION * len(unit):
+        return False
 
-    A claim that names an option the owner did not pick matches nothing of that question.
-    """
-    if not claim or claim & evidence.drop:
-        return 0.0
-    best = 0.0
-    for window in _windows(evidence):
-        if (NOT in claim) != (NOT in window):
-            continue
-        best = max(best, len(claim & window) / len(claim))
-    return best
+    @cache
+    def fits(i: int, j: int) -> bool:
+        if i == len(run):
+            return not any(keep for _, keep in unit[j:])
+        if len(unit) - j < len(run) - i:
+            return False
+        if unit[j][0] == run[i][0] and fits(i + 1, j + 1):
+            return True
+        return not unit[j][1] and fits(i, j + 1)
+
+    return fits(0, 0)
+
+
+def _matches(claim: list[tuple[Token, ...]], owner: list[tuple[Token, ...]]) -> bool:
+    """True when the claim's units split into runs in a row that each match one owner unit."""
+    done = [True] + [False] * len(claim)
+    for end in range(1, len(claim) + 1):
+        done[end] = any(
+            done[start] and any(run_matches(sum(claim[start:end], ()), unit) for unit in owner)
+            for start in range(end)
+        )
+    return bool(claim) and done[-1]
 
 
 def best_match(text: str, evidence: list[Evidence]) -> Match | None:
-    """The evidence that the claim matches best, when it reaches THRESHOLD."""
-    claim = key_words(text)
-    scored = [Match(item.kind, coverage(claim, item)) for item in evidence]
-    best = max(scored, key=lambda match: match.coverage, default=None)
-    return best if best and best.coverage >= THRESHOLD else None
+    """The first piece of evidence that the claim copies, or None."""
+    claim = _claim_units(text)
+    for item in evidence:
+        if _matches(claim, units(item)):
+            return Match(item.kind)
+    return None
 
 
 def is_approval(prompt: str) -> bool:
-    """True for a short prompt that approves what the agent proposed: `yes`, `go ahead`."""
-    return (
-        bool(_APPROVAL.match(prompt))
-        and not _AMENDS.search(prompt)
-        and len(prompt.split()) <= APPROVAL_WORDS
-    )
+    """True for a prompt that is only a short yes: `yes`, `go ahead`, `ok, do it`.
+
+    `ok thanks`, `correct` and `yes, and also ...` approve no rule.
+    """
+    words = " ".join(re.findall(r"[a-z]+", prompt.lower()))
+    return words.removesuffix(" please").removeprefix("please ") in APPROVALS
 
 
-def choice_evidence(question: str, options: list[tuple[str, str]], answer: str) -> Evidence | None:
-    """What the owner chose in an agent question, from (label, description) options.
+def final_question(message: str) -> str | None:
+    """The sentence that ends the agent's message, when it is a question, or None.
 
-    The chosen option counts, and the question too unless the owner said no. A word that only an
-    option not chosen holds does not count, so `pytest or unittest?` picked `pytest` gives no
-    `unittest`. An answer that is no option is the owner's own words.
+    A short "yes" answers that question, and nothing else of the message.
+    """
+    sentences = [part for part in _SENTENCE_END.split(message.strip()) if part.strip()]
+    last = sentences[-1].strip() if sentences else ""
+    return last if last.endswith("?") else None
+
+
+def choice_evidence(labels: list[str], answer: str) -> Evidence | None:
+    """What the owner chose in an agent question: the labels of the chosen options.
+
+    The question and the descriptions of the options are the agent's words, so they do not
+    count. An answer that is no option is the owner's own words.
     """
     picks = {answer.strip(), *(part.strip() for part in answer.split(","))}
-    chosen = [(label, about) for label, about in options if label and label.strip() in picks]
+    chosen = [label.strip() for label in labels if label.strip() and label.strip() in picks]
     if not chosen:
         return Evidence("prompt", answer) if answer.strip() else None
-    picked = " ".join(f"{label}. {about}" for label, about in chosen)
-    others = {word for opt in options if opt not in chosen for word in key_words(" ".join(opt))}
-    negative = all(_NEGATIVE_CHOICE.match(label) for label, _ in chosen)
-    text = picked if negative else f"{question}\n{picked}"
-    return Evidence("choice", text, frozenset(others - key_words(picked)))
+    return Evidence("choice", "\n".join(chosen))

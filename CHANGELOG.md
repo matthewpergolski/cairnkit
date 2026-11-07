@@ -12,20 +12,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path
-  outside the repo, a comma, a character that does not print or a value that looks secret is
-  refused. The load line shows the first 3, `memory show` and `memory search` read them all, a
+  outside the repo, a character other than `A-Z a-z 0-9 . _ / -` or a value that looks secret is
+  refused. The load line shows the first 3, but a rule that loads as an instruction above the
+  frame shows none. `memory show` and `memory search` read them all, a
   change keeps them, and a supersede with no `--files` keeps the old fact's files. `memory export`
-  writes them as `(files: a, b)` and `memory import` reads them back. The "facts that match the
+  writes them as `(files: a, b)` and `memory import` reads them back when each path passes these
+  checks; else the end stays in the text. The import's "Added N" counts only the lines it wrote. The "facts that match the
   files you changed" hint and the load rank match a changed file to `files` directly, also a file
   in a folder that `files` names.
 - A `told` claim that an agent makes (`memory add --basis told` with an agent marker) binds only
-  when its key words match the owner in that session: a prompt the owner typed, the option the
-  owner picked in an agent question (Claude Code's AskUserQuestion), or the agent proposal that a
-  short approval such as "yes" approved, read from the end of the Claude Code or Codex transcript.
+  when it is a near-verbatim copy of one sentence of the owner's evidence in that session: a
+  prompt the owner typed, the option the owner picked in an agent question (Claude Code's
+  AskUserQuestion; the picked label only), or the question that ends the agent's message when the
+  owner's whole prompt is a short yes (`yes`, `go ahead`, `do it`, ...), read from the end of the
+  Claude Code or Codex transcript. A message that ends in no question, or a tool step after it,
+  gives no approval. The words must be the same and in the same
+  order; only articles, `please`, pronouns, punctuation, case, word endings and a rule frame
+  (`always`, `from now on`) may differ. A word that turns or limits the rule (`not`, `stop`,
+  `skip`, `except`, `until`, `only`, `before`, `yet`, ...), a number, a path or a name may not be
+  dropped or changed, and the claim must hold 80 percent of the sentence. A typed question and a
+  sentence that opens with `if` state no rule.
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
   loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
-  confirms it. The prompt hook keeps this evidence, masked and cut, in
-  `.sessions/<id>.owner.json`. A person at a terminal binds as before.
+  confirms it. The prompt hook keeps this evidence, masked as a whole and then cut, in
+  `.sessions/<id>.owner.json`. A person at a terminal binds as before. For Claude Code and Codex,
+  `memory add` counts a kept prompt, approval or answer only when the session's transcript holds
+  it, and a prompt that names another transcript than the session's first is not kept; a
+  transcript that cannot be read proves nothing.
+- The before-shell hook refuses an agent shell command that runs a cairnkit hook by hand, changes
+  or removes an agent marker (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, ...)
+  and runs `memory`, calls cairnkit's evidence code from a script, or writes into the memory
+  folder's `facts/` or `.sessions/`. Limits: a same-user process can still forge the evidence,
+  the agent's Edit and Write tools are not guarded (the hook sees shell commands only), and a
+  command built to hide its shape can pass the check.
 
 - `memory export` prints the active facts of this project as `[YYYY-MM-DD] - text` lines, oldest
   first, under the headings Instructions, Decisions, Traps and lessons, Project state, Preferences

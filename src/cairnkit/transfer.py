@@ -28,7 +28,7 @@ from cairnkit.load import NOTE_LINES, note_head
 from cairnkit.memory import Memory
 from cairnkit.native import _claude_store
 from cairnkit.paths import merged_checker, run_git
-from cairnkit.schema import MAX_TEXT, RULE_MAX_TEXT, STATUSES
+from cairnkit.schema import MAX_TEXT, RULE_MAX_TEXT, STATUSES, file_problem
 from cairnkit.secretscan import find_secrets, holds_mask, mask
 from cairnkit.selection import DATA_LABEL, clean, clean_path, owner_rule
 from cairnkit.similar import repeat_key
@@ -129,10 +129,13 @@ def _with_files(text: str, files: object) -> str:
 
 
 def _split_files(text: str) -> tuple[str, tuple[str, ...]]:
+    """The text and the paths of a `(files: a, b)` end. An end with a path that `files` refuses
+    stays part of the text."""
     match = _FILES_END.search(text)
-    if not match:
+    paths = tuple(match[1].split(", ")) if match else ()
+    if not match or any(file_problem(path) for path in paths):
         return text, ()
-    return text[: match.start()].rstrip(), tuple(match[1].split(", "))
+    return text[: match.start()].rstrip(), paths
 
 
 @dataclass(frozen=True)
@@ -586,10 +589,7 @@ def run_import(memory: Memory, target: str | None, native: bool, yes: bool) -> i
         name = "paste" if target in (None, "-") else Path(target).name
     read = sum(entry.section != PROSE for _, entry in entries)
     print(f"memory import: {clean(name)}, {_n(read, 'entry', 'entries')} read.")
-    print(
-        f"{'Added' if yes else 'Would add'} {len(adds)} (basis seen, author import; {DATA_LABEL}):"
-    )
-    rules = 0
+    rules, written, lines = 0, 0, []
     for step in adds:
         fact_id = None
         if yes:
@@ -598,10 +598,17 @@ def run_import(memory: Memory, target: str | None, native: bool, yes: bool) -> i
                 with contextlib.redirect_stdout(io.StringIO()):
                     fact_id = add_fact(memory, args)
             except Refused as exc:
-                print(f"  ! not written ({exc}): {_shown(memory, step.entry.text)}")
+                lines.append(f"  ! not written ({exc}): {_shown(memory, step.entry.text)}")
+                continue
+            if fact_id is None:
+                lines.append(f"  ! not written (already here): {_shown(memory, step.entry.text)}")
                 continue
             rules += step.kind == "rule"
-        print(_add_line(memory, step, fact_id))
+        written += 1
+        lines.append(_add_line(memory, step, fact_id))
+    print(f"{'Added' if yes else 'Would add'} {written} (basis seen, author import; {DATA_LABEL}):")
+    for line in lines:
+        print(line)
     print(f"{'Skipped' if yes else 'Would skip'} {len(skips)}:")
     personal = Counter(s.entry.section for s in skips if s.why == PERSONAL)
     if personal:

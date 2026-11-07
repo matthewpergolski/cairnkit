@@ -42,6 +42,21 @@ def test_a_clean_copy_of_a_masked_rule_keeps_its_force(repo, mem, capsys, monkey
     assert text in load(capsys)[0]
 
 
+def test_a_clean_copy_of_an_owner_rule_with_no_told_basis_keeps_its_force(
+    repo, mem, capsys, monkeypatch
+):
+    assert main([*OWNER_RULE[:4], "--basis", "guess"]) == 0
+    fact = re.search(r"f-\d+-[0-9a-f]+", capsys.readouterr().out)[0]
+    (repo / ".env").write_text(ENV)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    text = "Never deploy as the release account on Friday"
+    assert main(["add", text, "--supersedes", fact]) == 0
+    capsys.readouterr()
+    above, whole = load(capsys)
+    assert text in above
+    assert "not confirmed" not in whole
+
+
 def test_a_person_can_rewrite_a_masked_rule(repo, mem, capsys):
     fact = owner_rule(repo, capsys)
     text = "Deploy on any day"

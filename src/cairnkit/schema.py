@@ -17,6 +17,9 @@ RULE_MAX_TEXT = 400  # kind == rule; each rule loads in every session
 MAX_SUMMARY = 200  # optional load line
 MAX_FILES = 10  # repo paths beside the text, outside its limit
 MAX_FILE_PATH = 200
+# The characters of a path in `files`. A path loads on a line beside the fact, so a space or a
+# `;` would let it carry a sentence.
+FILE_PATH = re.compile(r"[A-Za-z0-9._/-]+")
 ID_RE = re.compile(r"^f-\d{8}-[0-9a-f]{4}$")
 SOURCE_RE = re.compile(r"^(default$|[a-z][a-z0-9_-]*:\S)")
 # The check that fails when a rule is broken: githook:commit-msg, lint:ruff:T201, ci:<job>.
@@ -79,8 +82,8 @@ def file_problem(path: object) -> str | None:
         return f"a path has {len(path)} characters; the limit is {MAX_FILE_PATH}"
     if path.startswith("/") or "\\" in path or any(p in ("", ".", "..") for p in path.split("/")):
         return f"{path!r} is not a path inside the repo, with / between its parts"
-    if "," in path or not path.isprintable() or path != path.strip():
-        return f"{path!r} holds a comma, an outer space or a character that does not print"
+    if not FILE_PATH.fullmatch(path):
+        return f"{path!r} holds a character other than A-Z, a-z, 0-9, '.', '_', '/' and '-'"
     return None
 
 

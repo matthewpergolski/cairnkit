@@ -255,14 +255,26 @@ def _inherit(args, old: dict) -> bool:
     return False
 
 
+def _has_authority(old: dict) -> bool:
+    """A person stands behind the fact. For a rule that is its force, so the owner's rule with
+    basis `guess` counts too."""
+    return owner_rule(old) if old.get("kind") == "rule" else stated(old)
+
+
 def _told_check(memory: Memory, args) -> owner_evidence.Verdict | None:
     """The check of a `told` claim that an agent makes, or None for no such claim.
 
-    A person at a terminal sets no agent marker, and their word binds as before.
+    A person at a terminal sets no agent marker, and their word binds as before. A summary loads in
+    place of the text, so it must be the owner's words too.
     """
     if args.basis != "told" or not running_tool() or getattr(args, "author", None):
         return None
-    return owner_evidence.check_claim(memory, args.text)
+    verdict = owner_evidence.check_claim(memory, args.text)
+    summary = getattr(args, "summary", None)
+    shown = isinstance(summary, str) and summary.strip() and args.kind != "rule"
+    if verdict.bound and shown and not owner_evidence.check_claim(memory, summary).bound:
+        return owner_evidence.Verdict(False, "its --summary is no copy of the owner's words")
+    return verdict
 
 
 def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
@@ -275,8 +287,8 @@ def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
     return (
         f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not tell "
         "the owner that it binds. It binds when you add the same text again with --basis told in "
-        "the turn where the owner types its key words, picks it in your question, or says yes to "
-        "your proposal of it. Or the owner runs this from their own shell: "
+        "the turn where the owner types it word for word, picks it in your question, or says yes "
+        "to your question that ends with it. Or the owner runs this from their own shell: "
         f'memory add "TEXT"{kind} --basis told'
     )
 
@@ -309,7 +321,7 @@ def add_fact(memory: Memory, args) -> str | None:
     verdict = None if inherited else _told_check(memory, args)
     # A basis that comes from an older fact keeps whether the owner's words confirmed it.
     unconfirmed = (verdict is not None and not verdict.bound) or (
-        inherited and args.basis == "told" and not stated(masked_target)
+        inherited and args.basis == "told" and not _has_authority(masked_target)
     )
     mine = {"basis": args.basis, **({"confirmed": False} if unconfirmed else {})}
     summary = getattr(args, "summary", None)

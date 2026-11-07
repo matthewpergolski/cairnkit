@@ -179,7 +179,7 @@ hex characters. A new id must not exist in any fact file.
 | `summary` | no | Short load line. At most 200 characters. Not for rules. Load shows this instead of the full body when set. |
 | `area` | yes | One area of the work, for example `deploy` or `database`. |
 | `tags` | no | A list of words for search and ranking. |
-| `files` | no | A list of 1 to 10 paths that the fact is about, relative to the repo root, each once. A path has `/` between its parts, at most 200 characters, no `.` or `..` part, no comma and no character that does not print. They do not count in the `text` limit. A changed file that a path names, or that sits under it, counts as a mention in the load rank and in the "match the files you changed" hint. A fact that supersedes another with no `files` keeps the old fact's files. |
+| `files` | no | A list of 1 to 10 paths that the fact is about, relative to the repo root, each once. A path has `/` between its parts, at most 200 characters, no `.` or `..` part, and only the characters `A-Z`, `a-z`, `0-9`, `.`, `_`, `/` and `-`. A rule that loads as an instruction above the frame shows no files on its line. They do not count in the `text` limit. A changed file that a path names, or that sits under it, counts as a mention in the load rank and in the "match the files you changed" hint. A fact that supersedes another with no `files` keeps the old fact's files. |
 | `happened_at` | yes | When it happened or became true. A date (`2026-10-03`) or a date-time. |
 | `learned_at` | yes | When it was written. A date-time with an offset. |
 | `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. `memory add` writes `session:<today>` when no source is given. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. `memory import` writes `import:<name>:<date>`: the file name with each run of white space as `-` (`paste` for stdin), and the date of the import. |
@@ -541,7 +541,12 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   that another branch or auto-tidy wrote or ended since the load, and up to 5 stored
   facts that match files changed since the load, traps first. Each item is named once.
   It always exits 0.
-- `before-shell`: before a shell command runs. It splits the command into steps at `;`, `&&`,
+- `before-shell`: before a shell command runs. First it refuses a command that would forge the
+  owner's evidence (see `forgery.py`): one that runs `memory hook ...` or `python -m cairnkit
+  hook` by hand, changes or removes an agent marker (`env -u`, `env -i`, `NAME=`, `unset`) and
+  runs `memory`, calls cairnkit's evidence code from a `python -c` script, or writes into the
+  memory folder's `facts/` or `.sessions/`. The reason of that deny says why. Then it splits the
+  command into steps at `;`, `&&`,
   `||`, `|` and newlines. A step is its `NAME=value` settings and its core, the other words without
   output redirects. An active fact matches when its text holds the whole core behind a prefix that
   the step lacks: a setting, or one of the wrappers `env`, `sudo`, `uv run`, `poetry run`,
