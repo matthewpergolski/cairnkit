@@ -81,7 +81,7 @@ def session_line(memory: Memory) -> str | None:
     new = [name for name in entries if name not in known]
     if not new:
         return None
-    plainfile.write_text(path, json.dumps(entries), encoding="utf-8")
+    plainfile.write_text(plainfile.inside(memory.dir, path), json.dumps(entries), encoding="utf-8")
     line = (
         f"Claude Code's own memory has {len(new)} new note(s) in {store}. Other agents cannot "
         'see them. Read them, and copy what matters with `memory add "TEXT" --basis told|seen '

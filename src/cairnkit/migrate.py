@@ -142,7 +142,7 @@ def _is_template(note: Path) -> bool:
 
 
 def copy_notes(
-    source: Path, notes: Path, layout: dict[str, str], dry_run: bool
+    source: Path, memdir: Path, layout: dict[str, str], dry_run: bool
 ) -> tuple[int, int, list[str]]:
     """Copy files into notes/. Never overwrite a note, except the empty `status.md` of init.
 
@@ -151,38 +151,42 @@ def copy_notes(
     copied = same = 0
     differing: list[str] = []
     for rel, old_rel in layout.items():
-        target = notes / rel
+        target = memdir / "notes" / rel
         origin = source / old_rel
         if target.exists() and filecmp.cmp(origin, target, shallow=False):
             same += 1
-        elif target.exists() and not _is_template(target):
+        elif os.path.lexists(target) and not _is_template(target):
             differing.append(rel)
         else:
             copied += 1
             if not dry_run:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(origin, target)
+                _copy_in(memdir, origin, target)
     return copied, same, differing
+
+
+def _copy_in(memdir: Path, origin: Path, target: Path) -> None:
+    """Copy a file to a new place in the memory folder, through no link."""
+    plainfile.inside(memdir, target.parent).mkdir(parents=True, exist_ok=True)
+    shutil.copy2(origin, plainfile.inside(memdir, target))
 
 
 def _keep_old_copy(memdir: Path, rel: str, origin: Path, dry_run: bool) -> None:
     """Keep a copy that lost out of `notes/`, so that nothing looks active and nothing is lost."""
     place = memdir / OLD_COPIES / rel
     number = 1
-    while place.exists():
-        if filecmp.cmp(origin, place, shallow=False):
+    while os.path.lexists(place):
+        if place.is_file() and filecmp.cmp(origin, place, shallow=False):
             return
         number += 1
         place = memdir / OLD_COPIES / f"{rel}.{number}"
     print(f"{'would keep' if dry_run else 'keep'} the other copy of {clean(rel)} at {clean(place)}")
     if not dry_run:
-        place.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(origin, place)
+        _copy_in(memdir, origin, place)
 
 
 def _remove(path: Path, memdir: Path) -> None:
     """Remove a file, and each parent folder that it leaves empty, up to the memory folder."""
-    path.unlink(missing_ok=True)
+    plainfile.inside(memdir, path).unlink(missing_ok=True)
     for folder in path.parents:
         if folder == memdir or any(folder.iterdir()):
             return
@@ -194,14 +198,13 @@ def _settle_strays(memdir: Path, dry_run: bool) -> None:
     would = "would " if dry_run else ""
     for rel in stray_files(memdir):
         path, note = memdir / rel, memdir / "notes" / rel
-        if not note.exists() or _is_template(note):
+        if not os.path.lexists(note) or _is_template(note):
             print(f"{would}move {clean(path)} -> {clean(note)}")
             if not dry_run:
-                note.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(path, note)
+                _copy_in(memdir, path, note)
                 _remove(path, memdir)
             continue
-        if filecmp.cmp(path, note, shallow=False):
+        if note.is_file() and filecmp.cmp(path, note, shallow=False):
             print(f"{would}remove {clean(path)}: {clean(note)} has the same text")
         else:
             _keep_old_copy(memdir, rel, path, dry_run)
@@ -223,11 +226,13 @@ def _sync_stubs(memdir: Path, named: set[str], dry_run: bool) -> None:
                 _remove(path, memdir)
     for rel in sorted(named):
         path = memdir / rel
-        if not path.exists():
+        if not os.path.lexists(path):
             print(f"{would}leave a pointer to the note at {clean(path)}")
             if not dry_run:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                plainfile.write_text(path, stub_text(rel), encoding="utf-8")
+                plainfile.inside(memdir, path.parent).mkdir(parents=True, exist_ok=True)
+                plainfile.write_text(
+                    plainfile.inside(memdir, path), stub_text(rel), encoding="utf-8"
+                )
 
 
 def scan_folder(
@@ -531,7 +536,7 @@ def _write_task(
     memdir: Path, project: Project, source: Path, items: list[Item], dry_run: bool
 ) -> None:
     """Write the agent task, or remove it when nothing is open. The same input writes the same."""
-    path = memdir / TASK
+    path = plainfile.inside(memdir, memdir / TASK)
     if not items:
         if not dry_run:
             path.unlink(missing_ok=True)
@@ -705,7 +710,7 @@ def run_migrate(
 
     notes = memdir / "notes"
     layout, losers = note_layout(source_dir)
-    copied, same, differing = copy_notes(source_dir, notes, layout, dry_run)
+    copied, same, differing = copy_notes(source_dir, memdir, layout, dry_run)
     print(f"{would}copy {copied} file(s) to {clean_path(notes)}; {same} already there")
     for rel in differing:
         print(f"note {clean(notes / rel)} differs from the old file. Left as it is.")
@@ -781,8 +786,8 @@ def run_migrate(
     else:
         print(f"{would}write worklist {clean_path(work)}")
         if not dry_run:
-            work.parent.mkdir(parents=True, exist_ok=True)
-            plainfile.write_text(work, text, encoding="utf-8")
+            plainfile.inside(memdir, work.parent).mkdir(parents=True, exist_ok=True)
+            plainfile.write_text(plainfile.inside(memdir, work), text, encoding="utf-8")
 
     if untrack and tracked:
         if len(project.checkouts) > 1:

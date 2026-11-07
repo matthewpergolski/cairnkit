@@ -210,6 +210,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A hook or a command changes nothing outside the memory folder through a link in it. A repo
+  can bring such a link along. Before, session start removed old files where a `.sessions` or
+  `.sessions/live` link went and wrote its state there, a shell result rewrote the file that a
+  `.loop-breaker.json` link named, a lock file was made where a dangling link went, and
+  `memory migrate --yes` removed files under a linked folder and made files where a dangling
+  note link went. Now each write, removal, prune and walk in the memory folder takes its path
+  from one check that refuses a link from the memory folder down to the file. A test makes each
+  file that a command or hook writes there, and each folder above it, a link in turn, and finds
+  that nothing outside changes.
 - A hook install writes no file through a link. `git ls-files -- .codex/hooks.json` prints
   nothing when `.codex` is a link that git tracks, so a repo with such a link made the install
   rewrite a tracked file or write a hook file outside the checkout, and an uninstall removed a

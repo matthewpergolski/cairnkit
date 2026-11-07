@@ -354,7 +354,7 @@ def read_identity(folder: Path) -> Identity | None:
 def write_identity(folder: Path, identity: Identity) -> None:
     """Replace the file whole, so a reader never sees half of it."""
     roots = " ".join(sorted(identity.roots))
-    temp = folder / f"{IDENTITY_FILE}.{os.getpid()}"
+    temp = plainfile.inside(folder, folder / f"{IDENTITY_FILE}.{os.getpid()}")
     plainfile.write_text(temp, f"{identity.id}\n{roots}\n{identity.owner}\n")
     os.replace(temp, folder / IDENTITY_FILE)
 

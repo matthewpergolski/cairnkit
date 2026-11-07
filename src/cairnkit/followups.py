@@ -235,7 +235,7 @@ def refresh(memory: Memory) -> int:
     items = open_items(memory)
     if not whole:
         return len(pairs) + len(items)  # what is on disk is the last whole answer, so it stays
-    path = memory.dir / TASK_PATH
+    path = plainfile.inside(memory.dir, memory.dir / TASK_PATH)
     if not pairs and not items:
         path.unlink(missing_ok=True)
         return 0

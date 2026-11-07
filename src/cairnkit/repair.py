@@ -60,7 +60,7 @@ def run_repair(memory: Memory) -> int:
     # Two files can hold the same bad bytes, and a line can appear twice. One record covers each.
     unique = {(r["file"], r["sha"]): r for r in records}
     if unique:
-        append_records(memory.dir / REPAIRS, list(unique.values()))
+        append_records(memory.dir / REPAIRS, list(unique.values()), root=memory.dir)
         print(
             f"Recorded {len(unique)} line(s). The bytes stay in the file. Write again what is true."
         )

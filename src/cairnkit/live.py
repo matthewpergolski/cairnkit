@@ -63,15 +63,16 @@ def _folder(memory: Memory) -> Path:
 
 def note_working(memory: Memory, session: str) -> None:
     root = str(memory.project.root)
-    folder = _folder(memory)
+    folder = plainfile.inside(memory.dir, _folder(memory))
     folder.mkdir(parents=True, exist_ok=True)
-    plainfile.write_text(folder / f"{_key(session)}-{_key(root)}", root, encoding="utf-8")
+    marker = plainfile.inside(memory.dir, folder / f"{_key(session)}-{_key(root)}")
+    plainfile.write_text(marker, root, encoding="utf-8")
 
 
 def clear_working(memory: Memory, session: str) -> list[str]:
     """Remove the markers of a session. Return the checkouts that they named."""
     paths = []
-    for marker in _folder(memory).glob(f"{_key(session)}-*"):
+    for marker in plainfile.files_in(memory.dir, _folder(memory), f"{_key(session)}-*"):
         with contextlib.suppress(OSError, UnicodeDecodeError):
             paths.append(plainfile.read_text(marker, encoding="utf-8"))
         marker.unlink(missing_ok=True)
@@ -83,8 +84,7 @@ def _others_at_work(memory: Memory, session: str | None) -> dict[str, float]:
     mine = f"{_key(session)}-" if session else None
     limit = time.time() - WORKING_SECONDS
     found: dict[str, float] = {}
-    folder = _folder(memory)
-    for marker in folder.iterdir() if folder.is_dir() else ():
+    for marker in plainfile.files_in(memory.dir, _folder(memory)):
         seen_at = marker.stat().st_mtime
         if seen_at < limit:
             marker.unlink(missing_ok=True)

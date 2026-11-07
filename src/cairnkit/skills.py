@@ -427,7 +427,8 @@ def _state(memdir: Path) -> dict:
 def _save(memdir: Path, state: dict) -> None:
     with contextlib.suppress(OSError):
         if memdir.is_dir():
-            plainfile.write_text(memdir / STATE_NAME, json.dumps(state) + "\n", encoding="utf-8")
+            path = plainfile.inside(memdir, memdir / STATE_NAME)
+            plainfile.write_text(path, json.dumps(state) + "\n", encoding="utf-8")
 
 
 def once_line(memdir: Path, record: bool = True) -> str | None:

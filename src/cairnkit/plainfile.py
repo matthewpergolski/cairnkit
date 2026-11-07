@@ -32,6 +32,29 @@ def through_link(root: Path | str, path: Path | str) -> bool:
     return any(Path(root, *parts[:end]).is_symlink() for end in range(1, len(parts) + 1))
 
 
+class Linked(OSError):
+    """A link stands between a folder and a path in it, or the path is not in the folder."""
+
+
+def inside(root: Path | str, path: Path | str) -> Path:
+    """The path, when no link stands from root down to it, the path included.
+
+    A repo can bring a link into the memory folder, so each write, delete and walk there takes
+    its path from here: then it changes nothing outside root. Else this raises Linked.
+    """
+    if through_link(root, path):
+        raise Linked(f"{str(path)!r} is a link, or under a link, in {str(root)!r}. Not changed.")
+    return Path(path)
+
+
+def files_in(root: Path | str, folder: Path | str, pattern: str = "*") -> list[Path]:
+    """The regular files in folder that match pattern, for a prune to remove. A link is no
+    such file. None when the folder is missing or a link stands from root down to it."""
+    if through_link(root, folder) or not Path(folder).is_dir():
+        return []
+    return [p for p in sorted(Path(folder).glob(pattern)) if p.is_file() and not p.is_symlink()]
+
+
 class NotPlain(OSError):
     """Not a regular file (a pipe, a device, a folder or a socket), or bigger than the limit."""
 

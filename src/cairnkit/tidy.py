@@ -111,7 +111,7 @@ def build_proposals(memory: Memory) -> list[Proposal]:
 
 
 def write_report(memory: Memory, proposals: list[Proposal]) -> str:
-    folder = memory.dir / "proposals"
+    folder = plainfile.inside(memory.dir, memory.dir / "proposals")
     folder.mkdir(exist_ok=True)
     path = folder / f"{now().date().isoformat()}.md"
     lines = [f"# Tidy proposals, {stamp(now())}", ""]
@@ -120,7 +120,7 @@ def write_report(memory: Memory, proposals: list[Proposal]) -> str:
     for p in proposals:
         lines.append(f"- {p.id} [{p.kind}] {p.summary}")
     lines += ["", "To apply: `memory tidy --apply ID [ID ...]`.", ""]
-    plainfile.write_text(path, "\n".join(lines))
+    plainfile.write_text(plainfile.inside(memory.dir, path), "\n".join(lines))
     return str(path)
 
 
@@ -160,6 +160,6 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
                 print(f"error: {pid}: {'; '.join(problems)}")
                 return 1
             records.append(record)
-    append_records(memory.writer_file(WRITER), records)
+    append_records(memory.writer_file(WRITER), records, root=memory.dir)
     print(f"applied {len(apply)} proposal(s): {len(records)} change record(s)")
     return 0

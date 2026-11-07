@@ -251,7 +251,7 @@ def _told_path(memory: Memory, key: str) -> Path:
 def _take_untold(memory: Memory, key: str, found: list[Hit]) -> list[Hit]:
     """The hits whose fact has not spoken in this session. Marks them as told."""
     path = _told_path(memory, key)
-    with locked(memory.dir / ".sessions" / TOLD_LOCK):
+    with locked(memory.dir / ".sessions" / TOLD_LOCK, root=memory.dir):
         try:
             told = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
         except (OSError, ValueError, TypeError):
@@ -259,7 +259,9 @@ def _take_untold(memory: Memory, key: str, found: list[Hit]) -> list[Hit]:
         fresh = [hit for hit in found if hit.fact_id not in told]
         if fresh:
             plainfile.write_text(
-                path, json.dumps(sorted(told | {h.fact_id for h in fresh})), "utf-8"
+                plainfile.inside(memory.dir, path),
+                json.dumps(sorted(told | {h.fact_id for h in fresh})),
+                "utf-8",
             )
     return fresh
 

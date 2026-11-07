@@ -350,7 +350,7 @@ def add_fact(memory: Memory, args) -> str | None:
                 "writer": writer,
             }
             records.append(_validated(change))
-        append_records(memory.writer_file(writer), records)
+        append_records(memory.writer_file(writer), records, root=memory.dir)
     # First, so that no older ID in a note below reads as the new one.
     print(f"added {fact['id']}")
     _refresh_followups(memory)
@@ -485,7 +485,7 @@ def change_fact(memory: Memory, args) -> None:
     elif args.no_enforced_by:
         change["enforced_by"] = None
     change["writer"] = writer_name(memory.project.root)
-    append_records(memory.writer_file(change["writer"]), [_validated(change)])
+    append_records(memory.writer_file(change["writer"]), [_validated(change)], root=memory.dir)
     _refresh_followups(memory)
     note_change(memory, state, f"status {args.status}" if args.status else "edited")
 
@@ -503,7 +503,7 @@ def keep_fact(memory: Memory, fact_id: str, reason: str | None) -> None:
         "reason": reason or "Kept as long-term.",
         "writer": writer_name(memory.project.root),
     }
-    append_records(memory.writer_file(change["writer"]), [_validated(change)])
+    append_records(memory.writer_file(change["writer"]), [_validated(change)], root=memory.dir)
 
 
 _ID_IN_LINE = re.compile(r'"id"\s*:\s*"([^"]+)"')
@@ -544,7 +544,7 @@ def _write_tombstone(memory: Memory, fact_id: str, reason: str) -> None:
         "reason": reason,
         "writer": writer_name(memory.project.root),
     }
-    append_records(memory.writer_file(tomb["writer"]), [_validated(tomb)])
+    append_records(memory.writer_file(tomb["writer"]), [_validated(tomb)], root=memory.dir)
     _refresh_followups(memory)
 
 

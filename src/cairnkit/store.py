@@ -199,10 +199,16 @@ def encode(record: dict) -> str:
     return json.dumps(record, ensure_ascii=False, separators=(",", ":"))
 
 
-def append_records(path: Path, records: list[dict]) -> None:
-    """Append records as JSON lines in one write. Earlier bytes never change."""
+def append_records(path: Path, records: list[dict], *, root: Path) -> None:
+    """Append records as JSON lines in one write. Earlier bytes never change.
+
+    `root` is the memory folder: no link may stand between it and the file."""
     payload = "".join(encode(r) + "\n" for r in records).encode("utf-8")
-    with locked(path.parent / WRITE_LOCK, WRITE_LOCK_FLOOR), plainfile.open_write(path, "ab") as fh:
+    path = plainfile.inside(root, path)
+    with (
+        locked(path.parent / WRITE_LOCK, WRITE_LOCK_FLOOR, root=root),
+        plainfile.open_write(path, "ab", follow=False) as fh,
+    ):
         size = fh.seek(0, os.SEEK_END)
         if size:
             with os.fdopen(plainfile.open_fd(path), "rb") as check:
@@ -218,16 +224,17 @@ _held: set[Path] = set()
 
 
 @contextlib.contextmanager
-def locked(path: Path, floor: float = 0) -> Iterator[None]:
+def locked(path: Path, floor: float = 0, *, root: Path) -> Iterator[None]:
     """Hold an exclusive lock on a lock file while the block runs (no lock on Windows).
 
     A block inside a block of the same lock does not lock again, because flock would wait on itself.
+    `root` is the memory folder: no link may stand between it and the lock file.
     """
     if path in _held:
         yield
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with plainfile.open_write(path, "ab") as fh:
+    plainfile.inside(root, path.parent).mkdir(parents=True, exist_ok=True)
+    with plainfile.open_write(plainfile.inside(root, path), "ab", follow=False) as fh:
         _lock(fh, path, floor)
         _held.add(path)
         try:
@@ -240,7 +247,7 @@ def locked(path: Path, floor: float = 0) -> Iterator[None]:
 
 def write_lock(memdir: Path):
     """The lock of every write to the fact files of one memory."""
-    return locked(memdir / "facts" / WRITE_LOCK, WRITE_LOCK_FLOOR)
+    return locked(memdir / "facts" / WRITE_LOCK, WRITE_LOCK_FLOOR, root=memdir)
 
 
 def drop_id(memdir: Path, fact_id: str) -> int:
@@ -267,7 +274,7 @@ def drop_line(memdir: Path, sha: str) -> int:
 
 def _drop_lines(memdir: Path, is_gone: Callable[[bytes], bool]) -> int:
     with write_lock(memdir):
-        return sum(_rewrite(path, is_gone) for path in fact_files(memdir))
+        return sum(_rewrite(plainfile.inside(memdir, path), is_gone) for path in fact_files(memdir))
 
 
 def _rewrite(path: Path, is_gone: Callable[[bytes], bool]) -> int:

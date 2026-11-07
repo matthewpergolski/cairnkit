@@ -59,7 +59,7 @@ def test_a_purge_keeps_a_fact_added_during_its_rewrite(mem, repo, monkeypatch, c
 
 def test_a_purge_waits_for_a_held_lock_and_reads_the_file_inside_it(mem, repo, capsys):
     write_facts(mem, [make_fact(TARGET, "Purge this one.")])
-    with store.locked(mem / "facts" / store.WRITE_LOCK):
+    with store.locked(mem / "facts" / store.WRITE_LOCK, root=mem):
         process = subprocess.Popen(
             [sys.executable, "-m", "cairnkit", "purge", TARGET, "--reason", "t", "--yes"],
             cwd=repo,
@@ -80,7 +80,7 @@ def test_a_purge_waits_for_a_held_lock_and_reads_the_file_inside_it(mem, repo, c
 def test_a_nested_write_does_not_wait_on_its_own_lock(mem):
     path = mem / "facts" / "main.jsonl"
     with store.write_lock(mem):
-        store.append_records(path, [make_fact(TARGET, "Inside the lock.")])
+        store.append_records(path, [make_fact(TARGET, "Inside the lock.")], root=mem)
     assert [r["id"] for r in read_jsonl(path)] == [TARGET]
 
 

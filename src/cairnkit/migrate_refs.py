@@ -255,8 +255,9 @@ def outside_layout(memdir: Path) -> list[Path]:
     """Regular files in the memory folder outside the new layout. Tool state starts with a dot."""
     found: list[Path] = []
     for child in memdir.iterdir() if memdir.is_dir() else []:
+        # A link is no file of this memory, and a walk into one would leave the folder.
         if not child.name.startswith(".") and not is_new_layout(child.name):
-            found += child.rglob("*") if child.is_dir() else [child]
+            found += child.rglob("*") if child.is_dir() and not child.is_symlink() else [child]
     return sorted(p for p in found if p.is_file() and not p.is_symlink())
 
 
