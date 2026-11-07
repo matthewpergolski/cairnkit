@@ -1,9 +1,10 @@
-"""Read a file of a project or of the memory folder. It can be a pipe, a device or huge.
+"""Read a file of a project or of the memory folder. It can be a pipe or a device.
 
 The open of a pipe waits for a writer, and none comes, so `mkfifo CLAUDE.md` made
 `memory status` wait for ever. A read of a device such as /dev/zero never ends. So each read
-here opens with O_NONBLOCK, reads only a regular file, and reads at most `limit` bytes. For a
-regular file the result is the same as `Path.read_text` or `Path.read_bytes`.
+here opens with O_NONBLOCK and reads only a regular file. A caller that must not read a big
+file gives a `limit`. For a regular file the result is the same as `Path.read_text` or
+`Path.read_bytes`.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ import stat
 from pathlib import Path
 from typing import TextIO
 
-MAX_BYTES = 64 * 1024 * 1024
 _FLAGS = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
 _NO_LINK = getattr(os, "O_NOFOLLOW", 0)
 
@@ -35,7 +35,7 @@ def open_fd(path: Path | str, follow: bool = True) -> int:
     return fd
 
 
-def read_fd(fd: int, limit: int | None = MAX_BYTES) -> bytes:
+def read_fd(fd: int, limit: int | None = None) -> bytes:
     """The bytes of an open regular file, at most `limit` (None: all). It closes fd."""
     with os.fdopen(fd, "rb") as fh:
         if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
@@ -46,7 +46,7 @@ def read_fd(fd: int, limit: int | None = MAX_BYTES) -> bytes:
     return data
 
 
-def read_bytes(path: Path | str, limit: int | None = MAX_BYTES, follow: bool = True) -> bytes:
+def read_bytes(path: Path | str, limit: int | None = None, follow: bool = True) -> bytes:
     return read_fd(open_fd(path, follow), limit)
 
 
@@ -54,7 +54,7 @@ def read_text(
     path: Path | str,
     encoding: str | None = None,
     errors: str | None = None,
-    limit: int | None = MAX_BYTES,
+    limit: int | None = None,
     follow: bool = True,
 ) -> str:
     """As `Path.read_text`, with its line ends: each \\r\\n and \\r reads as \\n."""

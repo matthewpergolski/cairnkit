@@ -104,7 +104,7 @@ def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
                 fd, path = tempfile.mkstemp(prefix="index-", dir=_copies_folder())
                 try:
                     with os.fdopen(fd, "wb") as fh:
-                        fh.write(plainfile.read_bytes(real, limit=None))
+                        fh.write(plainfile.read_bytes(real))
                 except BaseException:  # a hook's time budget can end it here
                     with contextlib.suppress(OSError):
                         os.unlink(path)

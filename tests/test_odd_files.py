@@ -134,3 +134,23 @@ def test_each_read_of_a_project_or_memory_file_goes_through_the_plain_reader():
         for line in _raw_reads(path)
     ]
     assert found == []
+
+
+def test_a_fact_file_over_64_mb_still_loads_and_purges(mem: Path, repo: Path, capsys):
+    """Only a pipe or a device is refused; a big regular fact file is read in full."""
+    from conftest import make_fact, write_facts
+
+    from cairnkit import store
+    from cairnkit.cli import main
+
+    big = make_fact("f-big", "y" * (65 * 1024 * 1024))
+    small = make_fact("f-small", "We chose SQLite over Postgres.")
+    gone = make_fact("f-gone", "This fact goes.")
+    write_facts(mem, [big, small, gone])
+    found, bad = store.scan(store.fact_files(mem))
+    assert {item.record["id"] for item in found} == {"f-big", "f-small", "f-gone"}
+    assert bad == []
+    assert store.drop_id(mem, "f-gone") == 1
+    capsys.readouterr()
+    main(["load"])
+    assert "We chose SQLite over Postgres." in capsys.readouterr().out

@@ -257,9 +257,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.claude/settings.local.json`, `CLAUDE.md`, `AGENTS.md`, `CLAUDE.local.md` or `.memory-path`,
   or at a fact file, a note or `config.toml` in the memory folder, made `memory status`,
   `memory check`, `memory load` or `memory hooks install` wait for ever. Now each read opens the
-  file without a wait, reads only a regular file, and reads at most 64 MB. Such a file counts as
-  one that cannot be read, and `memory hooks install` reports an agent settings file that is not
-  a plain file and changes nothing in it.
+  file without a wait and reads only a regular file. Such a file counts as one that cannot be
+  read, and `memory hooks install` reports an agent settings file that is not a plain file and
+  changes nothing in it. A regular file of any size is read in full, so a fact file over 64 MB
+  still loads and `memory purge` still rewrites it.
 - `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
   files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
   list a repo, it stops with an error and changes nothing. Before, it walked the folder and read
