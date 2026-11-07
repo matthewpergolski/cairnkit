@@ -38,6 +38,7 @@ sources:
   - src/cairnkit/install_source.py
   - src/cairnkit/instruction_files.py
   - src/cairnkit/instructions.py
+  - src/cairnkit/landed.py
   - src/cairnkit/legacy.py
   - src/cairnkit/live.py
   - src/cairnkit/load.py
@@ -126,6 +127,7 @@ flowchart TB
     Library --> ignore[ignore]
     Library --> install_source[install_source]
     Library --> instruction_files[instruction_files]
+    Library --> landed[landed]
     Library --> legacy[legacy]
     Library --> live[live]
     Library --> loopbreak[loopbreak]
