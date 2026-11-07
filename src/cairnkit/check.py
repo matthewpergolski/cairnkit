@@ -16,6 +16,7 @@ from cairnkit import (
     enforcement,
     githook,
     instruction_files,
+    landed,
     migrate_refs,
     native,
     plainfile,
@@ -364,17 +365,13 @@ def advisory_rules(memory: Memory) -> list[str]:
 RULE_WORD_CAP = 500
 
 
-def rule_words(memory: Memory) -> tuple[int, int]:
-    """Return (count, words) of the active rules."""
+def active_rules(memory: Memory) -> list[dict]:
     moment, is_merged = now(), merged_checker(memory.project.root)
-    count = words = 0
-    for state in memory.states.values():
-        if state.get("kind") != "rule":
-            continue
-        if effective_status(state, moment, is_merged)[0] == "active":
-            count += 1
-            words += len(str(state.get("text", "")).split())
-    return count, words
+    return [
+        state
+        for state in memory.states.values()
+        if state.get("kind") == "rule" and effective_status(state, moment, is_merged)[0] == "active"
+    ]
 
 
 def preset_note(project: Project, memdir) -> str:
@@ -562,13 +559,15 @@ def _read_health(project: Project, flag: str | None) -> Health:
     ]
     health.info += list(filter(None, (history_note(memory), native.secret_note(memory))))
     health.info += list(filter(None, (owner_line(project, memdir), beside_line(project, memdir))))
-    count, words = rule_words(memory)
+    rules = active_rules(memory)
+    words = sum(len(str(state.get("text", "")).split()) for state in rules)
     if words > RULE_WORD_CAP:
         health.todo.append(
-            f"note: {count} active rule(s) hold {words} words; every session loads up to "
+            f"note: {len(rules)} active rule(s) hold {words} words; every session loads up to "
             f"{RULE_WORD_LIMIT} words of them. Above {RULE_WORD_CAP} words, merge rules or end "
             "the ones that do not apply."
         )
+        health.info += list(filter(None, [landed.stale_line(memory, rules)]))
     health.todo += migrate_refs.check_notes(memdir)
     health.stray = migrate_refs.stray_files(memdir)
     _hook_lines(hooks, health)

@@ -551,7 +551,9 @@ reopened and its history stays. The write never fails because of it.
 
 1. Rules. They do not use the word budget, and a note says so when they pass it. Past 1000
    words the load holds back the rest and says how many. A rule that no check enforces goes
-   first. `memory load --budget 0` prints them all.
+   first. `memory load --budget 0` prints them all. Over the budget or the limit, one line
+   names the rules most likely stale: work that landed first, then the oldest one-time
+   approvals. `memory check` names them too, past 500 words.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.

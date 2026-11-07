@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   number, `#158`) prints a note: write it as `--kind decision --supersedes ID` with
   `--files PATHS` (tidy proposes the end when they land) or `--until-merged BRANCH`, and keep
   `rule` for a lasting policy.
+- When the rules pass the word budget of a load, or the limit of 1000 words, the load names the
+  rules most likely stale in one line: rules whose work landed first, then the oldest rules that
+  read as approval of one piece of work. A lasting policy is not named. `memory check` prints the
+  same line when the active rules pass 500 words.
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path

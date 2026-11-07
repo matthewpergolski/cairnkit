@@ -225,3 +225,33 @@ def find(memory: Memory) -> dict[str, Landed]:
             facts[want.key] = list(astuple(evidence)) if evidence else None
         _write_cache(memory, refs, facts)
     return {want.id: Landed(*facts[want.key]) for want in wants if facts.get(want.key) is not None}
+
+
+STALE_NAMED = 5
+
+
+def stale_rules(memory: Memory, rules: list[dict]) -> list[str]:
+    """The rules most likely stale: work that landed first, then the oldest yes to one piece of
+    work. A lasting policy is not named."""
+    done = find(memory)
+    gone = sorted(
+        (r for r in rules if r["id"] in done), key=lambda r: (done[r["id"]].date, r["id"])
+    )
+    yes = sorted(
+        (r for r in rules if r["id"] not in done and one_work(str(r.get("text", "")))),
+        key=lambda r: (r.get("learned_at") or "", r["id"]),
+    )
+    return [r["id"] for r in (*gone, *yes)]
+
+
+def stale_line(memory: Memory, rules: list[dict]) -> str | None:
+    """One line for a load or a check whose rules are over their budget. Ids only."""
+    ids = stale_rules(memory, rules)
+    if not ids:
+        return None
+    more = f" and {len(ids) - STALE_NAMED} more" if len(ids) > STALE_NAMED else ""
+    return (
+        f"Rules most likely stale (work landed, then old one-time approvals): "
+        f"{', '.join(ids[:STALE_NAMED])}{more}. `memory tidy` shows the commits. End one that no "
+        'longer holds: memory change ID --status expired --reason "...".'
+    )
