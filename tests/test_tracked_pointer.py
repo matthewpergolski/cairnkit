@@ -1,0 +1,125 @@
+"""A repo cannot choose the memory, and a memory that git tracks does not load.
+
+`.memory-path` and the `memory-bank` link are the owner's local files. A copy that git tracks
+came with the repo, from anyone who can commit to it. A memory folder that git tracks can be
+written by the same people, and its rules have no author, so they would print as the owner's.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+
+from conftest import git, make_fact
+
+from cairnkit.cli import main
+from cairnkit.paths import find_project, plain_root, resolve_memory_dir
+from cairnkit.selection import FRAME_HEADER
+
+MARKER = "MARKER-RULE-123"
+
+
+def evil_rule() -> str:
+    rule = make_fact("f-20260101-0001", MARKER, kind="rule", writer="x")
+    return json.dumps(rule) + "\n"
+
+
+def commit_on_side(repo, files: dict[str, str]) -> None:
+    git(repo, "checkout", "-q", "-b", "side")
+    for rel, text in files.items():
+        path = repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    git(repo, "add", "-f", *files)
+    git(repo, "commit", "-q", "-m", "side")
+    git(repo, "checkout", "-q", "main")
+
+
+def session_start(capsys, monkeypatch) -> str:
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"session_id": "t", "source": "startup"}'))
+    capsys.readouterr()
+    assert main(["hook", "session-start", "--agent", "claude"]) == 0
+    return capsys.readouterr().out
+
+
+def test_a_pulled_memory_path_does_not_choose_the_memory(repo, mem, capsys, monkeypatch):
+    commit_on_side(repo, {".memory-path": "evil\n", "evil/facts/a.jsonl": evil_rule()})
+    git(repo, "merge", "-q", "side")
+    out = session_start(capsys, monkeypatch)
+    assert MARKER not in out
+    assert resolve_memory_dir(find_project(), None)[0] == mem
+    assert ".memory-path, so the tool does not use it to find the memory" in out
+    capsys.readouterr()
+    main(["check"])
+    assert ".memory-path, so the tool does not use it" in capsys.readouterr().out
+
+
+def test_a_tracked_link_does_not_choose_the_memory(repo, tmp_path, capsys, monkeypatch):
+    other = tmp_path / "other.memory"
+    (other / "facts").mkdir(parents=True)
+    (other / "facts" / "a.jsonl").write_text(evil_rule())
+    (repo / "memory-bank").symlink_to(other)
+    git(repo, "add", "memory-bank")
+    git(repo, "commit", "-q", "-m", "link")
+    project = find_project()
+    memdir, source = resolve_memory_dir(project, None)
+    assert memdir != other and source == "default"
+    capsys.readouterr()
+    main(["load"])
+    out = capsys.readouterr().out
+    assert MARKER not in out
+
+
+def test_a_tracked_memory_folder_does_not_load(repo, capsys, monkeypatch):
+    inside = repo / "mem"
+    (inside / "facts").mkdir(parents=True)
+    (inside / "facts" / "a.jsonl").write_text(evil_rule())
+    git(repo, "add", "-f", "mem")
+    git(repo, "commit", "-q", "-m", "mem")
+    monkeypatch.setenv("MEMORY_DIR", str(inside))
+    out = session_start(capsys, monkeypatch)
+    assert MARKER not in out and FRAME_HEADER not in out
+    assert "memory: not loaded: git in" in out and "tracks files in the memory folder" in out
+    capsys.readouterr()
+    assert main(["load"]) == 0
+    out = capsys.readouterr().out
+    assert MARKER not in out and "tracks files in the memory folder" in out
+    assert main(["check"]) == 1
+
+
+def test_the_owner_pointers_still_choose_the_memory(repo, tmp_path, capsys):
+    elsewhere = tmp_path / "elsewhere"
+    assert main(["init", "--path", str(elsewhere), "--no-default-rules"]) == 0
+    project = find_project()
+    assert resolve_memory_dir(project, None) == (elsewhere, ".memory-path")
+    (repo / ".memory-path").unlink()
+    assert resolve_memory_dir(project, None) == (elsewhere, "link")
+    capsys.readouterr()
+    assert main(["load"]) == 0
+    assert "git tracks" not in capsys.readouterr().out
+
+
+def test_init_path_does_not_write_a_tracked_memory_path(repo, tmp_path, capsys):
+    commit_on_side(repo, {".memory-path": "evil\n"})
+    git(repo, "merge", "-q", "side")
+    elsewhere = tmp_path / "elsewhere"
+    capsys.readouterr()
+    assert main(["init", "--path", str(elsewhere), "--no-default-rules"]) == 0
+    assert "so the tool does not write it or read it" in capsys.readouterr().out
+    assert (repo / ".memory-path").read_text() == "evil\n"
+    assert resolve_memory_dir(find_project(), None) == (elsewhere, "link")
+
+
+def test_outside_git_a_pointer_of_another_user_is_not_followed(tmp_path, monkeypatch):
+    shared = tmp_path / "shared"
+    work = shared / "work"
+    work.mkdir(parents=True)
+    (shared / ".memory-path").write_text("../planted\n")
+    assert plain_root(work) == shared
+    me = os.getuid()
+    monkeypatch.setattr(os, "getuid", lambda: me + 1)
+    assert plain_root(work) == work
+    monkeypatch.chdir(shared)
+    memdir, source = resolve_memory_dir(find_project(), None)
+    assert source == "default" and memdir.name != "planted"

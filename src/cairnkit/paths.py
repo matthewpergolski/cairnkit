@@ -228,7 +228,10 @@ def plain_root(cwd: Path) -> Path:
     stops = {Path.home().absolute(), Path(cwd.anchor)}
     folder = cwd
     while folder not in stops:
-        if (folder / LINK_NAME).is_symlink() or (folder / PATH_FILE).is_file():
+        link, path_file = folder / LINK_NAME, folder / PATH_FILE
+        if (link.is_symlink() and _owner_put(None, link)) or (
+            path_file.is_file() and _owner_put(None, path_file)
+        ):
             return folder
         if folder.parent == folder:
             break
@@ -283,7 +286,7 @@ def holds_memory(folder: Path) -> bool:
 
 def _path_file_target(project: Project) -> Path | None:
     path_file = project.home / PATH_FILE
-    if not path_file.is_file():
+    if not path_file.is_file() or not _owner_put(project, path_file):
         return None
     try:
         lines = plainfile.read_text(path_file).splitlines()
@@ -302,9 +305,32 @@ def linked_memory(project: Project) -> Path | None:
     """The memory that an existing link resolves to. The main checkout's link goes first."""
     for checkout in [project.main_root, *project.checkouts]:
         link = checkout / LINK_NAME
-        if link.is_symlink() and holds_memory(link):
+        if link.is_symlink() and holds_memory(link) and _owner_put(project, link):
             return link.resolve()
     return None
+
+
+def _owner_put(project: Project | None, path: Path) -> bool:
+    """True for a pointer that the owner put here: a file of this user that git does not track.
+
+    A file that git tracks came with the repo, from anyone who can commit to it. A file of another
+    user, such as one in a shared folder outside git, came from that user.
+    """
+    try:
+        if path.lstat().st_uid != os.getuid():
+            return False
+    except OSError:
+        return False
+    return project is None or not project.is_git or tracking_tree(path) is None
+
+
+def tracked_pointers(project: Project) -> list[Path]:
+    """The `.memory-path` and the `memory-bank` links here that git tracks. None of them counts."""
+    if not project.is_git:
+        return []
+    found = [project.home / PATH_FILE] if (project.home / PATH_FILE).is_file() else []
+    found += [c / LINK_NAME for c in project.checkouts if (c / LINK_NAME).is_symlink()]
+    return [path for path in found if tracking_tree(path)]
 
 
 class Identity(NamedTuple):
@@ -547,6 +573,52 @@ def tree_env() -> dict[str, str]:
     top, whichever folder that is.
     """
     return {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV}
+
+
+_TRACKED: dict[tuple[str, tuple], Path | None] = {}
+
+
+def _index_key(folder: Path) -> tuple | None:
+    """The git indexes in folder and above it, read with no git. What git tracks changes with them.
+
+    None when an index cannot be read, so that no answer is kept.
+    """
+    found = []
+    for parent in (folder, *folder.parents):
+        git_dir = _git_dir(parent)
+        if git_dir is None:
+            continue
+        try:
+            stat = (git_dir / "index").stat()
+        except OSError:
+            return None
+        found.append((str(git_dir), stat.st_mtime_ns, stat.st_size))
+    return tuple(found)
+
+
+def tracking_tree(path: Path, unknown_is_tracked: bool = True) -> Path | None:
+    """The nearest git work tree that tracks path, or a file in it. A link at path is not followed.
+
+    When git cannot answer, the nearest work tree, unless `unknown_is_tracked` is false.
+    """
+    place = Path(os.path.realpath(path.parent)) / path.name
+    start = place if place.is_dir() and not place.is_symlink() else place.parent
+    key = _index_key(start)
+    if key == ():
+        return None
+    if key is not None and (str(place), key) in _TRACKED:
+        return _TRACKED[str(place), key]
+    found, sure = None, True
+    for tree in enclosing_trees(start):
+        rel = os.path.relpath(place, tree)
+        listed = run_git(tree, "--literal-pathspecs", "ls-files", "--", rel, env=tree_env())
+        sure = sure and listed is not None
+        if listed or (listed is None and unknown_is_tracked):
+            found = tree
+            break
+    if key is not None and sure:
+        _TRACKED[str(place), key] = found
+    return found
 
 
 def enclosing_trees(folder: Path) -> list[Path]:

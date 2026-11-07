@@ -857,6 +857,17 @@ The tool uses the first of these:
    `<outer repo>.<path inside it>.memory/` beside the outermost repo, so the memory
    stays out of the outer work tree.
 
+A `.memory-path` or a `memory-bank` link counts only when it is your file and git does not
+track it. A copy that git tracks came with the repo, from anyone who can commit to it. The load
+and `memory check` name it, and the tool goes on to the next place in the list. `memory init
+--path` does not write a `.memory-path` that git tracks. A memory folder that git tracks does
+not load: each hook and `memory load` say why in one line, and `memory check` fails.
+
+Outside git, the walk to a folder with a link or a `.memory-path` takes only your own files. A
+file of another user, such as one in a shared temporary folder, does not count. Outside git no
+record shows where a file came from, so the tool trusts a file of yours, as it trusts your
+memory folder.
+
 Rename or move the project, and the memory comes along. No step is needed. Move the
 memory folder beside the project or beside its old place, under its recorded name or the
 project's name, and the next load finds it by its id and relinks. With another name, or with

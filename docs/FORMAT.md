@@ -28,6 +28,11 @@ The memory folder is the first of these:
 6. the `.memory-path` target that does not exist yet;
 7. the default: `<parent of home>/<name of home>.memory`.
 
+A `.memory-path` or a `memory-bank` link counts only when the current user owns it and git does
+not track it. A tracked one is skipped, and the load and `memory check` show a line for each.
+`Memory.open` refuses a memory folder in which git tracks a file, so no hook and no load reads
+it, and `memory check` exits 1.
+
 The home is the first entry of `git worktree list`: the main checkout, or the bare repo. A
 submodule's first entry is its git folder, so its home is the `core.worktree` of that folder.
 All worktrees of one repo use the same memory folder. For a bare repo, the default drops a
@@ -80,8 +85,8 @@ Write `memory-bank` with no trailing slash. Git sees a link as a file, and
 `memory-bank/` does not match a file.
 
 Outside git, the project is the nearest folder, from the current folder up,
-that holds a `memory-bank` link or a `.memory-path` file. The walk stops
-before the home folder and the file system root.
+that holds a `memory-bank` link or a `.memory-path` file that the current user owns. The walk
+stops before the home folder and the file system root.
 
 ## 2. The memory folder
 

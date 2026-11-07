@@ -216,6 +216,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `json.py` that a pull, a merge or an agent put in the repo then ran in place of the tool. A
   repo with hooks from before this change gets the line `Run memory init --refresh now`, and the
   refresh rewrites them.
+- A repo can no longer choose the memory. A `.memory-path` or a `memory-bank` link that git
+  tracks does not count, and the load and `memory check` say so. A memory folder in which git
+  tracks a file does not load in any hook or load, and `memory check` fails with the command
+  that takes it out of the index. Before, a pulled `.memory-path` could load a folder from the
+  repo, and its rules with no author printed above the frame as rules of the owner. Outside
+  git, a link or a `.memory-path` of another user does not count. `memory init --path` does not
+  write a `.memory-path` that git tracks.
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.
