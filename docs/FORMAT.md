@@ -485,13 +485,17 @@ changed.
 ### `tool-version.json`
 
 In the memory folder. It records the tool version that last wrote the blocks
-and hooks of this repo:
+and hooks of this repo, and the commit of that build when the tool knows it:
 
 ```json
-{"version": "0.2.0", "at": "2026-10-25T09:00:00+00:00", "blocks": ["CLAUDE.local.md"]}
+{"version": "0.2.0", "at": "2026-10-25T09:00:00+00:00", "blocks": ["CLAUDE.local.md"], "commit": "6b4bdf0..."}
 ```
 
 `blocks` lists the files that got a rules block, relative to the checkout.
+`commit` is the full commit that `memory --version` shortens to `@6b4bdf0`. Two
+dev builds can have one version number, so the refresh line names both builds:
+"come from memory 0.3.1 @6b4bdf0; this is 0.3.1 @81f8499". A record with no
+`commit` reads as an older build of that version.
 When `version` is lower than the running tool, the session start prints one
 line that asks for `memory init --refresh`. The same line appears when the
 local `post-merge` hook still holds `# cairnkit:docs-check`, the docs check

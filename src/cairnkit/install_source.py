@@ -451,12 +451,22 @@ def _channel_name(source: Source | None) -> str | None:
     return "dev" if branch == DEV_BRANCH else f"checkout {branch or 'unknown'}"
 
 
-def running_build() -> Build:
+def _running() -> tuple[Source | None, str | None]:
     source, commit = installed(None)
     if commit is None:
         built = built_from()
         if built and _same_place(built[0], source):
             commit = built[1]
+    return source, commit
+
+
+def running_commit() -> str | None:
+    """The commit of the build that runs now, as `--version` names it. None when unknown."""
+    return _running()[1]
+
+
+def running_build() -> Build:
+    source, commit = _running()
     return Build(_channel_name(source), commit)
 
 

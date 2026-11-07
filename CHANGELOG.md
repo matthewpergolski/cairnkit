@@ -219,6 +219,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- When two dev builds share a version number, the refresh line at session start names the build
+  that wrote the repo files and the build that runs now, for example "come from memory 0.3.1
+  @6b4bdf0; this is 0.3.1 @81f8499". Before, it said "come from memory 0.3.1. This is memory
+  0.3.1", which read as no change. `tool-version.json` now also records the commit of the build.
 - The end-of-turn capture check names the memory notes (`notes/` and `branches/`) that changed
   since the last check, at most 5 and as data, and asks whether one holds a decision or a trap that
   needs a fact. Before, it said only "no fact records it", so an agent that had edited

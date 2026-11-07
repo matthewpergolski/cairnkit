@@ -43,6 +43,31 @@ def tool_version() -> str:
     return __version__
 
 
+def build_commit() -> str | None:
+    """The commit of the running build. Two dev builds can share one version number."""
+    from cairnkit.install_source import running_commit
+
+    try:
+        return running_commit()
+    except Exception:
+        return None
+
+
+def _origin(version: str | None, recorded: str | None) -> str:
+    """Which build wrote the repo files, and which build runs now."""
+    from cairnkit.install_source import ref_tag
+
+    running = build_commit()
+    this = f"{tool_version()}{ref_tag(running)}"
+    if not version:
+        return f"come from an older memory; this is {this}"
+    if version == tool_version() and not recorded:
+        return f"come from an older build of memory {version}; this is {this}"
+    if version == tool_version() and recorded == running:
+        return f"differ from what memory {this} writes"
+    return f"come from memory {version}{ref_tag(recorded)}; this is {this}"
+
+
 def _memdir(project: Project, flag: str | None) -> Path | None:
     memdir, _ = resolve_memory_dir(project, flag)
     return memdir if (memdir / "facts").is_dir() else None
@@ -66,9 +91,13 @@ def record(project: Project, flag: str | None, block_file: str | None = None) ->
         blocks = set(old.get("blocks") or [])
         if block_file:
             blocks.add(block_file)
-        if old.get("version") == tool_version() and old.get("blocks") == sorted(blocks):
+        commit = build_commit()
+        same = old.get("version") == tool_version() and old.get("commit") == commit
+        if same and old.get("blocks") == sorted(blocks):
             return  # nothing new: a second run changes nothing
         data = {"version": tool_version(), "at": stamp(now()), "blocks": sorted(blocks)}
+        if commit:
+            data["commit"] = commit
         path = plainfile.inside(memdir, memdir / STAMP)
         plainfile.write_text(path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
@@ -214,7 +243,9 @@ def repo_line(project: Project, flag: str | None) -> str | None:
         line = gone_python_line(project, texts)
         if line:
             return line
-        version = read_stamp(memdir).get("version")
+        written = read_stamp(memdir)
+        version, recorded = written.get("version"), written.get("commit")
+        recorded = recorded if isinstance(recorded, str) else None
         leftovers = _leftovers(project, memdir)
         if leftovers and (not version or not is_behind(version, tool_version())):
             return (
@@ -227,10 +258,9 @@ def repo_line(project: Project, flag: str | None) -> str | None:
                 return None
         elif not wrote_files(project, memdir) and not stale_hook:
             return None
-        writer = f"memory {version}" if version else "an older memory"
         return (
-            f"memory: this repo's hooks and rules block come from {writer}. This is memory "
-            f"{tool_version()}. Run `{COMMAND}` now. It rewrites them in place."
+            f"memory: this repo's hooks and rules block {_origin(version, recorded)}. "
+            f"Run `{COMMAND}` now. It rewrites them in place."
         )
     except Exception:
         return None
