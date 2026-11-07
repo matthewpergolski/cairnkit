@@ -210,6 +210,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A hook install writes no file through a link. `git ls-files -- .codex/hooks.json` prints
+  nothing when `.codex` is a link that git tracks, so a repo with such a link made the install
+  rewrite a tracked file or write a hook file outside the checkout, and an uninstall removed a
+  file there. Now each adapter file with a link in its path is skipped with one line, and an
+  uninstall removes nothing behind a link. `memory instructions --write-instructions` writes no
+  rules file through a link that git tracks, such as a committed `.cursor` link: before, the
+  Cursor copy went where that link led. A link that the owner made stays usable.
 - The folder for copies of the index, `cairnkit-index-<uid>` in the temp folder, is used only
   when it is a real folder that this user owns and that others cannot open. Another user could
   make that name first in a shared temp folder, as a link or open to all, and change the index

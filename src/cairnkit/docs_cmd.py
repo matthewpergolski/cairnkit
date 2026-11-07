@@ -153,13 +153,6 @@ def _strip_source_revision(text: str) -> str:
     return _SOURCE_REVISION_LINE.sub("", text)
 
 
-def _through_link(root: Path, path: Path) -> bool:
-    """True when the path, or a folder between the repo and it, is a link. A write or a delete
-    there could land outside the repo."""
-    parts = path.relative_to(root).parts
-    return any((root.joinpath(*parts[:end])).is_symlink() for end in range(1, len(parts) + 1))
-
-
 def _atlas_pages(root: Path) -> dict[Path, str]:
     """The pages under docs/state that render_page wrote, with no `sourceRevision` line. A page
     that is a link, is under one, or is not a regular file (a pipe there would hang a read) is
@@ -168,7 +161,7 @@ def _atlas_pages(root: Path) -> dict[Path, str]:
 
     state = root / STATE_DIR
     found: dict[Path, str] = {}
-    if _through_link(root, state) or not state.is_dir():
+    if plainfile.through_link(root, state) or not state.is_dir():
         return found
     for path in sorted(state.rglob("*.md")):
         text = read_file(root, path.relative_to(root).as_posix())
@@ -179,7 +172,7 @@ def _atlas_pages(root: Path) -> dict[Path, str]:
 
 def _not_ours(root: Path, path: Path, atlas: dict[Path, str]) -> bool:
     """Something else holds this atlas path, such as a hand-written page or a link. It stays."""
-    return path not in atlas and (os.path.lexists(path) or _through_link(root, path))
+    return path not in atlas and (os.path.lexists(path) or plainfile.through_link(root, path))
 
 
 def atlas_freshness(project: Project) -> AtlasFreshness:
@@ -247,7 +240,7 @@ def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> 
     from cairnkit.docs_inventory import ListingFailed
 
     root = project.root
-    if _through_link(root, root / STATE_DIR):
+    if plainfile.through_link(root, root / STATE_DIR):
         return fail(
             f"{STATE_DIR.as_posix()} is a link or is under one, so a page could land outside "
             "the repo. Make it a plain folder.\nNothing changed."
@@ -285,7 +278,7 @@ def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> 
     for path in kept:
         why = (
             "it is a link or is under one"
-            if _through_link(root, path)
+            if plainfile.through_link(root, path)
             else "it is not an atlas page"
         )
         print(f"  keep {clean_path(path.relative_to(root).as_posix())}: {why}")

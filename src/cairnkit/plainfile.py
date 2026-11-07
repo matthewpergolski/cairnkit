@@ -22,6 +22,16 @@ _WRITE = os.O_WRONLY | os.O_CREAT | _NONBLOCK | getattr(os, "O_BINARY", 0)
 _NO_LINK = getattr(os, "O_NOFOLLOW", 0)
 
 
+def through_link(root: Path | str, path: Path | str) -> bool:
+    """True when the path, or a folder between root and it, is a link, or the path is not under
+    root. A write or a delete there could land in a tracked file or outside root."""
+    try:
+        parts = Path(path).relative_to(root).parts
+    except ValueError:
+        return True
+    return any(Path(root, *parts[:end]).is_symlink() for end in range(1, len(parts) + 1))
+
+
 class NotPlain(OSError):
     """Not a regular file (a pipe, a device, a folder or a socket), or bigger than the limit."""
 
