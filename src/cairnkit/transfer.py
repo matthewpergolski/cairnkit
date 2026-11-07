@@ -30,7 +30,7 @@ from cairnkit.native import _claude_store
 from cairnkit.paths import merged_checker, run_git
 from cairnkit.schema import MAX_TEXT, RULE_MAX_TEXT, STATUSES
 from cairnkit.secretscan import find_secrets, holds_mask, mask
-from cairnkit.selection import DATA_LABEL, clean, owner_rule
+from cairnkit.selection import DATA_LABEL, clean, clean_path, owner_rule
 from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.writing import Refused, _find_similar, add_fact
@@ -246,17 +246,18 @@ def run_export(memory: Memory, output: str | None, include_ended: bool, force: b
     if path.is_symlink():
         raise Refused(f"{path} is a link. Name the file itself.")
     _refuse_tracked(path)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_TRUNC if force else os.O_EXCL)
     try:
-        fd = os.open(path, flags, 0o600)
+        fh = plainfile.open_write(
+            path, "w", encoding="utf-8", follow=False, new=not force, perms=0o600
+        )
     except FileExistsError:
         raise Refused(f"{path} exists. Add --force to replace it.") from None
     except OSError as exc:
         raise Refused(f"cannot write {path}: {exc.strerror or exc}") from None
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+    with fh:
         os.fchmod(fh.fileno(), 0o600)
         fh.write(text)
-    print(f"wrote {path}")
+    print(f"wrote {clean_path(path)}")
     return 0
 
 

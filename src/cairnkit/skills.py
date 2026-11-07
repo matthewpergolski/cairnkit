@@ -22,6 +22,7 @@ from pathlib import Path
 from cairnkit import plainfile
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.config import load_config
+from cairnkit.selection import clean_path
 
 REPO = "cursor/plugins"
 REPO_URL = "https://github.com/cursor/plugins"
@@ -134,7 +135,7 @@ def latest_version(force: bool = False) -> str | None:
         record["failed"] = True
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        plainfile.write_text(path, json.dumps(record) + "\n", encoding="utf-8")
     return version or old
 
 
@@ -223,7 +224,7 @@ def record_catalog(count: int, names: list[str] | None = None) -> None:
     with contextlib.suppress(OSError):
         path = cache_dir() / CATALOG
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        plainfile.write_text(path, json.dumps(record) + "\n", encoding="utf-8")
 
 
 def catalog_count() -> int | None:
@@ -426,7 +427,7 @@ def _state(memdir: Path) -> dict:
 def _save(memdir: Path, state: dict) -> None:
     with contextlib.suppress(OSError):
         if memdir.is_dir():
-            (memdir / STATE_NAME).write_text(json.dumps(state) + "\n", encoding="utf-8")
+            plainfile.write_text(memdir / STATE_NAME, json.dumps(state) + "\n", encoding="utf-8")
 
 
 def once_line(memdir: Path, record: bool = True) -> str | None:
@@ -540,7 +541,7 @@ def copy_skills(
         "catalog": len(names),
         "installed_at": stamp(now()),
     }
-    (meta / MARKER).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    plainfile.write_text(meta / MARKER, json.dumps(record, indent=2) + "\n", encoding="utf-8")
     return installed, adopted, skipped
 
 
@@ -608,7 +609,7 @@ def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list, adopt: 
     target = skills_dir(row.tool)
     shown = f" {latest}" if latest else ""
     note = " (replace same-named folders)" if adopt else ""
-    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {target}{note}")
+    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {clean_path(target)}{note}")
     if not yes:
         return True
     try:
@@ -640,7 +641,7 @@ def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list, adopt: 
         return False
     print(
         f"{row.label}: pstack {version} ({len(installed)} skill(s) installed, "
-        f"{len(skipped)} skipped) copied to {target}"
+        f"{len(skipped)} skipped) copied to {clean_path(target)}"
     )
     if adopted:
         print(f"  adopted (replaced) {len(adopted)} same-named folder(s): {', '.join(adopted)}")

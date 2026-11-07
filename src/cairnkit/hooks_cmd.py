@@ -21,7 +21,7 @@ from cairnkit.paths import (
     resolve_memory_dir,
     run_git,
 )
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path, shell_word
 
 SEEN_FILE = ".agents-seen.json"
 # Grok also runs these tools' project hooks, and each hook must run once.
@@ -136,9 +136,9 @@ def sync_guard_only(project: Project, flag: str | None) -> None:
     if guard or remove:
         steps += _install_push_check(project, flag, bool(guard), False)
     for step in steps:
-        print(clean(step))
+        print(clean_path(step))
     for step in _sync_rules(project, flag, False):
-        print(clean(step))
+        print(clean_path(step))
 
 
 def _print_summary(
@@ -151,10 +151,10 @@ def _print_summary(
     if project.is_git and git_hook and not any(s.startswith(hook_skips) for s in steps):
         extra = ", and a commit-message check" if guard else ""
         folder = os.path.relpath(githook.hooks_dir(project), project.root)
-        print(f"Git hooks installed in {clean(folder)}{extra}. They are not shared.")
+        print(f"Git hooks installed in {clean_path(folder)}{extra}. They are not shared.")
     for step in steps:
         if step.startswith(("skip", "note")):
-            print(clean(step))
+            print(clean_path(step))
     if "codex" in names and adapters.codex_in_use():
         print(adapters.CODEX_TRUST)
     if "generic" in names:
@@ -180,7 +180,7 @@ def _seen(memdir: Path) -> list[str] | None:
 def _remember_seen(memdir: Path, names: list[str]) -> None:
     merged = sorted({*(_seen(memdir) or []), *names} - {"generic"})
     with contextlib.suppress(OSError):
-        (memdir / SEEN_FILE).write_text(json.dumps(merged) + "\n", encoding="utf-8")
+        plainfile.write_text(memdir / SEEN_FILE, json.dumps(merged) + "\n", encoding="utf-8")
 
 
 def connect_new_tools(project: Project, flag: str | None) -> None:
@@ -262,8 +262,8 @@ def run_install(
             for checkout in project.checkouts:
                 if checkout not in targets:
                     steps.append(
-                        f"skip {checkout}: not linked to {memdir}; "
-                        f"run `memory init --path {memdir}` from there first"
+                        f"skip {clean_path(checkout)}: not linked to {clean_path(memdir)}; "
+                        f"run `memory init --path {shell_word(memdir)}` from there first"
                     )
     else:
         # No project memory yet: never put stop-hook config into an unlinked worktree.
@@ -310,7 +310,7 @@ def run_install(
         return code
     for step in steps:
         plain = step.startswith(("skip", "note"))
-        print(("would " if dry_run and not plain else "") + clean(step))
+        print(("would " if dry_run and not plain else "") + clean_path(step))
     print(f"Agents: {', '.join(names)}")
     for name in names:
         if name == "generic":
@@ -371,7 +371,7 @@ def run_uninstall(project: Project, dry_run: bool) -> int:
         steps += _take_back_exclude(project)
     for step in steps:
         plain = step.startswith(("skip", "note"))
-        print(("would " if dry_run and not plain else "") + clean(step))
+        print(("would " if dry_run and not plain else "") + clean_path(step))
     if not steps:
         print("No memory hooks found. Nothing to do.")
     return 1 if bad else 0

@@ -12,13 +12,13 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 
-from cairnkit import followups
+from cairnkit import followups, plainfile
 from cairnkit.autotidy import outranks, print_unknown
 from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
-from cairnkit.selection import clean
+from cairnkit.selection import clean, clean_path
 from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records
@@ -120,7 +120,7 @@ def write_report(memory: Memory, proposals: list[Proposal]) -> str:
     for p in proposals:
         lines.append(f"- {p.id} [{p.kind}] {p.summary}")
     lines += ["", "To apply: `memory tidy --apply ID [ID ...]`.", ""]
-    path.write_text("\n".join(lines))
+    plainfile.write_text(path, "\n".join(lines))
     return str(path)
 
 
@@ -130,7 +130,7 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
         report = write_report(memory, proposals)
         for p in proposals:
             print(f"- {p.id} [{p.kind}] {p.summary}")
-        print(f"{len(proposals)} proposal(s). Report: {report}")
+        print(f"{len(proposals)} proposal(s). Report: {clean_path(report)}")
         print_unknown(memory)
         if proposals:
             print("To apply: `memory tidy --apply ID [ID ...]`.")

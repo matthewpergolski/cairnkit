@@ -18,7 +18,7 @@ from cairnkit import __version__, adapters, githook, instructions, markers, plai
 from cairnkit.clock import now, stamp
 from cairnkit.ignore import exclude
 from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path
 from cairnkit.skills import is_behind
 
 STAMP = "tool-version.json"
@@ -65,7 +65,7 @@ def record(project: Project, flag: str | None, block_file: str | None = None) ->
         if old.get("version") == tool_version() and old.get("blocks") == sorted(blocks):
             return  # nothing new: a second run changes nothing
         data = {"version": tool_version(), "at": stamp(now()), "blocks": sorted(blocks)}
-        (memdir / STAMP).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        plainfile.write_text(memdir / STAMP, json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def _holds(path: Path, *marks: str) -> bool:
@@ -275,7 +275,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         for name, holders in _agents(project).items():
             steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
     except adapters.BadConfig as exc:
-        print(f"error: {clean(exc)}")
+        print(f"error: {clean_path(exc)}")
         return 1
     patterns = guard_patterns(project, flag)
     bodies = {

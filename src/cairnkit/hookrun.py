@@ -421,7 +421,7 @@ def _new_problems(project: Project, flag: str | None, problems: list[str]) -> li
     if set(keys.values()) == seen:
         return []
     try:
-        path.write_text(json.dumps(sorted(keys.values())), encoding="utf-8")
+        plainfile.write_text(path, json.dumps(sorted(keys.values())), encoding="utf-8")
     except OSError:
         return []
     return [problem for problem, key in keys.items() if key not in seen]

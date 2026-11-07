@@ -258,7 +258,9 @@ def _take_untold(memory: Memory, key: str, found: list[Hit]) -> list[Hit]:
             told = set()
         fresh = [hit for hit in found if hit.fact_id not in told]
         if fresh:
-            path.write_text(json.dumps(sorted(told | {h.fact_id for h in fresh})), "utf-8")
+            plainfile.write_text(
+                path, json.dumps(sorted(told | {h.fact_id for h in fresh})), "utf-8"
+            )
     return fresh
 
 

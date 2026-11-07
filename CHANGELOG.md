@@ -257,9 +257,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.claude/settings.local.json`, `CLAUDE.md`, `AGENTS.md`, `CLAUDE.local.md` or `.memory-path`,
   or at a fact file, a note or `config.toml` in the memory folder, made `memory status`,
   `memory check`, `memory load` or `memory hooks install` wait for ever. Now each read opens the
-  file without a wait, reads only a regular file, and reads at most 64 MB. Such a file counts as
-  one that cannot be read, and `memory hooks install` reports an agent settings file that is not
-  a plain file and changes nothing in it.
+  file without a wait and reads only a regular file. Such a file counts as one that cannot be
+  read, and `memory hooks install` reports an agent settings file that is not a plain file and
+  changes nothing in it. A regular file of any size is read in full, so a fact file over 64 MB
+  still loads and `memory purge` still rewrites it. The same holds for each file that the tool
+  writes: a pipe at `.auto-tidy-state.json`, `.auto-tidy.lock`, `.agents-seen.json`,
+  `tool-version.json`, `facts/main.jsonl` or `facts/.write.lock` made the session start hook,
+  `memory add`, `memory init --refresh` or `memory hooks install` wait for ever. Now each write,
+  append and lock opens the file without a wait and writes only a regular file. A pipe or a
+  device there counts as a file that cannot be written, and `memory export --output` refuses it.
 - `memory docs` lists the same files on each machine. It uses the files that git tracks and the new
   files that git does not ignore, so a file that you did not add yet is in the map. When git cannot
   list a repo, it stops with an error and changes nothing. Before, it walked the folder and read
@@ -289,7 +295,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handler". A hook that runs the old checker now gets the same item. It counts only when it runs
   a repo script named `check_memory.py` (or `check-memory.sh` and the like) that names
   `memory-bank` and reads no path of the new layout, also as `$CLAUDE_PROJECT_DIR/tools/...`
-  with or without quotes or braces. Before, `check_memory` anywhere in the command counted, so
+  with or without quotes or braces. A script after `$CURSOR_PROJECT_DIR/`,
+  `$GROK_WORKSPACE_ROOT/`, `$PWD/` or the absolute project path is a repo script too. A script
+  after any other variable, such as `$HOME/.claude/h.sh`, after `~/` or at another absolute path
+  is not in the repo, so it is never read as the repo's `.claude/h.sh`. Before, each `$VAR/` was
+  dropped. Before, `check_memory` anywhere in the command counted, so
   `scripts/check_memory_usage.sh`, `check-memory-leaks` and a checker that was already updated
   got "Remove this hook handler". A doc line or a script name counts as the old checker only
   for the whole name `check_memory` or `check-memory` too. The task section "The old checker"
@@ -310,7 +320,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   break, a terminal code or the end line of the stored notes printed as it was. `memory init`,
   `memory check`, `memory status`, `memory load`, `memory hooks install`,
   `memory instructions` and `memory docs` now clean each path that they print too, so a
-  checkout or memory folder with a terminal code in its name cannot forge a line.
+  checkout or memory folder with a terminal code in its name cannot forge a line. So do the
+  report line of `memory tidy`, the log line of `memory tidy --auto`, the Cursor and Pi lines of
+  `memory instructions --write-instructions local`, `memory preset show --detect`, the lines of
+  `memory export --output`, the target of `memory skills install`, the note that git tracks or
+  does not ignore the memory folder, and each error that a command ends with. The clean of a
+  path removes only line breaks, control characters, terminal codes and bidi marks, and keeps
+  each other character: a memory folder `mem  two` (two spaces) prints as it is, not as
+  `mem two`. A path in a command to copy, such as `memory init --path PATH`, is in shell quotes
+  when the shell would split it.
 
 - A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the

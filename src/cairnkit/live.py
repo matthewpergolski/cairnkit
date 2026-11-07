@@ -65,7 +65,7 @@ def note_working(memory: Memory, session: str) -> None:
     root = str(memory.project.root)
     folder = _folder(memory)
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"{_key(session)}-{_key(root)}").write_text(root, encoding="utf-8")
+    plainfile.write_text(folder / f"{_key(session)}-{_key(root)}", root, encoding="utf-8")
 
 
 def clear_working(memory: Memory, session: str) -> list[str]:

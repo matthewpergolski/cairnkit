@@ -51,7 +51,7 @@ from cairnkit.secretscan import (
     real_secrets,
     strings_of,
 )
-from cairnkit.selection import RULE_WORD_LIMIT, clean
+from cairnkit.selection import RULE_WORD_LIMIT, clean, clean_path, shell_word
 from cairnkit.state import effective_status
 from cairnkit.store import Located, fact_files, read_located, repaired_lines
 
@@ -59,7 +59,7 @@ from cairnkit.store import Located, fact_files, read_located, repaired_lines
 def _repair_cmd(memdir) -> str:
     """The command that links a checkout to memdir. Never bare init when memory exists."""
     if memdir.is_dir():
-        return f"`memory init --path {clean(memdir)}`"
+        return f"`memory init --path {shell_word(memdir)}`"
     return "`memory init`"
 
 
@@ -70,22 +70,25 @@ def check_links(project: Project, memdir) -> list[str]:
         link = checkout / LINK_NAME
         if link.is_symlink():
             if not link.exists():
-                errors.append(f"{clean(link)}: broken link; run {repair} to relink it")
+                errors.append(f"{clean_path(link)}: broken link; run {repair} to relink it")
             elif link.resolve() != memdir.resolve():
                 errors.append(
-                    f"{clean(link)}: points to {clean(link.resolve())}, not {clean(memdir)}; "
+                    f"{clean_path(link)}: points to {clean_path(link.resolve())}, "
+                    f"not {clean_path(memdir)}; "
                     f"run {repair} to relink it"
                 )
         elif link.is_dir():
             errors.append(
-                f"{clean(link)}: a real folder, not a link; move its files to "
-                f"{clean(memdir / 'notes')}/, "
+                f"{clean_path(link)}: a real folder, not a link; move its files to "
+                f"{clean_path(memdir / 'notes')}/, "
                 f"remove the folder, then run {repair}"
             )
         elif link.exists():
-            errors.append(f"{clean(link)}: a file, not a link; move it away, then run {repair}")
+            errors.append(
+                f"{clean_path(link)}: a file, not a link; move it away, then run {repair}"
+            )
         else:
-            errors.append(f"{clean(link)}: missing; run {repair} from {clean(checkout)}")
+            errors.append(f"{clean_path(link)}: missing; run {repair} from {clean_path(checkout)}")
     return errors
 
 
@@ -452,9 +455,10 @@ class Health:
             if count
         ]
         if counts:
-            return f"memory check: {', '.join(counts)} in {clean(self.memdir)} (from {self.source})"
+            shown = clean_path(self.memdir)
+            return f"memory check: {', '.join(counts)} in {shown} (from {self.source})"
         files = len(fact_files(self.memdir))
-        return f"memory check: ok ({files} fact file(s) in {clean(self.memdir)})"
+        return f"memory check: ok ({files} fact file(s) in {clean_path(self.memdir)})"
 
     @property
     def is_ok(self) -> bool:
@@ -487,7 +491,7 @@ def _untold(memdir: Path, catches: list[NoteCatch]) -> list[NoteCatch]:
     if fresh:
         try:
             temp = path.with_name(f"{PLAIN_TOLD}.{os.getpid()}.tmp")
-            temp.write_text(json.dumps(sorted(told | set(keys))), encoding="utf-8")
+            plainfile.write_text(temp, json.dumps(sorted(told | set(keys))), encoding="utf-8")
             os.replace(temp, path)
         except OSError:
             return catches
@@ -525,11 +529,13 @@ def _read_health(project: Project, flag: str | None) -> Health:
             health.missing, health.gone = lost_note(lost), bool(lost.gone)
             return health
     if not memdir.is_dir() and not any((c / LINK_NAME).is_symlink() for c in project.checkouts):
-        health.missing = f"no memory folder at {clean(memdir)} (from {source}); run `memory init`"
+        health.missing = (
+            f"no memory folder at {clean_path(memdir)} (from {source}); run `memory init`"
+        )
         return health
     health.errors += check_links(project, memdir)
     if not has_facts:
-        health.errors.append(f"{clean(memdir)}: no facts/ folder; run `memory init`")
+        health.errors.append(f"{clean_path(memdir)}: no facts/ folder; run `memory init`")
         return health
     health.errors += keep_out_of_git(memdir)
     memory = health.memory = Memory.open(project, flag)

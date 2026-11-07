@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path
 
 
 def state(text: str, start: str, end: str) -> str:
@@ -16,7 +16,7 @@ def state(text: str, start: str, end: str) -> str:
 
 def broken_message(path, command: str) -> str:
     return (
-        f"error: {clean(path)} has a lost marker or two memory blocks. Nothing changed in it. "
+        f"error: {clean_path(path)} has a lost marker or two memory blocks. Nothing changed in it. "
         f"Fix the markers by hand, then run `{command}` again."
     )
 

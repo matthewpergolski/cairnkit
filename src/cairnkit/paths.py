@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from cairnkit import deadline, plainfile
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path, shell_word
 
 LINK_NAME = "memory-bank"
 PATH_FILE = ".memory-path"
@@ -104,7 +104,7 @@ def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
                 fd, path = tempfile.mkstemp(prefix="index-", dir=_copies_folder())
                 try:
                     with os.fdopen(fd, "wb") as fh:
-                        fh.write(plainfile.read_bytes(real, limit=None))
+                        fh.write(plainfile.read_bytes(real))
                 except BaseException:  # a hook's time budget can end it here
                     with contextlib.suppress(OSError):
                         os.unlink(path)
@@ -339,7 +339,7 @@ def write_identity(folder: Path, identity: Identity) -> None:
     """Replace the file whole, so a reader never sees half of it."""
     roots = " ".join(sorted(identity.roots))
     temp = folder / f"{IDENTITY_FILE}.{os.getpid()}"
-    temp.write_text(f"{identity.id}\n{roots}\n{identity.owner}\n")
+    plainfile.write_text(temp, f"{identity.id}\n{roots}\n{identity.owner}\n")
     os.replace(temp, folder / IDENTITY_FILE)
 
 
@@ -446,7 +446,7 @@ def _repo_of(key: Path) -> Path:
 
 
 def _shown(owner: Path | None) -> str:
-    return f"another project ({clean(_repo_of(owner))})" if owner else "another project"
+    return f"another project ({clean_path(_repo_of(owner))})" if owner else "another project"
 
 
 def _other_claimants(project: Project, memdir: Path, gone: Path) -> list[Path]:
@@ -467,7 +467,8 @@ def _keep_apart(project: Project, memdir: Path) -> str:
     place = default_memory_dir(project)
     if place.exists():
         place = place.with_name(f"{project.home.name}-own.memory")
-    return f"`cp -R {clean(memdir)} {clean(place)} && memory init --path {clean(place)}`"
+    old, new = shell_word(memdir), shell_word(place)
+    return f"`cp -R {old} {new} && memory init --path {new}`"
 
 
 def owner_line(project: Project, memdir: Path) -> str | None:
@@ -477,8 +478,8 @@ def owner_line(project: Project, memdir: Path) -> str | None:
         return None
     if state == COPY:
         return (
-            f"note: {clean(memdir)} belongs to {_shown(owner)}, and this repo holds a record from "
-            "before "
+            f"note: {clean_path(memdir)} belongs to {_shown(owner)}, and this repo holds a "
+            "record from before "
             "a copy or a move. What you add here goes there. To keep these facts in a memory of "
             f"this repo: {_keep_apart(project, memdir)}."
         )
@@ -490,9 +491,10 @@ def owner_line(project: Project, memdir: Path) -> str | None:
         others = _other_claimants(project, memdir, owner)
         if not others:
             return None
-        names = " and ".join(clean(folder) for folder in others)
+        names = " and ".join(clean_path(folder) for folder in others)
         return (
-            f"note: {clean(memdir)} was set up by {clean(_repo_of(owner))}, which is gone, and "
+            f"note: {clean_path(memdir)} was set up by {clean_path(_repo_of(owner))}, "
+            "which is gone, and "
             f"{names} also "
             "uses it. Each can be that repo moved or a copy of it, so each reads and writes its "
             "facts. `memory init` in the repo that keeps it takes it. To keep these facts in a "
@@ -500,9 +502,9 @@ def owner_line(project: Project, memdir: Path) -> str | None:
         )
     share = f" To share on purpose: `git config {SHARED_SETTING} true`." if project.is_git else ""
     return (
-        f"note: {clean(memdir)} belongs to {_shown(owner)}, so both projects read and write "
+        f"note: {clean_path(memdir)} belongs to {_shown(owner)}, so both projects read and write "
         "its facts. For a memory of its own: "
-        f"`memory init --path {clean(default_memory_dir(project))}`.{share}"
+        f"`memory init --path {shell_word(default_memory_dir(project))}`.{share}"
     )
 
 
@@ -520,7 +522,7 @@ def copy_line_once(project: Project, memdir: Path) -> str | None:
     except (OSError, UnicodeDecodeError):
         pass
     with contextlib.suppress(OSError):
-        marker.write_text(noted)
+        plainfile.write_text(marker, noted)
     return line
 
 
@@ -606,7 +608,7 @@ def lost_memory(project: Project) -> LostMemory | None:
 
 def earlier_note(found: list[Path]) -> str:
     """One short note. It names only a folder under a name this project is known to have had."""
-    commands = " or ".join(f"`memory init --path {clean(folder)}`" for folder in found)
+    commands = " or ".join(f"`memory init --path {shell_word(folder)}`" for folder in found)
     return f"A memory beside this project could be its own under an earlier name: {commands}."
 
 
@@ -615,7 +617,9 @@ def beside_line(project: Project, memdir: Path) -> str | None:
     found = [f for f in _earlier_memories(project) if f.resolve() != memdir.resolve()]
     if not found:
         return None
-    deny = " and ".join(f"`git config --add {NOT_EARLIER_SETTING} {clean(f.name)}`" for f in found)
+    deny = " and ".join(
+        f"`git config --add {NOT_EARLIER_SETTING} {clean_path(f.name)}`" for f in found
+    )
     return f"note: {earlier_note(found)} If not: {deny}."
 
 
@@ -624,13 +628,13 @@ def lost_note(lost: LostMemory) -> str:
     if lost.gone is None:
         return f"{earlier_note(lost.found)} If not, run `memory init`."
     # A bare init would hide a memory that this project is known to have.
-    parts = [f"This project's memory was at {clean(lost.gone)}, and it is not there."]
+    parts = [f"This project's memory was at {clean_path(lost.gone)}, and it is not there."]
     if lost.found:
-        names = " or ".join(f"`memory init --path {clean(folder)}`" for folder in lost.found)
+        names = " or ".join(f"`memory init --path {shell_word(folder)}`" for folder in lost.found)
         parts.append(f"Found, and each can be an old copy, so choose the newest: {names}.")
     else:
         parts.append("If you moved it, run `memory init --path NEW_PLACE`.")
-    parts.append(f"To start a new memory instead: `memory init --path {clean(lost.default)}`.")
+    parts.append(f"To start a new memory instead: `memory init --path {shell_word(lost.default)}`.")
     return " ".join(parts)
 
 

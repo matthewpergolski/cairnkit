@@ -112,6 +112,37 @@ def test_a_hook_script_that_reads_the_new_layout_is_not_named(tmp_path: Path, sc
     assert hook_reads_old_notes(tmp_path, "uv run tools/recall.py") is None
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run $CLAUDE_PROJECT_DIR/tools/recall.py",
+        'uv run "${CURSOR_PROJECT_DIR}/tools/recall.py"',
+        "uv run $GROK_WORKSPACE_ROOT/tools/recall.py",
+        "uv run $PWD/tools/recall.py",
+        "uv run <root>/tools/recall.py",
+    ],
+)
+def test_a_hook_script_under_the_project_folder_is_named(tmp_path: Path, command: str):
+    write(tmp_path / "tools" / "recall.py", OLD_SCRIPTS[0])
+    found = hook_reads_old_notes(tmp_path, command.replace("<root>", str(tmp_path)))
+    assert "tools/recall.py" in (found or "")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run $HOME/tools/recall.py",
+        'uv run "${XDG_CONFIG_HOME}/tools/recall.py"',
+        "uv run ~/tools/recall.py",
+        "uv run /tools/recall.py",
+    ],
+)
+def test_a_hook_script_outside_the_project_is_not_a_repo_script(tmp_path: Path, command: str):
+    """`$HOME/tools/recall.py` is not the repo's `tools/recall.py`, so it is not named."""
+    write(tmp_path / "tools" / "recall.py", OLD_SCRIPTS[0])
+    assert hook_reads_old_notes(tmp_path, command) is None
+
+
 def hook_item(task: str) -> str:
     lines = task.splitlines()
     start = next(n for n, line in enumerate(lines) if "(hook)" in line)

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from cairnkit import plainfile
 from cairnkit.clock import now, stamp
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path
 from cairnkit.skills import running_tool
 from cairnkit.state import fold
 from cairnkit.store import append_records, fact_files, read_records
@@ -434,7 +434,7 @@ def run_show(name: str, detect_in=None) -> int:
 
         guarded = GUARDED if guard_installed(detect_in) else None
         planned = plan(None, rules, guarded, detect(detect_in.root))
-        print(f"Detected in {detect_in.root} (+ added, - not added):")
+        print(f"Detected in {clean_path(detect_in.root)} (+ added, - not added):")
         for line in describe(planned):
             print(line)
         return 0
@@ -463,7 +463,7 @@ def run_add(
         return 1
     memdir, source = resolve_memory_dir(project, flag)
     if not (memdir / "facts").is_dir():
-        print(f"error: no memory folder at {clean(memdir)} (from {source}); run `memory init`")
+        print(f"error: no memory folder at {clean_path(memdir)} (from {source}); run `memory init`")
         return 1
     if dry_run:
         print("Dry run: nothing will change.")
@@ -476,7 +476,8 @@ def run_add(
             followups.refresh(Memory.open(project, flag))
     if count:
         print(
-            f"{'would add' if dry_run else 'add'} {count} rule fact(s) to {clean(memdir / 'facts')}"
+            f"{'would add' if dry_run else 'add'} {count} rule fact(s) to "
+            f"{clean_path(memdir / 'facts')}"
         )
     for line in lines:
         print(line)

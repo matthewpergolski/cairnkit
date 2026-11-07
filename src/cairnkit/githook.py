@@ -30,7 +30,7 @@ from typing import NamedTuple
 
 from cairnkit import markers, plainfile
 from cairnkit.paths import LINK_NAME, PATH_FILE, Project, run_git
-from cairnkit.selection import clean
+from cairnkit.selection import clean_path
 
 START = "# >>> cairnkit >>>"
 END = "# <<< cairnkit <<<"
@@ -596,7 +596,7 @@ def write_block(path: Path, body: str, dry_run: bool) -> list[str]:
             return []
     if not dry_run:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(new)
+        plainfile.write_text(path, new)
         path.chmod(path.stat().st_mode | 0o755)
     return [f"write {path}"]
 
@@ -654,7 +654,7 @@ def _remove_block(path: Path, dry_run: bool) -> list[str]:
         if new.strip() in ("#!/bin/sh", ""):
             path.unlink()
         else:
-            path.write_bytes(new.encode("utf-8", "surrogateescape"))
+            plainfile.write_bytes(path, new.encode("utf-8", "surrogateescape"))
     return [f"update {path}"]
 
 
@@ -712,9 +712,9 @@ def _keep_guard_files(project: Project, body: str) -> None:
     if not was_on and not base.exists():
         tips = run_git(project.root, "for-each-ref", "--format=%(objectname)") or ""
         head = run_git(project.root, "rev-parse", "-q", "--verify", "HEAD") or ""
-        base.write_text("".join(f"^{sha}\n" for sha in [*tips.split(), *head.split()]))
+        plainfile.write_text(base, "".join(f"^{sha}\n" for sha in [*tips.split(), *head.split()]))
     helpers = [line for line in body.splitlines() if line.startswith(_FIX_HELPERS)]
-    fix.write_text(_fix_file(helpers))
+    plainfile.write_text(fix, _fix_file(helpers))
 
 
 def install(project: Project, hook: str, body: str, dry_run: bool) -> list[str]:
@@ -811,7 +811,8 @@ def hook_state(project: Project) -> HookState:
             else f"Git {CONFIG_HOOKS_SINCE} or newer can run them beside it."
         )
         return HookState(
-            f"warning: core.hooksPath is {clean(setting)}, so git does not run the memory hooks. "
+            f"warning: core.hooksPath is {clean_path(setting)}, so git does not run the memory "
+            f"hooks. "
             f"{fix}",
             fixable=can_fix,
         )
@@ -825,8 +826,10 @@ def hook_state(project: Project) -> HookState:
         where.relative_to(project.root).as_posix() if where.is_relative_to(project.root) else where
     )
     if setting and where == _private_dir(project):
-        return HookState(f"git hooks: on, beside core.hooksPath {clean(setting)} ({clean(shown)})")
-    return HookState(f"git hooks: on ({clean(shown)})")
+        return HookState(
+            f"git hooks: on, beside core.hooksPath {clean_path(setting)} ({clean_path(shown)})"
+        )
+    return HookState(f"git hooks: on ({clean_path(shown)})")
 
 
 def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:

@@ -202,7 +202,7 @@ def encode(record: dict) -> str:
 def append_records(path: Path, records: list[dict]) -> None:
     """Append records as JSON lines in one write. Earlier bytes never change."""
     payload = "".join(encode(r) + "\n" for r in records).encode("utf-8")
-    with locked(path.parent / WRITE_LOCK, WRITE_LOCK_FLOOR), path.open("ab") as fh:
+    with locked(path.parent / WRITE_LOCK, WRITE_LOCK_FLOOR), plainfile.open_write(path, "ab") as fh:
         size = fh.seek(0, os.SEEK_END)
         if size:
             with os.fdopen(plainfile.open_fd(path), "rb") as check:
@@ -227,7 +227,7 @@ def locked(path: Path, floor: float = 0) -> Iterator[None]:
         yield
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("ab") as fh:
+    with plainfile.open_write(path, "ab") as fh:
         _lock(fh, path, floor)
         _held.add(path)
         try:

@@ -60,9 +60,15 @@ BRACE_RE = re.compile(r"\{([^{}]*)\}")
 MAX_BRACE_PATHS = 64
 WORD_END = ("", " ", "\t", "\n", ";", "&", "|", ")", "]", "`")
 OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
-# A script path in a hook command. A `$VAR/` or `${VAR}/` in front, such as the project folder,
-# is no part of the path in the repo.
-HOOK_SCRIPT_RE = re.compile(r"(?<![\w./$-])(?:\$\{?\w+\}?(?=/))?([\w./-]+\.(?:py|sh|mjs|js|ts))\b")
+# A script path in a hook command, with the `$VAR` or `${VAR}` in front of it. A path after `~`
+# is in the home folder, so it is no match.
+HOOK_SCRIPT_RE = re.compile(
+    r"(?<![\w./$~-])(?:\$\{?(\w+)\}?(?=/))?([\w./-]+\.(?:py|sh|mjs|js|ts))\b"
+)
+# The variables that hold the project folder when a hook runs: Claude Code, Cursor and Grok
+# Build each set one, and a hook runs in the project folder. Any other variable, such as $HOME,
+# names a folder outside the repo.
+PROJECT_VARS = frozenset({"CLAUDE_PROJECT_DIR", "CURSOR_PROJECT_DIR", "GROK_WORKSPACE_ROOT", "PWD"})
 CHECKER_CMD_RE = re.compile(
     r"(?<![^\s`'\"(])(?:uv run(?: --no-project)? |python3? )?(?:[^\s`'\"()]*/)?"
     r"check[_-]?memory\.(?:py|sh|mjs|js|ts)\b",
@@ -520,9 +526,14 @@ def old_note_path(text: str, kind: str = "sh") -> str | None:
 
 def _hook_scripts(root: Path, command: str) -> Iterator[tuple[str, str, str]]:
     """(path, kind, text) of each repo script that a hook command names."""
-    for script in HOOK_SCRIPT_RE.findall(command):
+    for var, script in HOOK_SCRIPT_RE.findall(command):
+        if var and var not in PROJECT_VARS:
+            continue
+        if not var and script.startswith("/"):
+            path, top = PurePosixPath(script), root.as_posix()
+            script = str(path.relative_to(top)) if path.is_relative_to(top) else ""
         rel = script.lstrip("/").removeprefix("./")
-        if ".." in PurePosixPath(rel).parts:
+        if not rel or ".." in PurePosixPath(rel).parts:
             continue
         kind = _SCRIPT_KIND.get(PurePosixPath(rel).suffix.lower(), "sh")
         yield rel, kind, read_text(root / rel) or ""
