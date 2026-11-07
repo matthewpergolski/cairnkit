@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory tidy` proposes to end each active rule or decision whose work landed: the main branch
+  (the default branch, `dev` or `develop`, along first parents) has a commit on each path in its
+  `files`, or else on each repo path its text names, after the fact was written or last changed.
+  The proposal shows the commit, its date and subject, and the exact
+  `memory change ID --status expired --reason "..."` command. The session start names those facts
+  in one line. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
+  `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all
+  facts, and `<memory>/.landed.json` keeps the answer until a main branch moves. `memory tidy` also
+  proposes to supersede an active rule that a newer fact names by id and says it replaces.
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path

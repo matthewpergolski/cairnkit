@@ -35,6 +35,7 @@ from cairnkit import (
     plainfile,
     signals,
     skills,
+    tidy,
     usage,
 )
 from cairnkit.check import Health, read_health
@@ -225,6 +226,14 @@ def refresh_followups(project: Project, flag: str | None) -> None:
         followups.refresh(Memory.open(project, flag))
 
 
+def landed_note(project: Project, flag: str | None) -> str:
+    """Name the rules and decisions whose work landed. It ends none. Never raises."""
+    with contextlib.suppress(Exception):
+        line = tidy.landed_line(Memory.open(project, flag))
+        return line + "\n\n" if line else ""
+    return ""
+
+
 def compact_usage(project: Project, flag: str | None) -> None:
     """Shorten a long use record. Safe to skip. Never raises."""
     with contextlib.suppress(Exception):
@@ -270,6 +279,7 @@ def _optional_work(project: Project, flag: str | None) -> str:
         _legacy_clean,
         sync_tools,
         auto_retire_note,
+        landed_note,
         skills_note,
         _native_note,
         _older_instructions_note,

@@ -448,8 +448,22 @@ resolves a pair with `memory change` (supersede or end one fact) or
 `memory change ID --link related:OTHER --reason ...` (or `contradicts:OTHER`). Two
 facts that disagree stay until the agent decides. `memory tidy` lists the other
 changes that an agent can apply with `memory tidy --apply ID ...`: an exact repeat,
-a pinned short-term note that ended, and a chain of superseded facts. It proposes
-nothing because of age, and it moves no fact into a rules file.
+a pinned short-term note that ended, a chain of superseded facts, an active rule
+that a newer fact names by id and says it replaces, and an active rule or decision
+whose work landed. It proposes nothing because of age, and it moves no fact into a
+rules file.
+
+**Work that landed is named, not ended.** A fact names its work in `--files`, or
+else by the repo paths in its text. Its work landed when the main branch (the
+default branch, `dev` or `develop`, local or on `origin`, along first parents) has
+a commit on each of those paths after the fact was written or last changed. A
+commit that deletes a path counts. A fact that names no path never lands. For each
+active rule or decision whose work landed, `memory tidy` shows the commit, its
+date and subject, and the `memory change ID --status expired` command. The session
+start names those facts in one line. Auto-tidy ends none of them: the agent
+decides. If one still holds, `memory change ID --status active --reason "..."`
+marks it as reviewed, and only a later commit names it again. One `git log` reads
+all facts, and `<memory>/.landed.json` keeps the answer until a main branch moves.
 
 **A source that is gone is named, not ended.** `memory load` prints one line with
 the facts whose `file:` or `commit:` source no longer exists. A long-term fact stays
@@ -830,7 +844,7 @@ level only. It writes nothing into a repo.
 | `memory update [--check\|--dry-run] [--source PATH\|URL] [--channel stable\|dev]`, `memory status` | you, when a line says so | Installs the newest `memory` from its source, step by step. Shows the subjects (or a GitHub compare URL) between the installed ref and the new one. `--channel` saves the channel for a git source. `status` prints the version, the installed short commit, the source, the channel and the update lines. A release has the same version number as the dev builds after it, so `memory --version` adds the channel and commit for a dev build, a checkout or a folder build: `memory 0.3.1 (dev @85b0cd0)`. |
 | `memory init --refresh [--dry-run]` | an agent, when the session start says so | Rewrites the rules block, agent hooks and git hooks that memory wrote, in place. Removes a `post-commit` block from 0.3.1, as a session start also does by itself. Never adds a second block. |
 | `memory hooks install [--agent auto\|claude\|codex\|cursor\|grok\|pi\|opencode\|generic] [--dry-run] [--no-git-hook] [--commit-msg-guard[=local]]`, `memory hooks uninstall [--dry-run]` | you, for repair or for one agent | `memory init` already runs the install. It connects the agent tool and git, and it prints each step. `--no-git-hook` skips every git hook. `--commit-msg-guard` adds the guard when no rule asks for it. `memory hooks uninstall` removes only what it added. |
-| `memory tidy`, `memory tidy --apply ID ...` | an agent | Lists exact repeats, pinned short-term notes that ended, and chains of superseded facts. Writes a report to `proposals/<date>.md`, and refreshes the agent task. `--apply` writes only the chosen changes. |
+| `memory tidy`, `memory tidy --apply ID ...` | an agent | Lists exact repeats, pinned short-term notes that ended, chains of superseded facts, rules that a newer fact says it replaces, and rules and decisions whose work landed (with the commit and the `memory change` command). Writes a report to `proposals/<date>.md`, and refreshes the agent task. `--apply` writes only the chosen changes. |
 | `memory tidy --auto [--dry-run]`, `memory tidy --release` | the session-start and stop hooks; the personal pre-push and post-merge hooks; an agent, to look or to release a hold | Retires the clear cases now: a repeat of the same text (the older fact is superseded by the newer), a short-term fact past its end date or whose branch is merged, and a short-term fact whose `source: file:PATH` is in no checkout. Never touches a rule, a pinned fact, or a fact that someone set back to `active`. A fact with basis `told` is not superseded by a fact with another basis. One line per retire in `auto-tidy.log`, with the undo command. Deletes nothing. A push or a merge does not count as a session start. `--release` clears the hold that an undo set, after the agent has reviewed the rule. |
 | `memory add [--area AREA] [--short] [--expires DATE] [--until-merged [BRANCH]] [--supersedes ID]`, `change`, `keep`, `search`, `show` | agents | Write, change and find facts. `add` does not refuse a repeat. It supersedes an exact repeat and links a near repeat with `similar_to`. It names older facts in the same area that may be stale. `search` takes one or more words with no quotes. It ranks facts by BM25: a fact that holds any word of the query is found, a rare word counts more than a common one, and filler words such as `the` and `how` and a plural ending do not matter, so a question works. When no whole word matches anywhere, it tries the words (4 letters or more) as the start of a longer word, so `deploy` finds "deployment" and `pass` finds "passed", and it says so on the first line. A short start must be a whole word with an ending: `retr` does not find "retries". A fact id is one word, so `memory search f-20261026-a053` finds that fact only. `--strict` brings back the old match, where every word must appear as a substring (also for an empty query, which is an error without it). `search` also lists up to 5 lines of `notes/`, best first, after the facts, as `memory-bank/notes/PATH:LINE: text`. It does not follow links out of `notes/`. |
 | `memory load [--area AREA] [--budget N] [--explain]`, `memory check [--strict]` | hooks | Session start and session end. |
