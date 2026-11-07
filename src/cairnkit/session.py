@@ -103,7 +103,7 @@ SOURCE_SUFFIXES = frozenset(
 )
 
 
-def _path(memory: Memory, session_id: str) -> Path:
+def state_path(memory: Memory, session_id: str) -> Path:
     key = session_id or "default"
     safe = re.sub(r"[^A-Za-z0-9._-]", "-", key)
     if safe != key or len(safe) > KEY_LIMIT:
@@ -346,13 +346,17 @@ def take_load(memory: Memory, session_id: str) -> str | None:
 
 def load_state(memory: Memory, session_id: str) -> dict | None:
     try:
-        return json.loads(plainfile.read_text(_path(memory, session_id)))
+        return json.loads(plainfile.read_text(state_path(memory, session_id)))
     except (OSError, ValueError):
         return None
 
 
 def save_state(memory: Memory, session_id: str, state: dict) -> None:
-    path = _path(memory, session_id)
+    write_state(memory, state_path(memory, session_id), state)
+
+
+def write_state(memory: Memory, path: Path, state: dict) -> None:
+    """Write a JSON file in the sessions folder. Old session files go."""
     plainfile.inside(memory.dir, path.parent).mkdir(exist_ok=True)
     # Another hook of the same session may read it now. A rename gives it all or nothing.
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".state-", suffix=".tmp")
