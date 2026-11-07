@@ -606,7 +606,9 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
 
 This does not use the word budget. It reads each checkout with `git status`, with no optional lock,
 and with 1.5 seconds in total. A checkout that it could not read is counted in the list. It never
-stops a load.
+stops a load. When a hook load is too long for the hook's size limit, it drops stored lines in
+this order: long-term facts, branch notes, the status note, short-term facts, pinned facts, agent
+rules, and live work last. This is the same at a startup, a resume and a compaction.
 
 ## Why
 

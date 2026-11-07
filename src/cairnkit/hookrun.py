@@ -54,7 +54,7 @@ from cairnkit.paths import (
     run_git,
     unverified_pointers,
 )
-from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean
+from cairnkit.selection import AGENT_RULES, FRAME_FOOTER, FRAME_HEADER, clean
 from cairnkit.session import (
     capture_reasons,
     hold_heard,
@@ -317,12 +317,35 @@ LOAD_TIME_LEFT = 2.0
 
 
 RULE_HEADINGS = ("## Enforced rules", "## Advisory rules")
+# The sections of the frame that a cut drops, first to last, each from its end. Long-term facts go
+# first: a search finds them. Live work goes last: it names the work that a restarted session
+# must not touch.
+CUT_ORDER = (
+    "## Long-term",
+    "## Branch notes",
+    "## Status",
+    "## Short-term",
+    "## Pinned",
+    AGENT_RULES,
+    "## Live work",
+)
+
+
+def _section(lines: list[str], heading: str) -> tuple[int, int] | None:
+    """(heading line, end) of the frame section with this heading, or None."""
+    start = next((n for n, line in enumerate(lines) if line.startswith(heading)), None)
+    if start is None:
+        return None
+    end = start + 1
+    while not lines[end].startswith("## ") and lines[end] != FRAME_FOOTER:
+        end += 1
+    return start, end
 
 
 def _cut(text: str, room: int) -> str:
-    """Drop lines until the text fits: stored lines from the end of the frame, then notes above
-    the rules, then the lines after the frame. The frame and the rules stay, because a rule
-    binds in each session.
+    """Drop lines until the text fits: stored lines in CUT_ORDER, then notes above the rules,
+    then the lines after the frame. The frame and the rules stay, because a rule binds in each
+    session.
     """
     lines = text.splitlines()
     if FRAME_FOOTER not in lines:
@@ -332,6 +355,9 @@ def _cut(text: str, room: int) -> str:
     def size() -> int:
         return len("\n".join(lines))
 
+    for heading in CUT_ORDER:
+        while size() > room and (found := _section(lines, heading)):
+            del lines[found[1] - 1]
     footer = lines.index(FRAME_FOOTER)
     first = next((n + 1 for n, line in enumerate(lines) if line == FRAME_HEADER), footer)
     while size() > room and footer > first:
