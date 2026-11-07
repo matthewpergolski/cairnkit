@@ -63,8 +63,9 @@ OWN_HOOK_RE = re.compile(r"\b(?:cairnkit|memory) hook\b")
 # A script path in a hook command, with the `$VAR` or `${VAR}` in front of it. A path after `~`
 # is in the home folder, so it is no match.
 HOOK_SCRIPT_RE = re.compile(
-    r"(?<![\w./$~-])(?:\$\{?(\w+)\}?(?=/))?([\w./-]+\.(?:py|sh|mjs|js|ts))\b"
+    r"(?<![\w./$~-])(?:\$\{?(\w+)\}?['\"]?(?=/))?([\w./-]+\.(?:py|sh|mjs|js|ts))\b"
 )
+# A quote may close the variable before the path: `"$CLAUDE_PROJECT_DIR"/scripts/x.py`.
 # The variables that hold the project folder when a hook runs: Claude Code, Cursor and Grok
 # Build each set one, and a hook runs in the project folder. Any other variable, such as $HOME,
 # names a folder outside the repo.
