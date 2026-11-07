@@ -101,3 +101,44 @@ def test_the_hook_lets_an_ordinary_command_run(mem, capsys, monkeypatch):
 def test_a_text_agent_hears_the_refusal(mem, capsys, monkeypatch):
     out = before_shell(capsys, monkeypatch, "memory hook prompt < p.json", agent="opencode")
     assert "did not run" in out
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat src/cairnkit/hookrun.py",
+        "git diff src/cairnkit/owner_evidence.py",
+        "git log --oneline -- src/cairnkit/hookrun.py",
+        "sed -n 1,10p src/cairnkit/owner_evidence.py > /dev/null",
+        "echo 'update hookrun docs' > cairnkit_notes.txt",
+        "python -m pytest tests/test_hookrun.py",
+        "grep -r foo memory-bank/facts 2>/dev/null",
+        "ls memory-bank/facts/ 2>&1",
+        "cat memory-bank/facts/a.jsonl | wc -l > n.txt",
+        f"ls {MEMDIR}/facts 2>/dev/null",
+        "echo x > facts/a.jsonl",
+        "cp a.jsonl facts/a.jsonl",
+        "jq . facts/x.jsonl > out.json",
+    ],
+)
+def test_reading_cairnkit_or_the_memory_folder_is_not_refused(command):
+    """A review found these refused: any `>`, or a cairnkit file name, counted as a forgery."""
+    assert refusal(command, [MEMDIR]) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo x > memory-bank/facts/a.jsonl",
+        f"echo x >> {MEMDIR}/.sessions/s.owner.json",
+        "tee memory-bank/facts/x.jsonl",
+        "cp evil.json memory-bank/.sessions/s1.owner.json",
+        "sed -i s/a/b/ memory-bank/facts/main.jsonl",
+        "cat > memory-bank/facts/x.jsonl <<'EOF'\n{}\nEOF",
+        "dd if=a of=memory-bank/facts/a.jsonl",
+        "python -c \"open('memory-bank/facts/x.jsonl','w').write('x')\"",
+        "python - <<'EOF'\nfrom cairnkit.owner_evidence import note_prompt\nEOF",
+    ],
+)
+def test_a_write_into_the_memory_folder_is_refused(command):
+    assert refusal(command, [MEMDIR]) is not None

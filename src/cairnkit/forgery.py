@@ -44,10 +44,17 @@ _PYTHON = re.compile(r"python[\d.]*")
 _MODULE = re.compile(r"cairnkit(?:\.cli|\.__main__)?")
 _INTERNALS = re.compile(r"\b(?:owner_evidence|note_prompt|note_answer|hookrun)\b")
 _ENVIRON = re.compile(r"\benviron\b|\bputenv\b|\bunsetenv\b")
-_WRITE_WORDS = re.compile(
-    r"\b(?:tee|cp|mv|install|ln|rsync|dd|truncate|touch|write|write_text|write_bytes|open|dump"
-    r"|rename|replace|copy|copyfile|move|symlink)\b|>|\bsed\b[^|;&]*\s-i|\bperl\b[^|;&]*\s-i"
+# Words of a script that write a file. A shell step is read for its real write targets instead.
+_SCRIPT_WRITES = re.compile(
+    r"\b(?:write|write_text|write_bytes|open|dump|rename|replace|copy|copyfile|copytree|move"
+    r"|symlink|unlink|remove|touch)\b"
 )
+_REDIRECT = re.compile(r"^(?:\d+|&)?>>?(?P<target>.*)$")
+# A repo seldom holds a `.sessions/` folder, so a bare one is the memory folder's.
+_BARE_SESSIONS = re.compile(r"^(?:\./)?\.sessions/")
+# Programs whose last argument is where they write, and programs that write each file argument.
+_TO_LAST = frozenset({"cp", "mv", "install", "ln", "rsync"})
+_TO_EACH = frozenset({"tee", "touch", "truncate", "rm", "unlink"})
 REFUSED = (
     "memory: this call did not run. It would {what}. Only the owner's own terminal and the agent "
     "tool's hooks may do that, because it decides what counts as the owner's words. Run `memory` "
@@ -139,11 +146,40 @@ def _steps(command: str, depth: int = 0) -> Iterable[tuple[list[str], set[str], 
 
 
 def _memory_paths(memory_dir: str, link: str) -> re.Pattern:
+    """Paths in the memory folder's facts/ or .sessions/, named through the folder or its link."""
     names = sorted({re.escape(memory_dir), re.escape(PurePath(memory_dir).name), re.escape(link)})
-    return re.compile(
-        rf"(?:{'|'.join(names)})/+(?:facts|\.sessions)(?:/|\b)"
-        r"|(?:^|[\s'\"=:(])\.?/?\.sessions/|(?:^|[\s'\"=:(])\.?/?facts/[^\s'\"]*\.jsonl"
-    )
+    return re.compile(rf"(?:{'|'.join(names)})/+(?:facts|\.sessions)(?:/|$)")
+
+
+def _write_targets(words: list[str]) -> list[str]:
+    """The files a plain shell step writes: redirect targets, the destination of cp/mv/tee and the
+    like, `dd of=`, and the files of `sed -i` or `perl -i`. `2>/dev/null` and `2>&1` write none."""
+    targets: list[str] = []
+    rest: list[str] = []
+    index = 0
+    while index < len(words):
+        word = words[index]
+        redirect = _REDIRECT.match(word)
+        if redirect and not word.startswith("<"):
+            target = redirect["target"] or (words[index + 1] if index + 1 < len(words) else "")
+            index += 1 if redirect["target"] else 2
+            if target and not target.startswith("&") and target != "/dev/null":
+                targets.append(target)
+            continue
+        rest.append(word)
+        index += 1
+    if not rest:
+        return targets
+    head, args = PurePath(rest[0]).name, [w for w in rest[1:] if not w.startswith("-")]
+    if head in _TO_LAST and args:
+        targets.append(args[-1])
+    elif head in _TO_EACH:
+        targets += args
+    elif head == "dd":
+        targets += [w[3:] for w in rest[1:] if w.startswith("of=")]
+    elif head in ("sed", "perl") and any(w.startswith("-i") for w in rest[1:]):
+        targets += args[1:]
+    return targets
 
 
 def refusal(command: str, memory_dirs: Iterable[str], link: str = "memory-bank") -> str | None:
@@ -165,12 +201,30 @@ def refusal(command: str, memory_dirs: Iterable[str], link: str = "memory-bank")
         _INTERNALS.search(scripts) or _ENVIRON.search(scripts) or "hook" in scripts
     ):
         return REFUSED.format(what="call cairnkit from a script in a way that skips its checks")
-    if "cairnkit" in command and (
-        _INTERNALS.search(command)
-        or (_ENVIRON.search(command) and any(name in command for name in AGENT_ENV))
-    ):
+    # A script fed to python another way (`python - <<EOF`, a file) that imports the internals.
+    runs_python = any(_PYTHON.fullmatch(PurePath(words[0]).name) for words, _, _ in steps)
+    if runs_python and "import" in command and _INTERNALS.search(command):
         return REFUSED.format(what="call cairnkit in a way that skips its checks")
     paths = [_memory_paths(str(folder), link) for folder in memory_dirs]
-    if any(path.search(command) for path in paths) and _WRITE_WORDS.search(command):
+    names = {link, *(PurePath(str(f)).name for f in memory_dirs), *(str(f) for f in memory_dirs)}
+    targets: list[str] = []
+    inside = False  # after `cd` into the memory folder, a relative target is in it
+    for words, _, kind in steps:
+        if kind != "plain":
+            continue
+        if words[0] == "cd" and len(words) > 1:
+            inside = any(words[1].rstrip("/").endswith(name) for name in names)
+            continue
+        for target in _write_targets(words):
+            relative = "" if target.startswith("/") else re.sub(r"^(?:\./)+", "", target)
+            if _BARE_SESSIONS.match(target) or (
+                inside and relative.startswith(("facts/", "facts"))
+            ):
+                target = f"{link}/{relative}"
+            targets.append(target)
+    if any(path.search(target) for path in paths for target in targets):
+        return REFUSED.format(what="write into the memory folder's facts/ or .sessions/")
+    script_text = scripts + (command if runs_python else "")
+    if any(path.search(script_text) for path in paths) and _SCRIPT_WRITES.search(script_text):
         return REFUSED.format(what="write into the memory folder's facts/ or .sessions/")
     return None
