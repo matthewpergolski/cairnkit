@@ -12,10 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path
-  outside the repo, a comma, a character that does not print or a value that looks secret is
-  refused. The load line shows the first 3, `memory show` and `memory search` read them all, a
+  outside the repo, a character other than `A-Z a-z 0-9 . _ / -` or a value that looks secret is
+  refused. The load line shows the first 3, but a rule that loads as an instruction above the
+  frame shows none. `memory show` and `memory search` read them all, a
   change keeps them, and a supersede with no `--files` keeps the old fact's files. `memory export`
-  writes them as `(files: a, b)` and `memory import` reads them back. The "facts that match the
+  writes them as `(files: a, b)` and `memory import` reads them back when each path passes these
+  checks; else the end stays in the text. The import's "Added N" counts only the lines it wrote. The "facts that match the
   files you changed" hint and the load rank match a changed file to `files` directly, also a file
   in a folder that `files` names.
 - A `told` claim that an agent makes (`memory add --basis told` with an agent marker) binds only

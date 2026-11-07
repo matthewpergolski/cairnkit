@@ -172,12 +172,13 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     advisory = [s for s in instructions if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
-        out += [render(s) for s in enforced]
+        out += [render(s, with_files=False) for s in enforced]
     if advisory or false_claims:
         out.append("## Advisory rules")
-        out += [render(s) for s in advisory]
+        out += [render(s, with_files=False) for s in advisory]
         out += [
-            f"{render({**s, 'enforced_by': None})} (no check found for {name(s['enforced_by'])})"
+            f"{render({**s, 'enforced_by': None}, with_files=False)} "
+            f"(no check found for {name(s['enforced_by'])})"
             for s in false_claims
         ]
     out.append(FRAME_HEADER)

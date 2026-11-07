@@ -232,7 +232,9 @@ def basis_label(state: dict) -> str:
     return str(state.get("basis", "?"))
 
 
-def render(state: dict) -> str:
+def render(state: dict, with_files: bool = True) -> str:
+    """The load line of a fact. An instruction above the frame shows no files: they are text that
+    no check of the owner's words covers. `memory show` lists them."""
     extra = ""
     if state.get("scope") == "short":
         if state.get("until_branch_merged"):
@@ -243,7 +245,7 @@ def render(state: dict) -> str:
         extra += f"; enforced by {name(state['enforced_by'])}"
     if state.get("kind") == "rule" and state.get("author"):
         extra += f"; by {name(state['author'])}"
-    extra += files_label(state)
+    extra += files_label(state) if with_files else ""
     return clean(
         f"- [{state['id']}] {load_text(state)} "
         f"({state.get('happened_at', '?')}; {basis_label(state)}{extra})"

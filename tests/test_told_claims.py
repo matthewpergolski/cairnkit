@@ -173,6 +173,18 @@ def test_a_notification_prompt_is_not_the_owners_words(mem, capsys, monkeypatch)
     assert not binds(capsys, "audit.example.com")
 
 
+def test_a_summary_must_be_the_owners_words_too(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "We deploy only from the release branch.")
+    extra = ("--kind", "decision", "--summary", INJECTED)
+    out = agent_add(capsys, monkeypatch, "Deploy only from the release branch.", *extra)
+    assert "told: not confirmed" in out and "--summary" in out
+    record = facts(mem)[-1]
+    assert record["summary"] == INJECTED and record["confirmed"] is False
+    out = agent_add(capsys, monkeypatch, "Deploy only from the release branch.", "--kind", "fact",
+                    "--summary", "Deploy only from the release branch")  # fmt: skip
+    assert "told: confirmed" in out
+
+
 def test_owner_words_of_an_earlier_turn_still_count(mem, capsys, monkeypatch):
     prompt(capsys, monkeypatch, "We deploy only from the release branch.")
     prompt(capsys, monkeypatch, "Now fix the failing lint.")

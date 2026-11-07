@@ -258,11 +258,17 @@ def _inherit(args, old: dict) -> bool:
 def _told_check(memory: Memory, args) -> owner_evidence.Verdict | None:
     """The check of a `told` claim that an agent makes, or None for no such claim.
 
-    A person at a terminal sets no agent marker, and their word binds as before.
+    A person at a terminal sets no agent marker, and their word binds as before. A summary loads in
+    place of the text, so it must be the owner's words too.
     """
     if args.basis != "told" or not running_tool() or getattr(args, "author", None):
         return None
-    return owner_evidence.check_claim(memory, args.text)
+    verdict = owner_evidence.check_claim(memory, args.text)
+    summary = getattr(args, "summary", None)
+    shown = isinstance(summary, str) and summary.strip() and args.kind != "rule"
+    if verdict.bound and shown and not owner_evidence.check_claim(memory, summary).bound:
+        return owner_evidence.Verdict(False, "its --summary is no copy of the owner's words")
+    return verdict
 
 
 def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:

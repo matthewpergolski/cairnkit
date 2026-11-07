@@ -559,11 +559,15 @@ loads shows its text. A fact may carry an optional `--summary`, so the load line
 stays short while the body can be longer (up to 2000 characters; rules stay at 400).
 `--files PATH [PATH ...]` (repeat it for more) keeps up to 10 repo paths beside the text, so
 paths do not use the text limit. A relative path starts at the repo root; an absolute path must
-be inside the repo. The load line shows the first 3, and `memory show` shows all. A changed file
+be inside the repo. A path holds only `A-Z`, `a-z`, `0-9`, `.`, `_`, `/` and `-`, so it
+cannot carry a sentence. The load line shows the first 3, except on a rule that loads as an
+instruction above the frame, which shows none. `memory show` shows all. A changed file
 that one of them names, or that sits in a folder that one names, ranks the fact higher and puts
 it in the "match the files you changed" hint. A supersede with no `--files` keeps the files of
 the old fact. `memory export` writes them as `(files: a, b)` at the end of the line, and
-`memory import` reads them back. A path holds no comma.
+`memory import` reads them back, only when each path of that end is one that `--files` takes;
+else the end stays part of the text. An agent's `told` fact with a `--summary` binds only when
+the summary, which loads in place of the text, is the owner's words too.
 
 The rank is the sum of seven parts: recency, kind, area, mention, trap, branch and
 use. `memory load --explain` prints each part. Recency only orders facts. It ends
