@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`always`, `from now on`) may differ. A word that turns or limits the rule (`not`, `stop`,
   `skip`, `except`, `until`, `only`, `before`, `yet`, ...), a number, a path or a name may not be
   dropped or changed, and the claim must hold 80 percent of the sentence. A typed question and a
-  sentence that opens with `if` state no rule.
+  hypothetical (`what if`, `suppose`) state no rule. A condition the owner typed whole ("If you
+  touch the schema, update FORMAT.md") binds whole; a claim that drops the condition does not.
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
   loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
   confirms it. The prompt hook keeps this evidence, masked as a whole and then cut, in

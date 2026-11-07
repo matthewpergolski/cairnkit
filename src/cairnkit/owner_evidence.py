@@ -66,7 +66,10 @@ CHOICES_KEPT = 8
 CHOICE_CHARS = 1000
 PROPOSAL_CHARS = 1200
 TAIL_BYTES = 512 * 1024
-PROOF_BYTES = 16 * 1024 * 1024
+# The proof reads the end of the transcript. Older owner words are unproven, so they confirm
+# nothing, which is the safe side; a told add stays fast in a long session.
+PROOF_BYTES = 4 * 1024 * 1024
+PROOF_AGENT_TEXTS = 20
 OPEN_SECONDS = 1800
 # The variable in the agent's shell that holds the session id that its hooks get. Claude Code was
 # read in a real shell. Codex and Grok are inferred from their names.
@@ -349,8 +352,10 @@ def transcript_seen(memory: Memory, data: dict) -> Seen | None:
              ("owner", "agent", "tool")}  # fmt: skip
     return Seen(
         frozenset(_own_words(memory, text) for text in texts["owner"]),
-        tuple(mask(text, memory.env) for text in texts["agent"]),
-        tuple(mask(text, memory.env) for text in texts["tool"]),
+        tuple(
+            mask(text, memory.env) for text in texts["agent"][:PROOF_AGENT_TEXTS]
+        ),  # newest first
+        tuple(mask(text, memory.env) for text in texts["tool"] if '="' in text),
     )
 
 

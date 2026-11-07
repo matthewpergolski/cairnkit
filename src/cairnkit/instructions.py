@@ -55,7 +55,8 @@ commit:HASH, file:PATH, pr:N, person:ROLE.
   said. Leave it out, or write `guess`, for a conclusion.
   A rule that an agent writes loads as data, unless the owner stated it and you add `--basis told`.
   A rule the owner stated: `memory add "TEXT" --kind rule --basis told`, in the turn where the
-  owner said it, approved your proposal of it or picked it. Use the owner's words. The add output
+  owner typed it, picked it as an option, or said yes to your closing question that states it.
+  Use the owner's words. The add output
   says if the claim is confirmed. If not, tell the owner, and do not say that it binds.
 - **Never store a secret** (password, key, token, private link) in a fact.
 - **Never edit files in `memory-bank/` by hand**, except `notes/`. Use the

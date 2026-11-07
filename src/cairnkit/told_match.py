@@ -79,7 +79,9 @@ _QUESTION = re.compile(
     r"|has|had|am)\s+(?:you|we|i|it|they|this|that|there|someone|anyone|he|she)\b"
     r"|(?:what|why|how|where|which|who|whom|whose)\b)"
 )
-_CONDITION = re.compile(r"(?i)^(?:if|what if|suppose)\b")
+# A hypothetical states no rule. A plain condition does: "If you touch the schema, update
+# FORMAT.md" is a rule, and `if` is a strict word, so a claim that drops the condition fails.
+_CONDITION = re.compile(r"(?i)^(?:what if|suppose|imagine)\b")
 APPROVALS = frozenset(
     {"yes", "y", "yep", "go ahead", "do it", "do that", "approved", "sounds good", "ok do it"}
 )

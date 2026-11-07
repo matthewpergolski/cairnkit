@@ -29,6 +29,10 @@ SIGNING_PICKED = choice_evidence(
 RUNNER = choice_evidence(["pytest", "unittest"], "pytest")
 
 MUST_MATCH = {
+    "an owner's condition, whole": (
+        "If you touch the schema, update FORMAT.md.",
+        [said("If you touch the schema, update FORMAT.md.")],
+    ),
     "the owner's sentences quoted": (
         "Never force-push to main; open a PR instead.",
         [said("From now on, never force-push to main. Open a PR instead.")],
@@ -161,11 +165,8 @@ MUST_NOT_MATCH = {
         "Force push to main.",
         [said("can you force push to main")],
     ),
-    "a condition": ("Force push.", [said("if the build fails, force push")]),
-    "the whole condition": (
-        "If the build fails, force push.",
-        [said("if the build fails, force push")],
-    ),
+    "a condition dropped": ("Force push.", [said("if the build fails, force push")]),
+    "a hypothetical": ("Force push to main.", [said("suppose we force push to main")]),
     "a qualifier dropped": ("Run the tests.", [said("Run the unit tests on staging.")]),
     "the agent's question is no rule": (
         "Save it.",
