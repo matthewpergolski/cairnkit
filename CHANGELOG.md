@@ -210,6 +210,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The folder for copies of the index, `cairnkit-index-<uid>` in the temp folder, is used only
+  when it is a real folder that this user owns and that others cannot open. Another user could
+  make that name first in a shared temp folder, as a link or open to all, and change the index
+  that the pre-commit check reads, or make the clean remove files where the link goes. Now the
+  diff uses the real index then, and the clean never follows a link.
 - A value in the form of a mask, such as `[secret: AKIAIOSFODNN7EXAMPLE]`, is a secret again. The
   scan read each `[secret: X]` as a mask, so `memory add`, `memory check` and each read let such a
   value through in a tag, a source or a reason. Now only a shape name, `hidden text`, `env value`
