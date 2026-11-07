@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-from cairnkit import adapters, branchgate, githook, instructions, markers, refresh, rules
+from cairnkit import adapters, branchgate, githook, instructions, markers, plainfile, refresh, rules
 from cairnkit.ignore import drop_lines, is_tracked
 from cairnkit.init import can_link, ensure_all_linked, is_linked
 from cairnkit.memory import Memory, MemoryMissing
@@ -171,7 +171,7 @@ def _connect(project: Project, name: str, targets: list[Path], dry_run: bool) ->
 def _seen(memdir: Path) -> list[str] | None:
     """The tools that were on the machine at setup or at the last sync. None: no record."""
     try:
-        data = json.loads((memdir / SEEN_FILE).read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(memdir / SEEN_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, list) else None

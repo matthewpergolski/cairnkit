@@ -49,6 +49,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.ignore import exclude, is_tracked, remove_file
 from cairnkit.paths import Project
 
@@ -67,7 +68,7 @@ def hook_command(event: str, agent: str) -> str:
 def holds_ours(path: Path) -> bool:
     """True when the agent file at path holds a memory hook."""
     try:
-        return any(mark in path.read_text(encoding="utf-8") for mark in MARKS)
+        return any(mark in plainfile.read_text(path, encoding="utf-8") for mark in MARKS)
     except (OSError, UnicodeDecodeError):
         return False
 
@@ -520,7 +521,9 @@ def _read(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8") or "{}")
+        data = json.loads(plainfile.read_text(path, encoding="utf-8") or "{}")
+    except plainfile.NotPlain as exc:
+        raise BadConfig(f"{path} is not a plain file, such as a pipe. {FIX_IT}") from exc
     except (ValueError, RecursionError) as exc:  # deep nesting runs the parser out of stack
         raise BadConfig(f"{path} is not valid JSON ({exc}). {FIX_IT}") from exc
     if not isinstance(data, dict):
@@ -538,16 +541,16 @@ def _apply_file(
     for checkout in project.checkouts if checkouts is None else checkouts:
         path = checkout / adapter.rel
         if install:
-            if path.exists() and MARK not in path.read_text(encoding="utf-8"):
+            if path.exists() and MARK not in plainfile.read_text(path, encoding="utf-8"):
                 steps.append(f"skip {path}: the file is not ours")
                 continue
-            if path.exists() and path.read_text(encoding="utf-8") == text:
+            if path.exists() and plainfile.read_text(path, encoding="utf-8") == text:
                 continue
             steps.append(f"write {path}")
             if not dry_run:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding="utf-8")
-        elif path.exists() and MARK in path.read_text(encoding="utf-8"):
+        elif path.exists() and MARK in plainfile.read_text(path, encoding="utf-8"):
             steps.append(f"remove {path}")
             if not dry_run:
                 remove_file(path, checkout)

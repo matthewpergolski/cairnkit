@@ -20,6 +20,7 @@ from datetime import date
 from pathlib import Path
 from typing import NamedTuple
 
+from cairnkit import plainfile
 from cairnkit.clock import now
 from cairnkit.instruction_files import BLOCK_ENDS, FENCE_RE, home
 from cairnkit.instruction_files import items as instruction_items
@@ -392,7 +393,7 @@ def _read(path: Path) -> str:
     try:
         if path.stat().st_size > MAX_BYTES:
             raise Refused(f"{path} is larger than {MAX_BYTES // 1024} KB")
-        return path.read_text(encoding="utf-8-sig", errors="replace")
+        return plainfile.read_text(path, encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise Refused(f"cannot read {path}: {exc.strerror or exc}") from None
 
@@ -478,7 +479,9 @@ def _args(entry: Entry, kind: str, source: str) -> Namespace:
 
 def _status_keys(memory: Memory) -> set[str]:
     try:
-        text = (memory.dir / "notes" / "status.md").read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(
+            memory.dir / "notes" / "status.md", encoding="utf-8", errors="replace"
+        )
     except OSError:
         return set()
     return {repeat_key(_LIST_MARK.sub("", line)) for line in text.splitlines()}

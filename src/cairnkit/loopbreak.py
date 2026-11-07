@@ -22,6 +22,7 @@ import json
 import re
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.envsecrets import EnvValues
 from cairnkit.memory import Memory
 from cairnkit.secretscan import find_secrets
@@ -42,7 +43,7 @@ def _path(memory: Memory) -> Path:
 
 def _load(memory: Memory) -> dict:
     try:
-        data = json.loads(_path(memory).read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(_path(memory), encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}

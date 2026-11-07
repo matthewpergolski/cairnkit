@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.memory import Memory
 from cairnkit.secretscan import real_secrets
 
@@ -30,7 +31,7 @@ def _secret_places(memory: Memory, store: Path, names: list[str]) -> list[str]:
         try:
             if path.stat().st_size > MAX_BYTES:
                 continue
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = plainfile.read_text(path, encoding="utf-8").splitlines()
         except (OSError, UnicodeDecodeError):
             continue
         for number, line in enumerate(lines, start=1):
@@ -74,7 +75,7 @@ def session_line(memory: Memory) -> str | None:
         return None
     path = memory.dir / STATE_NAME
     try:
-        known = set(json.loads(path.read_text(encoding="utf-8")))
+        known = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
     except (OSError, ValueError, TypeError):
         known = set()
     new = [name for name in entries if name not in known]

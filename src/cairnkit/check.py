@@ -18,6 +18,7 @@ from cairnkit import (
     instruction_files,
     migrate_refs,
     native,
+    plainfile,
     presets,
     refresh,
 )
@@ -254,7 +255,7 @@ class NoteCatch:
 def _lines_of(path: Path) -> Iterator[tuple[int, str]]:
     """The text of a file by line. A worklist row gives its strings, not its JSON punctuation."""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = plainfile.read_text(path, encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError):
         return
     for number, line in enumerate(lines, start=1):
@@ -396,7 +397,7 @@ def print_advisory(memory: Memory) -> None:
 def _bad_path_file(project: Project) -> list[str]:
     """A path file that is not text is ignored, so the memory can be a different one."""
     try:
-        (project.home / PATH_FILE).read_text()
+        plainfile.read_text(project.home / PATH_FILE)
     except OSError:
         return []
     except UnicodeDecodeError:
@@ -479,7 +480,7 @@ def _untold(memdir: Path, catches: list[NoteCatch]) -> list[NoteCatch]:
     path = memdir / PLAIN_TOLD
     keys = {hashlib.sha256(catch.key.encode()).hexdigest()[:16]: catch for catch in catches}
     try:
-        told = set(json.loads(path.read_text(encoding="utf-8")))
+        told = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
     except (OSError, ValueError, TypeError):
         told = set()
     fresh = [catch for key, catch in keys.items() if key not in told]

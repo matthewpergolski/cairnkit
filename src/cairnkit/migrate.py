@@ -27,7 +27,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from cairnkit import adapters, githook, hooks_cmd, instruction_files, skills
+from cairnkit import adapters, githook, hooks_cmd, instruction_files, plainfile, skills
 from cairnkit.candidates import Candidate, Counts, mark_repeats, scan_text
 from cairnkit.check import run_check
 from cairnkit.envsecrets import EnvValues, read_env_values
@@ -241,7 +241,7 @@ def scan_folder(
         if Path(rel).suffix.lower() not in TEXT_SUFFIXES:
             skipped += 1
             continue
-        text = (source / old_rel).read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(source / old_rel, encoding="utf-8", errors="replace")
         items, count = scan_text(rel, text)
         found += items
         counts[rel] = count
@@ -300,11 +300,10 @@ def worktree_only(main: Path, name: str, folder: Path, final: Path) -> list[Cand
             continue
         known: set[str] = set()
         if theirs.is_file():
-            known = {
-                _norm(c.text)
-                for c in scan_text(rel, theirs.read_text(encoding="utf-8", errors="replace"))[0]
-            }
-        for cand in scan_text(rel, mine.read_text(encoding="utf-8", errors="replace"))[0]:
+            text = plainfile.read_text(theirs, encoding="utf-8", errors="replace")
+            known = {_norm(c.text) for c in scan_text(rel, text)[0]}
+        text = plainfile.read_text(mine, encoding="utf-8", errors="replace")
+        for cand in scan_text(rel, text)[0]:
             if _norm(cand.text) not in known:
                 cand.worktree, cand.origin = name, str(final / rel)
                 found.append(cand)
@@ -537,7 +536,7 @@ def _write_task(
     scripts, refs = _old_checker(project)
     ordered = sorted(items, key=lambda i: (i.file, i.line))
     text = render_followups(ordered, scripts, refs, _drops(project, source))
-    if not dry_run and (not path.is_file() or path.read_text(encoding="utf-8") != text):
+    if not dry_run and (not path.is_file() or plainfile.read_text(path, encoding="utf-8") != text):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
@@ -766,7 +765,7 @@ def run_migrate(
 
     text = _worklist(found, counts, homed)
     if work.is_file():
-        if work.read_text(encoding="utf-8") == text:
+        if plainfile.read_text(work, encoding="utf-8") == text:
             print(f"worklist {clean(work)} is up to date")
         else:
             print(f"worklist {clean(work)} exists and differs. Not overwritten.")

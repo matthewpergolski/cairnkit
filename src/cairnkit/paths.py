@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
-from cairnkit import deadline
+from cairnkit import deadline, plainfile
 from cairnkit.selection import clean
 
 LINK_NAME = "memory-bank"
@@ -104,7 +104,7 @@ def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
                 fd, path = tempfile.mkstemp(prefix="index-", dir=_copies_folder())
                 try:
                     with os.fdopen(fd, "wb") as fh:
-                        fh.write(real.read_bytes())
+                        fh.write(plainfile.read_bytes(real, limit=None))
                 except BaseException:  # a hook's time budget can end it here
                     with contextlib.suppress(OSError):
                         os.unlink(path)
@@ -200,7 +200,7 @@ def _git_dir(folder: Path) -> Path | None:
     marker = folder / ".git"
     try:
         if marker.is_file():
-            marker = folder / marker.read_text().removeprefix("gitdir:").strip()
+            marker = folder / plainfile.read_text(marker).removeprefix("gitdir:").strip()
     except (OSError, UnicodeDecodeError):
         return None
     return marker if (marker / "HEAD").is_file() else None
@@ -212,7 +212,7 @@ def _repo_above(cwd: Path) -> tuple[Path, Path] | None:
         found = _git_dir(folder)
         if found:
             try:
-                shared = (found / "commondir").read_text().strip()
+                shared = plainfile.read_text(found / "commondir").strip()
             except (OSError, UnicodeDecodeError):
                 shared = "."
             return folder, Path(os.path.normpath(found / shared))
@@ -286,7 +286,7 @@ def _path_file_target(project: Project) -> Path | None:
     if not path_file.is_file():
         return None
     try:
-        lines = path_file.read_text().splitlines()
+        lines = plainfile.read_text(path_file).splitlines()
     except (OSError, UnicodeDecodeError):
         return None
     first = lines[0].strip() if lines else ""
@@ -326,7 +326,7 @@ class Record(NamedTuple):
 def read_identity(folder: Path) -> Identity | None:
     """A memory's id, its project's root commits and its owner. None when it has no id."""
     try:
-        lines = (folder / IDENTITY_FILE).read_text().splitlines()
+        lines = plainfile.read_text(folder / IDENTITY_FILE).splitlines()
     except (OSError, UnicodeDecodeError):
         return None
     if not lines or not lines[0].strip():
@@ -356,7 +356,7 @@ def _read_record(project: Project) -> Record | None:
     """The memory that this repo last saw."""
     path = record_file(project)
     try:
-        lines = path.read_text().splitlines() if path else []
+        lines = plainfile.read_text(path).splitlines() if path else []
     except (OSError, UnicodeDecodeError):
         return None
     if len(lines) < 2:
@@ -410,7 +410,7 @@ def _still_uses(owner: Path, memory_id: str, memdir: Path) -> bool:
     A copy of a memory has the same id, so the place in the record tells the two apart.
     """
     try:
-        lines = (owner / RECORD_FILE).read_text().splitlines()
+        lines = plainfile.read_text(owner / RECORD_FILE).splitlines()
     except (OSError, UnicodeDecodeError):
         lines = []
     if lines:
@@ -515,7 +515,7 @@ def copy_line_once(project: Project, memdir: Path) -> str | None:
     marker = project_key(project) / COPY_NOTED_FILE
     noted = f"{project_key(project)} {state}"
     try:
-        if marker.read_text() == noted:  # a second copy brings this file along
+        if plainfile.read_text(marker) == noted:  # a second copy brings this file along
             return None
     except (OSError, UnicodeDecodeError):
         pass
@@ -713,7 +713,7 @@ def _branch_from_files(root: Path) -> str | None:
         folder / "HEAD",
     ):
         try:
-            text = path.read_text().strip().removeprefix("ref: ")
+            text = plainfile.read_text(path).strip().removeprefix("ref: ")
         except (OSError, UnicodeDecodeError):
             continue
         # A reftable repo keeps this placeholder in HEAD.

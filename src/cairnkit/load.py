@@ -17,6 +17,7 @@ from cairnkit import (
     hygiene,
     install_source,
     migrate_refs,
+    plainfile,
     rule_notices,
     usage,
 )
@@ -75,7 +76,7 @@ def changed_paths(root: Path, branch: str | None) -> list[str]:
 
 def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
     try:
-        text = path.read_bytes().decode("utf-8", errors="replace")
+        text = plainfile.read_bytes(path).decode("utf-8", errors="replace")
     except (FileNotFoundError, NotADirectoryError):
         return []
     except OSError:

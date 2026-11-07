@@ -7,6 +7,7 @@ import re
 import tomllib
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.githook import DEFAULT_GUARD_PATTERNS, DEFAULT_IDENTITY_PATTERNS
 from cairnkit.secretscan import KnownValues, mask, real_secrets
 
@@ -37,7 +38,7 @@ def _read(path: Path) -> tuple[dict, list[str], list[str], bool]:
     if not path.exists():
         return _defaults(), [], [], False
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = tomllib.loads(plainfile.read_text(path, encoding="utf-8"))
     except (OSError, ValueError) as exc:
         return _defaults(), [f"cannot read it ({exc}); {OFF_NOTE}"], [], True
     return _read_data(data)
@@ -156,7 +157,7 @@ def secrets_in_config(memdir: Path, known: KnownValues | None) -> list[str]:
     problems = []
     for path in (memdir / "config.toml", *_bad_copies(memdir)):
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = plainfile.read_text(path, encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
         for number, line in enumerate(lines, start=1):
@@ -171,7 +172,7 @@ def secrets_in_config(memdir: Path, known: KnownValues | None) -> list[str]:
 def _mask_bad_copies(memdir: Path, known: KnownValues | None) -> list[str]:
     done = []
     for path in _bad_copies(memdir):
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(path, encoding="utf-8", errors="replace")
         if any(real_secrets(line, known) for line in text.splitlines()):
             lines = text.splitlines(keepends=True)
             path.write_text("".join(mask(line, known) for line in lines), encoding="utf-8")
@@ -189,7 +190,7 @@ def repair_config(memdir: Path, known: KnownValues | None = None) -> list[str]:
     path = memdir / "config.toml"
     done = _mask_bad_copies(memdir, known)
     errors, warnings = config_problems(memdir)
-    raw = path.read_bytes() if path.exists() else b""
+    raw = plainfile.read_bytes(path) if path.exists() else b""
     text = raw.decode("utf-8", errors="ignore")
     if not errors and not warnings and not any(real_secrets(x, known) for x in text.splitlines()):
         return done

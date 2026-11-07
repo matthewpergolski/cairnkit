@@ -4,20 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.paths import Project, enclosing_trees, run_git, tree_env
 
 HEADER = "# Private project memory (a link to a folder outside the repo)"
 
 
 def missing_lines(path: Path, lines: list[str]) -> list[str]:
-    have = set(path.read_text().splitlines()) if path.is_file() else set()
+    have = set(plainfile.read_text(path).splitlines()) if path.is_file() else set()
     return [line for line in lines if line not in have]
 
 
 def append_lines(path: Path, lines: list[str], header: str = HEADER) -> None:
     """Add lines under one header. Older versions wrote the header again with each new line."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    old = path.read_text().splitlines() if path.is_file() else []
+    old = plainfile.read_text(path).splitlines() if path.is_file() else []
     first = old.index(header) if header in old else len(old)
     kept = old[: first + 1] + [line for line in old[first + 1 :] if line != header]
     head = [] if header in old else [header]
@@ -35,7 +36,7 @@ def drop_lines(project: Project, lines: list[str]) -> list[str]:
     target = exclude_file(project)
     if target is None or not target.is_file():
         return []
-    old = target.read_text().splitlines()
+    old = plainfile.read_text(target).splitlines()
     found = [line for line in lines if line in old]
     if found:
         target.write_text("\n".join(line for line in old if line not in found) + "\n")

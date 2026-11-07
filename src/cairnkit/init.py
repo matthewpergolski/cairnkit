@@ -7,6 +7,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.ignore import exclude, is_tracked, keep_out_of_git
 from cairnkit.paths import (
     COPY,
@@ -165,7 +166,7 @@ def remember(project: Project, memdir: Path, source: str, chosen: bool = False) 
             return
         repo = recorded_repo(project) if state == UNCLAIMED and not chosen else project_key(project)
         text = f"{identity.id}\n{memdir.resolve()}\n{repo}\n"
-        if not path.is_file() or path.read_text() != text:
+        if not path.is_file() or plainfile.read_text(path) != text:
             keep_out_of_git(memdir)
             path.write_text(text)
     except (OSError, UnicodeDecodeError):
@@ -341,7 +342,7 @@ def run_init(
     if path_flag:
         rel = os.path.relpath(memdir, project.home)
         current = project.home / PATH_FILE
-        if not current.is_file() or current.read_text().splitlines()[:1] != [rel]:
+        if not current.is_file() or plainfile.read_text(current).splitlines()[:1] != [rel]:
             steps.append(f"write {current}: {rel}")
             if not dry_run:
                 current.write_text(rel + "\n")

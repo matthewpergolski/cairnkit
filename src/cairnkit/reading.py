@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from cairnkit import ranking, usage
+from cairnkit import plainfile, ranking, usage
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import LINK_NAME, merged_checker
@@ -122,7 +122,7 @@ def note_hits(
     folder = memory.dir / "notes"
     lines = []  # (path, number, cleaned line)
     for path in note_files(folder):
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(path, encoding="utf-8", errors="replace")
         for number, raw in enumerate(text.splitlines(), start=1):
             line = clean(mask(raw, memory.env))
             if line.strip():

@@ -11,6 +11,7 @@ import contextlib
 import json
 import os
 
+from cairnkit import plainfile
 from cairnkit.memory import Memory
 from cairnkit.selection import DATA_LABEL, clean, owner_rule
 from cairnkit.skills import running_tool
@@ -42,7 +43,7 @@ def take_lines(memory: Memory) -> list[str]:
     taken = path.with_name(PENDING + ".taken")
     try:
         os.replace(path, taken)
-        raw = taken.read_text(encoding="utf-8", errors="replace")
+        raw = plainfile.read_text(taken, encoding="utf-8", errors="replace")
         taken.unlink()
     except OSError:
         return []

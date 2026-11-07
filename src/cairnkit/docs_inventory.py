@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from cairnkit import plainfile
+
 SKIP_LAYOUT = {
     ".git",
     ".github",
@@ -203,15 +205,7 @@ def read_file(root: Path, rel: str) -> str | None:
     """The text of one project file, or None when it is a link or under one, is not a regular
     file, is bigger than MAX_FILE_BYTES, or is not UTF-8. A byte order mark goes."""
     try:
-        fd = _open_inside(root, rel)
-    except OSError:
-        return None
-    try:
-        with os.fdopen(fd, "rb") as fh:
-            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
-                return None
-            data = fh.read(MAX_FILE_BYTES + 1)
-        return data.decode("utf-8-sig") if len(data) <= MAX_FILE_BYTES else None
+        return plainfile.read_fd(_open_inside(root, rel), MAX_FILE_BYTES).decode("utf-8-sig")
     except (OSError, ValueError):
         return None
 

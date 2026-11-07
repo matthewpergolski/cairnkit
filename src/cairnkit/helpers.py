@@ -31,7 +31,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
-from cairnkit import deadline
+from cairnkit import deadline, plainfile
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git
 from cairnkit.secretscan import mask
@@ -82,7 +82,7 @@ def _file(memory: Memory) -> Path:
 
 def _read(memory: Memory) -> list[Helper]:
     try:
-        rows = json.loads(_file(memory).read_text(encoding="utf-8"))
+        rows = json.loads(plainfile.read_text(_file(memory), encoding="utf-8"))
     except (OSError, ValueError):
         return []
     found = []

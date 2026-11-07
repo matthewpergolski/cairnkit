@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cairnkit import markers
+from cairnkit import markers, plainfile
 from cairnkit.discover import CAPTURE_GUIDE
 from cairnkit.rules import DEFAULT_RULES
 from cairnkit.schema import BASES, KINDS
@@ -96,7 +96,7 @@ def write_block(path: Path, *, prefix: str = "") -> str:
         path.resolve().parent.mkdir(parents=True, exist_ok=True)  # a dangling link: its target
         path.write_text(prefix + new)
         return "created"
-    old = path.read_text(encoding="utf-8")
+    old = plainfile.read_text(path, encoding="utf-8")
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
     if found == "broken":
         return "broken"
@@ -118,7 +118,7 @@ def remove_block(path: Path, dry_run: bool = False) -> str:
     Return missing, broken, unchanged or removed.
     """
     try:
-        old = path.read_text(encoding="utf-8")
+        old = plainfile.read_text(path, encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return "missing"
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
@@ -141,7 +141,7 @@ def take_back_block(path: Path, checkout: Path, dry_run: bool = False) -> str:
     result = remove_block(path, dry_run)
     if result != "removed" or dry_run:
         return result
-    left = path.read_text(encoding="utf-8").strip()
+    left = plainfile.read_text(path, encoding="utf-8").strip()
     if left in ("", rules_target.IMPORT, *(t.prefix.strip() for t in harness_local.TARGETS)):
         remove_file(path, checkout)
     return result
@@ -154,7 +154,7 @@ def replace_block(path: Path, dry_run: bool = False) -> str:
     blocks), unchanged or updated.
     """
     try:
-        old = path.read_text(encoding="utf-8")
+        old = plainfile.read_text(path, encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return "missing"
     found, (start_mark, end_mark) = markers.find(old, PAIRS)
@@ -172,7 +172,7 @@ def replace_block(path: Path, dry_run: bool = False) -> str:
 def planned(path: Path) -> str:
     if not path.exists():
         return "create"
-    old = path.read_text(encoding="utf-8")
+    old = plainfile.read_text(path, encoding="utf-8")
     found, _ = markers.find(old, PAIRS)
     if found == "ok":
         return "unchanged" if block() in old else "update"
@@ -198,7 +198,7 @@ def migrate_shared_blocks(
             if not path.is_file() or rules_target.is_loop(path):
                 continue
             if is_tracked(project, name):
-                if markers.find(path.read_text(encoding="utf-8"), PAIRS)[0] != "missing":
+                if markers.find(plainfile.read_text(path, encoding="utf-8"), PAIRS)[0] != "missing":
                     steps.append(
                         f"note: tracked {name} holds an old cairnkit block. The tool does not "
                         f"change a tracked file. {rules_target.LOCAL} holds the current rules."

@@ -19,6 +19,7 @@ import tempfile
 from collections.abc import Iterable
 from datetime import datetime
 
+from cairnkit import plainfile
 from cairnkit.clock import parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import writer_name
@@ -29,7 +30,7 @@ COMPACT_AT = 2000  # lines in one file
 
 def _lines(path) -> Iterable[tuple[str, datetime]]:
     try:
-        text = path.read_text(encoding="utf-8")
+        text = plainfile.read_text(path, encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return
     for raw in text.splitlines():
@@ -72,7 +73,7 @@ def compact(memory: Memory, threshold: int | None = None) -> None:
     limit = COMPACT_AT if threshold is None else threshold
     with contextlib.suppress(Exception):
         for path in sorted((memory.dir / FOLDER).glob("*.log")):
-            if len(path.read_text(encoding="utf-8").splitlines()) <= limit:
+            if len(plainfile.read_text(path, encoding="utf-8").splitlines()) <= limit:
                 continue
             latest: dict[str, datetime] = {}
             for fact_id, moment in _lines(path):

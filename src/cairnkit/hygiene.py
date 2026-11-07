@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git
@@ -66,7 +67,9 @@ def commits_past_status(root: Path, path: Path) -> str:
     `--not` over all of them counts from the newest. A hex word that is no commit is ignored.
     """
     try:
-        named = sorted(set(COMMIT_RE.findall(path.read_text(encoding="utf-8"))))[:MAX_NAMED]
+        named = sorted(set(COMMIT_RE.findall(plainfile.read_text(path, encoding="utf-8"))))[
+            :MAX_NAMED
+        ]
     except (OSError, UnicodeDecodeError):
         return ""
     if not named:

@@ -16,6 +16,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.paths import run_git
 
 SKIP = {"node_modules", "dist", "build", "venv", "__pycache__", "target", "vendor"}
@@ -66,7 +67,7 @@ def _read(path: Path) -> str:
     try:
         if path.stat().st_size > MAX_BYTES:
             return ""
-        return path.read_text(encoding="utf-8", errors="replace")
+        return plainfile.read_text(path, encoding="utf-8", errors="replace")
     except OSError:
         return ""
 

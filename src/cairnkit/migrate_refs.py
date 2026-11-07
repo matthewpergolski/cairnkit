@@ -20,6 +20,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from cairnkit import plainfile
 from cairnkit.paths import LINK_NAME
 from cairnkit.selection import clean
 
@@ -187,7 +188,7 @@ def stub_text(rel: str) -> str:
 def pending_items(memdir: Path) -> int | None:
     """The item count while the task is open, else None."""
     try:
-        with (memdir / TASK).open(encoding="utf-8") as fh:
+        with plainfile.open_text(memdir / TASK, encoding="utf-8") as fh:
             found = re.match(rf"{re.escape(PENDING)}: (\d+) item", fh.readline())
     except OSError:
         return None
@@ -387,9 +388,7 @@ def doc_files(root: Path) -> list[str]:
 
 def read_text(path: Path) -> str | None:
     try:
-        if path.stat().st_size > MAX_BYTES:
-            return None
-        return path.read_bytes().decode("utf-8")
+        return plainfile.read_bytes(path, MAX_BYTES).decode("utf-8")
     except (OSError, UnicodeDecodeError):
         return None
 

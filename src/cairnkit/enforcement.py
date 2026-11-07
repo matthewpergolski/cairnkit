@@ -6,7 +6,7 @@ import os
 import re
 from pathlib import Path
 
-from cairnkit import detect, githook
+from cairnkit import detect, githook, plainfile
 from cairnkit.paths import Project
 
 
@@ -14,7 +14,7 @@ def _names_word(paths: list[Path], word: str) -> bool:
     pattern = re.compile(rf"(?<![\w-]){re.escape(word)}(?![\w-])")
     for path in paths:
         try:
-            if pattern.search(path.read_text(encoding="utf-8", errors="replace")):
+            if pattern.search(plainfile.read_text(path, encoding="utf-8", errors="replace")):
                 return True
         except OSError:
             continue

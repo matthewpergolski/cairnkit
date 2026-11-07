@@ -18,6 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.clock import now, stamp
 from cairnkit.selection import clean
 from cairnkit.skills import running_tool
@@ -115,7 +116,7 @@ def load_file(path: str) -> Preset:
         return BadPresetFile(f"preset file {path}: {why}")
 
     try:
-        data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+        data = tomllib.loads(plainfile.read_text(Path(path), encoding="utf-8"))
     except OSError as exc:
         raise bad(f"cannot read it ({exc.strerror or exc})") from exc
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
