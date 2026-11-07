@@ -1,5 +1,7 @@
 """All worktrees of one bare repo, or of one submodule, share one memory."""
 
+import shutil
+
 import pytest
 from conftest import git
 
@@ -92,3 +94,13 @@ def test_worktrees_of_a_submodule_share_one_memory(repo, tmp_path, monkeypatch, 
     git(lib, "worktree", "add", "-q", "-b", "other", str(other))
     assert resolve_memory_dir(find_project(lib))[0] == resolve_memory_dir(find_project(other))[0]
     assert find_project(other).main_root == lib
+
+
+def test_a_second_path_flag_rewrites_the_path_file_of_a_bare_repo(tmp_path, monkeypatch):
+    """No index holds a file of the bare repo folder, so git tracks no .memory-path there."""
+    a, _ = worktrees_of_a_bare_repo(tmp_path)
+    monkeypatch.chdir(a)
+    assert main(["init", "--no-default-rules", "--path", str(tmp_path / "mine")]) == 0
+    shutil.copytree(tmp_path / "mine", tmp_path / "other")
+    assert main(["init", "--no-default-rules", "--path", str(tmp_path / "other")]) == 0
+    assert (tmp_path / "b.git" / ".memory-path").read_text() == "../other\n"

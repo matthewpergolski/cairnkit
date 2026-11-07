@@ -28,13 +28,13 @@ from cairnkit.paths import (
     lost_note,
     owner_line,
     owner_state,
+    pointer_tracked,
     project_key,
     read_identity,
     record_file,
     recorded_repo,
     resolve_memory_dir,
     root_commits,
-    tracking_tree,
     write_identity,
 )
 from cairnkit.presets import NONE, apply
@@ -347,7 +347,7 @@ def run_init(
     if path_flag:
         rel = os.path.relpath(memdir, project.home)
         current = project.home / PATH_FILE
-        if project.is_git and current.is_file() and tracking_tree(current):
+        if project.is_git and current.is_file() and pointer_tracked(current) is not False:
             say(
                 f"note: git tracks {clean_path(current)}, so the tool does not write it or read "
                 "it. The link and this repo's record name the memory."

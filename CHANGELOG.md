@@ -224,7 +224,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repo, and its rules with no author printed above the frame as rules of the owner. Outside
   git, a link or a `.memory-path` of another user does not count. On Windows, which has no user
   ids, that test is skipped, so the load works there. `memory init --path` does not write a
-  `.memory-path` that git tracks.
+  `.memory-path` that git tracks. The test reads the index file of the checkout that holds the
+  pointer, only for the pointer that the search uses, and runs git only when that file cannot
+  say, so the hooks run no more git than before. A repo above the checkout, such as a home
+  folder that is a git repo, does not count for a pointer.
 - The load runs git about a helper only in a checkout that `git worktree list` names. Before, a
   helper record could name any folder, and the load ran `git status` there. Git then ran a
   command that the git config of that folder names, such as `core.fsmonitor`. The start of a

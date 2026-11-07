@@ -11,6 +11,7 @@ import io
 import json
 import os
 
+import pytest
 from conftest import git, make_fact, write_facts
 
 from cairnkit.cli import main
@@ -146,3 +147,21 @@ def test_a_platform_with_no_user_ids_still_loads(repo, mem, capsys, monkeypatch)
     assert "Traceback" not in out and "A fact of the owner." in out
     assert main(["load"]) == 0
     assert "A fact of the owner." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "form",
+    [[], ["--index-version", "4"], ["--split-index"], ["--index-version", "3"]],
+    ids=["v2", "v4", "split", "v3"],
+)
+def test_a_tracked_link_is_seen_in_each_index_form(repo, tmp_path, form):
+    """The index file can say "not tracked" with no git. A form that hides paths asks git."""
+    other = tmp_path / "other.memory"
+    (other / "facts").mkdir(parents=True)
+    (repo / "memory-bank").symlink_to(other)
+    git(repo, "add", "memory-bank")
+    git(repo, "commit", "-q", "-m", "link")
+    if form:
+        git(repo, "update-index", *form)
+    memdir, source = resolve_memory_dir(find_project(), None)
+    assert memdir != other and source == "default"

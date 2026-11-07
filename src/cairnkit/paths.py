@@ -345,16 +345,24 @@ def _owner_put(project: Project | None, path: Path) -> bool:
             return False
     except OSError:
         return False
-    return project is None or not project.is_git or tracking_tree(path) is None
+    return project is None or not project.is_git or pointer_tracked(path) is False
 
 
 def tracked_pointers(project: Project) -> list[Path]:
-    """The `.memory-path` and the `memory-bank` links here that git tracks. None of them counts."""
+    """The pointers that the memory search reads and git tracks. None of them counts.
+
+    The search reads `.memory-path`, then each link up to the first one that it uses.
+    """
     if not project.is_git:
         return []
     found = [project.home / PATH_FILE] if (project.home / PATH_FILE).is_file() else []
-    found += [c / LINK_NAME for c in project.checkouts if (c / LINK_NAME).is_symlink()]
-    return [path for path in found if tracking_tree(path)]
+    for checkout in dict.fromkeys([project.main_root, *project.checkouts]):
+        link = checkout / LINK_NAME
+        if link.is_symlink():
+            found.append(link)
+            if holds_memory(link) and pointer_tracked(link) is False:
+                break
+    return [path for path in found if pointer_tracked(path) is not False]
 
 
 class Identity(NamedTuple):
@@ -599,56 +607,80 @@ def tree_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV}
 
 
-_TRACKED: dict[tuple[str, tuple, bool], Path | None] = {}
+_LISTED: dict[tuple[str, str, int, int], bool] = {}
+_INDEX_READ_LIMIT = 64 * 1024 * 1024
+_FULL_PATH_INDEXES = (b"\0\0\0\x02", b"\0\0\0\x03")
 
 
-def _index_key(folder: Path) -> tuple | None:
-    """The git indexes in folder and above it, read with no git. What git tracks changes with them.
+def _index_may_list(git_dir: Path, rel: str) -> bool:
+    """False only when the index file shows, with no git, that it lists neither rel nor a path
+    under it.
 
-    None when an index cannot be read, so that no answer is kept.
+    Index versions 2 and 3 hold each path in full. A split index (extension "link"), a sparse
+    index ("sdir"), version 4 or a name that is not ASCII can hide a path, so then git must say.
     """
-    found = []
-    for parent in (folder, *folder.parents):
-        git_dir = _git_dir(parent)
-        if git_dir is None:
-            continue
-        try:
-            stat = (git_dir / "index").stat()
-        except OSError:
-            return None
-        found.append((str(git_dir), stat.st_mtime_ns, stat.st_size))
-    return tuple(found)
+    if not rel.isascii():
+        return True
+    try:
+        data = plainfile.read_bytes(git_dir / "index", limit=_INDEX_READ_LIMIT)
+    except OSError:
+        return True
+    if data[:4] != b"DIRC" or data[4:8] not in _FULL_PATH_INDEXES:
+        return True
+    if b"link" in data or b"sdir" in data:
+        return True
+    name = rel.encode()
+    return name + b"\0" in data or name + b"/" in data
 
 
-def tracking_tree(
-    path: Path, unknown_is_tracked: bool = True, own_repo_ok: bool = False
-) -> Path | None:
-    """The nearest git work tree that tracks path, or a file in it. A link at path is not followed.
+def git_lists(tree: Path, rel: str) -> bool | None:
+    """True when git in the work tree `tree` tracks rel or a file under it. None when git cannot
+    say. The tree is the top of a checkout, and only its own index counts.
 
-    When git cannot answer, the nearest work tree, unless `unknown_is_tracked` is false. With
-    `own_repo_ok`, a work tree at path or inside it does not count: an owner may keep the memory
-    folder in a git repo of its own, which no project shares.
+    The index file answers a "no" with no git where it can. Each answer is kept until the index
+    changes, so a hook seldom runs git for it.
     """
-    place = Path(os.path.realpath(path.parent)) / path.name
-    start = place if place.is_dir() and not place.is_symlink() else place.parent
-    key = _index_key(start)
-    if key == ():
+    git_dir = _git_dir(tree)
+    if git_dir is None:
+        return False  # not the top of a checkout, such as a bare repo: no index of its own
+    try:
+        info = (git_dir / "index").stat()
+    except FileNotFoundError:
+        return False  # git makes the index at the first add
+    except OSError:
         return None
-    if key is not None and (str(place), key, own_repo_ok) in _TRACKED:
-        return _TRACKED[str(place), key, own_repo_ok]
-    found, sure = None, True
-    for tree in enclosing_trees(start):
-        if own_repo_ok and tree.resolve().is_relative_to(place):
-            continue
-        rel = os.path.relpath(place, tree)
-        listed = run_git(tree, "--literal-pathspecs", "ls-files", "--", rel, env=tree_env())
-        sure = sure and listed is not None
-        if listed or (listed is None and unknown_is_tracked):
-            found = tree
-            break
-    if key is not None and sure:
-        _TRACKED[str(place), key, own_repo_ok] = found
-    return found
+    key = (str(tree), rel, info.st_mtime_ns, info.st_size)
+    if key not in _LISTED:
+        if _index_may_list(git_dir, rel):
+            listed = run_git(tree, "--literal-pathspecs", "ls-files", "--", rel, env=tree_env())
+            if listed is None:
+                return None
+            _LISTED[key] = bool(listed)
+        else:
+            _LISTED[key] = False
+    return _LISTED[key]
+
+
+def pointer_tracked(path: Path) -> bool | None:
+    """Whether git tracks this `.memory-path` or `memory-bank`. None when git cannot say.
+
+    A pointer sits at the top of a checkout, so only that checkout's index counts. A repo
+    above it, such as a home folder kept in git, does not choose this project's memory.
+    """
+    return git_lists(path.parent, path.name)
+
+
+def memory_tracked_by(folder: Path) -> Path | None:
+    """The work tree of a repo above the memory folder that tracks it or a file in it.
+
+    A repo at the memory folder or inside it does not count: an owner may keep the memory
+    folder in a git repo of its own, which no project shares. When git cannot say, None.
+    """
+    real = Path(os.path.realpath(folder))
+    for tree in real.parents:
+        if _git_dir(tree) is not None and git_lists(tree, real.relative_to(tree).as_posix()):
+            return tree
+    return None
 
 
 def enclosing_trees(folder: Path) -> list[Path]:
