@@ -210,6 +210,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Each start of the tool now uses `python -P`: the agent hooks, the Pi and OpenCode plugins, the
+  git hooks (also the `import cairnkit` test of pre-commit) and the background update check.
+  Before, Python put the folder of the hook first on the import path. A `cairnkit/` folder or a
+  `json.py` that a pull, a merge or an agent put in the repo then ran in place of the tool. A
+  repo with hooks from before this change gets the line `Run memory init --refresh now`, and the
+  refresh rewrites them.
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.

@@ -910,7 +910,7 @@ That file is local, and it covers every worktree. Nothing in the repo changes.
 | Grok Build | `SessionStart`: reads only `systemMessage`, so the load waits for the first tool result | `Stop`: `{"decision": "block"}` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | `SessionStart` with `compact`; the load waits for the next tool result | `SubagentStart` hook is written, not tested |
 | Pi | `session_start`; the load goes out at `before_agent_start` | `agent_end`: a follow-up that starts a turn, once | `before_agent_start`, `tool_call` and `tool_result` for `bash` | `session_compact`; the load goes out at the next `before_agent_start` | None |
 | OpenCode | `session.created`: a prompt with `noReply` | `session.idle`: a prompt, once | `chat.message` reads the prompt. `tool.execute.before` and `tool.execute.after` for `bash` | `session.compacted` reloads | None |
-| Generic | `python -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | None | None | None |
+| Generic | `python -P -m cairnkit hook session-start` prints text | `... hook stop` exits 1 with a message on stderr | None | None | None |
 
 **Long sessions.** News covers facts from other branches, auto-tidy changes, and
 stored facts that match files changed after the load. Traps come first, and each
@@ -998,8 +998,9 @@ Rules for every adapter:
   files. The tool keeps a file of that name that it did not write.
 - It never writes a config file that git tracks. It prints the lines instead.
 - It is safe to run again. It writes each hook once.
-- The hooks call `python -m cairnkit` with the full path of the Python
-  that runs the tool, so they do not depend on `PATH`.
+- The hooks call `python -P -m cairnkit` with the full path of the Python
+  that runs the tool, so they do not depend on `PATH`. `-P` keeps the folder that a hook runs in
+  off the import path, so a file in the repo cannot take the place of the tool.
 - The session-start hook never blocks a session. It has a total budget of 7 seconds, under the
   shortest hook timeout of any adapter. Optional steps stop first and run at a later session
   start, and the load still prints the facts. A lock wait ends after 5 seconds. Then a hook goes

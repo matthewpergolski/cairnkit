@@ -204,8 +204,8 @@ def pre_commit_body() -> str:
     # With no working Python the fixed private names are still refused, and nothing else is.
     # The import comes first, because a Python without the tool also exits 1.
     return (
-        f"if [ -x {py} ] && {py} -c 'import cairnkit' >/dev/null 2>&1; then\n"
-        f"  {py} -m cairnkit hook pre-commit || exit 1\n"
+        f"if [ -x {py} ] && {py} -P -c 'import cairnkit' >/dev/null 2>&1; then\n"
+        f"  {py} -P -m cairnkit hook pre-commit || exit 1\n"
         "else\n"
         f"  {PYTHON_GONE_MARK}\n"
         f"  echo {_quote(gone + ' Run `memory init --refresh`.')} >&2\n"
@@ -241,7 +241,7 @@ def quiet_body(event: str) -> str:
     """
     py = shlex.quote(sys.executable)
     seconds = _QUIET_BUDGET
-    run = f"{py} -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
+    run = f"{py} -P -m cairnkit hook {event} </dev/null >/dev/null 2>&1"
     return (
         f"if [ -x {py} ]; then\n"
         f"  if command -v timeout >/dev/null 2>&1; then\n"
@@ -479,7 +479,7 @@ def _note_gate() -> str:
         "$cairnkit_gate\n"
         "CAIRNKIT_REFS\n"
         "  fi\n"
-        f"  printf '%s\\n' \"$cairnkit_gate\" | {py} -m cairnkit hook pre-push-note\n"
+        f"  printf '%s\\n' \"$cairnkit_gate\" | {py} -P -m cairnkit hook pre-push-note\n"
         "  [ $? -ne 3 ] || exit 1\n"
         "fi\n"
     )
@@ -496,7 +496,7 @@ def post_merge_body() -> str:
 def post_checkout_body() -> str:
     # Only `git worktree add` (the old HEAD is all zeros). Never fails the git command.
     py = shlex.quote(sys.executable)
-    test, run = f"[ -x {py} ]", f"{py} -m cairnkit"
+    test, run = f"[ -x {py} ]", f"{py} -P -m cairnkit"
     return (
         'case "$1" in\n'
         "  *[!0]*) ;;\n"

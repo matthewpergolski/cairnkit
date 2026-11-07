@@ -30,7 +30,11 @@ BLOCK_FILES = (
     ".pi/APPEND_SYSTEM.md",
 )
 COMMAND = "memory init --refresh"
-_HOOK_PYTHON = re.compile(r"""(?:'([^']+)'|([^\s"'`\\]+)) -m cairnkit hook""")
+_HOOK_PYTHON = re.compile(r"""(?:'([^']+)'|([^\s"'`\\]+)) (?:-P )?-m cairnkit hook""")
+# A start of the tool with no -P, which earlier builds wrote. It imports from the folder it runs in.
+_OPEN_LAUNCH = re.compile(
+    r"""(?<!-P )(?:-m cairnkit hook|-c 'import cairnkit')|(?<!"-P", )"-m", "cairnkit", "hook\""""
+)
 # 0.3.1 builds on the dev channel wrote this line into post-merge. It printed on each merge.
 OLD_DOCS_CHECK_MARK = "# cairnkit:docs-check"
 
@@ -158,19 +162,26 @@ def wrote_files(project: Project, memdir: Path) -> bool:
     )
 
 
-def gone_pythons(project: Project) -> list[str]:
-    """The absolute Python paths in this repo's hooks that no longer run."""
+def _hook_texts(project: Project) -> list[str]:
+    """The text of each git hook and agent hook file that holds memory's hooks."""
     folder = githook.hooks_dir(project) if project.is_git else None
     hooks = [folder / hook for hook in _local_hooks(project)] if folder else []
     files = hooks + [c / adapters.ADAPTERS[n].rel for n, hs in _agents(project).items() for c in hs]
-    found = set()
+    texts = []
     for path in files:
-        try:
-            text = plainfile.read_text(path, encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        found.update(a or b for a, b in _HOOK_PYTHON.findall(text))
+        with contextlib.suppress(OSError):
+            texts.append(plainfile.read_text(path, encoding="utf-8", errors="replace"))
+    return texts
+
+
+def gone_pythons(project: Project) -> list[str]:
+    """The absolute Python paths in this repo's hooks that no longer run."""
+    found = {a or b for text in _hook_texts(project) for a, b in _HOOK_PYTHON.findall(text)}
     return sorted(p for p in found if p.startswith("/") and not os.access(p, os.X_OK))
+
+
+def _open_launch(project: Project) -> bool:
+    return any(_OPEN_LAUNCH.search(text) for text in _hook_texts(project))
 
 
 def gone_python_line(project: Project) -> str | None:
@@ -202,7 +213,7 @@ def repo_line(project: Project, flag: str | None) -> str | None:
                 f"memory: this repo still holds {' and '.join(leftovers)} from an older memory. "
                 f"Run `{COMMAND}` now. It removes them."
             )
-        stale_hook = _hook_text_is_old(project)
+        stale_hook = _hook_text_is_old(project) or _open_launch(project)
         if version:
             if not is_behind(version, tool_version()) and not stale_hook:
                 return None

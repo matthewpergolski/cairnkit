@@ -158,10 +158,12 @@ def memory_commands(trace: Iterable[dict]) -> int:
     """Each start of the installed command. The wiring of the tool uses `-m cairnkit`.
 
     The pre-commit hook runs `-c 'import cairnkit'` for each commit, and no agent asked for that.
+    A newer build starts each of these with `-P`.
     """
+    words = [argv[1:] if argv[:1] == ["-P"] else argv for argv in _commands(trace)]
     return sum(
         1
-        for argv in _commands(trace)
+        for argv in words
         if argv and "hook" not in argv and argv[0] != "-m" and argv != ["-c", "import cairnkit"]
     )
 

@@ -909,6 +909,9 @@ def test_memory_commands_leave_out_the_hooks():
         {"argv": ["/x/bin/memory", "tidy"]},
         {"argv": ["-m", "cairnkit", "commit-guard"]},
         {"argv": ["-c", "import cairnkit"]},
+        {"argv": ["-P", "-m", "cairnkit", "hook", "stop"]},
+        {"argv": ["-P", "-m", "cairnkit", "commit-guard"]},
+        {"argv": ["-P", "-c", "import cairnkit"]},
     ]
     assert scoring.memory_commands(trace) == 2
 

@@ -392,13 +392,13 @@ removes the file when only `#!/bin/sh` is left.
 
 Block bodies (`PY` is the full path of the Python that runs the tool):
 
-- `pre-commit`: when `PY` can import the tool, `PY -m cairnkit hook pre-commit || exit 1`.
+- `pre-commit`: when `PY` can import the tool, `PY -P -m cairnkit hook pre-commit || exit 1`.
   Otherwise it prints one line that names `memory init --refresh`, and refuses only
   `memory-bank` and `.memory-path` in the staged files, with `sh`, `git` and `grep`.
-- `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
+- `post-checkout`: runs `PY -P -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
 - `pre-push`: a short shell block. When `PY` is executable it
-  runs `PY -m cairnkit hook pre-push` with stdin, stdout and stderr on `/dev/null`,
+  runs `PY -P -m cairnkit hook pre-push` with stdin, stdout and stderr on `/dev/null`,
   under a wall-clock bound of 3 seconds (`timeout` / `gtimeout` when present,
   else `perl` `alarm`+`exec`, which ships on macOS and Linux). The perl
   command runs in a group that discards output, so the shell's alarm line is
@@ -428,7 +428,7 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
   `GROK_SESSION_ID`. Off, it costs one `git config` read per push. `pre-commit` refuses the first
   commit of a branch that is not the default branch and has no open short note with
   `until_branch_merged` set to that branch. `pre-push` starts with a block that runs
-  `PY -m cairnkit hook pre-push-note` on the ref list and gives the list back. It refuses a branch
+  `PY -P -m cairnkit hook pre-push-note` on the ref list and gives the list back. It refuses a branch
   with new patches and no such note, and a branch whose notes are the same as at its last push.
   Each refusal prints a `memory add ... --short` command. Only exit code 3 of that command stops the
   push. `.git/cairnkit-branch-notes.json` holds the state. These states pass: a merge, a rebase, a
@@ -452,7 +452,7 @@ Block bodies (`PY` is the full path of the Python that runs the tool):
 Files that git does not track. A tracked file is never written; the tool
 prints the commands instead. Each file is added to `.git/info/exclude`.
 
-`CMD` is `PY -m cairnkit hook EVENT --agent AGENT`. A timeout is in seconds.
+`CMD` is `PY -P -m cairnkit hook EVENT --agent AGENT`. A timeout is in seconds.
 
 | Agent | File | Events and hook events |
 |---|---|---|
