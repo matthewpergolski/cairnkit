@@ -338,14 +338,22 @@ def _owner_put(project: Project | None, path: Path) -> bool:
     """True for a pointer that the owner put here: a file of this user that git does not track.
 
     A file that git tracks came with the repo, from anyone who can commit to it. A file of another
-    user, such as one in a shared folder outside git, came from that user.
+    user, such as one in a shared folder outside git, came from that user. When git cannot say,
+    the pointer counts: the owner wrote it, and to set it aside loses the owner's memory.
     """
     try:
         if not _mine(path.lstat()):
             return False
     except OSError:
         return False
-    return project is None or not project.is_git or pointer_tracked(path) is False
+    return project is None or not project.is_git or pointer_tracked(path) is not True
+
+
+def _pointers(project: Project) -> list[Path]:
+    """Each `.memory-path` and `memory-bank` link that the memory search can read, in order."""
+    found = [project.home / PATH_FILE] if (project.home / PATH_FILE).is_file() else []
+    links = (c / LINK_NAME for c in dict.fromkeys([project.main_root, *project.checkouts]))
+    return found + [link for link in links if link.is_symlink()]
 
 
 def tracked_pointers(project: Project) -> list[Path]:
@@ -355,14 +363,19 @@ def tracked_pointers(project: Project) -> list[Path]:
     """
     if not project.is_git:
         return []
-    found = [project.home / PATH_FILE] if (project.home / PATH_FILE).is_file() else []
-    for checkout in dict.fromkeys([project.main_root, *project.checkouts]):
-        link = checkout / LINK_NAME
-        if link.is_symlink():
-            found.append(link)
-            if holds_memory(link) and pointer_tracked(link) is False:
-                break
-    return [path for path in found if pointer_tracked(path) is not False]
+    found = []
+    for path in _pointers(project):
+        found.append(path)
+        if path.name == LINK_NAME and holds_memory(path) and pointer_tracked(path) is not True:
+            break
+    return [path for path in found if pointer_tracked(path) is True]
+
+
+def unverified_pointers(project: Project) -> list[Path]:
+    """The pointers for which git gave no answer, such as when a hook's time ran out."""
+    if not project.is_git:
+        return []
+    return [path for path in _pointers(project) if pointer_tracked(path) is None]
 
 
 class Identity(NamedTuple):

@@ -120,3 +120,31 @@ def test_a_hook_file_behind_a_link_asks_for_no_refresh_that_cannot_write_it(
     assert "skip" in out and ".codex" in out and "link" in out
     assert held.read_text() == before
     assert refresh.repo_line(project, None) is None
+
+
+def test_init_names_only_the_agents_it_connected(repo, tmp_path, capsys, monkeypatch):
+    from cairnkit import hooks_cmd
+
+    monkeypatch.setattr(hooks_cmd, "INSTALL_ON_INIT", True)
+    monkeypatch.setattr(adapters, "detect", lambda project: ["claude", "codex"])
+    (tmp_path / "outside").mkdir()
+    (repo / ".codex").symlink_to(tmp_path / "outside")
+    capsys.readouterr()
+    assert main(["init", "--no-default-rules"]) == 0
+    out = capsys.readouterr().out
+    assert "Agents connected: claude." in out
+    assert f"skip {repo / '.codex' / 'hooks.json'}: it is a link" in out
+
+
+def test_a_linked_memory_folder_child_names_the_fix(repo, mem, tmp_path, capsys):
+    """A facts folder on another disk is a link. A write there is refused, with the way out."""
+    other = tmp_path / "other-disk"
+    other.mkdir()
+    (mem / "facts").rename(other / "facts")
+    (mem / "facts").symlink_to(other / "facts")
+    capsys.readouterr()
+    assert main(["add", "A fact.", "--basis", "seen", "--source", "session:2026-11-01"]) != 0
+    captured = capsys.readouterr()
+    said = captured.out + captured.err
+    assert "Not changed." in said
+    assert "MEMORY_DIR" in said and "replace the link" in said

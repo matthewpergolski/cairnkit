@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 
 import pytest
 from conftest import git, make_fact, write_facts
@@ -202,3 +203,54 @@ def test_a_repo_above_the_project_that_tracks_the_memory_refuses(
     monkeypatch.setenv("MEMORY_DIR", str(memdir))
     out = session_start(capsys, monkeypatch)
     assert MARKER not in out and "tracks files in the memory folder" in out
+
+
+def _git_that_cannot_list(tmp_path, monkeypatch) -> None:
+    """A git that fails `ls-files`, as when a hook's time runs out between two git calls. Index
+    version 4 makes the tool ask git."""
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    fake = folder / "git"
+    real = shutil.which("git")
+    fake.write_text(
+        f'#!/bin/sh\nfor a in "$@"; do [ "$a" = ls-files ] && exit 1; done\nexec "{real}" "$@"\n'
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{folder}{os.pathsep}{os.environ['PATH']}")
+
+
+def test_a_pointer_that_git_cannot_check_keeps_the_owner_memory(
+    repo, tmp_path, capsys, monkeypatch
+):
+    """An unknown answer is no proof that git tracks the owner's pointer. A hook then must not
+    set the owner's memory aside with a new empty one and a new record."""
+    elsewhere = tmp_path / "elsewhere"
+    assert main(["init", "--path", str(elsewhere), "--no-default-rules"]) == 0
+    write_facts(elsewhere, [make_fact("f-20261001-0001", "A fact of the owner.")])
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    (repo / ".git" / "cairnkit-memory").unlink()
+    git(repo, "update-index", "--index-version", "4")
+    _git_that_cannot_list(tmp_path, monkeypatch)
+    out = session_start(capsys, monkeypatch)
+    assert "A fact of the owner." in out and "git tracks" not in out
+    assert not (tmp_path / "proj.memory").exists()
+    assert main(["check"]) == 0
+    assert "git tracks" not in capsys.readouterr().out
+    assert main(["load"]) == 0
+    out = capsys.readouterr().out
+    assert "A fact of the owner." in out and "git tracks" not in out
+
+
+def test_a_hook_makes_no_memory_over_a_pointer_that_git_cannot_check(
+    repo, tmp_path, capsys, monkeypatch
+):
+    elsewhere = tmp_path / "elsewhere"
+    assert main(["init", "--path", str(elsewhere), "--no-default-rules"]) == 0
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    shutil.rmtree(elsewhere)
+    (repo / "memory-bank").unlink()
+    (repo / ".git" / "cairnkit-memory").unlink()
+    git(repo, "update-index", "--index-version", "4")
+    _git_that_cannot_list(tmp_path, monkeypatch)
+    session_start(capsys, monkeypatch)
+    assert not elsewhere.exists() and not (tmp_path / "proj.memory").exists()

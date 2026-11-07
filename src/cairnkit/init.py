@@ -347,7 +347,13 @@ def run_init(
     if path_flag:
         rel = os.path.relpath(memdir, project.home)
         current = project.home / PATH_FILE
-        if project.is_git and current.is_file() and pointer_tracked(current) is not False:
+        tracked = project.is_git and current.is_file() and pointer_tracked(current)
+        if tracked is None:
+            say(
+                f"note: git gave no answer about {clean_path(current)}, so the tool did not "
+                "write it. The link and this repo's record name the memory."
+            )
+        elif tracked:
             say(
                 f"note: git tracks {clean_path(current)}, so the tool does not write it or read "
                 "it. The link and this repo's record name the memory."

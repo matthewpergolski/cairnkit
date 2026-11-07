@@ -43,7 +43,13 @@ def inside(root: Path | str, path: Path | str) -> Path:
     its path from here: then it changes nothing outside root. Else this raises Linked.
     """
     if through_link(root, path):
-        raise Linked(f"{str(path)!r} is a link, or under a link, in {str(root)!r}. Not changed.")
+        raise Linked(
+            f"{str(path)!r} is a link, or under a link, in {str(root)!r}. Not changed. The tool "
+            "writes no file through a link in the memory folder, because a repo can bring such a "
+            "link. To keep the memory on another disk, move the whole memory folder there and "
+            "point `memory init --path` or MEMORY_DIR at it, or replace the link with the folder "
+            "that it leads to."
+        )
     return Path(path)
 
 

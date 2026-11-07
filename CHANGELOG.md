@@ -229,7 +229,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.memory-path` that git tracks. The test reads the index file of the checkout that holds the
   pointer, only for the pointer that the search uses, and runs git only when that file cannot
   say, so the hooks run no more git than before. A repo above the checkout, such as a home
-  folder that is a git repo, does not count for a pointer.
+  folder that is a git repo, does not count for a pointer. When git gives no answer, such as
+  when the time of a hook runs out, the pointer still counts, because the owner wrote it: the
+  load and `memory check` print no false "git tracks" line, and no hook makes a new empty memory
+  and a new record that set the owner's memory aside.
 - The load runs git about a helper only in a checkout that `git worktree list` names. Before, a
   helper record could name any folder, and the load ran `git status` there. Git then ran a
   command that the git config of that folder names, such as `core.fsmonitor`. The start of a
@@ -244,16 +247,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.loop-breaker.json` link named, a lock file was made where a dangling link went, and
   `memory migrate --yes` removed files under a linked folder and made files where a dangling
   note link went. Now each write, removal, prune and walk in the memory folder takes its path
-  from one check that refuses a link from the memory folder down to the file. A test makes each
-  file that a command or hook writes there, and each folder above it, a link in turn, and finds
-  that nothing outside changes.
+  from one check that refuses a link from the memory folder down to the file. The refusal says
+  what to do, such as for a `facts/` link to another disk: move the whole memory folder and
+  point `memory init --path` or `MEMORY_DIR` at it, or put the folder in place of the link. A
+  test makes each file that a command or hook writes there, and each folder above it, a link in
+  turn, and finds that nothing outside changes.
 - A hook install writes no file through a link. `git ls-files -- .codex/hooks.json` prints
   nothing when `.codex` is a link that git tracks, so a repo with such a link made the install
   rewrite a tracked file or write a hook file outside the checkout, and an uninstall removed a
   file there. Now each adapter file with a link in its path is skipped with one line that says
   how to connect it, and an uninstall removes nothing behind a link. The check that asks for
   `memory init --refresh` skips the same files, so it does not ask for a refresh that cannot
-  write them, again at each session. `memory instructions --write-instructions` writes no
+  write them, again at each session. `memory init` lists under "Agents connected" only the
+  agents that it connected, not one whose file it skipped. `memory instructions --write-instructions` writes no
   rules file through a link that git tracks, such as a committed `.cursor` link: before, the
   Cursor copy went where that link led. A link that the owner made stays usable.
 - The folder for copies of the index, `cairnkit-index-<uid>` in the temp folder, is used only
