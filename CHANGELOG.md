@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentence that opens with `if` state no rule.
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
   loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
-  confirms it. The prompt hook keeps this evidence, masked and cut, in
+  confirms it. The prompt hook keeps this evidence, masked as a whole and then cut, in
   `.sessions/<id>.owner.json`. A person at a terminal binds as before. For Claude Code and Codex,
   `memory add` counts a kept prompt, approval or answer only when the session's transcript holds
   it, and a prompt that names another transcript than the session's first is not kept; a

@@ -495,6 +495,18 @@ def test_the_evidence_is_masked(mem, capsys, monkeypatch):
     assert token not in stored and "release job" in stored
 
 
+def test_no_part_of_a_secret_near_the_cut_is_kept(repo, mem, capsys, monkeypatch):
+    value = "Zq8vX2mW9pL4kR7tY1nB6cD3fG5hJ0sA"
+    (repo / ".env").write_text(f"API_TOKEN={value}\n")
+    pem = "-----BEGIN PRIVATE KEY-----\n" + "A" * 2900 + "\n-----END PRIVATE KEY-----"
+    lead = f"Use this key: {pem} then the token "
+    pad = "x" * (2990 - len(lead))  # the value starts 10 characters before twice PROMPT_CHARS
+    prompt(capsys, monkeypatch, f"{lead}{pad} {value} for the release job.")
+    stored = "".join(p.read_text() for p in (mem / ".sessions").glob("*.owner.json"))
+    assert "Use this key" in stored
+    assert value[:6] not in stored and "AAAA" not in stored
+
+
 @pytest.mark.parametrize("value", [True, "false", None])
 def test_confirmed_is_only_false_on_a_told_fact(value):
     record = {

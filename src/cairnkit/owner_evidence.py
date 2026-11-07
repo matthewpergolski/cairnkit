@@ -10,9 +10,9 @@ state (see session.py), so the other hooks of a session do not read or write it.
      "choices": [{"at", "kind", "text", "answer"}],  # answers to agent questions, this turn only
      "approval": {"at", "text", "prompt"} | null}  # the question that this turn's "yes" answered
 
-Each text is masked and cut. A new owner prompt starts a turn, so it clears the choices and the
-approval of the turn before. The prompt hook writes it, and the hook after a tool adds the label
-that the owner picked in an agent question. `memory add` reads it (`check_claim`).
+Each text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
+choices and the approval of the turn before. The prompt hook writes it, and the hook after a tool
+adds the label that the owner picked in an agent question. `memory add` reads it (`check_claim`).
 
 The approval. When the owner's whole prompt is a short yes (see `is_approval`), the prompt hook
 reads the agent's last message from the transcript that the payload names. Only the sentence that
@@ -101,8 +101,10 @@ def _read(path: Path) -> dict:
 
 
 def _kept(memory: Memory, text: str, width: int) -> str:
-    """The masked text, cut to width. The mask goes first, so no cut leaves part of a secret."""
-    return mask(text[: width * 2], memory.env)[:width]
+    """The masked text, cut to width. The whole text is masked before the cut, so no cut leaves
+    part of a secret: a raw cut first could split a value, and its first half would not look
+    secret to the mask."""
+    return mask(text, memory.env)[:width]
 
 
 def _list(data: dict, name: str) -> list[dict]:
