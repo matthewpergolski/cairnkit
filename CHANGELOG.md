@@ -222,8 +222,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the command that takes it out of the index. A memory folder that is a git repo of its
   own, which the owner may use to keep a private history, still loads. Before, a pulled `.memory-path` could load a folder from the
   repo, and its rules with no author printed above the frame as rules of the owner. Outside
-  git, a link or a `.memory-path` of another user does not count. `memory init --path` does not
-  write a `.memory-path` that git tracks.
+  git, a link or a `.memory-path` of another user does not count. On Windows, which has no user
+  ids, that test is skipped, so the load works there. `memory init --path` does not write a
+  `.memory-path` that git tracks.
 - The load runs git about a helper only in a checkout that `git worktree list` names. Before, a
   helper record could name any folder, and the load ran `git status` there. Git then ran a
   command that the git config of that folder names, such as `core.fsmonitor`. The start of a

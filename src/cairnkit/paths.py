@@ -69,16 +69,24 @@ class NotPrivate(OSError):
     """The folder for index copies is a link, or another user owns it or can write in it."""
 
 
+def _mine(info: os.stat_result) -> bool:
+    """True when this user owns the file. A platform with no user ids, such as Windows, has no
+    other user to compare, so there it is always true."""
+    getuid = getattr(os, "getuid", None)
+    return getuid is None or info.st_uid == getuid()
+
+
 def _copies_folder() -> Path:
     """One folder for the index copies. A copy of a killed hook is gone after an hour there.
 
     The temp folder can be shared, so another user can make this name first. Only a real folder
     that this user owns, with no access for others, is used or cleaned.
     """
-    folder = Path(tempfile.gettempdir()) / f"cairnkit-index-{os.getuid()}"
+    getuid = getattr(os, "getuid", None)
+    folder = Path(tempfile.gettempdir()) / f"cairnkit-index-{getuid() if getuid else 'user'}"
     folder.mkdir(mode=0o700, exist_ok=True)
     info = os.lstat(folder)
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+    if not stat.S_ISDIR(info.st_mode) or not _mine(info) or info.st_mode & 0o077:
         raise NotPrivate(f"not a private folder: {folder}")
     limit = time.time() - 3600
     with os.scandir(folder) as entries:
@@ -333,7 +341,7 @@ def _owner_put(project: Project | None, path: Path) -> bool:
     user, such as one in a shared folder outside git, came from that user.
     """
     try:
-        if path.lstat().st_uid != os.getuid():
+        if not _mine(path.lstat()):
             return False
     except OSError:
         return False

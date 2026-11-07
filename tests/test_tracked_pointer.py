@@ -11,7 +11,7 @@ import io
 import json
 import os
 
-from conftest import git, make_fact
+from conftest import git, make_fact, write_facts
 
 from cairnkit.cli import main
 from cairnkit.paths import find_project, plain_root, resolve_memory_dir
@@ -136,3 +136,13 @@ def test_a_memory_folder_in_a_git_repo_of_its_own_still_loads(repo, tmp_path, ca
     monkeypatch.setenv("MEMORY_DIR", str(own))
     out = session_start(capsys, monkeypatch)
     assert "tracks files in the memory folder" not in out and FRAME_HEADER in out
+
+
+def test_a_platform_with_no_user_ids_still_loads(repo, mem, capsys, monkeypatch):
+    """Windows has no os.getuid. The owner test of a pointer then has no user to compare."""
+    write_facts(mem, [make_fact("f-20261001-0001", "A fact of the owner.")])
+    monkeypatch.delattr(os, "getuid")
+    out = session_start(capsys, monkeypatch)
+    assert "Traceback" not in out and "A fact of the owner." in out
+    assert main(["load"]) == 0
+    assert "A fact of the owner." in capsys.readouterr().out
