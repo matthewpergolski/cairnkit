@@ -26,6 +26,11 @@ It runs five steps and shows each one in the terminal:
    the receipt names.
 5. **Verify.** It runs the new `memory --version`.
 
+The build and the install run uv in `~/.cache/cairnkit` with `--no-config`. So a `uv.toml`, a
+`[tool.uv]` table or a `.venv` in the folder where you run `memory update` has no effect. uv still
+reads your own `uv.toml` (`~/.config/uv/uv.toml`, else `/etc/uv/uv.toml`) through
+`--config-file`, and `UV_CONFIG_FILE` and the other `UV_*` variables still apply.
+
 Only one update runs at a time. An update holds a lock
 (`~/.cache/cairnkit/wheels/update.lock`) from the check to the end. A
 second update says that it waits. Then it checks the source itself, so it

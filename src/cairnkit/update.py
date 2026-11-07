@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -44,7 +45,7 @@ LOCK_POLL = 0.2
 AFTER = "Each repo catches up when it is next used. Its session start says what to run."
 
 
-def _run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
+def _run(argv: list[str], timeout: float = 900, cwd: Path | None = None) -> tuple[int, str]:
     """Run a command with no input. git gets an environment where it cannot prompt."""
     if argv and argv[0] == "git":
         src.refuse_pinned_args(argv[1:])
@@ -58,6 +59,7 @@ def _run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
             check=False,
             stdin=subprocess.DEVNULL,
             env=env,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         return 1, f"{' '.join(argv)} took longer than {int(timeout)} s"
@@ -340,10 +342,30 @@ def _fetch(bar: Progress, source, found: Latest, tmp: Path) -> tuple[Path, Lates
     return folder, Latest(found.commit, version, found.release)
 
 
+def _uv(uv: str, command: tuple[str, ...], *args: str) -> tuple[int, str]:
+    """Run uv with no setting from the folder of the caller. The owner's own uv.toml still counts.
+
+    uv reads `uv.toml`, `[tool.uv]` and a `.venv` in the folder where it starts and above it. A
+    repo can hold each of them, so uv starts in the tool's cache folder and finds no config.
+    """
+    config = [] if os.environ.get("UV_CONFIG_FILE") else _owner_uv_config()
+    home = cache_dir()
+    home.mkdir(parents=True, exist_ok=True)
+    return _run([uv, *command, "--no-config", *config, *args], cwd=home)
+
+
+def _owner_uv_config() -> list[str]:
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    for path in (Path(base) / "uv" / "uv.toml", Path("/etc/uv/uv.toml")):
+        if path.is_file():
+            return ["--config-file", str(path)]
+    return []
+
+
 def _build(bar: Progress, uv: str, folder: Path, tmp: Path) -> Path:
     bar.start("Build")
     dist = tmp / "dist"
-    code, out = _run([uv, "build", "--wheel", "--out-dir", str(dist), str(folder)])
+    code, out = _uv(uv, ("build",), "--wheel", "--out-dir", str(dist), str(folder))
     wheels = sorted(dist.glob("*.whl")) if code == 0 else []
     if len(wheels) != 1:
         what = "The source did not build." if code else f"The build made {len(wheels)} wheels."
@@ -382,8 +404,8 @@ def _install(bar: Progress, uv: str, source, wheel: Path, release) -> None:
     attempt = Path(tempfile.mkdtemp(prefix="install-", dir=kept_dir))
     kept = attempt / wheel.name
     shutil.copyfile(wheel, kept)
-    install = [uv, "tool", "install", "--force", "--reinstall", f"{src.PACKAGE} @ {kept.as_uri()}"]
-    code, out = _run(install)
+    spec = f"{src.PACKAGE} @ {kept.as_uri()}"
+    code, out = _uv(uv, ("tool", "install"), "--force", "--reinstall", spec)
     if code:
         shutil.rmtree(attempt, ignore_errors=True)
         raise SourceError(

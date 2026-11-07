@@ -227,6 +227,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   helper record could name any folder, and the load ran `git status` there. Git then ran a
   command that the git config of that folder names, such as `core.fsmonitor`. The start of a
   helper records its worktree only when it is a checkout of this project.
+- `memory update` runs `uv build` and `uv tool install` in the cache folder of the tool, with
+  `--no-config` and your own `uv.toml` as `--config-file`. Before, uv read `uv.toml`,
+  `[tool.uv]` and a `.venv` from the folder of the caller. An update from a repo then built the
+  tool with the package index of that repo, and `uv build` ran its `.venv/bin/python`.
 - `memory check` shows the note about a note line with one plain word behind a secret label once
   for each line, and again only for a new line. In a real project `{"family_key": "birch"}` came
   back on each check for days. The scan itself is as strict as before.
