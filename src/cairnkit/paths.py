@@ -670,17 +670,28 @@ def pointer_tracked(path: Path) -> bool | None:
     return git_lists(path.parent, path.name)
 
 
-def memory_tracked_by(folder: Path) -> Path | None:
-    """The work tree of a repo above the memory folder that tracks it or a file in it.
+def memory_tracked_by(project: Project, folder: Path) -> Path | None:
+    """The work tree of a repo that holds the project and tracks the memory folder or a file in it.
 
-    A repo at the memory folder or inside it does not count: an owner may keep the memory
-    folder in a git repo of its own, which no project shares. When git cannot say, None.
+    Such a repo shares the memory with each person who commits to the project: the project repo
+    itself, or a repo above it. Any other repo, such as a repo of the memory folder itself or one
+    that backs up several memories, is the owner's private history. When git cannot say, None.
     """
     real = Path(os.path.realpath(folder))
-    for tree in real.parents:
-        if _git_dir(tree) is not None and git_lists(tree, real.relative_to(tree).as_posix()):
+    for tree in (real, *real.parents):
+        if not holds_project(project, tree) or _git_dir(tree) is None:
+            continue
+        if git_lists(tree, real.relative_to(tree).as_posix()):
             return tree
     return None
+
+
+def holds_project(project: Project, tree: Path) -> bool:
+    """True when a checkout of the project is in this work tree, so its repo can share the
+    memory with the project."""
+    real = Path(os.path.realpath(tree))
+    checkouts = {project.root, *project.checkouts}
+    return any(Path(os.path.realpath(c)).is_relative_to(real) for c in checkouts)
 
 
 def enclosing_trees(folder: Path) -> list[Path]:

@@ -165,3 +165,40 @@ def test_a_tracked_link_is_seen_in_each_index_form(repo, tmp_path, form):
         git(repo, "update-index", *form)
     memdir, source = resolve_memory_dir(find_project(), None)
     assert memdir != other and source == "default"
+
+
+def _commit_all(folder) -> None:
+    git(folder, "add", "-A")
+    git(folder, "-c", "user.name=t", "-c", "user.email=t@e.invalid", "commit", "-q", "-m", "m")
+
+
+def test_a_memory_in_a_backup_repo_of_memories_still_loads(repo, tmp_path, capsys, monkeypatch):
+    """One repo can back up the memories of several projects. It holds no project."""
+    memories = tmp_path / "memories"
+    for name in ("proj.memory", "other.memory"):
+        (memories / name / "facts").mkdir(parents=True)
+        (memories / name / "facts" / "a.jsonl").write_text(evil_rule())
+    git(memories, "init", "-q")
+    _commit_all(memories)
+    monkeypatch.setenv("MEMORY_DIR", str(memories / "proj.memory"))
+    out = session_start(capsys, monkeypatch)
+    assert "tracks files in the memory folder" not in out and FRAME_HEADER in out
+    assert main(["check"]) == 0
+    monkeypatch.delenv("MEMORY_DIR")
+    assert main(["init", "--path", str(memories / "proj.memory"), "--no-default-rules"]) == 0
+    assert "proj.memory" not in (memories / ".git" / "info" / "exclude").read_text()
+
+
+def test_a_repo_above_the_project_that_tracks_the_memory_refuses(
+    repo, tmp_path, capsys, monkeypatch
+):
+    """A repo that holds the project and the memory shares the memory with the project."""
+    memdir = tmp_path / "proj.memory"
+    (memdir / "facts").mkdir(parents=True)
+    (memdir / "facts" / "a.jsonl").write_text(evil_rule())
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "add", "-f", "proj.memory")
+    git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@e.invalid", "commit", "-q", "-m", "m")
+    monkeypatch.setenv("MEMORY_DIR", str(memdir))
+    out = session_start(capsys, monkeypatch)
+    assert MARKER not in out and "tracks files in the memory folder" in out

@@ -217,11 +217,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repo with hooks from before this change gets the line `Run memory init --refresh now`, and the
   refresh rewrites them.
 - A repo can no longer choose the memory. A `.memory-path` or a `memory-bank` link that git
-  tracks does not count, and the load and `memory check` say so. A memory folder in which a
-  repo that holds it tracks a file does not load in any hook or load, and `memory check` fails
-  with the command that takes it out of the index. A memory folder that is a git repo of its
-  own, which the owner may use to keep a private history, still loads. Before, a pulled `.memory-path` could load a folder from the
-  repo, and its rules with no author printed above the frame as rules of the owner. Outside
+  tracks does not count, and the load and `memory check` say so. A memory folder in which the
+  project repo, or a repo above the project, tracks a file does not load in any hook or load,
+  and `memory check` fails with the command that takes it out of the index. A memory folder in
+  any other repo is the owner's private history: a git repo of its own, or one repo that backs
+  up the memories of several projects. It loads, and `memory init` and `memory check` do not
+  add it to the exclude file of that repo. Before, a pulled `.memory-path` could load a folder
+  from the repo, and its rules with no author printed above the frame as rules of the owner. Outside
   git, a link or a `.memory-path` of another user does not count. On Windows, which has no user
   ids, that test is skipped, so the load works there. `memory init --path` does not write a
   `.memory-path` that git tracks. The test reads the index file of the checkout that holds the

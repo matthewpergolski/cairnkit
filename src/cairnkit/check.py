@@ -544,7 +544,7 @@ def _read_health(project: Project, flag: str | None) -> Health:
     if not has_facts:
         health.errors.append(f"{clean_path(memdir)}: no facts/ folder; run `memory init`")
         return health
-    health.errors += keep_out_of_git(memdir)
+    health.errors += keep_out_of_git(project, memdir)
     memory = health.memory = Memory.open(project, flag)
     record_errors, warnings = check_records(memory)
     health.errors += record_errors

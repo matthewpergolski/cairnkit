@@ -168,7 +168,7 @@ def remember(project: Project, memdir: Path, source: str, chosen: bool = False) 
         repo = recorded_repo(project) if state == UNCLAIMED and not chosen else project_key(project)
         text = f"{identity.id}\n{memdir.resolve()}\n{repo}\n"
         if not path.is_file() or plainfile.read_text(path) != text:
-            keep_out_of_git(memdir)
+            keep_out_of_git(project, memdir)
             plainfile.write_text(path, text)
     except (OSError, UnicodeDecodeError):
         return
@@ -330,7 +330,7 @@ def run_init(
         )
         return 1
     if not dry_run:
-        leaks = keep_out_of_git(memdir)
+        leaks = keep_out_of_git(project, memdir)
         if leaks:
             for leak in leaks:
                 print(f"error: {clean_path(leak)}", file=sys.stderr)
