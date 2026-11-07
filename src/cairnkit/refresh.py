@@ -94,11 +94,20 @@ def block_paths(project: Project, memdir: Path) -> list[Path]:
     return [checkout / rel for checkout in project.checkouts for rel in rels]
 
 
-def _agents(project: Project) -> dict[str, list[Path]]:
-    """For each agent, the checkouts whose hook config already holds memory's hooks."""
+def _agents(project: Project, linked: bool = False) -> dict[str, list[Path]]:
+    """For each agent, the checkouts whose hook config already holds memory's hooks.
+
+    A file behind a link counts only with `linked`: the writer skips it, so a check that asks
+    for a refresh because of it would ask for ever.
+    """
     found = {}
     for name, adapter in adapters.ADAPTERS.items():
-        holders = [c for c in project.checkouts if _holds(c / adapter.rel, *adapters.MARKS)]
+        holders = [
+            c
+            for c in project.checkouts
+            if _holds(c / adapter.rel, *adapters.MARKS)
+            and (linked or not adapters.behind_link(c, adapter.rel))
+        ]
         if holders:
             found[name] = holders
     return found
@@ -282,7 +291,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         elif result == "broken":
             broken.append(path)
     try:
-        for name, holders in _agents(project).items():
+        for name, holders in _agents(project, linked=True).items():
             steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
     except adapters.BadConfig as exc:
         print(f"error: {clean_path(exc)}")

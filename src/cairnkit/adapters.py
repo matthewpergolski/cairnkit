@@ -518,6 +518,19 @@ class BadConfig(Exception):
 
 
 FIX_IT = "The tool left it as it is. Fix it, then run `memory hooks install`."
+LINK_SKIP = (
+    "skip {path}: it is a link, or a folder above it is. The tool writes no file through a "
+    "link, because it can lead to a tracked file or out of the checkout. To connect this agent, "
+    "put a real folder and file in place of the link, then run `memory hooks install`."
+)
+
+
+def behind_link(checkout: Path, rel: str) -> bool:
+    """True when the hook file at rel, or a folder above it in the checkout, is a link.
+
+    The tool writes no such file, so no check may ask for a write there either.
+    """
+    return plainfile.through_link(checkout, checkout / rel)
 
 
 def _read(path: Path) -> dict:
@@ -543,11 +556,8 @@ def _apply_file(
     text = adapter.render()
     for checkout in project.checkouts if checkouts is None else checkouts:
         path = checkout / adapter.rel
-        if plainfile.through_link(checkout, path):
-            steps.append(
-                f"skip {path}: it is a link, or a folder above it is. The tool writes no file "
-                "through a link, because it can lead to a tracked file or out of the checkout."
-            )
+        if behind_link(checkout, adapter.rel):
+            steps.append(LINK_SKIP.format(path=path))
             continue
         if install:
             if path.exists() and MARK not in plainfile.read_text(path, encoding="utf-8"):
@@ -587,11 +597,8 @@ def apply(
                     f"Add the hooks by hand in a file that git ignores. Commands: {commands}"
                 )
             continue
-        if plainfile.through_link(checkout, path):
-            steps.append(
-                f"skip {path}: it is a link, or a folder above it is. The tool writes no file "
-                "through a link, because it can lead to a tracked file or out of the checkout."
-            )
+        if behind_link(checkout, adapter.rel):
+            steps.append(LINK_SKIP.format(path=path))
             continue
         if not install and not path.exists():
             continue
