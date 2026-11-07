@@ -28,13 +28,13 @@ from cairnkit.paths import (
     lost_note,
     owner_line,
     owner_state,
+    pointer_tracked,
     project_key,
     read_identity,
     record_file,
     recorded_repo,
     resolve_memory_dir,
     root_commits,
-    tracking_tree,
     write_identity,
 )
 from cairnkit.presets import NONE, apply
@@ -168,7 +168,7 @@ def remember(project: Project, memdir: Path, source: str, chosen: bool = False) 
         repo = recorded_repo(project) if state == UNCLAIMED and not chosen else project_key(project)
         text = f"{identity.id}\n{memdir.resolve()}\n{repo}\n"
         if not path.is_file() or plainfile.read_text(path) != text:
-            keep_out_of_git(memdir)
+            keep_out_of_git(project, memdir)
             plainfile.write_text(path, text)
     except (OSError, UnicodeDecodeError):
         return
@@ -330,7 +330,7 @@ def run_init(
         )
         return 1
     if not dry_run:
-        leaks = keep_out_of_git(memdir)
+        leaks = keep_out_of_git(project, memdir)
         if leaks:
             for leak in leaks:
                 print(f"error: {clean_path(leak)}", file=sys.stderr)
@@ -347,7 +347,13 @@ def run_init(
     if path_flag:
         rel = os.path.relpath(memdir, project.home)
         current = project.home / PATH_FILE
-        if project.is_git and current.is_file() and tracking_tree(current):
+        tracked = project.is_git and current.is_file() and pointer_tracked(current)
+        if tracked is None:
+            say(
+                f"note: git gave no answer about {clean_path(current)}, so the tool did not "
+                "write it. The link and this repo's record name the memory."
+            )
+        elif tracked:
             say(
                 f"note: git tracks {clean_path(current)}, so the tool does not write it or read "
                 "it. The link and this repo's record name the memory."

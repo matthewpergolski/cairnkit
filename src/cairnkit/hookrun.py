@@ -50,6 +50,7 @@ from cairnkit.paths import (
     lost_note,
     resolve_memory_dir,
     run_git,
+    unverified_pointers,
 )
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean
 from cairnkit.session import (
@@ -286,10 +287,11 @@ def _optional_work(project: Project, flag: str | None) -> str:
 def _make_memory_if_connected(project: Project, lost: LostMemory | None) -> None:
     """A project with hook files is set up, so a missing memory needs no second step.
 
-    A memory known to be lost stays a question for the agent. An empty one would hide it.
+    A memory known to be lost stays a question for the agent. An empty one would hide it. So
+    does a new memory beside a pointer that git could not check: the next session checks it.
     """
     connected = any(adapters.holds_ours(project.root / a.rel) for a in adapters.ADAPTERS.values())
-    if not connected or (lost and lost.gone):
+    if not connected or (lost and lost.gone) or unverified_pointers(project):
         return
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         run_init(project, None, verbose=False)

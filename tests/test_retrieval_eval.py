@@ -301,3 +301,21 @@ def test_groups_with_fewer_than_ten_probes_are_flagged(mem):
     assert groups["fix"]["n"] == 10 and not groups["fix"]["unreliable"]
     assert groups["decision"]["n"] == 3 and groups["decision"]["unreliable"]
     assert groups["fix"]["cairnkit"]["any@1"] == 1.0
+
+
+def test_the_load_opens_a_copy_of_a_memory_that_git_tracks(monkeypatch):
+    """The fixtures are tracked in this repo, and a tracked memory folder refuses to load. So the
+    harness opens a copy outside the repo, from the command line too."""
+    from cairnkit import memory
+
+    real = memory.memory_tracked_by
+
+    def refuse_in_repo(project, folder):
+        inside = folder.resolve().is_relative_to(ROOT)
+        return ROOT if inside else real(project, folder)
+
+    monkeypatch.setattr(memory, "memory_tracked_by", refuse_in_repo)
+    harness = load_harness()
+    probes = harness.read_probes(FIXTURE / "probes.jsonl")
+    rows = harness.evaluate_load(FIXTURE, probes, 600)
+    assert rows["cairnkit"]["facts"] > 0

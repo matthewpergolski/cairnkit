@@ -7,7 +7,7 @@ from pathlib import Path
 
 from cairnkit.config import load_config
 from cairnkit.envsecrets import EnvValues, read_env_values
-from cairnkit.paths import Project, lost_memory, lost_note, resolve_memory_dir, tracking_tree
+from cairnkit.paths import Project, lost_memory, lost_note, memory_tracked_by, resolve_memory_dir
 from cairnkit.secretscan import (
     find_in_closed_fields,
     find_in_record,
@@ -96,7 +96,7 @@ class Memory:
             raise MemoryMissing(
                 f"no memory folder at {clean_path(memdir)} (from {source}); run `memory init`"
             )
-        tree = tracking_tree(memdir.resolve(), unknown_is_tracked=False, own_repo_ok=True)
+        tree = memory_tracked_by(project, memdir)
         if tree is not None:
             raise MemoryTracked(tracked_line(tree, memdir))
         memory = cls(project, memdir, source, load_config(memdir), env=read_env_values(project))

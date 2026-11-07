@@ -94,11 +94,20 @@ def block_paths(project: Project, memdir: Path) -> list[Path]:
     return [checkout / rel for checkout in project.checkouts for rel in rels]
 
 
-def _agents(project: Project) -> dict[str, list[Path]]:
-    """For each agent, the checkouts whose hook config already holds memory's hooks."""
+def _agents(project: Project, linked: bool = False) -> dict[str, list[Path]]:
+    """For each agent, the checkouts whose hook config already holds memory's hooks.
+
+    A file behind a link counts only with `linked`: the writer skips it, so a check that asks
+    for a refresh because of it would ask for ever.
+    """
     found = {}
     for name, adapter in adapters.ADAPTERS.items():
-        holders = [c for c in project.checkouts if _holds(c / adapter.rel, *adapters.MARKS)]
+        holders = [
+            c
+            for c in project.checkouts
+            if _holds(c / adapter.rel, *adapters.MARKS)
+            and (linked or not adapters.behind_link(c, adapter.rel))
+        ]
         if holders:
             found[name] = holders
     return found
@@ -175,18 +184,15 @@ def _hook_texts(project: Project) -> list[str]:
     return texts
 
 
-def gone_pythons(project: Project) -> list[str]:
+def gone_pythons(project: Project, texts: list[str] | None = None) -> list[str]:
     """The absolute Python paths in this repo's hooks that no longer run."""
-    found = {a or b for text in _hook_texts(project) for a, b in _HOOK_PYTHON.findall(text)}
+    texts = _hook_texts(project) if texts is None else texts
+    found = {a or b for text in texts for a, b in _HOOK_PYTHON.findall(text)}
     return sorted(p for p in found if p.startswith("/") and not os.access(p, os.X_OK))
 
 
-def _open_launch(project: Project) -> bool:
-    return any(_OPEN_LAUNCH.search(text) for text in _hook_texts(project))
-
-
-def gone_python_line(project: Project) -> str | None:
-    gone = gone_pythons(project)
+def gone_python_line(project: Project, texts: list[str] | None = None) -> str | None:
+    gone = gone_pythons(project, texts)
     if not gone:
         return None
     return (
@@ -204,7 +210,8 @@ def repo_line(project: Project, flag: str | None) -> str | None:
         state = githook.hook_state(project)
         if state.fixable:
             return "memory: " + state.line.removeprefix("warning: ")
-        line = gone_python_line(project)
+        texts = _hook_texts(project)
+        line = gone_python_line(project, texts)
         if line:
             return line
         version = read_stamp(memdir).get("version")
@@ -214,7 +221,7 @@ def repo_line(project: Project, flag: str | None) -> str | None:
                 f"memory: this repo still holds {' and '.join(leftovers)} from an older memory. "
                 f"Run `{COMMAND}` now. It removes them."
             )
-        stale_hook = _hook_text_is_old(project) or _open_launch(project)
+        stale_hook = _hook_text_is_old(project) or any(map(_OPEN_LAUNCH.search, texts))
         if version:
             if not is_behind(version, tool_version()) and not stale_hook:
                 return None
@@ -284,7 +291,7 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
         elif result == "broken":
             broken.append(path)
     try:
-        for name, holders in _agents(project).items():
+        for name, holders in _agents(project, linked=True).items():
             steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
     except adapters.BadConfig as exc:
         print(f"error: {clean_path(exc)}")

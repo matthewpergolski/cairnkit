@@ -10,8 +10,10 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 
-from conftest import git, make_fact
+import pytest
+from conftest import git, make_fact, write_facts
 
 from cairnkit.cli import main
 from cairnkit.paths import find_project, plain_root, resolve_memory_dir
@@ -136,3 +138,119 @@ def test_a_memory_folder_in_a_git_repo_of_its_own_still_loads(repo, tmp_path, ca
     monkeypatch.setenv("MEMORY_DIR", str(own))
     out = session_start(capsys, monkeypatch)
     assert "tracks files in the memory folder" not in out and FRAME_HEADER in out
+
+
+def test_a_platform_with_no_user_ids_still_loads(repo, mem, capsys, monkeypatch):
+    """Windows has no os.getuid. The owner test of a pointer then has no user to compare."""
+    write_facts(mem, [make_fact("f-20261001-0001", "A fact of the owner.")])
+    monkeypatch.delattr(os, "getuid")
+    out = session_start(capsys, monkeypatch)
+    assert "Traceback" not in out and "A fact of the owner." in out
+    assert main(["load"]) == 0
+    assert "A fact of the owner." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "form",
+    [[], ["--index-version", "4"], ["--split-index"], ["--index-version", "3"]],
+    ids=["v2", "v4", "split", "v3"],
+)
+def test_a_tracked_link_is_seen_in_each_index_form(repo, tmp_path, form):
+    """The index file can say "not tracked" with no git. A form that hides paths asks git."""
+    other = tmp_path / "other.memory"
+    (other / "facts").mkdir(parents=True)
+    (repo / "memory-bank").symlink_to(other)
+    git(repo, "add", "memory-bank")
+    git(repo, "commit", "-q", "-m", "link")
+    if form:
+        git(repo, "update-index", *form)
+    memdir, source = resolve_memory_dir(find_project(), None)
+    assert memdir != other and source == "default"
+
+
+def _commit_all(folder) -> None:
+    git(folder, "add", "-A")
+    git(folder, "-c", "user.name=t", "-c", "user.email=t@e.invalid", "commit", "-q", "-m", "m")
+
+
+def test_a_memory_in_a_backup_repo_of_memories_still_loads(repo, tmp_path, capsys, monkeypatch):
+    """One repo can back up the memories of several projects. It holds no project."""
+    memories = tmp_path / "memories"
+    for name in ("proj.memory", "other.memory"):
+        (memories / name / "facts").mkdir(parents=True)
+        (memories / name / "facts" / "a.jsonl").write_text(evil_rule())
+    git(memories, "init", "-q")
+    _commit_all(memories)
+    monkeypatch.setenv("MEMORY_DIR", str(memories / "proj.memory"))
+    out = session_start(capsys, monkeypatch)
+    assert "tracks files in the memory folder" not in out and FRAME_HEADER in out
+    assert main(["check"]) == 0
+    monkeypatch.delenv("MEMORY_DIR")
+    assert main(["init", "--path", str(memories / "proj.memory"), "--no-default-rules"]) == 0
+    assert "proj.memory" not in (memories / ".git" / "info" / "exclude").read_text()
+
+
+def test_a_repo_above_the_project_that_tracks_the_memory_refuses(
+    repo, tmp_path, capsys, monkeypatch
+):
+    """A repo that holds the project and the memory shares the memory with the project."""
+    memdir = tmp_path / "proj.memory"
+    (memdir / "facts").mkdir(parents=True)
+    (memdir / "facts" / "a.jsonl").write_text(evil_rule())
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "add", "-f", "proj.memory")
+    git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@e.invalid", "commit", "-q", "-m", "m")
+    monkeypatch.setenv("MEMORY_DIR", str(memdir))
+    out = session_start(capsys, monkeypatch)
+    assert MARKER not in out and "tracks files in the memory folder" in out
+
+
+def _git_that_cannot_list(tmp_path, monkeypatch) -> None:
+    """A git that fails `ls-files`, as when a hook's time runs out between two git calls. Index
+    version 4 makes the tool ask git."""
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    fake = folder / "git"
+    real = shutil.which("git")
+    fake.write_text(
+        f'#!/bin/sh\nfor a in "$@"; do [ "$a" = ls-files ] && exit 1; done\nexec "{real}" "$@"\n'
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{folder}{os.pathsep}{os.environ['PATH']}")
+
+
+def test_a_pointer_that_git_cannot_check_keeps_the_owner_memory(
+    repo, tmp_path, capsys, monkeypatch
+):
+    """An unknown answer is no proof that git tracks the owner's pointer. A hook then must not
+    set the owner's memory aside with a new empty one and a new record."""
+    elsewhere = tmp_path / "elsewhere"
+    assert main(["init", "--path", str(elsewhere), "--no-default-rules"]) == 0
+    write_facts(elsewhere, [make_fact("f-20261001-0001", "A fact of the owner.")])
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    (repo / ".git" / "cairnkit-memory").unlink()
+    git(repo, "update-index", "--index-version", "4")
+    _git_that_cannot_list(tmp_path, monkeypatch)
+    out = session_start(capsys, monkeypatch)
+    assert "A fact of the owner." in out and "git tracks" not in out
+    assert not (tmp_path / "proj.memory").exists()
+    assert main(["check"]) == 0
+    assert "git tracks" not in capsys.readouterr().out
+    assert main(["load"]) == 0
+    out = capsys.readouterr().out
+    assert "A fact of the owner." in out and "git tracks" not in out
+
+
+def test_a_hook_makes_no_memory_over_a_pointer_that_git_cannot_check(
+    repo, tmp_path, capsys, monkeypatch
+):
+    elsewhere = tmp_path / "elsewhere"
+    assert main(["init", "--path", str(elsewhere), "--no-default-rules"]) == 0
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    shutil.rmtree(elsewhere)
+    (repo / "memory-bank").unlink()
+    (repo / ".git" / "cairnkit-memory").unlink()
+    git(repo, "update-index", "--index-version", "4")
+    _git_that_cannot_list(tmp_path, monkeypatch)
+    session_start(capsys, monkeypatch)
+    assert not elsewhere.exists() and not (tmp_path / "proj.memory").exists()

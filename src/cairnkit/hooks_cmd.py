@@ -286,6 +286,13 @@ def run_install(
             bad.add(name)
             steps.append(f"skip {name}: {exc}")
     names = [name for name in names if name not in bad]
+    unwritable = {
+        name
+        for name in names
+        if name != "generic"
+        and targets
+        and all(adapters.behind_link(c, adapters.ADAPTERS[name].rel) for c in targets)
+    }
     if has_memory and not dry_run:
         # A file to fix stays out of the record, so the next look tries it again.
         _remember_seen(memdir, [n for n in [*names, *adapters.detect(project)] if n not in bad])
@@ -306,6 +313,7 @@ def run_install(
     else:
         refresh.record(project, flag)
     code = 1 if bad and agent != "auto" else 0
+    names = [name for name in names if name not in unwritable]  # each skip step names why
     if quiet:
         _print_summary(project, names, guard, git_hook, steps)
         return code

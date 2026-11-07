@@ -49,6 +49,7 @@ import json
 import os
 import random
 import re
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -436,8 +437,12 @@ def evaluate_load(
     corpus = {s["id"] for s in load_facts(memory_folder, now=now)}
     check_probes(memory_folder, load_facts(memory_folder, now=now), probes)
     with pinned_environment(now), tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)  # an empty folder outside any repo: no branch, no git
-        memory = Memory.open(Project(root=root, main_root=root), str(memory_folder))
+        root = Path(tmp) / "project"  # an empty folder outside any repo: no branch, no git
+        root.mkdir()
+        # A memory folder that a repo tracks does not load, and the fixtures are tracked here.
+        copy = Path(tmp) / "fixture.memory"
+        shutil.copytree(memory_folder, copy, symlinks=False)
+        memory = Memory.open(Project(root=root, main_root=root), str(copy))
         shown = loaded_ids(memory, budget)
         rules = [s for s in active_states(memory) if s.get("kind") == "rule"]
         rest = [s for s in active_states(memory) if s.get("kind") != "rule"]

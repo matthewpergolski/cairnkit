@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cairnkit import plainfile
-from cairnkit.paths import Project, enclosing_trees, run_git, tree_env
+from cairnkit.paths import Project, enclosing_trees, holds_project, run_git, tree_env
 from cairnkit.selection import clean_path, shell_word
 
 HEADER = "# Private project memory (a link to a folder outside the repo)"
@@ -66,14 +66,17 @@ def is_tracked(project: Project, rel: str, checkout: Path | None = None) -> bool
     return listed is None or bool(listed)  # git cannot say: never risk a write to a tracked file
 
 
-def keep_out_of_git(memdir: Path) -> list[str]:
-    """Exclude memdir in each work tree that holds it, then prove it with git.
+def keep_out_of_git(project: Project, memdir: Path) -> list[str]:
+    """Exclude memdir in each work tree that holds it and the project, then prove it with git.
 
-    Return one problem for each work tree where git can still commit the memory.
+    Return one problem for each work tree where git can still commit the memory. Another repo,
+    such as one that backs up the memory folder, is the owner's own history: it stays as it is.
     """
     problems = []
     real = memdir.resolve()
     for tree in enclosing_trees(real):
+        if not holds_project(project, tree):
+            continue
         rel = real.relative_to(tree).as_posix()
         env = tree_env()
         common = run_git(tree, "rev-parse", "--path-format=absolute", "--git-common-dir", env=env)
