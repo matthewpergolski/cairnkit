@@ -36,7 +36,7 @@ from cairnkit.clock import now, parse_time, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import UNKNOWN, branch_reader, branch_tip, merged_checker
 from cairnkit.schema import validate_record
-from cairnkit.selection import clean
+from cairnkit.selection import clean, clean_path
 from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records, locked
@@ -443,5 +443,5 @@ def run_auto(memory: Memory, dry_run: bool) -> int:
     for item in found:
         print(clean(f"- {item.id} [{item.case}] {item.reason} {item.text!r}"))
     if not dry_run:
-        print(f"Log with the undo command for each: {memory.dir / LOG_NAME}")
+        print(f"Log with the undo command for each: {clean_path(memory.dir / LOG_NAME)}")
     return 0

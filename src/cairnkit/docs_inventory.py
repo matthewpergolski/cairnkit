@@ -19,6 +19,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from cairnkit import plainfile
+from cairnkit.selection import clean_path
 
 SKIP_LAYOUT = {
     ".git",
@@ -312,7 +313,8 @@ def project_paths(root: Path) -> list[str]:
     if listed is None:
         if os.path.lexists(root / ".git"):
             raise ListingFailed(
-                f"git could not list the files in {root}, so the atlas could differ from one "
+                f"git could not list the files in {clean_path(root)}, so the atlas could differ "
+                "from one "
                 "that git lists. Nothing changed."
             )
         return sorted(_walk(root))

@@ -22,6 +22,7 @@ from pathlib import Path
 from cairnkit import plainfile
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.config import load_config
+from cairnkit.selection import clean_path
 
 REPO = "cursor/plugins"
 REPO_URL = "https://github.com/cursor/plugins"
@@ -608,7 +609,7 @@ def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list, adopt: 
     target = skills_dir(row.tool)
     shown = f" {latest}" if latest else ""
     note = " (replace same-named folders)" if adopt else ""
-    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {target}{note}")
+    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {clean_path(target)}{note}")
     if not yes:
         return True
     try:
@@ -640,7 +641,7 @@ def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list, adopt: 
         return False
     print(
         f"{row.label}: pstack {version} ({len(installed)} skill(s) installed, "
-        f"{len(skipped)} skipped) copied to {target}"
+        f"{len(skipped)} skipped) copied to {clean_path(target)}"
     )
     if adopted:
         print(f"  adopted (replaced) {len(adopted)} same-named folder(s): {', '.join(adopted)}")

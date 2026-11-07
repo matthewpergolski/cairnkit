@@ -295,13 +295,13 @@ def write_instructions(project, mode: str, file: str | None, dry_run: bool) -> i
                 continue
             if dry_run:
                 action = planned(path)
-                print(f"{said}{action} the rules block in {path} ({harness.harness})")
+                print(f"{said}{action} the rules block in {clean_path(path)} ({harness.harness})")
             else:
                 action = write_block(path, prefix=harness.prefix if not path.exists() else "")
                 if action == "broken":
                     print(markers.broken_message(path, "memory instructions --write-instructions"))
                     return 1
-                print(f"{said}{action} the rules block in {path} ({harness.harness})")
+                print(f"{said}{action} the rules block in {clean_path(path)} ({harness.harness})")
             written.append(harness.rel)
     if not dry_run:
         from cairnkit.refresh import record

@@ -29,7 +29,7 @@ from cairnkit.secretscan import (
     holds_mask,
     mask,
 )
-from cairnkit.selection import DATA_LABEL, clean, load_text, name, owner_rule
+from cairnkit.selection import DATA_LABEL, clean, clean_path, load_text, name, owner_rule
 from cairnkit.similar import analyze, possible_conflicts, repeat_key, similarity
 from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
@@ -585,7 +585,7 @@ def purge_fact(memory: Memory, fact_id: str, reason: str, yes: bool) -> int:
 
 
 def fail(message: str) -> int:
-    print(f"error: {message}", file=sys.stderr)
+    print(f"error: {clean_path(message)}", file=sys.stderr)
     return 1
 
 

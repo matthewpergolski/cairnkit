@@ -320,7 +320,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   break, a terminal code or the end line of the stored notes printed as it was. `memory init`,
   `memory check`, `memory status`, `memory load`, `memory hooks install`,
   `memory instructions` and `memory docs` now clean each path that they print too, so a
-  checkout or memory folder with a terminal code in its name cannot forge a line. The clean of a
+  checkout or memory folder with a terminal code in its name cannot forge a line. So do the
+  report line of `memory tidy`, the log line of `memory tidy --auto`, the Cursor and Pi lines of
+  `memory instructions --write-instructions local`, `memory preset show --detect`, the lines of
+  `memory export --output`, the target of `memory skills install`, the note that git tracks or
+  does not ignore the memory folder, and each error that a command ends with. The clean of a
   path removes only line breaks, control characters, terminal codes and bidi marks, and keeps
   each other character: a memory folder `mem  two` (two spaces) prints as it is, not as
   `mem two`. A path in a command to copy, such as `memory init --path PATH`, is in shell quotes

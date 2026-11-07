@@ -434,7 +434,7 @@ def run_show(name: str, detect_in=None) -> int:
 
         guarded = GUARDED if guard_installed(detect_in) else None
         planned = plan(None, rules, guarded, detect(detect_in.root))
-        print(f"Detected in {detect_in.root} (+ added, - not added):")
+        print(f"Detected in {clean_path(detect_in.root)} (+ added, - not added):")
         for line in describe(planned):
             print(line)
         return 0

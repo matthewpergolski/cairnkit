@@ -6,6 +6,7 @@ from pathlib import Path
 
 from cairnkit import plainfile
 from cairnkit.paths import Project, enclosing_trees, run_git, tree_env
+from cairnkit.selection import clean_path, shell_word
 
 HEADER = "# Private project memory (a link to a folder outside the repo)"
 
@@ -79,12 +80,16 @@ def keep_out_of_git(memdir: Path) -> list[str]:
                 append_lines(target, [line])
         if run_git(tree, "ls-files", "--", rel, env=env):
             problems.append(
-                f"git in {tree} tracks files in the memory folder {memdir}. "
-                f"Remove them from its index: git -C {tree} rm -r --cached -- {rel}"
+                f"git in {clean_path(tree)} tracks files in the memory folder "
+                f"{clean_path(memdir)}. "
+                f"Remove them from its index: git -C {shell_word(tree)} rm -r --cached -- "
+                f"{shell_word(rel)}"
             )
         elif run_git(tree, "check-ignore", "-q", rel, env=env) is None:
             problems.append(
-                f"git in {tree} does not ignore the memory folder {memdir}, so `git add -A` "
+                f"git in {clean_path(tree)} does not ignore the memory folder "
+                f"{clean_path(memdir)}, "
+                "so `git add -A` "
                 "there can commit it. A .gitignore rule there overrides the exclude. "
                 "Move the memory out of that work tree."
             )

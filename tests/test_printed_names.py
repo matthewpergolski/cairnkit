@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+import shutil
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,58 @@ def test_a_checkout_path_cannot_forge_a_line_of_any_command(odd_checkouts, monke
             if lines:
                 found[(where.parent.name, *args)] = lines
     assert found == {}
+
+
+MORE_COMMANDS = [
+    ("add", "We chose SQLite over Postgres for the cache."),
+    ("tidy",),
+    ("tidy", "--auto"),
+    ("instructions", "--write-instructions", "local"),
+    ("preset", "show", "dev", "--detect"),
+    ("export", "--output", "OUT", "--force"),
+    ("export", "--output", "OUT"),
+    ("export", "--output", "OUT/missing/export.txt"),
+]
+
+
+@pytest.mark.parametrize("memory", ["beside", "named"])
+def test_a_project_or_memory_path_cannot_forge_a_line_of_more_commands(
+    odd_checkouts, tmp_path: Path, monkeypatch, capsys, memory: str
+):
+    """The memory folder `named` holds a line break too: no git prints its name."""
+    root = odd_checkouts[0]
+    memdir = tmp_path / ODD if memory == "named" else root.parent / f"{root.name}.memory"
+    if memory == "named":
+        monkeypatch.setenv("MEMORY_DIR", str(memdir))
+    out = tmp_path / "out" / ODD
+    out.mkdir(parents=True)
+    found = {}
+    for where in odd_checkouts:
+        shutil.rmtree(where / "memory-bank")
+        monkeypatch.chdir(where)
+        for args in [*COMMANDS, *MORE_COMMANDS]:
+            args = tuple(arg.replace("OUT", str(out / "export.txt")) for arg in args)
+            lines = forged(printed(capsys, *args))
+            if lines:
+                found[(where.parent.name, *args)] = lines
+    assert (memdir / "facts").is_dir()
+    assert (out / "export.txt").is_file()
+    assert found == {}
+
+
+def test_a_home_path_cannot_forge_a_line_of_the_skills_install(
+    repo: Path, tmp_path: Path, monkeypatch, capsys
+):
+    from test_skills import World
+
+    home = tmp_path / "home" / ODD
+    (home / ".codex").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    World(tmp_path, monkeypatch)
+    plan = printed(capsys, "skills", "install", "pstack", "--tool", "codex")
+    done = printed(capsys, "skills", "install", "pstack", "--tool", "codex", "--yes")
+    assert "copy the skills to" in plan and "copied to" in done
+    assert forged(plan + done) == []
 
 
 # Two spaces, a tab and a no-break space: a path keeps each of them when it prints.

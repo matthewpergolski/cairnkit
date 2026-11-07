@@ -30,7 +30,7 @@ from cairnkit.native import _claude_store
 from cairnkit.paths import merged_checker, run_git
 from cairnkit.schema import MAX_TEXT, RULE_MAX_TEXT, STATUSES
 from cairnkit.secretscan import find_secrets, holds_mask, mask
-from cairnkit.selection import DATA_LABEL, clean, owner_rule
+from cairnkit.selection import DATA_LABEL, clean, clean_path, owner_rule
 from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.writing import Refused, _find_similar, add_fact
@@ -257,7 +257,7 @@ def run_export(memory: Memory, output: str | None, include_ended: bool, force: b
     with fh:
         os.fchmod(fh.fileno(), 0o600)
         fh.write(text)
-    print(f"wrote {path}")
+    print(f"wrote {clean_path(path)}")
     return 0
 
 

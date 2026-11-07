@@ -18,7 +18,7 @@ from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
-from cairnkit.selection import clean
+from cairnkit.selection import clean, clean_path
 from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records
@@ -130,7 +130,7 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
         report = write_report(memory, proposals)
         for p in proposals:
             print(f"- {p.id} [{p.kind}] {p.summary}")
-        print(f"{len(proposals)} proposal(s). Report: {report}")
+        print(f"{len(proposals)} proposal(s). Report: {clean_path(report)}")
         print_unknown(memory)
         if proposals:
             print("To apply: `memory tidy --apply ID [ID ...]`.")
