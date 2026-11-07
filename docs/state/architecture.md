@@ -27,6 +27,7 @@ sources:
   - src/cairnkit/enforcement.py
   - src/cairnkit/envsecrets.py
   - src/cairnkit/followups.py
+  - src/cairnkit/forgery.py
   - src/cairnkit/githook.py
   - src/cairnkit/harness_local.py
   - src/cairnkit/helpers.py
@@ -119,6 +120,7 @@ flowchart TB
     Library --> docs_script[docs_script]
     Library --> enforcement[enforcement]
     Library --> envsecrets[envsecrets]
+    Library --> forgery[forgery]
     Library --> githook[githook]
     Library --> harness_local[harness_local]
     Library --> helpers[helpers]
