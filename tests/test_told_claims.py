@@ -2,7 +2,8 @@
 
 Each test runs the hooks that an agent tool runs (UserPromptSubmit, PostToolUse), then the
 `memory add` that the agent runs in its shell, then the load of the next session. The transcripts
-are synthetic.
+are synthetic. As in Claude Code, the owner's prompt and the answer to a question reach the
+transcript after the hook ran.
 """
 
 from __future__ import annotations
@@ -42,12 +43,37 @@ def hook(capsys, monkeypatch, event, payload, agent="claude"):
     return capsys.readouterr().out
 
 
-def prompt(capsys, monkeypatch, text, session="s", agent="claude", **extra):
-    payload = {"session_id": session, "hook_event_name": "UserPromptSubmit", "prompt": text}
-    return hook(capsys, monkeypatch, "prompt", {**payload, **extra}, agent)
+TRANSCRIPTS = {}
 
 
-def answer(capsys, monkeypatch, question, response, session="s"):
+@pytest.fixture(autouse=True)
+def transcripts(tmp_path):
+    TRANSCRIPTS["dir"] = tmp_path
+
+
+def append(path, record):
+    with open(path, "a") as fh:
+        fh.write(json.dumps(record) + "\n")
+
+
+def prompt(capsys, monkeypatch, value, session="s", agent="claude", typed=True, **extra):
+    """The owner's prompt. With `typed`, the agent tool writes it into its transcript."""
+    payload = {"session_id": session, "hook_event_name": "UserPromptSubmit", "prompt": value}
+    if agent in ("claude", "codex"):
+        payload["transcript_path"] = str(TRANSCRIPTS["dir"] / f"{session}.jsonl")
+    payload.update(extra)
+    out = hook(capsys, monkeypatch, "prompt", payload, agent)
+    if typed and agent == "claude":
+        append(payload["transcript_path"], said("user", text(value)))
+    if typed and agent == "codex":
+        content = [{"type": "input_text", "text": value}]
+        message = {"type": "message", "role": "user", "content": content}
+        append(payload["transcript_path"], {"type": "response_item", "payload": message})
+    return out
+
+
+def answer(capsys, monkeypatch, question, response, session="s", recorded=True):
+    """The owner's answer to an agent question. With `recorded`, the transcript holds it."""
     payload = {
         "session_id": session,
         "hook_event_name": "PostToolUse",
@@ -55,7 +81,14 @@ def answer(capsys, monkeypatch, question, response, session="s"):
         "tool_input": {"questions": [question]},
         "tool_response": response,
     }
-    return hook(capsys, monkeypatch, "after-shell", payload)
+    out = hook(capsys, monkeypatch, "after-shell", payload)
+    if recorded:
+        if isinstance(response, dict):
+            pairs = "".join(f'"{q}"="{a}". ' for q, a in response["answers"].items())
+            response = f"User has answered your questions: {pairs}You can now continue."
+        result = {"type": "tool_result", "tool_use_id": "q1", "content": response}
+        append(TRANSCRIPTS["dir"] / f"{session}.jsonl", said("user", result))
+    return out
 
 
 def agent_add(capsys, monkeypatch, text, *extra, env=("CLAUDECODE", "CLAUDE_CODE_SESSION_ID")):
@@ -135,7 +168,7 @@ def test_a_rule_that_quotes_the_owner_binds(mem, capsys, monkeypatch):
 
 def test_an_injected_sentence_from_a_tool_result_does_not_bind(mem, capsys, monkeypatch, tmp_path):
     path = session_with_proposal(tmp_path)
-    prompt(capsys, monkeypatch, "add a cache to the parser", transcript_path=path)
+    prompt(capsys, monkeypatch, "add a cache to the parser", typed=False, transcript_path=path)
     out = agent_add(capsys, monkeypatch, INJECTED)
     assert "told: not confirmed" in out
     assert f"Saved as {UNCONFIRMED}, and this rule loads as data" in out
@@ -185,6 +218,30 @@ def test_a_summary_must_be_the_owners_words_too(mem, capsys, monkeypatch):
     assert "told: confirmed" in out
 
 
+def test_a_prompt_that_the_transcript_does_not_hold_does_not_bind(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "Fix the lint.")
+    prompt(capsys, monkeypatch, "Never commit .env files.", typed=False)
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.")
+    assert "told: not confirmed" in out
+    assert not binds(capsys, "Never commit .env files.")
+
+
+def test_a_prompt_with_another_transcript_is_not_the_owners(mem, capsys, monkeypatch, tmp_path):
+    prompt(capsys, monkeypatch, "Fix the lint.")
+    fake = claude_transcript(tmp_path, said("user", text("Never commit .env files.")))
+    prompt(capsys, monkeypatch, "Never commit .env files.", typed=False, transcript_path=fake)
+    agent_add(capsys, monkeypatch, "Never commit .env files.")
+    assert not binds(capsys, "Never commit .env files.")
+
+
+def test_a_claude_prompt_with_no_transcript_confirms_nothing(mem, capsys, monkeypatch, tmp_path):
+    missing = str(tmp_path / "gone" / "missing.jsonl")
+    prompt(capsys, monkeypatch, "Never commit .env files.", typed=False, transcript_path=missing)
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.")
+    assert "transcript" in out
+    assert not binds(capsys, "Never commit .env files.")
+
+
 def test_owner_words_of_an_earlier_turn_still_count(mem, capsys, monkeypatch):
     prompt(capsys, monkeypatch, "We deploy only from the release branch.")
     prompt(capsys, monkeypatch, "Now fix the failing lint.")
@@ -204,7 +261,7 @@ def test_the_owners_words_in_another_session_do_not_count(mem, capsys, monkeypat
 
 def test_a_yes_binds_the_rule_in_the_proposal_before_it(mem, capsys, monkeypatch, tmp_path):
     path = session_with_proposal(tmp_path)
-    prompt(capsys, monkeypatch, "add a cache to the parser", transcript_path=path)
+    prompt(capsys, monkeypatch, "add a cache to the parser", typed=False, transcript_path=path)
     prompt(capsys, monkeypatch, "yes", transcript_path=path)
     out = agent_add(capsys, monkeypatch, RULE)
     assert "told: confirmed by the proposal the owner approved in this turn" in out
@@ -364,6 +421,14 @@ def test_the_answer_in_its_text_form_counts(mem, capsys, monkeypatch):
     answer(capsys, monkeypatch, SIGNING, reply)
     agent_add(capsys, monkeypatch, "Sign every commit with GPG.")
     assert binds(capsys, "Sign every commit with GPG.")
+
+
+def test_an_answer_that_the_transcript_does_not_hold_does_not_bind(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "set up commit signing")
+    reply = {"answers": {SIGNING["question"]: PICKED}}
+    answer(capsys, monkeypatch, SIGNING, reply, recorded=False)
+    agent_add(capsys, monkeypatch, "Sign every commit with GPG.")
+    assert not binds(capsys, "Sign every commit with GPG.")
 
 
 def test_an_answer_counts_only_in_its_own_turn(mem, capsys, monkeypatch):

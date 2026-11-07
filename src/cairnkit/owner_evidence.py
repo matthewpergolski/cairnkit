@@ -4,9 +4,11 @@ The data shape: one file for each session, `<memory>/.sessions/<id>.owner.json`,
 state (see session.py), so the other hooks of a session do not read or write it.
 
     {"root": checkout path,
-     "prompts": [{"at", "text"}],               # the newest PROMPTS_KEPT owner prompts
-     "choices": [{"at", "kind", "text"}],      # answers to agent questions, this turn only
-     "approval": {"at", "text"} | null}         # the question that this turn's "yes" answered
+     "agent": the agent tool of the session,
+     "transcript": the transcript path of the first prompt | null,
+     "prompts": [{"at", "text"}],                # the newest PROMPTS_KEPT owner prompts
+     "choices": [{"at", "kind", "text", "answer"}],  # answers to agent questions, this turn only
+     "approval": {"at", "text", "prompt"} | null}  # the question that this turn's "yes" answered
 
 Each text is masked and cut. A new owner prompt starts a turn, so it clears the choices and the
 approval of the turn before. The prompt hook writes it, and the hook after a tool adds the label
@@ -17,6 +19,17 @@ reads the agent's last message from the transcript that the payload names. Only 
 ends that message counts, and only when it is a question: that is what the "yes" answers. The rest
 of the message is often a report of what a tool or a page said, which the owner did not approve.
 A tool step after the message, or a message that ends in no question, gives no approval.
+
+The transcript proves the evidence. Any process of the same user can pipe a payload into
+`memory hook prompt`, so for a tool whose transcript cairnkit reads (READERS), `check_claim`
+counts a prompt only when the transcript holds it as an owner prompt, an approval only when it
+holds the "yes" and the question, and an answer only when it holds the answer in a tool result.
+It reads the transcript when the claim is checked, not in the prompt hook, because the tool may
+write the prompt to the transcript after the hook runs. The first prompt of a session fixes its
+transcript path, and a prompt that names another path is not kept. A transcript that cannot be read
+proves nothing. For another tool there is no transcript to read, so its evidence counts as kept:
+that is a known limit. A forger can still write a fake transcript, or the evidence file itself;
+the before-shell hook (forgery.py) refuses those commands in the agent's shell.
 
 How `memory add` finds its session. Claude Code, Codex and Grok put the session id in the shell of
 the agent, and the hooks get the same id. For another agent, it takes the one session in this
@@ -53,6 +66,7 @@ CHOICES_KEPT = 8
 CHOICE_CHARS = 1000
 PROPOSAL_CHARS = 1200
 TAIL_BYTES = 512 * 1024
+PROOF_BYTES = 16 * 1024 * 1024
 OPEN_SECONDS = 1800
 # The variable in the agent's shell that holds the session id that its hooks get. Claude Code was
 # read in a real shell. Codex and Grok are inferred from their names.
@@ -102,24 +116,37 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     if not prompt.strip() or NOT_THE_OWNER.search(prompt):
         return
     path = evidence_path(memory, key)
+    old = _read(path)
+    transcript = str(payload.get("transcript_path") or "") or None
+    if old.get("transcript") and transcript != old["transcript"]:
+        return  # a prompt from another transcript is no prompt of this session
     moment = time.time()
-    own = FENCED.sub(" ", prompt).strip()  # a fenced block is a paste, not the owner's words
-    prompts = _list(_read(path), "prompts")
+    own = _own_words(memory, prompt)
+    prompts = _list(old, "prompts")
     if own:
-        prompts.append({"at": moment, "text": _kept(memory, own, PROMPT_CHARS)})
+        prompts.append({"at": moment, "text": own})
     approval = None
     if is_approval(prompt):
-        message = last_agent_message(agent, payload.get("transcript_path"), prompt)
+        message = last_agent_message(agent, transcript, prompt)
         question = final_question(message) if message else None
         if question:
-            approval = {"at": moment, "text": _kept(memory, question, PROPOSAL_CHARS)}
+            text = _kept(memory, question, PROPOSAL_CHARS)
+            approval = {"at": moment, "text": text, "prompt": own}
     data = {
         "root": str(memory.project.root),
+        "agent": agent,
+        "transcript": transcript,
         "prompts": prompts[-PROMPTS_KEPT:],
         "choices": [],
         "approval": approval,
     }
     write_state(memory, path, data)
+
+
+def _own_words(memory: Memory, prompt: str) -> str:
+    """The prompt as it is kept: no fenced block (a paste, not the owner's words), masked, cut."""
+    own = FENCED.sub(" ", prompt).strip()
+    return _kept(memory, own, PROMPT_CHARS) if own else ""
 
 
 def _answers(response: object) -> dict[str, str]:
@@ -145,9 +172,10 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
         question = str(item.get("question") or "")
         options = [opt for opt in item.get("options") or [] if isinstance(opt, dict)]
         labels = [str(opt.get("label") or "") for opt in options]
-        evidence = choice_evidence(labels, answers.get(question, ""))
+        reply = answers.get(question, "")
+        evidence = choice_evidence(labels, reply)
         if evidence:
-            found.append(evidence)
+            found.append((evidence, reply))
     if not found:
         return
     path = evidence_path(memory, key)
@@ -159,21 +187,22 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
             "at": moment,
             "kind": item.kind,
             "text": _kept(memory, item.text, CHOICE_CHARS),
+            "answer": _kept(memory, reply, CHOICE_CHARS),
         }
-        for item in found
+        for item, reply in found
     ]
     data["choices"] = choices[-CHOICES_KEPT:]
     write_state(memory, path, data)
 
 
-def _tail_lines(path: str) -> list[str]:
-    """The whole lines in the last TAIL_BYTES of a regular file, newest first."""
+def _tail_lines(path: str, width: int = TAIL_BYTES) -> list[str]:
+    """The whole lines in the last `width` bytes of a regular file, newest first."""
     fd = plainfile.open_fd(path)
     with os.fdopen(fd, "rb") as fh:
         size = os.fstat(fh.fileno()).st_size
-        start = max(0, size - TAIL_BYTES)
+        start = max(0, size - width)
         fh.seek(start)
-        lines = fh.read(TAIL_BYTES).decode("utf-8", "replace").splitlines()
+        lines = fh.read(width).decode("utf-8", "replace").splitlines()
     return list(reversed(lines[1:] if start else lines))
 
 
@@ -217,6 +246,16 @@ def _last_reply(turns, prompt: str) -> str | None:
     return "\n".join(found).strip() or None
 
 
+def _results(content: object) -> list[str]:
+    """The text of each tool result block."""
+    found = []
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") == "tool_result":
+            inner = block.get("content")
+            found += [inner] if isinstance(inner, str) else _texts(inner, ("text",))
+    return found
+
+
 def _claude_turns(lines: list[str]):
     """Claude Code: `type: assistant` records hold text, tool_use or thinking blocks. A
     `type: user` record is a prompt, or a tool result. An `isMeta` record is text that the tool
@@ -229,8 +268,8 @@ def _claude_turns(lines: list[str]):
         elif kind == "assistant" and _texts(content, ("text",)):
             yield "agent", _texts(content, ("text",))
         elif kind == "user" and not record.get("isMeta"):
-            if _texts(content, ("tool_result",)) or not _texts(content, ("text",)):
-                yield "tool", []
+            if _results(content) or not _texts(content, ("text",)):
+                yield "tool", _results(content)
             else:
                 yield "owner", _texts(content, ("text",))
 
@@ -284,14 +323,57 @@ def _session_file(memory: Memory) -> Path | None:
     return found[0] if len(found) == 1 else None
 
 
-def evidence(data: dict) -> list[Evidence]:
-    items = [Evidence("prompt", str(row.get("text", ""))) for row in _list(data, "prompts")]
+@dataclass(frozen=True)
+class Seen:
+    """What the transcript holds, masked and cut as the evidence is."""
+
+    owner: frozenset[str]  # owner prompts
+    agent: tuple[str, ...]  # agent messages
+    tool: tuple[str, ...]  # tool results
+
+
+def transcript_seen(memory: Memory, data: dict) -> Seen | None:
+    """What the session's transcript holds, or None when it cannot be read."""
+    reader, path = READERS.get(str(data.get("agent"))), data.get("transcript")
+    if reader is None or not isinstance(path, str) or not path or path.endswith(".zst"):
+        return None
+    try:
+        turns = list(reader(_tail_lines(path, PROOF_BYTES)))
+    except (OSError, ValueError):
+        return None
+    texts = {role: [text for r, texts in turns if r == role for text in texts] for role in
+             ("owner", "agent", "tool")}  # fmt: skip
+    return Seen(
+        frozenset(_own_words(memory, text) for text in texts["owner"]),
+        tuple(mask(text, memory.env) for text in texts["agent"]),
+        tuple(mask(text, memory.env) for text in texts["tool"]),
+    )
+
+
+def evidence(data: dict, seen: Seen | None = None) -> list[Evidence]:
+    """The evidence of the session. With `seen`, only what the transcript holds."""
+
+    def held(row: dict) -> bool:
+        if seen is None:
+            return True
+        answer = f'="{row.get("answer", "")}"'
+        return bool(row.get("answer")) and any(answer in text for text in seen.tool)
+
+    prompts = [str(row.get("text", "")) for row in _list(data, "prompts")]
+    items = [Evidence("prompt", text) for text in prompts if seen is None or text in seen.owner]
     items += [
         Evidence("choice" if row.get("kind") == "choice" else "prompt", str(row.get("text", "")))
         for row in _list(data, "choices")
+        if held(row)
     ]
     approval = data.get("approval")
-    if isinstance(approval, dict):
+    if isinstance(approval, dict) and (
+        seen is None
+        or (
+            approval.get("prompt") in seen.owner
+            and any(str(approval.get("text")) in text for text in seen.agent)
+        )
+    ):
         items.append(Evidence("approval", str(approval.get("text", ""))))
     return items
 
@@ -300,9 +382,14 @@ def check_claim(memory: Memory, text: str) -> Verdict:
     """Does a `told` claim of an agent match the owner's evidence of its session?"""
     path = _session_file(memory)
     data = _read(path) if path else {}
-    if not data:
+    if not data or not data.get("agent"):
         return Verdict(False, "no owner prompt of this session was found")
-    found = best_match(text, evidence(data))
+    seen = None
+    if data["agent"] in READERS:
+        seen = transcript_seen(memory, data)
+        if seen is None:
+            return Verdict(False, "the transcript of this session could not be read")
+    found = best_match(text, evidence(data, seen))
     if found is None:
         return Verdict(False, "it is no copy of one sentence the owner said in this session")
     return Verdict(True, VIA[found.kind])

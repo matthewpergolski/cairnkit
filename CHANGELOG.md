@@ -35,7 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
   loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
   confirms it. The prompt hook keeps this evidence, masked and cut, in
-  `.sessions/<id>.owner.json`. A person at a terminal binds as before.
+  `.sessions/<id>.owner.json`. A person at a terminal binds as before. For Claude Code and Codex,
+  `memory add` counts a kept prompt, approval or answer only when the session's transcript holds
+  it, and a prompt that names another transcript than the session's first is not kept; a
+  transcript that cannot be read proves nothing.
+- The before-shell hook refuses an agent shell command that runs a cairnkit hook by hand, changes
+  or removes an agent marker (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, ...)
+  and runs `memory`, calls cairnkit's evidence code from a script, or writes into the memory
+  folder's `facts/` or `.sessions/`. Limits: a same-user process can still forge the evidence,
+  the agent's Edit and Write tools are not guarded (the hook sees shell commands only), and a
+  command built to hide its shape can pass the check.
 
 - `memory export` prints the active facts of this project as `[YYYY-MM-DD] - text` lines, oldest
   first, under the headings Instructions, Decisions, Traps and lessons, Project state, Preferences

@@ -116,7 +116,7 @@ complete. Remove a row in the change that fixes it.
 | Each agent gets the same result | Cursor adds no text at a prompt. News waits for its next `Shell`, `Write` or `Delete` tool result. The load after a compaction waits for that result or its next stop. This comes from its public docs. No real Cursor run tested it. |
 | Each agent gets the same result | A subagent gets a load at its start on Claude Code and Codex. The hook is also written for Grok Build, but nobody tested it. These stay unwired, so a subagent misses the memory unless its brief says to run `memory load`: Cursor, because its docs let `subagentStart` only allow or deny; Pi, because it has no built-in subagents; OpenCode, because its docs name child sessions and no plugin event for them. |
 | Each agent gets the same result | The prompt that names new native memory notes reads only Claude Code's store. OpenCode has no per-prompt news. It hears news after a `bash` tool. |
-| Stored text is data | The tool knows that an agent wrote a rule only from the agent tool's environment markers. An agent tool with no marker still writes a rule that prints as an instruction. An agent's `told` claim binds when it is a near-verbatim copy of one sentence the owner typed, the label the owner picked, or the closing question the owner approved in that session; a tricked agent that writes the session's evidence file itself, or an owner who approves a proposal that quotes injected text, still gets a rule that binds. A `told` rule from an agent names that agent. An agent can end or replace a rule that binds, because the tool cannot prove what the owner said in the session. The tool prints a line at once and names the rule once in the next load, and the agent must tell the owner. A hand-edited fact file can claim anything. |
+| Stored text is data | The tool knows that an agent wrote a rule only from the agent tool's environment markers. An agent tool with no marker still writes a rule that prints as an instruction. An agent's `told` claim binds when it is a near-verbatim copy of one sentence the owner typed, the label the owner picked, or the closing question the owner approved in that session; for Claude Code and Codex the session's transcript must hold that evidence. The before-shell hook refuses an agent shell command that runs a hook by hand, changes an agent marker before `memory`, or writes into `facts/` or `.sessions/`. A same-user process, the agent's Edit or Write tool, or a command built to hide its shape can still forge the evidence, and an owner who says yes to a closing question that quotes injected text still gets a rule that binds. A `told` rule from an agent names that agent. An agent can end or replace a rule that binds, because the tool cannot prove what the owner said in the session. The tool prints a line at once and names the rule once in the next load, and the agent must tell the owner. A hand-edited fact file can claim anything. |
 | Capture | A fact that the agent never writes is lost. A stop can make the agent answer, and it cannot make the agent write: "nothing is worth a fact" ends the check. This is an accepted risk in [the test record](docs/forgetting-tests.md#accepted-risks). Pi in print mode has no later turn, so its check waits for the next run of that session. A Grok Build stop may not reach the model: its hook docs call `Stop` passive and no real run has tested it. So the check also waits for its next tool result. A session that ends first never hears it. |
 | Capture | The check for what the owner stated reads English words in a prompt: Claude Code, Codex, Cursor, Pi and OpenCode. On a labelled set of 182 ordinary prompts and 60 statements, it gave 2 false fires and 1 miss. One author wrote the set. Grok Build and the generic adapter give no prompt, so they get only the check for changed work, once in a session. A statement after 600 characters of a prompt is not read. |
 | Hands-off | A stop that carries no event can still block once, to give the load to Grok Build when no tool ran, or to Cursor after a compaction when no tool ran. These tools have no other way to add it. The generic adapter has only stop, so its news also arrives there. A health warning blocks like a health error, once, because `--strict` fails on it. A secret warning about a file that the session did not write does not block. The file time says which file the session wrote, so a file copied with its old time counts as old. A secret in a stored fact blocks once, also an old one, because a new shape can catch it. |
@@ -513,14 +513,37 @@ the tests", and "Don't merge to main until CI is green" does not confirm "Never 
 main". A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. An approval and an answer count only in their own turn, until the next owner prompt.
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
-confirmed)` data, and the add output says so and how the owner confirms it. Nothing
-here proves what the owner said: an agent that writes the evidence file itself, or an
-owner who says yes to a closing question that quotes injected text, still gets a rule
-that binds.
+confirmed)` data, and the add output says so and how the owner confirms it.
 `memory add` finds its session by the session id in the agent's shell (Claude Code,
 Codex, Grok), else by the one session in this checkout with an owner prompt in the last
 30 minutes. The approval reads Claude Code and Codex transcripts. Another tool gets the
 owner's typed words and choices only.
+
+**The transcript proves the evidence, and the agent's shell is guarded.** For Claude
+Code and Codex, `memory add` reads the session's transcript when it checks a claim: a
+prompt counts only when the transcript holds it as an owner prompt, an approval only
+when it holds the "yes" and the question, and an answer only when a tool result holds
+it. The first prompt of a session fixes its transcript path; a prompt that names
+another path is not kept. A transcript that cannot be read proves nothing, so the
+claim stays unconfirmed. The before-shell hook (Claude Code, Codex, OpenCode, Pi)
+refuses an agent's shell command that runs a cairnkit hook by hand (`memory hook ...`,
+`python -m cairnkit hook`), that changes or removes an agent marker and runs `memory`
+(`env -u CLAUDECODE memory add ...`, `CLAUDE_CODE_SESSION_ID=x memory add ...`, `env -i`,
+`unset`), that calls cairnkit's evidence code from a script, or that writes into the
+memory folder's `facts/` or `.sessions/` (a redirect, `tee`, `cp`, `mv`, `sed -i`, a
+script that writes a file).
+
+**What this does not stop.** A process of the same user can still forge evidence:
+cairnkit's own code cannot tell it from the hooks. The before-shell refusals add a
+boundary only in the agent tool's shell, and they read the command text, so a command
+built to hide its shape (a script that a heredoc feeds, a file written by another
+program, an encoded string) can pass them. The Edit and Write tools of the agent are
+not guarded: the hooks that cairnkit installs see only shell commands (the Claude Code
+`PreToolUse` matcher is `Bash`), so an agent can still write the evidence file, a fact
+file or a fake transcript with them. A tool with no transcript that cairnkit reads
+(Cursor, Grok, OpenCode, Pi) gets no transcript proof, so its kept prompts count as
+they are. An owner who says yes to a closing question that quotes injected text, or who
+types a sentence that a page put in front of them, still gets a rule that binds.
 
 **A change to a rule that binds is never silent.** An agent can end, replace or purge
 such a rule only if the owner stated the change in the session. The tool cannot prove

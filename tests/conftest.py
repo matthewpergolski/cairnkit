@@ -206,13 +206,23 @@ def write_facts(mem: Path, records: list[dict], name: str = "main.jsonl") -> Non
 
 def owner_said(monkeypatch, text: str, session: str = "s") -> None:
     """The owner types `text` in a session, and the agent's shell joins that session. Then an
-    agent's `told` claim with these words binds."""
+    agent's `told` claim with these words binds. The synthetic transcript holds the prompt, as
+    Claude Code's does, so the claim check can prove it."""
     import io
     import json
+    import tempfile
 
     from cairnkit.cli import main
 
-    payload = {"session_id": session, "hook_event_name": "UserPromptSubmit", "prompt": text}
+    transcript = Path(tempfile.gettempdir()) / f"cairnkit-test-{uuid.uuid4().hex}.jsonl"
+    payload = {
+        "session_id": session,
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": text,
+        "transcript_path": str(transcript),
+    }
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
     assert main(["hook", "prompt", "--agent", "claude"]) == 0
+    record = {"type": "user", "message": {"role": "user", "content": text}}
+    transcript.write_text(json.dumps(record) + "\n", encoding="utf-8")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)

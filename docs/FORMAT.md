@@ -541,7 +541,12 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   that another branch or auto-tidy wrote or ended since the load, and up to 5 stored
   facts that match files changed since the load, traps first. Each item is named once.
   It always exits 0.
-- `before-shell`: before a shell command runs. It splits the command into steps at `;`, `&&`,
+- `before-shell`: before a shell command runs. First it refuses a command that would forge the
+  owner's evidence (see `forgery.py`): one that runs `memory hook ...` or `python -m cairnkit
+  hook` by hand, changes or removes an agent marker (`env -u`, `env -i`, `NAME=`, `unset`) and
+  runs `memory`, calls cairnkit's evidence code from a `python -c` script, or writes into the
+  memory folder's `facts/` or `.sessions/`. The reason of that deny says why. Then it splits the
+  command into steps at `;`, `&&`,
   `||`, `|` and newlines. A step is its `NAME=value` settings and its core, the other words without
   output redirects. An active fact matches when its text holds the whole core behind a prefix that
   the step lacks: a setting, or one of the wrappers `env`, `sudo`, `uv run`, `poetry run`,

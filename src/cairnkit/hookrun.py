@@ -23,6 +23,7 @@ from cairnkit import (
     branchgate,
     deadline,
     followups,
+    forgery,
     githook,
     helpers,
     hooks_cmd,
@@ -689,7 +690,8 @@ BEFORE_SHELL_BUDGET = 2.5
 
 
 def before_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
-    """Before a shell command: a fact with a longer form of it stops this call once. Exits 0.
+    """Before a shell command: a command that would forge the owner's evidence is refused (see
+    forgery.py), and a fact with a longer form of it stops this call once. Exits 0.
 
     It never prints an allow, so the person's own approval of the command still applies. On any
     error or past its time it says nothing, and the command runs.
@@ -699,7 +701,10 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
         command = loopbreak.shell_command(payload)
         if agent in BEFORE_SHELL_AGENTS and command and has_memory(project, flag):
             memory = Memory.open(project, flag)
-            text = beforeshell.message(memory, session_key(payload), command)
+            folders = {str(memory.dir), str(memory.dir.resolve())}
+            text = forgery.refusal(command, folders, LINK_NAME) or beforeshell.message(
+                memory, session_key(payload), command
+            )
     if not text:
         if agent == "codex":
             print("{}")
