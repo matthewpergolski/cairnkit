@@ -553,8 +553,10 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   `SubagentStart` adds the helper's id and worktree. An event ends the record, never a clock: the
   helper's `SubagentStop`, the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. A compaction does not name the helpers of its own session, and a
-  helper's load does not name its siblings, because they can still run. The tool writes no fact.
+  stays while the worktree does. A compaction (or a reload) names the helpers of its own session
+  first, as "started by this session, may still be running", because the same process runs them,
+  and its next stop does not end them. A resume is a new process, so it names them as having no
+  recorded end. A helper's load does not name its siblings. The tool writes no fact.
 
 This does not use the word budget. It reads each checkout with `git status`, with no optional lock,
 and with 1.5 seconds in total. A checkout that it could not read is counted in the list. It never

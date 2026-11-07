@@ -210,6 +210,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- After a compaction, the session start names the helpers that this session started under
+  `## Live work`, as "started by this session, may still be running". Before, a compaction hid
+  them, so a lead lost the work that its running helpers did. The next stop of the session does
+  not end their records. A resume still names them as having no recorded end.
 - Each start of the tool now uses `python -P`: the agent hooks, the Pi and OpenCode plugins, the
   git hooks (also the `import cairnkit` test of pre-commit) and the background update check.
   Before, Python put the folder of the hook first on the import path. A `cairnkit/` folder or a

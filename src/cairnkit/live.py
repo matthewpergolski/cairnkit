@@ -188,19 +188,22 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
 
 # Only an end that the hooks saw ends a record. A missed one is no proof that the helper runs.
 NO_END = "no end recorded, so it may have ended unseen"
+# In the process that started it, the hooks would have seen its end.
+RUNNING = "started by this session, may still be running"
 
 
-def _helper_line(memory: Memory, helper: helpers.Helper) -> str:
+def _helper_line(memory: Memory, helper: helpers.Helper, running: bool = False) -> str:
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
     ago = _ago(helper.started_at)
+    end = RUNNING if running else NO_END
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]
     elif helpers.is_checkout(memory.project, helper.checkout):
         branch, held = _helper_work(memory, helper)
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}{branch}"
-        state = [NO_END, held]
+        state = [end, held]
     elif helper.checkout:
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}"
         gone = (
@@ -208,10 +211,10 @@ def _helper_line(memory: Memory, helper: helpers.Helper) -> str:
             if helper.has_checkout
             else "that checkout is gone now"
         )
-        state = [NO_END, gone]
+        state = [end, gone]
     else:
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.parent)}"
-        state = [NO_END]
+        state = [end]
     task = [f"task: {helper.task}"] if helper.task else []
     return mask(clean(f"- [helper] {head}: {'; '.join([*task, *state])}."), memory.env)
 
@@ -251,7 +254,11 @@ def _line(memory: Memory, checkout: Checkout) -> str:
 
 
 def add_lines(
-    memory: Memory, lines: list[str], session: str | None, hide_helpers_of: str | None = None
+    memory: Memory,
+    lines: list[str],
+    session: str | None,
+    hide_helpers_of: str | None = None,
+    own_helpers_of: str | None = None,
 ) -> list[str]:
     """The load with its live work added, or as it was when there is none.
 
@@ -259,17 +266,20 @@ def add_lines(
     so it says nothing of its own checkout. A session names its own checkout only when another
     session is at work here. Old changes here with no session at work are most often the owner's,
     and the order not to commit them would get in the way of a plain request to commit.
-    The helpers of `hide_helpers_of` can still run, so they are not named.
+    The helpers of `hide_helpers_of` are the siblings of a helper's own load, so they are not named.
+    The helpers of `own_helpers_of` can still run in this process (a compaction), so they come
+    first, say so, and are not marked as told: a told record ends at the next stop.
     """
     if FRAME_HEADER not in lines:
         return lines
     records = helpers.shown(memory, hide_helpers_of)
+    records.sort(key=lambda helper: helper.session != own_helpers_of)
     named = records[:MAX_HELPERS]
     body: list[str] = []
     found: list[Checkout] = []
     unread = 0
     with deadline.within(BUDGET):
-        body = [_helper_line(memory, helper) for helper in named]
+        body = [_helper_line(memory, h, h.session == own_helpers_of) for h in named]
         if len(records) > MAX_HELPERS:
             body.append(f"- [helper] {len(records) - MAX_HELPERS} more helper(s) with no end.")
         if memory.project.is_git:
@@ -278,7 +288,8 @@ def add_lines(
             skip = {Path(h.checkout or "").resolve() for h in named if h.has_checkout}
             found, unread = _read_checkouts(memory, at_work, here, skip)
     if session is not None:
-        helpers.note_told(memory, [helper.call for helper in named], session)
+        told = [helper.call for helper in named if helper.session != own_helpers_of]
+        helpers.note_told(memory, told, session)
     body += [_line(memory, checkout) for checkout in found[:MAX_LINES]]
     held = len(found) - MAX_LINES
     if held > 0:

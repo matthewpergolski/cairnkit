@@ -238,7 +238,7 @@ def on_main_stop(memory: Memory, session: str) -> None:
 def shown(memory: Memory, hide_session: str | None) -> list[Helper]:
     """The records that a load names, oldest first.
 
-    `hide_session` is a session whose helpers can still run: a compaction or a helper's own load.
+    `hide_session` is the session of a helper's own load, whose siblings can still run.
     """
     return [h for h in _read(memory) if h.session != hide_session]
 

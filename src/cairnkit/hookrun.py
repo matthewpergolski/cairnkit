@@ -367,8 +367,8 @@ def _session_text(
     reserve: int = 0,
 ) -> str:
     room = HOOK_TEXT_LIMIT - reserve - len(RULES_SHORT) - 2
-    hide = session if same_process else None
-    options = {"update_notice": update_notice, "session": session, "hide_helpers_of": hide}
+    own = session if same_process else None
+    options = {"update_notice": update_notice, "session": session, "own_helpers_of": own}
     return fitted_load(project, flag, 600, room, **options) + "\n\n" + RULES_SHORT
 
 
