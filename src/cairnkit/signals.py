@@ -492,7 +492,7 @@ def _now_relevant(memory: Memory, state: dict) -> tuple[list[str], list[str]]:
         parts = score_parts(fact, moment, new, set())
         if parts["area"] or parts["mention"]:
             rows.append((-(parts["trap"] + parts["area"] + parts["recency"]), fact["id"], fact))
-    done = landed.find(memory) if rows else {}
+    done = landed.find(memory, git=False) if rows else {}
     rows = [row for row in rows if row[1] not in done]
     rows.sort(key=lambda row: row[:2])
     facts = [row[2] for row in rows]

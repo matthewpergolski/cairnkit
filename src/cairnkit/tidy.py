@@ -98,9 +98,11 @@ def _snippet(state: dict) -> str:
     return " ".join(str(state.get("text", "")).split())[:SNIPPET]
 
 
-def landed_work(memory: Memory, active: list[dict]) -> dict[str, landed.Landed]:
-    """The active one-time approvals whose work landed, by id."""
-    done = landed.find(memory)
+def landed_work(
+    memory: Memory, active: list[dict], patient: bool = False
+) -> dict[str, landed.Landed]:
+    """The active one-time approvals whose work landed, by id. `memory tidy` is patient."""
+    done = landed.find(memory, patient=patient)
     return {s["id"]: done[s["id"]] for s in active if s["id"] in done}
 
 
@@ -108,7 +110,7 @@ def _landed(memory: Memory, active: list[dict]) -> list[Proposal]:
     """The agent decides: the work landed, but a rule can still hold after it."""
     by_id = {s["id"]: s for s in active}
     out = []
-    for fid, work in sorted(landed_work(memory, active).items()):
+    for fid, work in sorted(landed_work(memory, active, patient=True).items()):
         reason = f"Work landed in {work.commit} on {work.date}."
         summary = clean(
             f"{fid} ({by_id[fid].get('kind')}, {_snippet(by_id[fid])!r}): its work landed in "

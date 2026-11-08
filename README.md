@@ -469,7 +469,10 @@ date and subject, and the `memory change ID --status expired` command. The sessi
 start names those facts in one line. Auto-tidy ends none of them: the agent
 decides. If one still holds, `memory change ID --status active --reason "..."`
 marks it as reviewed, and only a later commit names it again. One `git log` reads
-all facts, and `<memory>/.landed.json` keeps the answer until a main branch moves.
+all facts: at most 50 paths and 5000 commits. `<memory>/.landed.json` keeps the
+answer until a main branch moves or a fact changes. A git that does not answer in
+2 s is kept as unknown until then, and the session goes on as if the signal were
+off. The prompt and shell hooks read only that file. `memory tidy` asks git again.
 When `memory add` writes a rule whose text reads as approval of one piece of work
 (a verb of yes with an object of work: "yes to migration 0018", "approved the
 parser", "go ahead with the move", "OK'd the new parser", "LGTM on the refactor",

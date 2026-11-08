@@ -22,7 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `memory change ID --status expired --reason "..."` command. The session start names those facts
   in one line. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
   `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all
-  facts, and `<memory>/.landed.json` keeps the answer until a main branch moves. `memory tidy` also
+  facts: at most 50 paths, newest facts first, and at most 5000 commits back to the oldest of
+  them (0.19 s on a repo of 30,000 commits). `<memory>/.landed.json` (format version 2, written
+  whole, a bad entry ignored) keeps the answer until a main branch moves or a fact changes. A git
+  that does not answer in 2 s is kept as unknown, so the next hook does not ask again, and it does
+  not mark git as stuck, so the load is not partial. The prompt and shell hooks read only the
+  cache and run no git for it. `memory tidy` asks again, with 10 s. `memory tidy` also
   proposes to supersede an active rule that a newer fact names by id and says it replaces.
 - `memory add --kind rule` (any basis) whose text reads as approval of one piece of work prints a
   note: write it as `--kind decision --basis BASIS --supersedes ID` with `--files PATHS` (tidy

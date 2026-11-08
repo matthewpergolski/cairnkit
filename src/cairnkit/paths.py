@@ -139,17 +139,25 @@ def _index_copy(cwd: Path, env: dict[str, str]) -> str | None:
 
 
 def run_git(
-    cwd: Path, *args: str, timeout: float = 3.0, env: dict[str, str] | None = None
+    cwd: Path,
+    *args: str,
+    timeout: float = 3.0,
+    env: dict[str, str] | None = None,
+    counts: bool = True,
 ) -> str | None:
     """Run git. Return its output, or None when git fails, is missing or has no time left.
 
     A git that runs past its time is killed, and a lock that it held stays and stops the next
     commit. A read such as `git status` takes no optional lock here. A `git diff` against the
     worktree always refreshes and writes the index, so it gets a copy of the index.
+
+    With `counts=False`, a call whose answer can wait gets no answer quietly: its timeout does not
+    mark git as stuck, and the caller's load does not say that it is partial.
     """
     room = deadline.left()
     if room <= 0 or deadline.git_stuck():
-        deadline.note_git_cut()
+        if counts:
+            deadline.note_git_cut()
         return None
     env = {**(env if env is not None else os.environ), "GIT_OPTIONAL_LOCKS": "0"}
     if args and args[0] == "diff":
@@ -167,12 +175,14 @@ def run_git(
             env=env,
         )
     except subprocess.TimeoutExpired:
-        deadline.note_git_cut()
-        if timeout <= room:
-            deadline.note_git_timeout()
+        if counts:
+            deadline.note_git_cut()
+            if timeout <= room:
+                deadline.note_git_timeout()
         return None
     except (OSError, subprocess.SubprocessError):
-        deadline.note_git_cut()
+        if counts:
+            deadline.note_git_cut()
         return None
     if result.returncode != 0:
         return None

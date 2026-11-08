@@ -106,7 +106,12 @@ def test_a_deleted_path_lands_by_its_removal(mem, repo, capsys, monkeypatch):
     commit(repo, "old", {"src/old.py": "x\n"})
     at(monkeypatch, "10")
     fid = add(
-        capsys, "Yes to the removal of the old module.", "--kind", "decision", "--files", "src/old.py"
+        capsys,
+        "Yes to the removal of the old module.",
+        "--kind",
+        "decision",
+        "--files",
+        "src/old.py",
     )
     at(monkeypatch, "11")
     commit(repo, "remove old", {"src/old.py": None})
@@ -132,7 +137,9 @@ def test_a_lasting_rule_on_a_busy_file_never_lands(mem, repo, capsys, monkeypatc
     at(monkeypatch, "10")
     told = ("--basis", "told")
     named = add(capsys, f"Keep {name} to the real behaviour.", "--kind", "rule", *told)
-    filed = add(capsys, "Write each entry in plain words.", "--kind", "rule", *told, "--files", name)
+    filed = add(
+        capsys, "Write each entry in plain words.", "--kind", "rule", *told, "--files", name
+    )
     short = add(capsys, "Keep the file short.", "--kind", "decision", *told, "--files", name)
     at(monkeypatch, "11")
     commit(repo, "edit", {name: "b\n"})
@@ -153,7 +160,9 @@ def test_a_rename_does_not_land_the_old_path(mem, repo, capsys, monkeypatch):
     at(monkeypatch, "05")
     commit(repo, "base", {"src/parser.py": "".join(f"line {n}\n" for n in range(40))})
     at(monkeypatch, "10")
-    fid = add(capsys, "Yes to the parser rewrite.", "--kind", "decision", "--files", "src/parser.py")
+    fid = add(
+        capsys, "Yes to the parser rewrite.", "--kind", "decision", "--files", "src/parser.py"
+    )
     at(monkeypatch, "11")
     git(repo, "mv", "src/parser.py", "src/parse.py")
     git(repo, "commit", "-q", "-m", "rename")
@@ -195,7 +204,9 @@ def test_work_lands_on_the_integration_branch_too(mem, repo, capsys, monkeypatch
     git(repo, "checkout", "-q", "-b", "dev")
     git(repo, "checkout", "-q", "-b", "feature")
     at(monkeypatch, "10")
-    fid = add(capsys, "Go ahead with the new module.", "--kind", "decision", "--files", "src/new.py")
+    fid = add(
+        capsys, "Go ahead with the new module.", "--kind", "decision", "--files", "src/new.py"
+    )
     at(monkeypatch, "11")
     commit(repo, "new", {"src/new.py": "x\n"})
     assert fid not in found(repo)

@@ -17,26 +17,37 @@ nothing here ends a fact. `memory tidy` proposes the end, and the agent decides.
 fact after the commit, such as `memory change ID --status active --reason "..."`, says that the
 agent looked, so the same commit does not count again.
 
-One `git log` reads all facts at once. The answer is kept in the memory folder until a landing
-branch moves or a fact changes, so a hook reads it at the cost of one `git for-each-ref`.
+One `git log` reads all facts at once: at most MAX_PATHS paths, and at most MAX_COMMITS commits
+back to the oldest of those facts. A commit past that bound is not seen, so its fact waits. The
+answer is kept in the memory folder until a landing branch moves or a fact changes, so a hook
+reads it at the cost of one `git for-each-ref`. A git that does not answer in time is kept as
+"unknown" in the same way, so the next hook does not ask again, and it does not count as a stuck
+git for the rest of the hook. `memory tidy` asks again, with more time.
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
+import tempfile
 from dataclasses import astuple, dataclass
 
-from cairnkit import plainfile
+from cairnkit import deadline, plainfile
 from cairnkit.clock import parse_time
 from cairnkit.memory import Memory
 from cairnkit.paths import INTEGRATION_BRANCHES, default_branch, run_git
 
 CACHE_NAME = ".landed.json"
+CACHE_VERSION = 2
+UNKNOWN = "unknown"
 # Paths for one `git log`. Past this, the oldest facts wait for a later read.
-MAX_PATHS = 400
+MAX_PATHS = 50
+# On a repo of 30,000 commits, a log of 5,000 commits with their files took 0.14 s.
+MAX_COMMITS = 5000
 GIT_TIMEOUT = 2.0
+TIDY_TIMEOUT = 10.0
 AUTO_WRITERS = ("auto-tidy",)
 # A rule or a decision about one piece of work can end when that work lands.
 ENDS_WITH_WORK = ("rule", "decision")
@@ -145,12 +156,14 @@ def _landing_refs(root) -> list[str]:
         return []
     names = sorted({base, *INTEGRATION_BRANCHES})
     wanted = [f"refs/heads/{n}" for n in names] + [f"refs/remotes/origin/{n}" for n in names]
-    out = run_git(root, "for-each-ref", "--format=%(objectname) %(refname)", *wanted) or ""
-    by_commit = dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
+    out = run_git(root, "for-each-ref", "--format=%(objectname) %(refname)", *wanted, counts=False)
+    by_commit = dict(line.split(" ", 1) for line in (out or "").splitlines() if " " in line)
     return sorted(f"{commit} {ref}" for commit, ref in by_commit.items())
 
 
-def _newest(root, refs: list[str], paths: set[str], since: str) -> dict[str, tuple] | None:
+def _newest(
+    root, refs: list[str], paths: set[str], since: str, timeout: float
+) -> dict[str, tuple] | None:
     """For each path, the newest commit after `since` that changed it: (time, Landed).
 
     No pathspec: with one, git cannot see that a path moved, and shows a rename as a delete.
@@ -167,11 +180,13 @@ def _newest(root, refs: list[str], paths: set[str], since: str) -> dict[str, tup
         "-m",
         "-M",
         "--name-status",
+        f"--max-count={MAX_COMMITS}",
         f"--since={since}",
         "--format=%x00%h%x01%ct%x01%cs%x01%s",
         *[line.split(" ", 1)[1] for line in refs],
         "--",
-        timeout=GIT_TIMEOUT,
+        timeout=timeout,
+        counts=False,
     )
     if out is None:
         return None
@@ -198,43 +213,87 @@ def _decide(want: _Want, newest: dict[str, tuple]) -> Landed | None:
     return max(done, key=lambda pair: pair[0])[1]
 
 
-def _read_cache(memory: Memory) -> dict:
+def _entry(value: object) -> list[str] | str | bool | None:
+    """A valid cache entry as it is, or False for a bad one."""
+    if value is None or value == UNKNOWN:
+        return value
+    if isinstance(value, list) and len(value) == 3 and all(isinstance(v, str) for v in value):
+        return value
+    return False
+
+
+def _read_cache(memory: Memory) -> tuple[list[str], dict]:
+    """(tips, facts) of the cache. A bad file reads as empty, and a bad entry is left out."""
     with contextlib.suppress(OSError, ValueError):
         data = json.loads(plainfile.read_text(memory.dir / CACHE_NAME, encoding="utf-8"))
-        if isinstance(data, dict) and isinstance(data.get("facts"), dict):
-            return data
-    return {}
+        if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+            return [], {}
+        tips, facts = data.get("tips"), data.get("facts")
+        if not isinstance(tips, list) or not isinstance(facts, dict):
+            return [], {}
+        kept = {key: _entry(value) for key, value in facts.items() if isinstance(key, str)}
+        return tips, {key: value for key, value in kept.items() if value is not False}
+    return [], {}
 
 
 def _write_cache(memory: Memory, tips: list[str], facts: dict) -> None:
+    """Write the whole file or none of it: a hook of another session can read it now."""
+    body = json.dumps({"version": CACHE_VERSION, "tips": tips, "facts": facts})
     with contextlib.suppress(OSError):
         path = plainfile.inside(memory.dir, memory.dir / CACHE_NAME)
-        plainfile.write_text(path, json.dumps({"tips": tips, "facts": facts}), encoding="utf-8")
+        fd, tmp = tempfile.mkstemp(dir=memory.dir, prefix=".landed-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            os.replace(tmp, path)
+        except BaseException:  # a hook's time budget can end it here
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
 
 
-def find(memory: Memory) -> dict[str, Landed]:
-    """Fact id to the commit that landed its work, for each active fact whose work landed."""
-    root = memory.project.root
+def _ask_git(root, refs: list[str], wants: list[_Want], timeout: float) -> dict:
+    """The cache entry of each fact. When git does not answer, each is UNKNOWN."""
+    oldest = min((want.since for want in wants), key=parse_time)
+    paths = {p for want in wants for p in want.paths}
+    newest = _newest(root, refs, paths, oldest, timeout)
+    if newest is None:
+        return {want.key: UNKNOWN for want in wants}
+    facts = {}
+    for want in wants:
+        evidence = _decide(want, newest)
+        facts[want.key] = list(astuple(evidence)) if evidence else None
+    return facts
+
+
+def find(memory: Memory, git: bool = True, patient: bool = False) -> dict[str, Landed]:
+    """Fact id to the commit that landed its work, for each active fact whose work landed.
+
+    With `git=False`, only the cache answers, and no git runs: the prompt and shell hooks read it
+    so. `patient`, for a command that the agent runs, asks git again where a hook got no answer,
+    with more time. Never raises.
+    """
+    with contextlib.suppress(Exception):
+        return _find(memory, git, patient)
+    return {}
+
+
+def _find(memory: Memory, git: bool, patient: bool) -> dict[str, Landed]:
     wants = _wants(memory)
     if not wants or not memory.project.is_git:
         return {}
-    refs = _landing_refs(root)
-    if not refs:
-        return {}
-    cache = _read_cache(memory)
-    facts = cache.get("facts", {})
-    if cache.get("tips") != refs or any(want.key not in facts for want in wants):
-        oldest = min((want.since for want in wants), key=parse_time)
-        paths = {p for want in wants for p in want.paths}
-        newest = _newest(root, refs, paths, oldest)
-        if newest is None:
-            return {}
-        facts = {}
-        for want in wants:
-            evidence = _decide(want, newest)
-            facts[want.key] = list(astuple(evidence)) if evidence else None
-        _write_cache(memory, refs, facts)
-    return {want.id: Landed(*facts[want.key]) for want in wants if facts.get(want.key) is not None}
+    tips, facts = _read_cache(memory)
+    timeout = TIDY_TIMEOUT if patient else GIT_TIMEOUT
+    # A git that cannot get its whole time would read as UNKNOWN, and that answer is kept.
+    if git and deadline.left() >= timeout and not deadline.git_stuck():
+        refs = _landing_refs(memory.project.root)
+        unknown = patient and any(facts.get(want.key) == UNKNOWN for want in wants)
+        if refs and (tips != refs or unknown or any(want.key not in facts for want in wants)):
+            facts = _ask_git(memory.project.root, refs, wants, timeout)
+            _write_cache(memory, refs, facts)
+    return {
+        want.id: Landed(*facts[want.key]) for want in wants if isinstance(facts.get(want.key), list)
+    }
 
 
 STALE_NAMED = 5
