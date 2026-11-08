@@ -544,18 +544,17 @@ sentence, and it may never leave out a word that turns or limits the rule (`not`
 `every`, `any`, `must`, `may`, `can`, `before`, `after`, `yet`, `if`) or a literal (a
 number, a path, a flag, a name). So "Stop skipping the tests" does not confirm "Skip
 the tests", and "Don't merge to main until CI is green" does not confirm "Never merge to
-main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks a
-gap in a quote: each part on its side must be a copy, as a sentence is. A typed question, also one with no question mark ("can you force push to main"),
+main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks
+words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. An approval and an answer count only in their own turn, until the next owner prompt.
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
 confirmed)` data, and the add output says so and how the owner confirms it.
 `memory add` finds its session by the session id in the agent's shell (Claude Code,
 Codex, Grok). The hooks keep each id that they see for a session (the payload's and the
-one in their own environment), so a shell id that the hooks saw also finds it. When no
-session with that id has an owner prompt in the last 30 minutes, for example because the
-id in the shell is not the hooks' id after a resume, it takes the one session in this
-checkout with an owner prompt in the last 30 minutes. With no such session it takes the
-session of the id even when it is older. A choice between two sessions confirms nothing. The approval reads Claude Code and Codex transcripts. Another tool gets the
+one in their own environment), so a shell id that the hooks saw also finds it. Only when
+no evidence of that session exists at all does it take the one session in this checkout
+with an owner prompt in the last 30 minutes. A quiet session never borrows another
+session's words, and a choice between two sessions confirms nothing. The approval reads Claude Code and Codex transcripts. Another tool gets the
 owner's typed words and choices only.
 
 **The transcript proves the evidence, and the agent's shell is guarded.** For Claude

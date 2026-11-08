@@ -88,13 +88,9 @@ MUST_MATCH = {
         "Don't merge to main until CI is green.",
         [said("Don't merge to main until CI is green.")],
     ),
-    "two parts quoted with ... between": (
-        "did a real reply to nawlins; email looks good to me ... that was a test, so delete",
-        [said("did a real reply to nawlins; email looks good to me. that was a test, so delete")],
-    ),
-    "two parts quoted with an ellipsis character between": (
-        "Email looks good to me \u2026 that was a test, so please delete it.",
-        [said("Email looks good to me. That was a test, so please delete it.")],
+    "words left out of one sentence with an ellipsis": (
+        "Run all of the tests \u2026 before every push.",
+        [said("Please run all of the tests before every push today.")],
     ),
     "a range of two branches": (
         "Diff main...dev before each release.",
@@ -103,6 +99,27 @@ MUST_MATCH = {
 }
 
 MUST_NOT_MATCH = {
+    "an ellipsis that joins two sentences": (
+        "Never \u2026 commit directly to main.",
+        [said("No. Commit directly to main.")],
+    ),
+    "an ellipsis that reorders two sentences": (
+        "Don't ... merge the PR.",
+        [said("Merge the PR. Don't.")],
+    ),
+    "a polarity word as an attribution": ("Never: push to main.", [said("Push to main.")]),
+    "a status word as an attribution": (
+        "Rejected: use SQLite for storage.",
+        [said("Use SQLite for storage.")],
+    ),
+    "a limit word as an attribution": (
+        "Optional: run the tests before commit.",
+        [said("Run the tests before commit.")],
+    ),
+    "a date limit as an attribution": (
+        "Until 2026-12-01: commit to main.",
+        [said("Commit to main.")],
+    ),
     "the agent's context after the owner's words": (
         "Matt said: Keep forget after 90 days as the default. The spec is still open.",
         [said('Keep "forget after 90 days" as the default')],
