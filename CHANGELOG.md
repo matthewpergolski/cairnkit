@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the owner, never a join of two sentences. A typed question and a
   hypothetical (`what if`, `suppose`) state no rule. A condition the owner typed whole ("If you
   touch the schema, update FORMAT.md") binds whole; a claim that drops the condition does not.
-  An attribution in front (`Matt said:`, `Owner (Matt) decided 2026-11-08:`, `Owner:`) does not
+  An attribution in front (`The owner said:`, `Owner (Sam) decided 2026-11-08:`, `User:`) does not
   count against the match. It must name who spoke with a verb such as `said` or the word owner or
   user, and hold no word that turns or limits the rule, so `Never:` or `Optional:` is no
   attribution; context of the agent's own does, and the add output tells the agent to save

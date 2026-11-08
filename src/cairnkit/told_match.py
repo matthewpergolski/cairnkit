@@ -68,7 +68,7 @@ _RULE_FRAME = (
     r"make sure(?: to| that| you)?|be sure to|please|always"
 )
 _LEAD = re.compile(rf"(?i)^(?:[\W_]*(?:{_RULE_FRAME})\b)+[\W_]*")
-# Who said it and when, ahead of the owner's words in a claim: `Matt said:`, `Owner (Matt)
+# Who said it and when, ahead of the owner's words in a claim: `The owner said:`, `User
 # decided 2026-11-08:`. Only a name, one word in brackets, a verb and a date: no room for a rule.
 _ATTRIBUTION = re.compile(
     r"(?i)(?:on\s+\d{4}-\d{2}-\d{2},?\s+)?(?:the\s+)?(?P<who>[A-Za-z][\w.'-]*)"
@@ -198,8 +198,8 @@ def units(evidence: Evidence) -> list[tuple[Token, ...]]:
 
 
 def _is_attribution(unit: str) -> bool:
-    """`Matt said:` or `Owner:`, never `Never:` or `Optional:`. A verb or a person word must name
-    who spoke, and no word that turns or limits the rule may stand in it."""
+    """`The owner said:` or `User:`, never `Never:` or `Optional:`. A verb or a person word
+    must name who spoke, and no word that turns or limits the rule may stand in it."""
     found = _ATTRIBUTION.fullmatch(unit)
     if not found or not (found["verb"] or found["who"].lower() in _PERSON):
         return False

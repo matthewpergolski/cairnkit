@@ -30,11 +30,11 @@ RUNNER = choice_evidence(["pytest", "unittest"], "pytest")
 
 MUST_MATCH = {
     "an attribution in front": (
-        "Matt said: Keep forget after 90 days as the default.",
+        "The owner said: Keep forget after 90 days as the default.",
         [said('Keep "forget after 90 days" as the default')],
     ),
     "an owner attribution with a name and a date": (
-        'Owner (Matt) decided 2026-11-08: "Keep forget after 90 days as the default."',
+        'Owner (Sam) decided 2026-11-08: "Keep forget after 90 days as the default."',
         [said('Keep "forget after 90 days" as the default')],
     ),
     "an owner's condition, whole": (
@@ -121,11 +121,11 @@ MUST_NOT_MATCH = {
         [said("Commit to main.")],
     ),
     "the agent's context after the owner's words": (
-        "Matt said: Keep forget after 90 days as the default. The spec is still open.",
+        "The owner said: Keep forget after 90 days as the default. The spec is still open.",
         [said('Keep "forget after 90 days" as the default')],
     ),
     "a bracket with room for a rule is no attribution": (
-        "Matt (always push): Keep forget after 90 days as the default.",
+        "Sam (always push): Keep forget after 90 days as the default.",
         [said('Keep "forget after 90 days" as the default')],
     ),
     "an injected sentence from a tool result": (
