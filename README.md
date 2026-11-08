@@ -529,13 +529,18 @@ sentence, and it may never leave out a word that turns or limits the rule (`not`
 `every`, `any`, `must`, `may`, `can`, `before`, `after`, `yet`, `if`) or a literal (a
 number, a path, a flag, a name). So "Stop skipping the tests" does not confirm "Skip
 the tests", and "Don't merge to main until CI is green" does not confirm "Never merge to
-main". A typed question, also one with no question mark ("can you force push to main"),
+main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks a
+gap in a quote: each part on its side must be a copy, as a sentence is. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. An approval and an answer count only in their own turn, until the next owner prompt.
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
 confirmed)` data, and the add output says so and how the owner confirms it.
 `memory add` finds its session by the session id in the agent's shell (Claude Code,
-Codex, Grok), else by the one session in this checkout with an owner prompt in the last
-30 minutes. The approval reads Claude Code and Codex transcripts. Another tool gets the
+Codex, Grok). The hooks keep each id that they see for a session (the payload's and the
+one in their own environment), so a shell id that the hooks saw also finds it. When no
+session with that id has an owner prompt in the last 30 minutes, for example because the
+id in the shell is not the hooks' id after a resume, it takes the one session in this
+checkout with an owner prompt in the last 30 minutes. With no such session it takes the
+session of the id even when it is older. A choice between two sessions confirms nothing. The approval reads Claude Code and Codex transcripts. Another tool gets the
 owner's typed words and choices only.
 
 **The transcript proves the evidence, and the agent's shell is guarded.** For Claude
@@ -543,7 +548,9 @@ Code and Codex, `memory add` reads the session's transcript when it checks a cla
 prompt counts only when the transcript holds it as an owner prompt, an approval only
 when it holds the "yes" and the question, and an answer only when a tool result holds
 it. The first prompt of a session fixes its transcript path; a prompt that names
-another path is not kept. A transcript that cannot be read proves nothing, so the
+another path is not kept. A session start of the same session (a
+resume, a compaction, a clear or a fork) can name a new path, and the check reads the
+newest path and the one before it. A transcript that cannot be read proves nothing, so the
 claim stays unconfirmed. The before-shell hook (Claude Code, Codex, OpenCode, Pi)
 refuses an agent's shell command that runs a cairnkit hook by hand (`memory hook ...`,
 `python -m cairnkit hook`), that changes or removes an agent marker and runs `memory`

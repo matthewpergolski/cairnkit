@@ -80,6 +80,18 @@ MUST_MATCH = {
         "Don't merge to main until CI is green.",
         [said("Don't merge to main until CI is green.")],
     ),
+    "two parts quoted with ... between": (
+        "did a real reply to nawlins; email looks good to me ... that was a test, so delete",
+        [said("did a real reply to nawlins; email looks good to me. that was a test, so delete")],
+    ),
+    "two parts quoted with an ellipsis character between": (
+        "Email looks good to me \u2026 that was a test, so please delete it.",
+        [said("Email looks good to me. That was a test, so please delete it.")],
+    ),
+    "a range of two branches": (
+        "Diff main...dev before each release.",
+        [said("Diff main...dev before each release.")],
+    ),
 }
 
 MUST_NOT_MATCH = {
@@ -121,6 +133,10 @@ MUST_NOT_MATCH = {
     "refuse": ("Deploy on Fridays.", [said("Refuse to deploy on Fridays.")]),
     "until dropped": ("Never merge to main.", [said("Don't merge to main until CI is green.")]),
     "yet dropped": ("Never push.", [said("Don't push yet.")]),
+    "an ellipsis over a condition": (
+        "Don't merge to main ... green.",
+        [said("Don't merge to main until CI is green.")],
+    ),
     "except dropped": (
         "Delete main and dev.",
         [said("Delete the old branches except main and dev.")],

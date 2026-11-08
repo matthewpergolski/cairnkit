@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 
 import pytest
 from conftest import read_jsonl
@@ -91,10 +92,12 @@ def answer(capsys, monkeypatch, question, response, session="s", recorded=True):
     return out
 
 
-def agent_add(capsys, monkeypatch, text, *extra, env=("CLAUDECODE", "CLAUDE_CODE_SESSION_ID")):
-    """`memory add` in the shell of an agent of session `s`."""
+def agent_add(
+    capsys, monkeypatch, text, *extra, env=("CLAUDECODE", "CLAUDE_CODE_SESSION_ID"), session="s"
+):
+    """`memory add` in the shell of an agent whose tool puts `session` in its shell."""
     for name in env:
-        monkeypatch.setenv(name, "s" if name.endswith(("SESSION_ID", "THREAD_ID")) else "1")
+        monkeypatch.setenv(name, session if name.endswith(("SESSION_ID", "THREAD_ID")) else "1")
     capsys.readouterr()
     code = main(["add", text, "--kind", "rule", "--basis", "told", "--area", "x", *extra])
     out = capsys.readouterr().out
@@ -503,6 +506,104 @@ def test_two_open_sessions_in_one_checkout_confirm_nothing(mem, capsys, monkeypa
     out = agent_add(capsys, monkeypatch, "Never commit .env files.", env=("CURSOR_AGENT",))
     assert "no owner prompt of this session was found" in out
     assert not binds(capsys, "Never commit .env files.")
+
+
+# --- a resumed, compacted, cleared or forked session -----------------------------------
+
+
+def start(capsys, monkeypatch, source, session="s", transcript=None):
+    """A SessionStart hook. Claude Code names the transcript of the session in it."""
+    path = TRANSCRIPTS["dir"] / f"{transcript or session}.jsonl"
+    payload = {"session_id": session, "hook_event_name": "SessionStart", "source": source}
+    hook(capsys, monkeypatch, "session-start", {**payload, "transcript_path": str(path)})
+    return str(path)
+
+
+def said_long_ago(mem, session):
+    """The owner's prompts of the session are two hours old."""
+    path = mem / ".sessions" / f"{session}.owner.json"
+    data = json.loads(path.read_text())
+    data["prompts"] = [{**row, "at": time.time() - 2 * 3600} for row in data["prompts"]]
+    path.write_text(json.dumps(data))
+
+
+def test_a_shell_with_another_id_than_the_hooks_finds_the_one_open_session(
+    mem, capsys, monkeypatch
+):
+    prompt(capsys, monkeypatch, "Keep forget after 90 days as the default.", session="a")
+    out = agent_add(capsys, monkeypatch, "Keep forget after 90 days as the default.", session="b")
+    assert "told: confirmed" in out
+
+
+def test_a_shell_id_whose_evidence_is_old_finds_the_session_of_the_hooks(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "Fix the lint.", session="b")
+    said_long_ago(mem, "b")
+    prompt(capsys, monkeypatch, "Keep forget after 90 days as the default.", session="a")
+    out = agent_add(capsys, monkeypatch, "Keep forget after 90 days as the default.", session="b")
+    assert "told: confirmed" in out
+
+
+def test_the_session_of_the_shell_id_counts_when_no_session_is_open(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "Never commit .env files.")
+    said_long_ago(mem, "s")
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.")
+    assert "told: confirmed" in out
+
+
+def test_an_id_that_a_hook_saw_in_its_own_environment_finds_the_session(mem, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "b")
+    prompt(capsys, monkeypatch, "Never commit .env files.", session="a")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    prompt(capsys, monkeypatch, "Fix the lint.", session="c")
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.", session="b")
+    assert "told: confirmed" in out
+
+
+@pytest.mark.parametrize(
+    "source,session", [("resume", "s"), ("compact", "s"), ("clear", "t"), ("fork", "t")]
+)
+def test_a_session_start_with_a_new_transcript_keeps_the_proof(
+    mem, capsys, monkeypatch, source, session
+):
+    prompt(capsys, monkeypatch, "Fix the lint.")
+    moved = start(capsys, monkeypatch, source, session=session, transcript="moved")
+    prompt(capsys, monkeypatch, "Never commit .env files.", session=session, transcript_path=moved)
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.", session=session)
+    assert "told: confirmed" in out
+
+
+def test_after_a_resume_a_prompt_that_the_new_transcript_does_not_hold_does_not_bind(
+    mem, capsys, monkeypatch
+):
+    prompt(capsys, monkeypatch, "Fix the lint.")
+    moved = start(capsys, monkeypatch, "resume", transcript="moved")
+    prompt(capsys, monkeypatch, "Never commit .env files.", typed=False, transcript_path=moved)
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.")
+    assert "told: not confirmed" in out
+
+
+def test_the_owners_words_of_the_transcript_before_a_resume_still_count(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "We deploy only from the release branch.")
+    moved = start(capsys, monkeypatch, "resume", transcript="moved")
+    prompt(capsys, monkeypatch, "Fix the lint.", transcript_path=moved)
+    out = agent_add(capsys, monkeypatch, "Deploy only from the release branch.")
+    assert "told: confirmed" in out
+
+
+def test_a_shell_id_with_no_evidence_and_two_open_sessions_confirms_nothing(
+    mem, capsys, monkeypatch
+):
+    prompt(capsys, monkeypatch, "Never commit .env files.", session="a")
+    prompt(capsys, monkeypatch, "Fix the lint.", session="c")
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.", session="b")
+    assert "no owner prompt of this session was found" in out
+
+
+def test_a_shell_id_with_no_evidence_and_no_open_session_confirms_nothing(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "Never commit .env files.", session="a")
+    said_long_ago(mem, "a")
+    out = agent_add(capsys, monkeypatch, "Never commit .env files.", session="b")
+    assert "no owner prompt of this session was found" in out
 
 
 def test_the_evidence_is_masked(mem, capsys, monkeypatch):

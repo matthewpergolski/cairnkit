@@ -14,7 +14,10 @@ start or the end of a unit goes too (`from now on`, `always`, `remember to`, `as
 
 The match. The claim's units split into runs of units in a row, and each run must match one unit
 of one piece of evidence, so that no claim joins words from two of the owner's sentences into one
-statement. A run matches a unit when:
+statement. In the claim, an ellipsis (`\u2026`, or `...` beside a space) also ends a unit: it marks
+the words that a quote leaves out, so each part on its side must be a copy too. A run can join the
+parts again, so a quote of one sentence with a gap still matches under the rules below. A run
+matches a unit when:
 
 - each token of the run is in the unit, in the same order (so `dev, never main` is not
   `main, never dev`);
@@ -55,6 +58,8 @@ _CONTRACTIONS = (
     (re.compile(r"(?i)n['\u2019]t\b"), " not"),
 )
 _UNIT_END = re.compile(r"(?<=[.!?;:])\s+|\n+")
+# Only in a claim. `main...dev` is a range of commits, not a gap in a quote.
+_GAP = re.compile(r"\s*\u2026\s*|\s+\.{3}\s*|\.{3}(?:\s+|$)")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 _DOUBLE_END = re.compile(r"([b-df-hj-np-tv-z])\1$")
 _RULE_FRAME = (
@@ -184,7 +189,8 @@ def units(evidence: Evidence) -> list[tuple[Token, ...]]:
 
 
 def _claim_units(text: str) -> list[tuple[Token, ...]]:
-    return [words for part in _UNIT_END.split(text) if (words := tokens(_unframed(part)))]
+    parts = (part for piece in _GAP.split(text) for part in _UNIT_END.split(piece))
+    return [words for part in parts if (words := tokens(_unframed(part)))]
 
 
 def run_matches(run: tuple[Token, ...], unit: tuple[Token, ...]) -> bool:
