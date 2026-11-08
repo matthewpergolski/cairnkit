@@ -9,24 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `memory tidy` proposes to end each active rule or decision whose work landed: the main branch
-  (the default branch, `dev` or `develop`, along first parents) has a commit on each path in its
-  `files`, or else on each repo path its text names, after the fact was written or last changed.
-  The proposal shows the commit, its date and subject, and the exact
-  `memory change ID --status expired --reason "..."` command. The session start names those facts
-  in one line. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
+- `memory init --refresh` prints one line that the repo's own hooks run as before, with their
+  names and folder: the hooks in the folder that core.hooksPath names (such as `.githooks`; the
+  memory hooks run beside them), or hook files in `.git/hooks` that hold more than the memory
+  block. It prints nothing when every hook file is the tool's own.
+- `memory tidy` proposes to end an active rule or decision that reads as the owner's yes to one
+  piece of work (the same test as the note of `memory add`) and names that work in `--files`,
+  when that work landed: the main branch (the default branch, `dev` or `develop`, along first
+  parents) has a commit that changed each path in `files` after the fact was written or last
+  changed. Every other fact never lands: a lasting policy, also one that names a file that
+  changes each week such as `CHANGELOG.md`, a fact with no `files`, and a path in the text. A
+  commit that deletes a path counts. A rename does not, and the new path is not followed. A
+  folder never lands. The root commit and the graft root of a shallow clone count for no path.
+  The first commit of work in progress counts too, so the agent checks before it ends one. The
+  proposal shows the commit, its date and subject, and the exact
+  `memory change ID --status expired --reason "..."` command. For a fact that a person stated (a
+  told fact, or the owner's rule), the proposal says to ask the owner first, and
+  `memory tidy --apply` skips it with a line that says so; `memory change` then prints the owner
+  notice. The session start names those facts in one line, and names the ones that a person
+  stated. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
   `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all
-  facts, and `<memory>/.landed.json` keeps the answer until a main branch moves. `memory tidy` also
+  facts: at most 50 paths, newest facts first, and at most 5000 commits back to the oldest of
+  them (0.19 s on a repo of 30,000 commits). `<memory>/.landed.json` (format version 2, written
+  whole, a bad entry ignored) keeps the answer until a main branch moves or a fact changes. A git
+  that does not answer in 2 s is kept as unknown, so the next hook does not ask again, and it does
+  not mark git as stuck, so the load is not partial. The prompt and shell hooks read only the
+  cache and run no git for it. `memory tidy` asks again, with 10 s. `memory tidy` also
   proposes to supersede an active rule that a newer fact names by id and says it replaces.
-- `memory add --kind rule` (any basis) whose text reads as approval of one piece of work ("yes
-  to", "approved", "go ahead with", "signed off on", "for this release", a migration, spec or PR
-  number, `#158`) prints a note: write it as `--kind decision --supersedes ID` with
-  `--files PATHS` (tidy proposes the end when they land) or `--until-merged BRANCH`, and keep
-  `rule` for a lasting policy.
+- `memory add --kind rule` (any basis) whose text reads as approval of one piece of work prints a
+  note: write it as `--kind decision --basis BASIS --supersedes ID` with `--files PATHS` (tidy
+  proposes the end when each path has a commit on the main branch) or `--until-merged BRANCH`,
+  and keep `rule` for a lasting policy. For a told rule the note says that the decision replaces
+  the rule only when the owner's words in this turn confirm it (the told check), and else to ask
+  the owner. An approval is a verb of yes with an object of work right after it: "yes to
+  migration 0018", "approved the parser", "go ahead with the move", "signed off on the plan",
+  "OK'd the new parser", "LGTM on the refactor", "approves the schema change", "green light for
+  the move", or "for this release". "approved licenses", "approved by the owner", a bare `#123`
+  or "migration 0001" are no approval. A text that opens with `only`, `never`, `always`,
+  `do not`, `every` or `each`, or a negation right before the yes, is a lasting policy.
 - When the rules pass the word budget of a load, or the limit of 1000 words, the load names the
   rules most likely stale in one line: rules whose work landed first, then the oldest rules that
-  read as approval of one piece of work. A lasting policy is not named. `memory check` prints the
-  same line when the active rules pass 500 words.
+  read as approval of one piece of work. A lasting policy is not named. The line names the rules
+  that a person stated, and says to ask the owner before one ends. `memory check` prints the same
+  line when the active rules pass 500 words.
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path
@@ -201,7 +226,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A hook load cut to fit the hook's size limit drops stored lines in a fixed order: long-term
   facts first, then branch notes, the status note, short-term facts, pinned facts and agent rules,
   and `## Live work` last, at a startup, a resume or a compaction. Before, the cut dropped from the
-  end of the frame, so the status note went before the long-term facts.
+  end of the frame, so the status note went before the long-term facts. When the cut drops all of
+  `## Live work`, it also drops the order above the frame that points to that list.
 - `memory docs` in a project that is not cairnkit writes one system page and one page for each
   component: a top-level package or folder of a source root. Before, it wrote one import graph of
   the top-level Python packages only. In a real Django and TypeScript project, it showed only the
@@ -284,6 +310,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A helper line with no recorded end now says that the helper may have been stopped: "no end
+  recorded, so it may have been stopped or ended unseen", and in a compaction of the session that
+  started it, "started by this session; it may still be running, or it was stopped or ended
+  unseen". Claude Code 2.1.319 fires `SubagentStop` for a helper that TaskStop stops only when the
+  stop cuts the helper's stream; when the stream ends first, no hook runs. The record still ends
+  at the stop of a session whose load named it.
+- `memory change ID --status superseded --superseded-by NEW` from an agent refuses when a person
+  stated ID (a confirmed told fact or the owner's rule) and NEW has less authority (not stated, or
+  a told claim that the owner's words did not confirm), as `memory add --supersedes` already kept
+  such a fact. Nothing changes. The refusal, and the "not superseded" note of `memory add`, say how
+  to confirm: quote the owner's words in this turn, or the owner runs the command from their own
+  shell. The owner at a terminal can still supersede any fact.
+- A stored path with a name of 256 or more characters (a `file:` source, a `test:` check, a
+  `held_by` file, a helper checkout) no longer loses the whole load on Python 3.12, where
+  `Path.exists` raises ENAMETOOLONG. Each such probe on the load path now reads as "not there".
 - When two dev builds share a version number, the refresh line at session start names the build
   that wrote the repo files and the build that runs now, for example "come from memory 0.3.1
   @6b4bdf0; this is 0.3.1 @81f8499". Before, it said "come from memory 0.3.1. This is memory
@@ -294,7 +335,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `notes/status.md` and its specs read that as if the check did not see them. A note edit alone
   still does not block.
 - After a compaction, the session start names the helpers that this session started under
-  `## Live work`, as "started by this session, may still be running". Before, a compaction hid
+  `## Live work`, as "started by this session; it may still be running, or it was stopped or ended unseen". Before, a compaction hid
   them, so a lead lost the work that its running helpers did. The next stop of the session does
   not end their records. A resume still names them as having no recorded end.
 - Each start of the tool now uses `python -P`: the agent hooks, the Pi and OpenCode plugins, the
@@ -482,7 +523,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mem two`. A path in a command to copy, such as `memory init --path PATH`, is in shell quotes
   when the shell would split it.
 
-- A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
+- A helper line in the load says "no end recorded, so it may have been stopped or ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the
   hooks.
 

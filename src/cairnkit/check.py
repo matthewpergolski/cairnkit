@@ -192,7 +192,7 @@ def check_records(memory: Memory) -> tuple[list[str], list[str]]:
 
 def _path_known(project: Project, path: str) -> bool:
     """True when the path exists in any checkout, or in the history of any branch."""
-    if any((checkout / path).exists() for checkout in (project.root, *project.checkouts)):
+    if any(os.path.exists(checkout / path) for checkout in (project.root, *project.checkouts)):
         return True
     found = run_git(project.root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0)
     return found is None or bool(found)  # git cannot say: a slow git is not a problem to report

@@ -313,3 +313,33 @@ def test_the_real_commit_table(repo, mem, layout):
         if (result.returncode == 0) != passes:
             wrong.append(name)
     assert wrong == []
+
+
+def refresh_lines(capsys) -> list[str]:
+    capsys.readouterr()
+    assert main(["init", "--refresh"]) == 0
+    return [line for line in capsys.readouterr().out.splitlines() if "run as before" in line]
+
+
+@needs_config_hooks
+def test_refresh_says_that_the_hooks_under_the_path_run_as_before(tracked, capsys):
+    assert main(HOOK) == 0
+    lines = refresh_lines(capsys)
+    assert len(lines) == 1
+    assert ".githooks" in lines[0] and "core.hooksPath" in lines[0]
+    assert all(name in lines[0] for name in ("commit-msg", "pre-commit", "pre-push"))
+
+
+def test_refresh_names_a_hook_that_the_tool_did_not_write(repo, mem, capsys):
+    script(repo / ".git" / "hooks" / "pre-commit", "#!/bin/sh\necho mine\n")
+    script(repo / ".git" / "hooks" / "prepare-commit-msg", "#!/bin/sh\nexit 0\n")
+    assert main(HOOK) == 0
+    lines = refresh_lines(capsys)
+    assert len(lines) == 1
+    assert "pre-commit" in lines[0] and "prepare-commit-msg" in lines[0]
+    assert "pre-push" not in lines[0], "that file holds only the memory hook"
+
+
+def test_refresh_says_nothing_of_hooks_that_are_all_ours(repo, mem, capsys):
+    assert main(HOOK) == 0
+    assert refresh_lines(capsys) == []

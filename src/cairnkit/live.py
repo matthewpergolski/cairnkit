@@ -187,9 +187,10 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
 
 
 # Only an end that the hooks saw ends a record. A missed one is no proof that the helper runs.
-NO_END = "no end recorded, so it may have ended unseen"
-# In the process that started it, the hooks would have seen its end.
-RUNNING = "started by this session, may still be running"
+# Claude Code fires SubagentStop for a helper that TaskStop stops only when the stop cuts its
+# stream. When the stream ends first, no hook runs, so a missed end can be a stop.
+NO_END = "no end recorded, so it may have been stopped or ended unseen"
+RUNNING = "started by this session; it may still be running, or it was stopped or ended unseen"
 
 
 def _helper_line(memory: Memory, helper: helpers.Helper, running: bool = False) -> str:

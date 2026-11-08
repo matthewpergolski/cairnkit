@@ -35,7 +35,7 @@ def check_exists(project: Project, ref: str) -> bool | None:
     if kind == "githook":
         return _git_hook(project, value)
     if kind == "test":
-        return (root / value).exists()
+        return os.path.exists(root / value)
     if kind == "ci":
         ci = [p for glob in detect.CI_GLOBS for p in sorted(root.glob(glob))]
         return _names_word(ci, value)

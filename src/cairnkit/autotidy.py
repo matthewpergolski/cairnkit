@@ -28,6 +28,7 @@ import contextlib
 import hashlib
 import json
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
@@ -109,7 +110,7 @@ def _file_gone(memory: Memory, state: dict) -> str | None:
     rel = PurePosixPath(source[5:])
     if not rel.parts or rel.is_absolute() or ".." in rel.parts:
         return None
-    if any((checkout / rel).exists() for checkout in memory.project.checkouts):
+    if any(os.path.exists(checkout / rel) for checkout in memory.project.checkouts):
         return None
     return source
 

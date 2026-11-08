@@ -113,7 +113,7 @@ stops before the home folder and the file system root.
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
   .auto-tidy-state.json         the state of `auto_tidy = "auto"` (safe to delete)
   .auto-tidy.lock               the lock for a retire
-  .landed.json                  the commit that landed the work of each fact, kept until a main branch moves (safe to delete)
+  .landed.json                  {"version": 2, "tips": [...], "facts": {KEY: [commit, date, subject] or null or "unknown"}}: the commit that landed the work of each one-time approval, kept until a main branch moves or the fact changes; "unknown" when git did not answer in time; a bad entry is ignored; written whole (safe to delete)
   .stop-problems.json           hashes of the problems that a stop already named (safe to delete)
   config.toml.bad               the old file, when `memory repair` changed `config.toml`
   repairs.jsonl                 the lines that `memory repair` settled, by file and hash

@@ -359,6 +359,8 @@ def _cut(text: str, room: int) -> str:
     for heading in CUT_ORDER:
         while size() > room and (found := _section(lines, heading)):
             del lines[found[1] - 1]
+    if live.ORDER in lines and _section(lines, "## Live work") is None:
+        lines.remove(live.ORDER)  # it points to a list that is gone
     footer = lines.index(FRAME_FOOTER)
     first = next((n + 1 for n, line in enumerate(lines) if line == FRAME_HEADER), footer)
     while size() > room and footer > first:

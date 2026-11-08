@@ -1,54 +1,97 @@
-"""Work that landed: git, not the clock, says that the work a fact is about is done.
+"""Work that landed: git, not the clock, says that the work of a one-time approval is done.
 
-A fact names its work in `files`, or else by the repo paths in its text. The work landed when the
-main branch has a commit on each of those paths after the fact was written or last changed. The
-main branch is where work lands: the default branch, `dev` or `develop`, local or on `origin`,
-read along first parents, so a merge counts on the day it merged. A commit that deletes a path
-counts too. A text path that is not in this checkout and has no such commit is no repo path, and
-it does not count. A fact that names no path never lands.
+Only a rule or a decision that reads as a yes to one piece of work (`one_work`), and that names
+that work in `files`, can land. A lasting policy never lands, also when it names a file that
+changes each week, and a path in the text of a fact is never read as its work.
 
-Nothing here ends a fact. `memory tidy` proposes the end, and the agent decides. A change to the
+The work landed when a landing branch has a commit that changed each path in `files` after the
+fact was written or last changed. A landing branch is the default branch, `dev` or `develop`,
+local or on `origin`, read along first parents, so a merge counts on the day it merged. A commit
+that deletes a path counts. A rename does not: it moves the file and does not do the work, and
+the new path is not followed. A folder in `files` never lands, because git names the files in it,
+not the folder. A root commit, and the graft root of a shallow clone, show each file as new, so
+they count for no path.
+
+The first commit of work in progress counts too: git cannot tell a first step from the last. So
+nothing here ends a fact. `memory tidy` proposes the end, and the agent decides. A change to the
 fact after the commit, such as `memory change ID --status active --reason "..."`, says that the
 agent looked, so the same commit does not count again.
 
-One `git log` reads all facts at once. The answer is kept in the memory folder until a landing
-branch moves or a fact changes, so a hook reads it at the cost of one `git for-each-ref`.
+One `git log` reads all facts at once: at most MAX_PATHS paths, and at most MAX_COMMITS commits
+back to the oldest of those facts. A commit past that bound is not seen, so its fact waits. The
+answer is kept in the memory folder until a landing branch moves or a fact changes, so a hook
+reads it at the cost of one `git for-each-ref`. A git that does not answer in time is kept as
+"unknown" in the same way, so the next hook does not ask again, and it does not count as a stuck
+git for the rest of the hook. `memory tidy` asks again, with more time.
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
+import tempfile
 from dataclasses import astuple, dataclass
 
-from cairnkit import plainfile
+from cairnkit import deadline, plainfile
 from cairnkit.clock import parse_time
 from cairnkit.memory import Memory
-from cairnkit.paths import INTEGRATION_BRANCHES, LINK_NAME, default_branch, run_git
+from cairnkit.paths import INTEGRATION_BRANCHES, default_branch, run_git
+from cairnkit.selection import person_said
 
 CACHE_NAME = ".landed.json"
+CACHE_VERSION = 2
+UNKNOWN = "unknown"
 # Paths for one `git log`. Past this, the oldest facts wait for a later read.
-MAX_PATHS = 400
+MAX_PATHS = 50
+# On a repo of 30,000 commits, a log of 5,000 commits with their files took 0.14 s.
+MAX_COMMITS = 5000
 GIT_TIMEOUT = 2.0
+TIDY_TIMEOUT = 10.0
 AUTO_WRITERS = ("auto-tidy",)
-_TOKEN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]*")
-_EXTENSION = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
+# A rule or a decision about one piece of work can end when that work lands.
+ENDS_WITH_WORK = ("rule", "decision")
 # Python strips the separators U+001C to U+001F as white space, so these are NUL and SOH.
 _COMMIT = "\x00"
 _FIELD = "\x01"
-# The owner's yes to one piece of work, or a name of one piece of work. "approve" alone is out:
-# "ask the owner to approve each deploy" is a lasting policy.
-_ONE_WORK = re.compile(
-    r"(?i)\byes,?\s+to\b|\bapproved\b|\bgo\s+ahead\s+with\b|\bsigned\s+off\s+on\b"
-    r"|\bfor\s+this\s+(?:release|sprint|branch|pr)\b"
-    r"|\b(?:migration|spec|pr)\s*#?\d+|(?<![\w&])#\d+\b"
+# An approval is a yes with its object of work right after it. A phrase that ends in a
+# preposition ("yes to", "go ahead with", "LGTM on") takes any object. A bare verb takes one only
+# after a determiner or a word of work: "approved the parser", not "approved licenses" or
+# "approved by the owner". "approve" alone is out: "ask the owner to approve each deploy" is a
+# lasting policy. A number such as "#123" or "migration 0001" is no approval: "never edit
+# migration 0001" names one piece of work and holds for ever.
+_OBJECT = (
+    r"(?:(?:the|this|that|these|those|a|an|our|my|your|their|its)\s+\S"
+    r"|(?:pr|pull\s+request|migration|spec|plan|change|refactor|rewrite|move|merge|release)\b)"
 )
+_APPROVAL = re.compile(
+    r"(?i)(?:(?:\byes,?\s+to|\bgo\s+ahead\s+(?:with|on)|\bsigned\s+off\s+on"
+    r"|\blgtm\s+(?:on|for|to)|\bgreen[-\s]+light(?:ed)?\s+(?:for|on|to))\s+\w"
+    r"|(?:\bapprov(?:ed|es)|\bok(?:ay)?(?:'|\u2019)?e?d|\bgreen[-\s]+light(?:ed)?)"
+    rf"\s+{_OBJECT})"
+)
+_SCOPE = re.compile(r"(?i)\bfor\s+this\s+(?:release|sprint|branch|pr)\b")
+# A policy: it opens with a word of always or never, or a negation stands right before the yes.
+_POLICY = re.compile(r"(?i)^\W*(?:only|never|always|do\s+not|don't|dont|no|every|each|any)\b")
+_NEGATED = re.compile(r"(?i)(?:\bnot|\bnever|n't|\bno)\s+(?:\w+\s+)?$")
 
 
 def one_work(text: str) -> bool:
     """True when the text reads as approval of one piece of work, not as a lasting policy."""
-    return bool(_ONE_WORK.search(text))
+    text = str(text)
+    if _POLICY.search(text):
+        return False
+    if _SCOPE.search(text):
+        return True
+    return any(not _NEGATED.search(text[: m.start()]) for m in _APPROVAL.finditer(text))
+
+
+def work_files(state: dict) -> tuple[str, ...]:
+    """The paths whose commits can land this fact. Empty for a fact that can never land."""
+    if state.get("kind") not in ENDS_WITH_WORK or not one_work(str(state.get("text", ""))):
+        return ()
+    return tuple(sorted({str(f).strip().strip("/") for f in state.get("files") or []} - {""}))
 
 
 @dataclass(frozen=True)
@@ -62,34 +105,15 @@ class Landed:
 
 @dataclass(frozen=True)
 class _Want:
-    """What one fact needs: every `required` path, and `optional` paths only when they changed."""
+    """What one fact needs: a commit on each path, after `since`."""
 
     id: str
     since: str
-    required: tuple[str, ...]
-    optional: tuple[str, ...]
+    paths: tuple[str, ...]
 
     @property
     def key(self) -> str:
-        return "|".join([self.id, self.since, ",".join(self.required), ",".join(self.optional)])
-
-
-def named_paths(state: dict, root) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """(required, optional) paths. `files` are all required. A text path is required when it is
-    in this checkout, and optional when it is not."""
-    files = sorted({str(f).strip().strip("/") for f in state.get("files") or []} - {""})
-    if files:
-        return tuple(files), ()
-    required, optional = set(), set()
-    for token in _TOKEN.findall(str(state.get("text", ""))):
-        token = token.rstrip("./-")
-        parts = token.split("/")
-        if not ("/" in token or _EXTENSION.search(token)) or ".." in parts:
-            continue
-        if parts[0] == LINK_NAME:
-            continue
-        (required if (root / token).exists() else optional).add(token)
-    return tuple(sorted(required)), tuple(sorted(optional - required))
+        return "|".join([self.id, self.since, ",".join(self.paths)])
 
 
 def _since(state: dict) -> str:
@@ -108,24 +132,21 @@ def _since(state: dict) -> str:
 
 
 def _wants(memory: Memory) -> list[_Want]:
-    """The active facts that name a path, newest first, up to MAX_PATHS paths in all."""
-    root = memory.project.root
+    """The active facts that can land, newest first, up to MAX_PATHS paths in all."""
     found = []
     for state in memory.states.values():
         if state.get("status") != "active" or state.get("pinned"):
             continue
-        since = _since(state)
-        required, optional = named_paths(state, root)
-        if since and (required or optional):
-            found.append(_Want(state["id"], since, required, optional))
+        since, paths = _since(state), work_files(state)
+        if since and paths:
+            found.append(_Want(state["id"], since, paths))
     found.sort(key=lambda want: (parse_time(want.since), want.id), reverse=True)
     kept, used = [], 0
     for want in found:
-        cost = len(want.required) + len(want.optional)
-        if used + cost > MAX_PATHS:
+        if used + len(want.paths) > MAX_PATHS:
             break
         kept.append(want)
-        used += cost
+        used += len(want.paths)
     return kept
 
 
@@ -136,30 +157,37 @@ def _landing_refs(root) -> list[str]:
         return []
     names = sorted({base, *INTEGRATION_BRANCHES})
     wanted = [f"refs/heads/{n}" for n in names] + [f"refs/remotes/origin/{n}" for n in names]
-    out = run_git(root, "for-each-ref", "--format=%(objectname) %(refname)", *wanted) or ""
-    by_commit = dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
+    out = run_git(root, "for-each-ref", "--format=%(objectname) %(refname)", *wanted, counts=False)
+    by_commit = dict(line.split(" ", 1) for line in (out or "").splitlines() if " " in line)
     return sorted(f"{commit} {ref}" for commit, ref in by_commit.items())
 
 
-def _newest(root, refs: list[str], paths: set[str], since: str) -> dict[str, tuple] | None:
+def _newest(
+    root, refs: list[str], paths: set[str], since: str, timeout: float
+) -> dict[str, tuple] | None:
     """For each path, the newest commit after `since` that changed it: (time, Landed).
 
+    No pathspec: with one, git cannot see that a path moved, and shows a rename as a delete.
     None when git did not answer, which is not "no commit".
     """
     out = run_git(
         root,
-        "--literal-pathspecs",
+        "-c",
+        "log.showRoot=false",
+        "-c",
+        "core.quotePath=false",
         "log",
         "--first-parent",
         "-m",
-        "--no-renames",
-        "--name-only",
+        "-M",
+        "--name-status",
+        f"--max-count={MAX_COMMITS}",
         f"--since={since}",
         "--format=%x00%h%x01%ct%x01%cs%x01%s",
         *[line.split(" ", 1)[1] for line in refs],
         "--",
-        *sorted(paths),
-        timeout=GIT_TIMEOUT,
+        timeout=timeout,
+        counts=False,
     )
     if out is None:
         return None
@@ -170,61 +198,103 @@ def _newest(root, refs: list[str], paths: set[str], since: str) -> dict[str, tup
         if len(fields) != 4 or not fields[1].isdigit():
             continue
         when, evidence = int(fields[1]), Landed(fields[0], fields[2], fields[3])
-        for name in filter(None, names.splitlines()):
-            parts = name.split("/")
-            for path in {"/".join(parts[:n]) for n in range(1, len(parts) + 1)} & paths:
-                if path not in newest or newest[path][0] < when:
-                    newest[path] = (when, evidence)
+        for line in filter(None, names.splitlines()):
+            # "M\tpath", "D\tpath", or "R100\told\tnew": a rename changes only the new path.
+            path = line.split("\t")[-1]
+            if path in paths and (path not in newest or newest[path][0] < when):
+                newest[path] = (when, evidence)
     return newest
 
 
 def _decide(want: _Want, newest: dict[str, tuple]) -> Landed | None:
     after = parse_time(want.since).timestamp()
-    done = {
-        p: newest[p] for p in (*want.required, *want.optional) if newest.get(p, (0,))[0] > after
-    }
-    if not done or any(path not in done for path in want.required):
+    done = [newest[p] for p in want.paths if newest.get(p, (0,))[0] > after]
+    if len(done) < len(want.paths):
         return None
-    return max(done.values(), key=lambda pair: pair[0])[1]
+    return max(done, key=lambda pair: pair[0])[1]
 
 
-def _read_cache(memory: Memory) -> dict:
+def _entry(value: object) -> list[str] | str | bool | None:
+    """A valid cache entry as it is, or False for a bad one."""
+    if value is None or value == UNKNOWN:
+        return value
+    if isinstance(value, list) and len(value) == 3 and all(isinstance(v, str) for v in value):
+        return value
+    return False
+
+
+def _read_cache(memory: Memory) -> tuple[list[str], dict]:
+    """(tips, facts) of the cache. A bad file reads as empty, and a bad entry is left out."""
     with contextlib.suppress(OSError, ValueError):
         data = json.loads(plainfile.read_text(memory.dir / CACHE_NAME, encoding="utf-8"))
-        if isinstance(data, dict) and isinstance(data.get("facts"), dict):
-            return data
-    return {}
+        if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+            return [], {}
+        tips, facts = data.get("tips"), data.get("facts")
+        if not isinstance(tips, list) or not isinstance(facts, dict):
+            return [], {}
+        kept = {key: _entry(value) for key, value in facts.items() if isinstance(key, str)}
+        return tips, {key: value for key, value in kept.items() if value is not False}
+    return [], {}
 
 
 def _write_cache(memory: Memory, tips: list[str], facts: dict) -> None:
+    """Write the whole file or none of it: a hook of another session can read it now."""
+    body = json.dumps({"version": CACHE_VERSION, "tips": tips, "facts": facts})
     with contextlib.suppress(OSError):
         path = plainfile.inside(memory.dir, memory.dir / CACHE_NAME)
-        plainfile.write_text(path, json.dumps({"tips": tips, "facts": facts}), encoding="utf-8")
+        fd, tmp = tempfile.mkstemp(dir=memory.dir, prefix=".landed-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            os.replace(tmp, path)
+        except BaseException:  # a hook's time budget can end it here
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
 
 
-def find(memory: Memory) -> dict[str, Landed]:
-    """Fact id to the commit that landed its work, for each active fact whose work landed."""
-    root = memory.project.root
+def _ask_git(root, refs: list[str], wants: list[_Want], timeout: float) -> dict:
+    """The cache entry of each fact. When git does not answer, each is UNKNOWN."""
+    oldest = min((want.since for want in wants), key=parse_time)
+    paths = {p for want in wants for p in want.paths}
+    newest = _newest(root, refs, paths, oldest, timeout)
+    if newest is None:
+        return {want.key: UNKNOWN for want in wants}
+    facts = {}
+    for want in wants:
+        evidence = _decide(want, newest)
+        facts[want.key] = list(astuple(evidence)) if evidence else None
+    return facts
+
+
+def find(memory: Memory, git: bool = True, patient: bool = False) -> dict[str, Landed]:
+    """Fact id to the commit that landed its work, for each active fact whose work landed.
+
+    With `git=False`, only the cache answers, and no git runs: the prompt and shell hooks read it
+    so. `patient`, for a command that the agent runs, asks git again where a hook got no answer,
+    with more time. Never raises.
+    """
+    with contextlib.suppress(Exception):
+        return _find(memory, git, patient)
+    return {}
+
+
+def _find(memory: Memory, git: bool, patient: bool) -> dict[str, Landed]:
     wants = _wants(memory)
     if not wants or not memory.project.is_git:
         return {}
-    refs = _landing_refs(root)
-    if not refs:
-        return {}
-    cache = _read_cache(memory)
-    facts = cache.get("facts", {})
-    if cache.get("tips") != refs or any(want.key not in facts for want in wants):
-        oldest = min((want.since for want in wants), key=parse_time)
-        paths = {p for want in wants for p in (*want.required, *want.optional)}
-        newest = _newest(root, refs, paths, oldest)
-        if newest is None:
-            return {}
-        facts = {}
-        for want in wants:
-            evidence = _decide(want, newest)
-            facts[want.key] = list(astuple(evidence)) if evidence else None
-        _write_cache(memory, refs, facts)
-    return {want.id: Landed(*facts[want.key]) for want in wants if facts.get(want.key) is not None}
+    tips, facts = _read_cache(memory)
+    timeout = TIDY_TIMEOUT if patient else GIT_TIMEOUT
+    # A git that cannot get its whole time would read as UNKNOWN, and that answer is kept.
+    if git and deadline.left() >= timeout and not deadline.git_stuck():
+        refs = _landing_refs(memory.project.root)
+        unknown = patient and any(facts.get(want.key) == UNKNOWN for want in wants)
+        if refs and (tips != refs or unknown or any(want.key not in facts for want in wants)):
+            facts = _ask_git(memory.project.root, refs, wants, timeout)
+            _write_cache(memory, refs, facts)
+    return {
+        want.id: Landed(*facts[want.key]) for want in wants if isinstance(facts.get(want.key), list)
+    }
 
 
 STALE_NAMED = 5
@@ -249,9 +319,22 @@ def stale_line(memory: Memory, rules: list[dict]) -> str | None:
     ids = stale_rules(memory, rules)
     if not ids:
         return None
+    named = ids[:STALE_NAMED]
     more = f" and {len(ids) - STALE_NAMED} more" if len(ids) > STALE_NAMED else ""
+    by_id = {r["id"]: r for r in rules}
+    told = [fid for fid in named if person_said(by_id[fid])]
     return (
         f"Rules most likely stale (work landed, then old one-time approvals): "
-        f"{', '.join(ids[:STALE_NAMED])}{more}. `memory tidy` shows the commits. End one that no "
-        'longer holds: memory change ID --status expired --reason "...".'
+        f"{', '.join(named)}{more}. `memory tidy` shows the commits. End one that no "
+        f'longer holds: memory change ID --status expired --reason "...".'
+        f"{ask_note(told, len(named))}"
     )
+
+
+def ask_note(told: list[str], named: int) -> str:
+    """The end of a line that names facts to end: those that a person stated are the owner's."""
+    if not told:
+        return ""
+    if len(told) == named:
+        return " A person stated them: ask the owner before you end one."
+    return f" A person stated {', '.join(told)}: ask the owner before you end those."

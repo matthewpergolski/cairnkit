@@ -36,7 +36,7 @@ def rules(repo, capsys, monkeypatch) -> dict[str, str]:
     at(monkeypatch, "10")
     ids["landed"] = add(
         capsys,
-        "Keep the 0018 order.",
+        "Yes to the 0018 order.",
         "--kind",
         "rule",
         "--basis",
@@ -56,6 +56,7 @@ def test_the_load_names_landed_rules_then_the_oldest_approvals(mem, repo, capsys
     assert [line.index(fid) for fid in named] == sorted(line.index(fid) for fid in named)
     assert ids["policy"] not in line
     assert "memory tidy" in line
+    assert "A person stated them: ask the owner before you end one" in line
 
 
 def test_within_the_budget_the_load_names_none(mem, repo, capsys, monkeypatch):

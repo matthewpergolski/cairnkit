@@ -5,6 +5,7 @@ Age plays no part, and neither prompt ends a fact.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def _file_missing(root: Path, source: str) -> bool:
     path = source[5:]
     if not path or path.startswith(("/", "~")):
         return False
-    return not (root / path).exists()
+    return not os.path.exists(root / path)
 
 
 def _commit_missing(root: Path, source: str) -> bool:

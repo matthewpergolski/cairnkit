@@ -205,6 +205,12 @@ def owner_rule(state: dict) -> bool:
     return not state.get("author") or stated(state)
 
 
+def person_said(state: dict) -> bool:
+    """A person stands behind the fact. For a rule that is its force, so the owner's rule with
+    basis `guess` counts too. Only the owner, or the owner's words, may end such a fact."""
+    return owner_rule(state) if state.get("kind") == "rule" else stated(state)
+
+
 def load_text(state: dict) -> str:
     """The short line load shows: summary when set, else the body."""
     summary = state.get("summary")

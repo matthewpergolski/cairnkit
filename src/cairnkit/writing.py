@@ -40,6 +40,7 @@ from cairnkit.selection import (
     load_text,
     name,
     owner_rule,
+    person_said,
 )
 from cairnkit.similar import analyze, possible_conflicts, repeat_key, similarity
 from cairnkit.skills import running_tool
@@ -256,10 +257,10 @@ def _inherit(args, old: dict) -> bool:
     return False
 
 
-def _has_authority(old: dict) -> bool:
-    """A person stands behind the fact. For a rule that is its force, so the owner's rule with
-    basis `guess` counts too."""
-    return owner_rule(old) if old.get("kind") == "rule" else stated(old)
+CONFIRM = (
+    "To confirm the new fact, quote the owner's words in this turn, or the owner runs the "
+    "command from their own shell."
+)
 
 
 def _told_check(memory: Memory, args) -> owner_evidence.Verdict | None:
@@ -325,7 +326,7 @@ def add_fact(memory: Memory, args) -> str | None:
     verdict = None if inherited else _told_check(memory, args)
     # A basis that comes from an older fact keeps whether the owner's words confirmed it.
     unconfirmed = (verdict is not None and not verdict.bound) or (
-        inherited and args.basis == "told" and not _has_authority(masked_target)
+        inherited and args.basis == "told" and not person_said(masked_target)
     )
     mine = {"basis": args.basis, **({"confirmed": False} if unconfirmed else {})}
     summary = getattr(args, "summary", None)
@@ -469,12 +470,19 @@ def add_fact(memory: Memory, args) -> str | None:
             f"--supersedes {fact['id']}"
         )
     if fact["kind"] == "rule" and one_work(fact["text"]):
+        told = (
+            " It replaces this rule only when the owner's words in this turn confirm it (the "
+            "told check). If they do not, ask the owner."
+            if fact["basis"] == "told"
+            else ""
+        )
         print(
             "note: this rule reads as approval of one piece of work, and a rule loads in each "
             'session. If it holds only for that work, write it as: memory add "TEXT" --kind '
-            f"decision --supersedes {fact['id']} with --files PATHS (tidy proposes the end when "
-            "they land) or --until-merged BRANCH (it ends at the merge). Keep --kind rule for a "
-            "lasting policy."
+            f"decision --basis {fact['basis']} --supersedes {fact['id']} with --files PATHS "
+            "(tidy proposes the end when each of them has a commit on the main branch) or "
+            f"--until-merged BRANCH (it ends at the merge).{told} Keep --kind rule for a lasting "
+            "policy."
         )
     if target and supersedes:
         note_change(memory, target, f"replaced by {fact['id']}")
@@ -507,7 +515,7 @@ def add_fact(memory: Memory, args) -> str | None:
         print(
             f"not superseded: {kept['id']} was stated by a person (basis told), and the new fact "
             f"is not. Written as {fact['id']}, linked with similar_to. Both stay active and an "
-            "agent task lists the pair."
+            f"agent task lists the pair. {CONFIRM}"
         )
     if retired:
         old, status, reason = retired
@@ -568,7 +576,14 @@ def change_fact(memory: Memory, args) -> None:
     if args.reason:
         change["reason"] = args.reason
     if args.superseded_by:
-        _need_fact(memory, args.superseded_by)
+        new = _need_fact(memory, args.superseded_by)
+        # Like `memory add --supersedes`: an agent's word does not end a person's.
+        if running_tool() and person_said(state) and not person_said(new):
+            raise Refused(
+                f"{args.id} was stated by a person, and {args.superseded_by} has less authority "
+                "(not stated, or a told claim that the owner's words did not confirm). Nothing "
+                f"changed. {CONFIRM}"
+            )
         change["superseded_by"] = args.superseded_by
     if args.held_by:
         if args.status != "promoted":
@@ -576,7 +591,7 @@ def change_fact(memory: Memory, args) -> None:
                 "--held-by needs --status promoted. Run: memory change "
                 f'{args.id} --status promoted --held-by {args.held_by} --reason "..."'
             )
-        if not (memory.project.root / args.held_by).exists():
+        if not os.path.exists(memory.project.root / args.held_by):
             raise Refused(f"held_by {args.held_by!r} does not exist in {memory.project.root}")
         change["held_by"] = args.held_by
     links = [parse_link(v) for v in args.link or []]
