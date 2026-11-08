@@ -21,6 +21,7 @@ the block goes right after its first line. Uninstall removes only the block.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import sys
@@ -830,6 +831,35 @@ def hook_state(project: Project) -> HookState:
             f"git hooks: on, beside core.hooksPath {clean_path(setting)} ({clean_path(shown)})"
         )
     return HookState(f"git hooks: on ({clean_path(shown)})")
+
+
+def _own_part(path: Path) -> bool:
+    """True when the hook file runs more than a memory block: the repo's own hook."""
+    if path.name.endswith(".sample") or not path.is_file() or not os.access(path, os.X_OK):
+        return False
+    try:
+        text = plainfile.read_text(path, errors="replace")
+    except OSError:
+        return False
+    rest = _strip(text) if holds_block(text) else text
+    return rest.strip() not in ("", "#!/bin/sh")
+
+
+def own_hooks_line(project: Project) -> str | None:
+    """One line for `memory init --refresh`: the repo's own hooks run as before. None for none."""
+    folder = git_folder(project) if project.is_git else None
+    if folder is None or not folder.is_dir():
+        return None
+    names = sorted(path.name for path in folder.iterdir() if _own_part(path))
+    if not names:
+        return None
+    shown = folder.relative_to(project.root) if folder.is_relative_to(project.root) else folder
+    if _is_private(project, folder):
+        where = clean_path(shown)
+    else:
+        where = f"{clean_path(shown)}, core.hooksPath"
+    beside = "" if _is_private(project, folder) else " The memory hooks run beside them."
+    return f"note: the repo's own hooks run as before: {', '.join(names)} ({where}).{beside}"
 
 
 def uninstall(project: Project, hook: str, dry_run: bool) -> list[str]:

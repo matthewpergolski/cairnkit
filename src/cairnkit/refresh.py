@@ -350,6 +350,9 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     for step in steps:
         plain = step.startswith(("skip", "note"))
         print(("would " if dry_run and not plain else "") + step)
+    own = githook.own_hooks_line(project)
+    if own:
+        print(own)
     for path in broken:
         print(markers.broken_message(path, COMMAND))
     if broken:

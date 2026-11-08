@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory init --refresh` prints one line that the repo's own hooks run as before, with their
+  names and folder: the hooks in the folder that core.hooksPath names (such as `.githooks`; the
+  memory hooks run beside them), or hook files in `.git/hooks` that hold more than the memory
+  block. It prints nothing when every hook file is the tool's own.
 - `memory tidy` proposes to end an active rule or decision that reads as the owner's yes to one
   piece of work (the same test as the note of `memory add`) and names that work in `--files`,
   when that work landed: the main branch (the default branch, `dev` or `develop`, along first
