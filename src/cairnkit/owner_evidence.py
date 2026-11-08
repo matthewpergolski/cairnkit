@@ -39,15 +39,15 @@ How `memory add` finds its session (`_session_file`). Claude Code, Codex and Gro
 in the shell of the agent (SESSION_ENV). The hooks keep each id that they see for a session: the
 payload's id, and the id in the hook's own environment. A session file is the agent's own when one
 of its ids is in the agent's shell. A file is open when its newest owner prompt is less than
-OPEN_SECONDS old. The claim takes, in this order: the one own file that is open; else the one open
-file of this checkout; else the one own file. No file, or a choice between two, gives no
-evidence, and the claim stays unconfirmed.
+OPEN_SECONDS old. The claim takes, in this order: the one own file that is open; else the one own
+file; else, only when the session has no own file at all, the one open file of this checkout. No
+file, or a choice between two, gives no evidence, and the claim stays unconfirmed.
 
-The open file of this checkout is a fallback because the id in the shell can miss the hooks' id,
-for example after a resume. It is the fallback that an agent with no id gets too. The agent cannot
-choose it: the before-shell hook refuses a command that changes the id, and an open own file comes
-first. What it binds is still only what the owner typed in that open session, and for a tool in
-READERS that session's transcript must prove it.
+The open file of this checkout is the fallback for an agent with no id in its shell (Cursor, Pi,
+OpenCode). A session that kept evidence never borrows another session's words, also when it has
+been quiet for a while; after a resume the hooks record the shell's id as an alias, so the own
+file is still found. What a claim binds is only what the owner typed in that session, and for a
+tool in READERS that session's transcript must prove it.
 """
 
 from __future__ import annotations
