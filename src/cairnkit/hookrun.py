@@ -431,6 +431,8 @@ def session_start(project: Project, flag: str | None, agent: str, payload: dict)
     text = work + _session_text(project, flag, key, same_process=same_process, reserve=len(work))
     with contextlib.suppress(Exception):  # the session must start anyway
         memory = Memory.open(project, flag)
+        with contextlib.suppress(Exception):
+            owner_evidence.note_start(memory, key, agent, payload)
         if fresh:
             start_session(memory, key)
         mark_loaded(memory, key, text)

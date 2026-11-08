@@ -5,7 +5,8 @@ state (see session.py), so the other hooks of a session do not read or write it.
 
     {"root": checkout path,
      "agent": the agent tool of the session,
-     "transcript": the transcript path of the first prompt | null,
+     "ids": [the session ids that the hooks saw, newest last],
+     "transcripts": [the transcript paths of the session, at most TRANSCRIPTS_KEPT, newest last],
      "prompts": [{"at", "text"}],                # the newest PROMPTS_KEPT owner prompts
      "choices": [{"at", "kind", "text", "answer"}],  # answers to agent questions, this turn only
      "approval": {"at", "text", "prompt"} | null}  # the question that this turn's "yes" answered
@@ -26,15 +27,26 @@ counts a prompt only when the transcript holds it as an owner prompt, an approva
 holds the "yes" and the question, and an answer only when it holds the answer in a tool result.
 It reads the transcript when the claim is checked, not in the prompt hook, because the tool may
 write the prompt to the transcript after the hook runs. The first prompt of a session fixes its
-transcript path, and a prompt that names another path is not kept. A transcript that cannot be read
-proves nothing. For another tool there is no transcript to read, so its evidence counts as kept:
-that is a known limit. A forger can still write a fake transcript, or the evidence file itself;
-the before-shell hook (forgery.py) refuses those commands in the agent's shell.
+transcript path, and a prompt that names another path is not kept. Only a session start of the
+same session (a resume, a compaction, a clear or a fork) adds a new path, because the tool may
+write a resumed session to a new file. The proof reads the newest path and the one before it. A transcript that cannot be read proves nothing. For another tool there is no
+transcript to read, so its evidence counts as kept: that is a known limit. A forger can still
+write a fake transcript, or the evidence file itself; the before-shell hook (forgery.py) refuses
+those commands in the agent's shell.
 
-How `memory add` finds its session. Claude Code, Codex and Grok put the session id in the shell of
-the agent, and the hooks get the same id. For another agent, it takes the one session in this
-checkout whose owner prompt is less than OPEN_SECONDS old. No session, or more than one, gives no
+How `memory add` finds its session (`_session_file`). Claude Code, Codex and Grok put a session id
+in the shell of the agent (SESSION_ENV). The hooks keep each id that they see for a session: the
+payload's id, and the id in the hook's own environment. A session file is the agent's own when one
+of its ids is in the agent's shell. A file is open when its newest owner prompt is less than
+OPEN_SECONDS old. The claim takes, in this order: the one own file that is open; else the one open
+file of this checkout; else the one own file. No file, or a choice between two, gives no
 evidence, and the claim stays unconfirmed.
+
+The open file of this checkout is a fallback because the id in the shell can miss the hooks' id,
+for example after a resume. It is the fallback that an agent with no id gets too. The agent cannot
+choose it: the before-shell hook refuses a command that changes the id, and an open own file comes
+first. What it binds is still only what the owner typed in that open session, and for a tool in
+READERS that session's transcript must prove it.
 """
 
 from __future__ import annotations
@@ -71,9 +83,17 @@ TAIL_BYTES = 512 * 1024
 PROOF_BYTES = 4 * 1024 * 1024
 PROOF_AGENT_TEXTS = 20
 OPEN_SECONDS = 1800
-# The variable in the agent's shell that holds the session id that its hooks get. Claude Code was
-# read in a real shell. Codex and Grok are inferred from their names.
-SESSION_ENV = ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "GROK_SESSION_ID")
+TRANSCRIPTS_KEPT = 2
+IDS_KEPT = 8
+# The variable that holds the session id in the agent's shell, for each tool. Claude Code sets it
+# for each shell command and each hook from the current session (read in its binary, 2.1.319).
+# Codex and Grok are inferred from their names.
+AGENT_ENV = {
+    "claude": "CLAUDE_CODE_SESSION_ID",
+    "codex": "CODEX_THREAD_ID",
+    "grok": "GROK_SESSION_ID",
+}
+SESSION_ENV = tuple(AGENT_ENV.values())
 QUESTION_TOOL = "AskUserQuestion"
 FENCED = re.compile(r"```.*?(?:```|$)", re.DOTALL)
 ANSWER_PAIR = re.compile(r'"([^"]*)"="([^"]*)"')
@@ -115,6 +135,46 @@ def _list(data: dict, name: str) -> list[dict]:
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
+def _ids(data: dict, key: str, agent: str) -> list[str]:
+    """The session ids kept, with the payload's id and the id in this hook's environment."""
+    found = _strings(data, "ids")
+    name = AGENT_ENV.get(agent)
+    found += [key, *([os.environ[name]] if name and os.environ.get(name) else [])]
+    return list(dict.fromkeys(found))[-IDS_KEPT:]
+
+
+def _strings(data: dict, name: str) -> list[str]:
+    items = data.get(name)
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, str) and item]
+
+
+def _transcripts(data: dict) -> list[str]:
+    return _strings(data, "transcripts")
+
+
+def note_start(memory: Memory, key: str, agent: str, payload: dict) -> None:
+    """A session resumes, is compacted, cleared or forked. When it has evidence, keep its ids, and
+    make the transcript that the payload names the newest one of the session. A session with no
+    evidence gets its transcript from its first prompt."""
+    path = evidence_path(memory, key)
+    data = _read(path)
+    if not data:
+        return
+    known = _transcripts(data)
+    transcript = str(payload.get("transcript_path") or "")
+    if transcript:
+        known = [item for item in known if item != transcript] + [transcript]
+    data.update(
+        root=str(memory.project.root),
+        agent=agent,
+        ids=_ids(data, key, agent),
+        transcripts=known[-TRANSCRIPTS_KEPT:],
+    )
+    write_state(memory, path, data)
+
+
 def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     """Keep an owner prompt. For a short yes, keep the agent's question that it answered.
 
@@ -125,7 +185,8 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     path = evidence_path(memory, key)
     old = _read(path)
     transcript = str(payload.get("transcript_path") or "") or None
-    if old.get("transcript") and transcript != old["transcript"]:
+    known = _transcripts(old)
+    if known and transcript not in known:
         return  # a prompt from another transcript is no prompt of this session
     moment = time.time()
     own = "" if NOT_THE_OWNER.search(prompt) else _own_words(memory, prompt)
@@ -142,7 +203,8 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     data = {
         "root": str(memory.project.root),
         "agent": agent,
-        "transcript": transcript,
+        "ids": _ids(old, key, agent),
+        "transcripts": known or ([transcript] if transcript else []),
         "prompts": prompts[-PROMPTS_KEPT:],
         "choices": [],
         "approval": approval,
@@ -315,18 +377,27 @@ def last_agent_message(agent: str, path: object, prompt: str) -> str | None:
         return None
 
 
+def _last_prompt(data: dict) -> float:
+    times = [row.get("at") for row in _list(data, "prompts")]
+    return max((at for at in times if isinstance(at, (int, float))), default=0.0)
+
+
 def _session_file(memory: Memory) -> Path | None:
     """The evidence file of the session that runs this command. See the module text."""
-    for name in SESSION_ENV:
-        if os.environ.get(name):
-            return evidence_path(memory, os.environ[name])
-    folder = memory.dir / ".sessions"
+    ids = {os.environ[name] for name in SESSION_ENV if os.environ.get(name)}
+    named = {evidence_path(memory, item) for item in ids}
     root, since = str(memory.project.root), time.time() - OPEN_SECONDS
-    found = []
-    for path in plainfile.files_in(memory.dir, folder, "*.owner.json"):
+    own, own_open, here_open = [], [], []
+    for path in plainfile.files_in(memory.dir, memory.dir / ".sessions", "*.owner.json"):
         with contextlib.suppress(OSError):
-            if path.stat().st_mtime >= since and _read(path).get("root") == root:
-                found.append(path)
+            data = _read(path)
+            fresh = _last_prompt(data) >= since
+            if path in named or ids & set(_strings(data, "ids")):
+                own.append(path)
+                own_open += [path] if fresh else []
+            if fresh and data.get("root") == root:
+                here_open.append(path)
+    found = own_open or here_open or own
     return found[0] if len(found) == 1 else None
 
 
@@ -340,13 +411,16 @@ class Seen:
 
 
 def transcript_seen(memory: Memory, data: dict) -> Seen | None:
-    """What the session's transcript holds, or None when it cannot be read."""
-    reader, path = READERS.get(str(data.get("agent"))), data.get("transcript")
-    if reader is None or not isinstance(path, str) or not path or path.endswith(".zst"):
-        return None
-    try:
-        turns = list(reader(_tail_lines(path, PROOF_BYTES)))
-    except (OSError, ValueError):
+    """What the session's transcripts hold, newest first, or None when none can be read."""
+    reader = READERS.get(str(data.get("agent")))
+    turns, read = [], False
+    for path in reversed(_transcripts(data)):
+        if reader is None or path.endswith(".zst"):
+            continue
+        with contextlib.suppress(OSError, ValueError):
+            turns += list(reader(_tail_lines(path, PROOF_BYTES)))
+            read = True
+    if not read:
         return None
     texts = {role: [text for r, texts in turns if r == role for text in texts] for role in
              ("owner", "agent", "tool")}  # fmt: skip

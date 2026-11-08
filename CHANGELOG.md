@@ -58,8 +58,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confirms it. The prompt hook keeps this evidence, masked as a whole and then cut, in
   `.sessions/<id>.owner.json`. A person at a terminal binds as before. For Claude Code and Codex,
   `memory add` counts a kept prompt, approval or answer only when the session's transcript holds
-  it, and a prompt that names another transcript than the session's first is not kept; a
-  transcript that cannot be read proves nothing.
+  it, and a prompt that names another transcript than the session's is not kept; a transcript
+  that cannot be read proves nothing. A session start of the same session (a resume, a
+  compaction, a clear or a fork) can name a new transcript, and the check reads the newest one and
+  the one before it. `memory add` finds the session by the id in the agent's shell, or by an id
+  that the hooks saw for the session; when no session of that id has an owner prompt in the last
+  30 minutes, it takes the one session of the checkout that has one, and never chooses between
+  two. So a claim in a resumed session, where the shell's id can differ from the hooks' id or the
+  transcript can move, confirms as in a new one.
 - The before-shell hook refuses an agent shell command that runs a cairnkit hook by hand, changes
   or removes an agent marker (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, ...)
   and runs `memory`, calls cairnkit's evidence code from a script, or writes into the memory
