@@ -653,10 +653,11 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   holds the aim. So the hooks record it while the helper starts: `PreToolUse` on `Agent|Task` keeps
   the description and at most 60 words of the prompt, masked, in `.sessions/helpers/open.json`, and
   `SubagentStart` adds the helper's id and worktree. An event ends the record, never a clock: the
-  helper's `SubagentStop`, the result of its call, the stop of its own turn for a call that started
+  helper's `SubagentStop` (Claude Code fires it for a helper that TaskStop stops only when the
+  stop cuts its stream), the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
   stays while the worktree does. A compaction (or a reload) names the helpers of its own session
-  first, as "started by this session, may still be running", because the same process runs them,
+  first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
   and its next stop does not end them. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.
 

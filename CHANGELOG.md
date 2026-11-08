@@ -299,6 +299,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A helper line with no recorded end now says that the helper may have been stopped: "no end
+  recorded, so it may have been stopped or ended unseen", and in a compaction of the session that
+  started it, "started by this session; it may still be running, or it was stopped or ended
+  unseen". Claude Code 2.1.319 fires `SubagentStop` for a helper that TaskStop stops only when the
+  stop cuts the helper's stream; when the stream ends first, no hook runs. The record still ends
+  at the stop of a session whose load named it.
 - `memory change ID --status superseded --superseded-by NEW` from an agent refuses when a person
   stated ID (a confirmed told fact or the owner's rule) and NEW has less authority (not stated, or
   a told claim that the owner's words did not confirm), as `memory add --supersedes` already kept
@@ -318,7 +324,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `notes/status.md` and its specs read that as if the check did not see them. A note edit alone
   still does not block.
 - After a compaction, the session start names the helpers that this session started under
-  `## Live work`, as "started by this session, may still be running". Before, a compaction hid
+  `## Live work`, as "started by this session; it may still be running, or it was stopped or ended unseen". Before, a compaction hid
   them, so a lead lost the work that its running helpers did. The next stop of the session does
   not end their records. A resume still names them as having no recorded end.
 - Each start of the tool now uses `python -P`: the agent hooks, the Pi and OpenCode plugins, the
@@ -506,7 +512,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mem two`. A path in a command to copy, such as `memory init --path PATH`, is in shell quotes
   when the shell would split it.
 
-- A helper line in the load says "no end recorded, so it may have ended unseen". In a real project
+- A helper line in the load says "no end recorded, so it may have been stopped or ended unseen". In a real project
   a review that ended two days before read as still running, because its end never reached the
   hooks.
 

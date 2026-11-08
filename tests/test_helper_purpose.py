@@ -160,7 +160,7 @@ def test_a_killed_session_leaves_the_purpose_of_its_helper_for_the_next_one(repo
     assert ".worktrees/host-link-per-invitation" in line
     assert "no end recorded" in line
     # A missed end is not a running helper. One that ended two days before read as still running.
-    assert "may have ended unseen" in line and "running" not in line
+    assert "may have been stopped or ended unseen" in line and "running" not in line
     assert "no uncommitted change and no commit" in line
 
 
@@ -168,7 +168,7 @@ def test_the_same_session_resumed_hears_it_too(repo, hooks):
     killed_mid_helper(repo, hooks)
     [line] = helper_lines(hooks.load(repo, "s1", source="resume"))
     # A resume is a new process, so a helper of the old one cannot still run.
-    assert "may have ended unseen" in line and "may still be running" not in line
+    assert "may have been stopped or ended unseen" in line and "may still be running" not in line
 
 
 @pytest.mark.parametrize("source", ["compact", "reload"])
@@ -176,10 +176,13 @@ def test_a_compaction_names_the_helpers_this_session_started_as_maybe_running(re
     killed_mid_helper(repo, hooks)
     [line] = helper_lines(hooks.load(repo, "s1", source=source))
     assert f'"{PURPOSE}"' in line
-    assert "started by this session, may still be running" in line
-    assert "may have ended unseen" not in line
+    assert (
+        "started by this session; it may still be running, or it was stopped or ended unseen"
+        in line
+    )
+    assert "may have been stopped or ended unseen" not in line
     [other] = helper_lines(hooks.load(repo, "s2"))
-    assert "may have ended unseen" in other and "may still be running" not in other
+    assert "may have been stopped or ended unseen" in other and "may still be running" not in other
 
 
 def test_a_compaction_keeps_the_helpers_of_other_sessions_as_before(repo, hooks):
@@ -189,8 +192,11 @@ def test_a_compaction_keeps_the_helpers_of_other_sessions_as_before(repo, hooks)
     lines = helper_lines(hooks.load(repo, "s1", source="compact"))
     [old] = [line for line in lines if "read the old docs" in line]
     [mine] = [line for line in lines if PURPOSE in line]
-    assert "may have ended unseen" in old and "this session" not in old
-    assert "started by this session, may still be running" in mine
+    assert "may have been stopped or ended unseen" in old and "this session" not in old
+    assert (
+        "started by this session; it may still be running, or it was stopped or ended unseen"
+        in mine
+    )
 
 
 def test_a_helper_named_on_compaction_outlives_the_next_stop_of_its_session(repo, hooks):
@@ -438,3 +444,18 @@ def test_a_slow_git_in_the_helper_checkout_keeps_the_start_in_time(repo, hooks, 
     text = slow.load(repo, "s2")
     assert time.monotonic() - begun < SESSION_START_TIMEOUT
     assert FRAME_HEADER in text
+
+
+def test_a_helper_stopped_with_no_end_event_reads_as_maybe_stopped(repo, hooks):
+    """Claude Code 2.1.319 fires SubagentStop for a stopped helper only when the stop cuts its
+    stream; when the stream ends first, no hook runs. So the line says that it may be stopped."""
+    hooks.call(repo, "toolu_1", run_in_background=True)
+    hooks.returned(repo, "toolu_1", {"status": "async_launched", "agentId": "a1", "isAsync": True})
+    hooks.start(repo, "a1", repo)
+    hooks.run("stop", repo, session="s1")
+    [line] = helper_lines(hooks.load(repo, "s1", source="compact"))
+    assert "it was stopped or ended unseen" in line
+    [other] = helper_lines(hooks.load(repo, "s2"))
+    assert "may have been stopped or ended unseen" in other
+    hooks.run("stop", repo, session="s2")
+    assert not helper_lines(hooks.load(repo, "s3")), "the record ends after one session heard it"
