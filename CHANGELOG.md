@@ -211,7 +211,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A hook load cut to fit the hook's size limit drops stored lines in a fixed order: long-term
   facts first, then branch notes, the status note, short-term facts, pinned facts and agent rules,
   and `## Live work` last, at a startup, a resume or a compaction. Before, the cut dropped from the
-  end of the frame, so the status note went before the long-term facts.
+  end of the frame, so the status note went before the long-term facts. When the cut drops all of
+  `## Live work`, it also drops the order above the frame that points to that list.
 - `memory docs` in a project that is not cairnkit writes one system page and one page for each
   component: a top-level package or folder of a source root. Before, it wrote one import graph of
   the top-level Python packages only. In a real Django and TypeScript project, it showed only the
