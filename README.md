@@ -466,9 +466,14 @@ decides. If one still holds, `memory change ID --status active --reason "..."`
 marks it as reviewed, and only a later commit names it again. One `git log` reads
 all facts, and `<memory>/.landed.json` keeps the answer until a main branch moves.
 When `memory add` writes a rule whose text reads as approval of one piece of work
-("yes to", "approved", "go ahead with", "for this release", a migration or PR
-number), it suggests `--kind decision` with `--files` or `--until-merged`, so the
-fact can end with the work. A lasting policy stays a rule.
+(a verb of yes with an object of work: "yes to migration 0018", "approved the
+parser", "go ahead with the move", "OK'd the new parser", "LGTM on the refactor",
+"green light for the move", or "for this release"), it suggests `--kind decision
+--basis BASIS` with `--files` or `--until-merged`, so the fact can end with the
+work. For a told rule it says that the decision replaces the rule only when the
+owner's words in this turn confirm it, and else to ask the owner. A text that opens
+with `only`, `never`, `always`, `do not`, `every` or `each`, or a negated yes, is a
+lasting policy and stays a rule.
 
 **A source that is gone is named, not ended.** `memory load` prints one line with
 the facts whose `file:` or `commit:` source no longer exists. A long-term fact stays

@@ -466,12 +466,19 @@ def add_fact(memory: Memory, args) -> str | None:
             f"--supersedes {fact['id']}"
         )
     if fact["kind"] == "rule" and one_work(fact["text"]):
+        told = (
+            " It replaces this rule only when the owner's words in this turn confirm it (the "
+            "told check). If they do not, ask the owner."
+            if fact["basis"] == "told"
+            else ""
+        )
         print(
             "note: this rule reads as approval of one piece of work, and a rule loads in each "
             'session. If it holds only for that work, write it as: memory add "TEXT" --kind '
-            f"decision --supersedes {fact['id']} with --files PATHS (tidy proposes the end when "
-            "they land) or --until-merged BRANCH (it ends at the merge). Keep --kind rule for a "
-            "lasting policy."
+            f"decision --basis {fact['basis']} --supersedes {fact['id']} with --files PATHS "
+            "(tidy proposes the end when each of them has a commit on the main branch) or "
+            f"--until-merged BRANCH (it ends at the merge).{told} Keep --kind rule for a lasting "
+            "policy."
         )
     if target and supersedes:
         note_change(memory, target, f"replaced by {fact['id']}")

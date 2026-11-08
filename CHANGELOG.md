@@ -18,11 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all
   facts, and `<memory>/.landed.json` keeps the answer until a main branch moves. `memory tidy` also
   proposes to supersede an active rule that a newer fact names by id and says it replaces.
-- `memory add --kind rule` (any basis) whose text reads as approval of one piece of work ("yes
-  to", "approved", "go ahead with", "signed off on", "for this release", a migration, spec or PR
-  number, `#158`) prints a note: write it as `--kind decision --supersedes ID` with
-  `--files PATHS` (tidy proposes the end when they land) or `--until-merged BRANCH`, and keep
-  `rule` for a lasting policy.
+- `memory add --kind rule` (any basis) whose text reads as approval of one piece of work prints a
+  note: write it as `--kind decision --basis BASIS --supersedes ID` with `--files PATHS` (tidy
+  proposes the end when each path has a commit on the main branch) or `--until-merged BRANCH`,
+  and keep `rule` for a lasting policy. For a told rule the note says that the decision replaces
+  the rule only when the owner's words in this turn confirm it (the told check), and else to ask
+  the owner. An approval is a verb of yes with an object of work right after it: "yes to
+  migration 0018", "approved the parser", "go ahead with the move", "signed off on the plan",
+  "OK'd the new parser", "LGTM on the refactor", "approves the schema change", "green light for
+  the move", or "for this release". "approved licenses", "approved by the owner", a bare `#123`
+  or "migration 0001" are no approval. A text that opens with `only`, `never`, `always`,
+  `do not`, `every` or `each`, or a negation right before the yes, is a lasting policy.
 - When the rules pass the word budget of a load, or the limit of 1000 words, the load names the
   rules most likely stale in one line: rules whose work landed first, then the oldest rules that
   read as approval of one piece of work. A lasting policy is not named. `memory check` prints the

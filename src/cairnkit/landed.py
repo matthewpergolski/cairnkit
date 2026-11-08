@@ -37,18 +37,34 @@ _EXTENSION = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
 # Python strips the separators U+001C to U+001F as white space, so these are NUL and SOH.
 _COMMIT = "\x00"
 _FIELD = "\x01"
-# The owner's yes to one piece of work, or a name of one piece of work. "approve" alone is out:
-# "ask the owner to approve each deploy" is a lasting policy.
-_ONE_WORK = re.compile(
-    r"(?i)\byes,?\s+to\b|\bapproved\b|\bgo\s+ahead\s+with\b|\bsigned\s+off\s+on\b"
-    r"|\bfor\s+this\s+(?:release|sprint|branch|pr)\b"
-    r"|\b(?:migration|spec|pr)\s*#?\d+|(?<![\w&])#\d+\b"
+# An approval is a verb of yes with an object of work right after it: "approved the parser",
+# not "approved licenses" or "approved by the owner". "approve" alone is out: "ask the owner to
+# approve each deploy" is a lasting policy. A number such as "#123" or "migration 0001" is no
+# approval: "never edit migration 0001" names one piece of work and holds for ever.
+_OBJECT = (
+    r"(?:(?:the|this|that|these|those|a|an|our|my|your|their|its)\s+\S"
+    r"|(?:pr|pull\s+request|migration|spec|plan|change|refactor|rewrite|move|merge|release)\b)"
 )
+_APPROVAL = re.compile(
+    r"(?i)(?:\byes,?\s+to|\bgo\s+ahead\s+(?:with|on)|\bsigned\s+off\s+on|\bapprov(?:ed|es)"
+    r"|\bok(?:ay)?(?:'|\u2019)?e?d|\blgtm\s+(?:on|for|to)"
+    r"|\bgreen[-\s]+light(?:ed)?(?:\s+(?:for|on|to))?)"
+    rf"\s+{_OBJECT}"
+)
+_SCOPE = re.compile(r"(?i)\bfor\s+this\s+(?:release|sprint|branch|pr)\b")
+# A policy: it opens with a word of always or never, or a negation stands right before the yes.
+_POLICY = re.compile(r"(?i)^\W*(?:only|never|always|do\s+not|don't|dont|no|every|each|any)\b")
+_NEGATED = re.compile(r"(?i)(?:\bnot|\bnever|n't|\bno)\s+(?:\w+\s+)?$")
 
 
 def one_work(text: str) -> bool:
     """True when the text reads as approval of one piece of work, not as a lasting policy."""
-    return bool(_ONE_WORK.search(text))
+    text = str(text)
+    if _POLICY.search(text):
+        return False
+    if _SCOPE.search(text):
+        return True
+    return any(not _NEGATED.search(text[: m.start()]) for m in _APPROVAL.finditer(text))
 
 
 @dataclass(frozen=True)
