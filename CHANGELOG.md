@@ -48,7 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   order; only articles, `please`, pronouns, punctuation, case, word endings and a rule frame
   (`always`, `from now on`) may differ. A word that turns or limits the rule (`not`, `stop`,
   `skip`, `except`, `until`, `only`, `before`, `yet`, ...), a number, a path or a name may not be
-  dropped or changed, and the claim must hold 80 percent of the sentence. A typed question and a
+  dropped or changed, and the claim must hold 80 percent of the sentence. An ellipsis in the
+  claim (`...` beside a space, or the ellipsis character) marks a gap, so a claim that quotes two
+  parts of the owner's message with `...` between them binds when each part is a copy. A typed question and a
   hypothetical (`what if`, `suppose`) state no rule. A condition the owner typed whole ("If you
   touch the schema, update FORMAT.md") binds whole; a claim that drops the condition does not.
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and

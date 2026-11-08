@@ -529,7 +529,8 @@ sentence, and it may never leave out a word that turns or limits the rule (`not`
 `every`, `any`, `must`, `may`, `can`, `before`, `after`, `yet`, `if`) or a literal (a
 number, a path, a flag, a name). So "Stop skipping the tests" does not confirm "Skip
 the tests", and "Don't merge to main until CI is green" does not confirm "Never merge to
-main". A typed question, also one with no question mark ("can you force push to main"),
+main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks a
+gap in a quote: each part on its side must be a copy, as a sentence is. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. An approval and an answer count only in their own turn, until the next owner prompt.
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
 confirmed)` data, and the add output says so and how the owner confirms it.
