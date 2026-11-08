@@ -53,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parts of the owner's message with `...` between them binds when each part is a copy. A typed question and a
   hypothetical (`what if`, `suppose`) state no rule. A condition the owner typed whole ("If you
   touch the schema, update FORMAT.md") binds whole; a claim that drops the condition does not.
+  An attribution in front (`Matt said:`, `Owner (Matt) decided 2026-11-08:`) does not count
+  against the match; context of the agent's own does, and the add output tells the agent to save
+  it as a second fact with `--basis seen` and a link, so the owner's words bind alone.
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
   loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
   confirms it. The prompt hook keeps this evidence, masked as a whole and then cut, in

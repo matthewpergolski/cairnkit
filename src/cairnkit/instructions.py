@@ -56,7 +56,8 @@ commit:HASH, file:PATH, pr:N, person:ROLE.
   A rule that an agent writes loads as data, unless the owner stated it and you add `--basis told`.
   A rule the owner stated: `memory add "TEXT" --kind rule --basis told`, in the turn where the
   owner typed it, picked an option whose label states it, or said yes to your closing question
-  that states it. Word option labels and that question as the rule. The add output
+  that states it. Word option labels and that question as the rule. A told fact holds the
+  owner's words alone; save your own context in a second fact with --basis seen. The add output
   says if the claim is confirmed. If not, tell the owner, and do not say that it binds.
 - **Never store a secret** (password, key, token, private link) in a fact.
 - **Never edit files in `memory-bank/` by hand**, except `notes/`. Use the

@@ -29,9 +29,10 @@ It reads the transcript when the claim is checked, not in the prompt hook, becau
 write the prompt to the transcript after the hook runs. The first prompt of a session fixes its
 transcript path, and a prompt that names another path is not kept. Only a session start of the
 same session (a resume, a compaction, a clear or a fork) adds a new path, because the tool may
-write a resumed session to a new file. The proof reads the newest path and the one before it. A transcript that cannot be read proves nothing. For another tool there is no
-transcript to read, so its evidence counts as kept: that is a known limit. A forger can still
-write a fake transcript, or the evidence file itself; the before-shell hook (forgery.py) refuses
+write a resumed session to a new file. The proof reads the newest path and the one before it.
+A transcript that cannot be read proves nothing. For another tool there is no transcript to
+read, so its evidence counts as kept: that is a known limit. A forger can still write a fake
+transcript, or the evidence file itself; the before-shell hook (forgery.py) refuses
 those commands in the agent's shell.
 
 How `memory add` finds its session (`_session_file`). Claude Code, Codex and Grok put a session id

@@ -287,7 +287,10 @@ def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
     force = ", and this rule loads as data" if rule else ""
     return (
         f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not tell "
-        "the owner that it binds. It binds when you add the same text again with --basis told in "
+        "the owner that it binds. A told fact must be the owner's words alone (`Matt said:` in "
+        "front is fine). Put your own context, such as what is still open, in a second fact with "
+        "--basis seen --link related:ID. It binds when you add the owner's words with --basis told "
+        "in "
         "the turn where the owner types it word for word, picks it in your question, or says yes "
         "to your question that ends with it. Or the owner runs this from their own shell: "
         f'memory add "TEXT"{kind} --basis told'
