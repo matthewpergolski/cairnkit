@@ -9,10 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `memory tidy` proposes to end each active rule or decision whose work landed: the main branch
-  (the default branch, `dev` or `develop`, along first parents) has a commit on each path in its
-  `files`, or else on each repo path its text names, after the fact was written or last changed.
-  The proposal shows the commit, its date and subject, and the exact
+- `memory tidy` proposes to end an active rule or decision that reads as the owner's yes to one
+  piece of work (the same test as the note of `memory add`) and names that work in `--files`,
+  when that work landed: the main branch (the default branch, `dev` or `develop`, along first
+  parents) has a commit that changed each path in `files` after the fact was written or last
+  changed. Every other fact never lands: a lasting policy, also one that names a file that
+  changes each week such as `CHANGELOG.md`, a fact with no `files`, and a path in the text. A
+  commit that deletes a path counts. A rename does not, and the new path is not followed. A
+  folder never lands. The root commit and the graft root of a shallow clone count for no path.
+  The first commit of work in progress counts too, so the agent checks before it ends one. The
+  proposal shows the commit, its date and subject, and the exact
   `memory change ID --status expired --reason "..."` command. The session start names those facts
   in one line. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
   `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all

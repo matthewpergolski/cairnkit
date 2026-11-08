@@ -90,8 +90,6 @@ def _chains(states: dict[str, dict]) -> list[Proposal]:
     return out
 
 
-# A rule or a decision about one piece of work can end when that work lands.
-ENDS_WITH_WORK = ("rule", "decision")
 NAMED = 5
 _REPLACES = re.compile(r"(?i)\b(?:replaces?|supersedes?|instead of|overrides?|no longer)\b")
 
@@ -101,13 +99,9 @@ def _snippet(state: dict) -> str:
 
 
 def landed_work(memory: Memory, active: list[dict]) -> dict[str, landed.Landed]:
-    """The active rules and decisions whose work landed, by id."""
+    """The active one-time approvals whose work landed, by id."""
     done = landed.find(memory)
-    return {
-        s["id"]: done[s["id"]]
-        for s in active
-        if s.get("kind") in ENDS_WITH_WORK and s["id"] in done
-    }
+    return {s["id"]: done[s["id"]] for s in active if s["id"] in done}
 
 
 def _landed(memory: Memory, active: list[dict]) -> list[Proposal]:

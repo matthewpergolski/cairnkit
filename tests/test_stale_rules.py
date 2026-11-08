@@ -36,7 +36,7 @@ def rules(repo, capsys, monkeypatch) -> dict[str, str]:
     at(monkeypatch, "10")
     ids["landed"] = add(
         capsys,
-        "Keep the 0018 order.",
+        "Yes to the 0018 order.",
         "--kind",
         "rule",
         "--basis",
