@@ -465,8 +465,10 @@ a shallow clone count for no path. A lasting policy never lands, also when it na
 a file that changes each week, and a path in the text of a fact is not its work. The
 first commit of work in progress counts too, so the agent checks before it ends one.
 For each active approval whose work landed, `memory tidy` shows the commit, its
-date and subject, and the `memory change ID --status expired` command. The session
-start names those facts in one line. Auto-tidy ends none of them: the agent
+date and subject, and the `memory change ID --status expired` command. A fact
+that a person stated is the owner's to end: the proposal says to ask the owner,
+and `memory tidy --apply` skips it. The session start names those facts in one
+line, and says which ones a person stated. Auto-tidy ends none of them: the agent
 decides. If one still holds, `memory change ID --status active --reason "..."`
 marks it as reviewed, and only a later commit names it again. One `git log` reads
 all facts: at most 50 paths and 5000 commits. `<memory>/.landed.json` keeps the

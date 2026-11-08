@@ -19,7 +19,7 @@ from cairnkit.clock import now, stamp
 from cairnkit.memory import Memory
 from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
-from cairnkit.selection import clean, clean_path
+from cairnkit.selection import clean, clean_path, person_said
 from cairnkit.similar import repeat_key
 from cairnkit.state import effective_status
 from cairnkit.store import append_records
@@ -32,6 +32,8 @@ class Proposal:
     kind: str
     summary: str
     changes: list[dict]
+    # A person stated the fact: the owner ends it, and `--apply` does not.
+    ask: bool = False
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -91,6 +93,7 @@ def _chains(states: dict[str, dict]) -> list[Proposal]:
 
 
 NAMED = 5
+ASK_OWNER = "A person stated it, so ask the owner before you end it."
 _REPLACES = re.compile(r"(?i)\b(?:replaces?|supersedes?|instead of|overrides?|no longer)\b")
 
 
@@ -112,14 +115,20 @@ def _landed(memory: Memory, active: list[dict]) -> list[Proposal]:
     out = []
     for fid, work in sorted(landed_work(memory, active, patient=True).items()):
         reason = f"Work landed in {work.commit} on {work.date}."
+        ask = person_said(by_id[fid])
+        end = (
+            f"{ASK_OWNER} If the owner agrees, end it: memory change"
+            if ask
+            else "End it: memory change"
+        )
         summary = clean(
             f"{fid} ({by_id[fid].get('kind')}, {_snippet(by_id[fid])!r}): its work landed in "
-            f"{work.commit} on {work.date} ({work.subject!r}). End it: memory change {fid} "
+            f"{work.commit} on {work.date} ({work.subject!r}). {end} {fid} "
             f'--status expired --reason "{reason}" If it still holds: memory change {fid} '
             f'--status active --reason "Still holds after {work.commit}."'
         )
         change = {"id": fid, "status": "expired", "reason": reason}
-        out.append(Proposal("landed", summary, [change]))
+        out.append(Proposal("landed", summary, [change], ask=ask))
     return out
 
 
@@ -156,13 +165,17 @@ def landed_line(memory: Memory) -> str | None:
     work = sorted(landed_work(memory, active))
     if not work:
         return None
-    names = ", ".join(work[:NAMED]) + (
-        f" and {len(work) - NAMED} more" if len(work) > NAMED else ""
-    )
+    by_id = {s["id"]: s for s in active}
+    told = [fid for fid in work if person_said(by_id[fid])]
     return (
-        f"memory: the work of {len(work)} rule(s) or decision(s) landed on the main branch: "
-        f"{names}. `memory tidy` shows each commit, and the command to end it or keep it."
+        f"memory: the work of {len(work)} one-time approval(s) landed on the main branch: "
+        f"{_listed(work)}. `memory tidy` shows each commit, and the command to end it or keep "
+        f"it.{landed.ask_note(told, len(work))}"
     )
+
+
+def _listed(ids: list[str]) -> str:
+    return ", ".join(ids[:NAMED]) + (f" and {len(ids) - NAMED} more" if len(ids) > NAMED else "")
 
 
 def build_proposals(memory: Memory) -> list[Proposal]:
@@ -229,7 +242,16 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
         return 1
     moment = stamp(now())
     records = []
+    chosen = []
     for pid in apply:
+        if by_id[pid].ask:
+            ids = ", ".join(change["id"] for change in by_id[pid].changes)
+            print(
+                f"skipped {pid}: a person stated {ids}, so ask the owner. If the owner agrees, run "
+                "the `memory change` command that `memory tidy` shows."
+            )
+            continue
+        chosen.append(pid)
         for change in by_id[pid].changes:
             record = {"type": "change", **change, "at": moment, "writer": WRITER}
             problems = validate_record(record)
@@ -237,6 +259,7 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
                 print(f"error: {pid}: {'; '.join(problems)}")
                 return 1
             records.append(record)
-    append_records(memory.writer_file(WRITER), records, root=memory.dir)
-    print(f"applied {len(apply)} proposal(s): {len(records)} change record(s)")
+    if records:
+        append_records(memory.writer_file(WRITER), records, root=memory.dir)
+    print(f"applied {len(chosen)} proposal(s): {len(records)} change record(s)")
     return 0

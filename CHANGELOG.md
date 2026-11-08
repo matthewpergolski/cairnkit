@@ -19,8 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folder never lands. The root commit and the graft root of a shallow clone count for no path.
   The first commit of work in progress counts too, so the agent checks before it ends one. The
   proposal shows the commit, its date and subject, and the exact
-  `memory change ID --status expired --reason "..."` command. The session start names those facts
-  in one line. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
+  `memory change ID --status expired --reason "..."` command. For a fact that a person stated (a
+  told fact, or the owner's rule), the proposal says to ask the owner first, and
+  `memory tidy --apply` skips it with a line that says so; `memory change` then prints the owner
+  notice. The session start names those facts in one line, and names the ones that a person
+  stated. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A
   `memory change ID --status active --reason "..."` marks one as reviewed. One `git log` reads all
   facts: at most 50 paths, newest facts first, and at most 5000 commits back to the oldest of
   them (0.19 s on a repo of 30,000 commits). `<memory>/.landed.json` (format version 2, written
@@ -42,8 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `do not`, `every` or `each`, or a negation right before the yes, is a lasting policy.
 - When the rules pass the word budget of a load, or the limit of 1000 words, the load names the
   rules most likely stale in one line: rules whose work landed first, then the oldest rules that
-  read as approval of one piece of work. A lasting policy is not named. `memory check` prints the
-  same line when the active rules pass 500 words.
+  read as approval of one piece of work. A lasting policy is not named. The line names the rules
+  that a person stated, and says to ask the owner before one ends. `memory check` prints the same
+  line when the active rules pass 500 words.
 - `memory add --files PATH [PATH ...]` keeps up to 10 repo paths beside the text, outside the
   400-character limit of a rule and the 2000-character limit of other facts. Paths are cleaned
   (`./`, `//` and `\\` go, an absolute path in the repo becomes relative) and checked: a path

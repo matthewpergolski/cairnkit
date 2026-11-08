@@ -40,6 +40,7 @@ from cairnkit.selection import (
     load_text,
     name,
     owner_rule,
+    person_said,
 )
 from cairnkit.similar import analyze, possible_conflicts, repeat_key, similarity
 from cairnkit.skills import running_tool
@@ -256,12 +257,6 @@ def _inherit(args, old: dict) -> bool:
     return False
 
 
-def _has_authority(old: dict) -> bool:
-    """A person stands behind the fact. For a rule that is its force, so the owner's rule with
-    basis `guess` counts too."""
-    return owner_rule(old) if old.get("kind") == "rule" else stated(old)
-
-
 def _told_check(memory: Memory, args) -> owner_evidence.Verdict | None:
     """The check of a `told` claim that an agent makes, or None for no such claim.
 
@@ -322,7 +317,7 @@ def add_fact(memory: Memory, args) -> str | None:
     verdict = None if inherited else _told_check(memory, args)
     # A basis that comes from an older fact keeps whether the owner's words confirmed it.
     unconfirmed = (verdict is not None and not verdict.bound) or (
-        inherited and args.basis == "told" and not _has_authority(masked_target)
+        inherited and args.basis == "told" and not person_said(masked_target)
     )
     mine = {"basis": args.basis, **({"confirmed": False} if unconfirmed else {})}
     summary = getattr(args, "summary", None)

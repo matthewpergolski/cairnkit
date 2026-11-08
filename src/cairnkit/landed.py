@@ -38,6 +38,7 @@ from cairnkit import deadline, plainfile
 from cairnkit.clock import parse_time
 from cairnkit.memory import Memory
 from cairnkit.paths import INTEGRATION_BRANCHES, default_branch, run_git
+from cairnkit.selection import person_said
 
 CACHE_NAME = ".landed.json"
 CACHE_VERSION = 2
@@ -318,9 +319,22 @@ def stale_line(memory: Memory, rules: list[dict]) -> str | None:
     ids = stale_rules(memory, rules)
     if not ids:
         return None
+    named = ids[:STALE_NAMED]
     more = f" and {len(ids) - STALE_NAMED} more" if len(ids) > STALE_NAMED else ""
+    by_id = {r["id"]: r for r in rules}
+    told = [fid for fid in named if person_said(by_id[fid])]
     return (
         f"Rules most likely stale (work landed, then old one-time approvals): "
-        f"{', '.join(ids[:STALE_NAMED])}{more}. `memory tidy` shows the commits. End one that no "
-        'longer holds: memory change ID --status expired --reason "...".'
+        f"{', '.join(named)}{more}. `memory tidy` shows the commits. End one that no "
+        f'longer holds: memory change ID --status expired --reason "...".'
+        f"{ask_note(told, len(named))}"
     )
+
+
+def ask_note(told: list[str], named: int) -> str:
+    """The end of a line that names facts to end: those that a person stated are the owner's."""
+    if not told:
+        return ""
+    if len(told) == named:
+        return " A person stated them: ask the owner before you end one."
+    return f" A person stated {', '.join(told)}: ask the owner before you end those."
