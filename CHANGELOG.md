@@ -74,12 +74,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`always`, `from now on`) may differ. A word that turns or limits the rule (`not`, `stop`,
   `skip`, `except`, `until`, `only`, `before`, `yet`, ...), a number, a path or a name may not be
   dropped or changed, and the claim must hold 80 percent of the sentence. An ellipsis in the
-  claim (`...` beside a space, or the ellipsis character) marks a gap, so a claim that quotes two
-  parts of the owner's message with `...` between them binds when each part is a copy. A typed question and a
+  claim (`...` beside a space, or the ellipsis character) marks words left out of one sentence of
+  the owner, never a join of two sentences. A typed question and a
   hypothetical (`what if`, `suppose`) state no rule. A condition the owner typed whole ("If you
   touch the schema, update FORMAT.md") binds whole; a claim that drops the condition does not.
-  An attribution in front (`Matt said:`, `Owner (Matt) decided 2026-11-08:`) does not count
-  against the match; context of the agent's own does, and the add output tells the agent to save
+  An attribution in front (`The owner said:`, `Owner (Sam) decided 2026-11-08:`, `User:`) does not
+  count against the match. It must name who spoke with a verb such as `said` or the word owner or
+  user, and hold no word that turns or limits the rule, so `Never:` or `Optional:` is no
+  attribution; context of the agent's own does, and the add output tells the agent to save
   it as a second fact with `--basis seen` and a link, so the owner's words bind alone.
   An approval and an answer count only in their own turn. Else the fact gets `confirmed: false` and
   loads as `told (via agent, not confirmed)` data. The add output says which, and how the owner
@@ -90,10 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that cannot be read proves nothing. A session start of the same session (a resume, a
   compaction, a clear or a fork) can name a new transcript, and the check reads the newest one and
   the one before it. `memory add` finds the session by the id in the agent's shell, or by an id
-  that the hooks saw for the session; when no session of that id has an owner prompt in the last
-  30 minutes, it takes the one session of the checkout that has one, and never chooses between
-  two. So a claim in a resumed session, where the shell's id can differ from the hooks' id or the
-  transcript can move, confirms as in a new one.
+  that the hooks saw for the session. Only when no evidence of that session exists at all does it
+  take the one session of the checkout with an owner prompt in the last 30 minutes, and it never
+  chooses between two; a quiet session never borrows another session's words. So a claim in a
+  resumed session, where the transcript can move, confirms as in a new one.
 - The before-shell hook refuses an agent shell command that runs a cairnkit hook by hand, changes
   or removes an agent marker (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, ...)
   and runs `memory`, calls cairnkit's evidence code from a script, or writes into the memory

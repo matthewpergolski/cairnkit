@@ -123,7 +123,7 @@ def test_a_line_with_no_secret_keeps_its_marks():
 def test_a_list_item_that_ends_with_a_colon_is_an_entry(tmp_path):
     adds, plan = plan_of(
         tmp_path,
-        "## Identity\n- Name: Matt\n- Rules for r1:\n  - Matt lives in Berlin and is 40\n"
+        "## Identity\n- Name: Sam\n- Rules for r1:\n  - Sam lives in Berlin and is 40\n"
         "## Decisions\n- Never edit generated files:\n  - src/gen\n",
     )
     assert "Berlin" not in adds and "3 personal entries" in plan

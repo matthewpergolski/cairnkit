@@ -535,12 +535,13 @@ def test_a_shell_with_another_id_than_the_hooks_finds_the_one_open_session(
     assert "told: confirmed" in out
 
 
-def test_a_shell_id_whose_evidence_is_old_finds_the_session_of_the_hooks(mem, capsys, monkeypatch):
+def test_a_quiet_own_session_does_not_borrow_another_sessions_words(mem, capsys, monkeypatch):
+    """A review found that a session quiet for 30 minutes confirmed with another session's words."""
     prompt(capsys, monkeypatch, "Fix the lint.", session="b")
     said_long_ago(mem, "b")
     prompt(capsys, monkeypatch, "Keep forget after 90 days as the default.", session="a")
     out = agent_add(capsys, monkeypatch, "Keep forget after 90 days as the default.", session="b")
-    assert "told: confirmed" in out
+    assert "told: confirmed" not in out
 
 
 def test_the_session_of_the_shell_id_counts_when_no_session_is_open(mem, capsys, monkeypatch):

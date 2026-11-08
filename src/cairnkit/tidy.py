@@ -21,6 +21,7 @@ from cairnkit.paths import merged_checker
 from cairnkit.schema import validate_record
 from cairnkit.selection import clean, clean_path, person_said
 from cairnkit.similar import repeat_key
+from cairnkit.skills import running_tool
 from cairnkit.state import effective_status
 from cairnkit.store import append_records
 
@@ -244,7 +245,7 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
     records = []
     chosen = []
     for pid in apply:
-        if by_id[pid].ask:
+        if by_id[pid].ask and running_tool():
             ids = ", ".join(change["id"] for change in by_id[pid].changes)
             print(
                 f"skipped {pid}: a person stated {ids}, so ask the owner. If the owner agrees, run "

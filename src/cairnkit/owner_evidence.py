@@ -398,7 +398,9 @@ def _session_file(memory: Memory) -> Path | None:
                 own_open += [path] if fresh else []
             if fresh and data.get("root") == root:
                 here_open.append(path)
-    found = own_open or here_open or own
+    # Another open session of the checkout counts only when this session kept no evidence at
+    # all: a quiet own session must not borrow another session's words.
+    found = own_open or own or here_open
     return found[0] if len(found) == 1 else None
 
 

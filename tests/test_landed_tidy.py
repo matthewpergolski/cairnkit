@@ -107,10 +107,15 @@ def test_a_told_rule_asks_the_owner_and_apply_skips_it(mem, repo, capsys, monkey
     told, agents = line_of(out, ids["rule"]), line_of(out, ids["decision"])
     assert "ask the owner" in told and f"memory change {ids['rule']} --status expired" in told
     assert "ask the owner" not in agents
+    monkeypatch.setenv("CLAUDECODE", "1")
     applied = tidy(capsys, "--apply", proposal_id(told), proposal_id(agents))
     assert "skipped" in applied and ids["rule"] in applied and "ask the owner" in applied
-    assert status(mem, ids["rule"]) == "active", "the owner ends a told rule"
+    assert status(mem, ids["rule"]) == "active", "an agent does not end a told rule"
     assert status(mem, ids["decision"]) == "expired"
+    monkeypatch.delenv("CLAUDECODE")
+    told = line_of(tidy(capsys), ids["rule"])
+    assert "skipped" not in tidy(capsys, "--apply", proposal_id(told))
+    assert status(mem, ids["rule"]) == "expired", "the owner's own apply ends it"
 
 
 def test_the_session_start_names_them_and_retires_none(mem, repo, capsys, monkeypatch):

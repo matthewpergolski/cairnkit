@@ -68,13 +68,15 @@ _RULE_FRAME = (
     r"make sure(?: to| that| you)?|be sure to|please|always"
 )
 _LEAD = re.compile(rf"(?i)^(?:[\W_]*(?:{_RULE_FRAME})\b)+[\W_]*")
-# Who said it and when, ahead of the owner's words in a claim: `Matt said:`, `Owner (Matt)
+# Who said it and when, ahead of the owner's words in a claim: `The owner said:`, `User
 # decided 2026-11-08:`. Only a name, one word in brackets, a verb and a date: no room for a rule.
 _ATTRIBUTION = re.compile(
-    r"(?i)(?:on\s+\d{4}-\d{2}-\d{2},?\s+)?(?:the\s+)?[A-Za-z][\w.'-]*(?:\s*\([A-Za-z][\w.'-]*\))?"
-    r"(?:\s+(?:said|says|decided|wrote|stated|confirmed|approved|asked|replied|answered|told"
-    r"(?:\s+(?:me|us))?))?(?:\s+(?:on\s+)?\d{4}-\d{2}-\d{2})?\s*:"
+    r"(?i)(?:on\s+\d{4}-\d{2}-\d{2},?\s+)?(?:the\s+)?(?P<who>[A-Za-z][\w.'-]*)"
+    r"(?:\s*\([A-Za-z][\w.'-]*\))?(?P<verb>\s+(?:said|says|decided|wrote|stated|confirmed"
+    r"|approved|asked|replied|answered|told(?:\s+(?:me|us))?))?"
+    r"(?:\s+(?:on\s+)?\d{4}-\d{2}-\d{2})?\s*:"
 )
+_PERSON = frozenset({"owner", "user"})
 _TRAIL = re.compile(r"(?i)(?:[\s,]*\b(?:from now on|going forward|as a rule|please))+[\W_]*$")
 # How an agent asks to save a rule, before the rule itself: `Shall I add a rule that ...`.
 _ASK = re.compile(
@@ -195,9 +197,21 @@ def units(evidence: Evidence) -> list[tuple[Token, ...]]:
     return found
 
 
+def _is_attribution(unit: str) -> bool:
+    """`The owner said:` or `User:`, never `Never:` or `Optional:`. A verb or a person word
+    must name who spoke, and no word that turns or limits the rule may stand in it."""
+    found = _ATTRIBUTION.fullmatch(unit)
+    if not found or not (found["verb"] or found["who"].lower() in _PERSON):
+        return False
+    return not any(token in STRICT or token == NOT for token, _ in tokens(unit.rstrip(":")))
+
+
 def _claim_units(text: str) -> list[tuple[Token, ...]]:
-    parts = [part for piece in _GAP.split(text) for part in _UNIT_END.split(piece)]
-    if parts and _ATTRIBUTION.fullmatch(parts[0].strip()):
+    # An ellipsis marks words left out of ONE sentence of the owner: the parts must match that
+    # sentence in order, so the gap is only a space here. Joining two sentences of the owner
+    # could turn "No. Commit to main." into "Never commit to main".
+    parts = _UNIT_END.split(_GAP.sub(" ", text))
+    if parts and _is_attribution(parts[0].strip()):
         parts = parts[1:]  # who said it and when, not part of the rule
     return [words for part in parts if (words := tokens(_unframed(part)))]
 
