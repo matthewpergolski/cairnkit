@@ -295,6 +295,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `memory change ID --status superseded --superseded-by NEW` from an agent refuses when a person
+  stated ID (a confirmed told fact or the owner's rule) and NEW has less authority (not stated, or
+  a told claim that the owner's words did not confirm), as `memory add --supersedes` already kept
+  such a fact. Nothing changes. The refusal, and the "not superseded" note of `memory add`, say how
+  to confirm: quote the owner's words in this turn, or the owner runs the command from their own
+  shell. The owner at a terminal can still supersede any fact.
 - A stored path with a name of 256 or more characters (a `file:` source, a `test:` check, a
   `held_by` file, a helper checkout) no longer loses the whole load on Python 3.12, where
   `Path.exists` raises ENAMETOOLONG. Each such probe on the load path now reads as "not there".

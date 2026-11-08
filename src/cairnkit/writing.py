@@ -257,6 +257,12 @@ def _inherit(args, old: dict) -> bool:
     return False
 
 
+CONFIRM = (
+    "To confirm the new fact, quote the owner's words in this turn, or the owner runs the "
+    "command from their own shell."
+)
+
+
 def _told_check(memory: Memory, args) -> owner_evidence.Verdict | None:
     """The check of a `told` claim that an agent makes, or None for no such claim.
 
@@ -506,7 +512,7 @@ def add_fact(memory: Memory, args) -> str | None:
         print(
             f"not superseded: {kept['id']} was stated by a person (basis told), and the new fact "
             f"is not. Written as {fact['id']}, linked with similar_to. Both stay active and an "
-            "agent task lists the pair."
+            f"agent task lists the pair. {CONFIRM}"
         )
     if retired:
         old, status, reason = retired
@@ -567,7 +573,14 @@ def change_fact(memory: Memory, args) -> None:
     if args.reason:
         change["reason"] = args.reason
     if args.superseded_by:
-        _need_fact(memory, args.superseded_by)
+        new = _need_fact(memory, args.superseded_by)
+        # Like `memory add --supersedes`: an agent's word does not end a person's.
+        if running_tool() and person_said(state) and not person_said(new):
+            raise Refused(
+                f"{args.id} was stated by a person, and {args.superseded_by} has less authority "
+                "(not stated, or a told claim that the owner's words did not confirm). Nothing "
+                f"changed. {CONFIRM}"
+            )
         change["superseded_by"] = args.superseded_by
     if args.held_by:
         if args.status != "promoted":
