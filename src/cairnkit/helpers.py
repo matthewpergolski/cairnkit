@@ -69,7 +69,7 @@ class Helper:
 
     @property
     def has_checkout(self) -> bool:
-        return bool(self.checkout) and Path(self.checkout or "").is_dir()
+        return bool(self.checkout) and os.path.isdir(self.checkout or "")
 
 
 def is_checkout(project: Project, path: str | None) -> bool:

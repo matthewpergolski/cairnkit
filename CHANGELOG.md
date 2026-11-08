@@ -294,6 +294,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A stored path with a name of 256 or more characters (a `file:` source, a `test:` check, a
+  `held_by` file, a helper checkout) no longer loses the whole load on Python 3.12, where
+  `Path.exists` raises ENAMETOOLONG. Each such probe on the load path now reads as "not there".
 - When two dev builds share a version number, the refresh line at session start names the build
   that wrote the repo files and the build that runs now, for example "come from memory 0.3.1
   @6b4bdf0; this is 0.3.1 @81f8499". Before, it said "come from memory 0.3.1. This is memory

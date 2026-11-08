@@ -575,7 +575,7 @@ def change_fact(memory: Memory, args) -> None:
                 "--held-by needs --status promoted. Run: memory change "
                 f'{args.id} --status promoted --held-by {args.held_by} --reason "..."'
             )
-        if not (memory.project.root / args.held_by).exists():
+        if not os.path.exists(memory.project.root / args.held_by):
             raise Refused(f"held_by {args.held_by!r} does not exist in {memory.project.root}")
         change["held_by"] = args.held_by
     links = [parse_link(v) for v in args.link or []]
