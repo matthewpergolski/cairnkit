@@ -429,7 +429,9 @@ def test_long_session_keys_with_one_prefix_do_not_share_a_state(repo, mem, capsy
     hook(capsys, monkeypatch, "session-start", {"session_id": two})
     out = hook(capsys, monkeypatch, "stop", {"session_id": one})
     assert "`make` failed 2 times" in json.loads(out)["reason"]
-    assert len(list((mem / ".sessions").glob("*.json"))) == 2
+    # The stop also keeps what it asked in a file of its own (`asked-*.json`), not in a state.
+    states = [p for p in (mem / ".sessions").glob("*.json") if not p.name.startswith("asked-")]
+    assert len(states) == 2
 
 
 def test_keys_that_differ_only_in_a_replaced_character_do_not_share_a_state(repo, mem):
