@@ -291,17 +291,36 @@ def test_the_prompt_already_in_the_transcript_does_not_hide_the_proposal(
         ("sounds good", "sounds good"),
         ("i'll go with your rec", "I'll go with your rec"),
         ("yes, go ahead", "Yes, go ahead."),
+        # The owner typed these words, but they say nothing either.
+        ("ok", "OK."),
+        ("sure", "Sure."),
+        ("yeah", "Owner said: yeah"),
+        ("yup", "yup"),
+        ("k", "K."),
+        ("lgtm", "LGTM"),
+        ("ship it", "Ship it."),
+        ("go for it", "Go for it."),
+        ("please do", "Please do."),
+        ("proceed", "Proceed."),
+        ("agreed", "Agreed."),
+        ("correct", "Correct."),
+        ("go with your rec", "go with your rec"),
+        ("thanks", "Thanks!"),
     ],
 )
 def test_a_bare_approval_saved_as_told_does_not_bind(mem, capsys, monkeypatch, owner, claim):
     prompt(capsys, monkeypatch, owner)
     out = agent_add(capsys, monkeypatch, claim)
-    assert "told: not confirmed" in out and "only an approval" in out
+    assert "told: not confirmed" in out and "says nothing to a later reader" in out
     assert f"--supersedes {facts(mem)[-1]['id']}" in out
     assert not binds(capsys, claim)
 
 
-@pytest.mark.parametrize("rule", ["Use uv.", "Never push to main."])
+@pytest.mark.parametrize(
+    "rule",
+    ["Use uv.", "Never push to main.", "Approved: #42.", "Go ahead: 0018",
+     "\u6c38\u8fdc\u4e0d\u8981\u63a8\u9001\u5230 main\u3002"],
+)  # fmt: skip
 def test_a_short_rule_in_the_owners_words_still_binds(mem, capsys, monkeypatch, rule):
     prompt(capsys, monkeypatch, rule)
     assert "told: confirmed" in agent_add(capsys, monkeypatch, rule)
@@ -310,8 +329,8 @@ def test_a_short_rule_in_the_owners_words_still_binds(mem, capsys, monkeypatch, 
 
 def test_the_proposal_of_a_bare_approval_binds(mem, capsys, monkeypatch, tmp_path):
     path = session_with_proposal(tmp_path)
-    prompt(capsys, monkeypatch, "i'll go with your rec", transcript_path=path)
-    assert "only an approval" in agent_add(capsys, monkeypatch, "i'll go with your rec")
+    prompt(capsys, monkeypatch, "yes, go ahead", transcript_path=path)
+    assert "says nothing" in agent_add(capsys, monkeypatch, "Yes, go ahead.")
     out = agent_add(capsys, monkeypatch, RULE)
     assert "told: confirmed by the proposal the owner approved in this turn" in out
     assert binds(capsys, "uv run pytest -x before every commit")
@@ -348,13 +367,37 @@ def test_a_yes_with_a_change_approves_nothing(mem, capsys, monkeypatch, tmp_path
 
 
 @pytest.mark.parametrize(
-    "reply", ["ok thanks", "sure, whatever", "Correct", "Yes, and also delete the logs"]
+    "reply",
+    [
+        "ok thanks",
+        "sure, whatever",
+        "Correct",
+        "Yes, and also delete the logs",
+        # The owner takes the task, or picks one of several things, or names the recommendation.
+        "I'll do it",
+        "I will do that",
+        "yes 2",
+        "yes \u2014 \u4e0d\u8981\u5220\u9664\u6d4b\u8bd5",
+        "go with your rec",
+        "go with your recommendation",
+    ],
 )
 def test_a_reply_that_is_no_short_yes_approves_nothing(mem, capsys, monkeypatch, tmp_path, reply):
     path = session_with_proposal(tmp_path)
     prompt(capsys, monkeypatch, reply, transcript_path=path)
     agent_add(capsys, monkeypatch, RULE)
     assert not binds(capsys, "uv run pytest -x before every commit")
+
+
+def test_go_with_your_rec_does_not_approve_the_question_after_the_recommendation(
+    mem, capsys, monkeypatch, tmp_path
+):
+    """The field case: the closing question is not the recommendation."""
+    proposal = "My recommendation: keep the legacy tests. Shall I delete the legacy tests instead?"
+    path = session_with_proposal(tmp_path, proposal)
+    prompt(capsys, monkeypatch, "go with your rec", transcript_path=path)
+    agent_add(capsys, monkeypatch, "Delete the legacy tests instead.")
+    assert not binds(capsys, "Delete the legacy tests instead")
 
 
 def test_a_yes_approves_only_the_closing_question(mem, capsys, monkeypatch, tmp_path):

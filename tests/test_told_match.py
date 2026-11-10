@@ -10,6 +10,7 @@ from cairnkit.told_match import (
     choice_evidence,
     final_question,
     is_approval,
+    only_approval,
     stem,
 )
 
@@ -249,8 +250,7 @@ def test_no_word_but_a_negation_stems_to_not(word):
 @pytest.mark.parametrize(
     "prompt",
     ["yes", "Yes.", "y", "yep", "go ahead", "Do it", "do that", "approved", "sounds good",
-     "ok, do it", "yes please", "yes, go ahead", "I'll go with your rec",
-     "go with your recommendation"],
+     "ok, do it", "yes please", "yes, go ahead", "let's go ahead", "Yes!"],
 )  # fmt: skip
 def test_a_short_yes_is_an_approval(prompt):
     assert is_approval(prompt)
@@ -270,10 +270,39 @@ def test_a_short_yes_is_an_approval(prompt):
         "lgtm",
         "Fix the parser",
         "go with your rec, but skip the docs",
+        "go with your rec",
+        "I'll go with your rec",
+        "go with your recommendation",
+        "I'll do it",
+        "I will do that",
+        "yes 2",
+        "y, 2",
+        "go ahead 1 and 3",
+        "yes \u2014 \u4e0d\u8981\u5220\u9664\u6d4b\u8bd5",
     ],
 )
 def test_other_prompts_are_no_approval(prompt):
     assert not is_approval(prompt)
+
+
+@pytest.mark.parametrize(
+    "claim",
+    ["yes", "The owner said: go ahead.", "ok", "Sure.", "yeah", "yup", "k", "LGTM", "Ship it.",
+     "Go for it.", "Please do.", "Proceed.", "Agreed.", "Correct.", "go with your rec",
+     "I'll go with your rec", "Thanks!", "I'll do it"],
+)  # fmt: skip
+def test_a_claim_of_only_a_reply_says_nothing(claim):
+    assert only_approval(claim)
+
+
+@pytest.mark.parametrize(
+    "claim",
+    ["Use uv.", "Never push to main.", "Approved: #42.", "Go ahead: 0018", "Yes, to 0018",
+     "Yes: \u6c38\u8fdc\u4e0d\u8981\u63a8\u9001", "\u6c38\u8fdc\u4e0d\u8981\u63a8\u9001\u3002",
+     "OK to drop the cache"],
+)  # fmt: skip
+def test_a_claim_that_names_work_says_something(claim):
+    assert not only_approval(claim)
 
 
 def test_the_final_question_is_the_last_sentence():

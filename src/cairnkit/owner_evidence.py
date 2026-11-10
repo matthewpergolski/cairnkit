@@ -107,7 +107,7 @@ VIA = {
 
 
 APPROVAL_ONLY = (
-    'its words are only an approval, such as "yes", which says nothing to a later reader'
+    'its words are only a reply such as "yes" or "ok", which says nothing to a later reader'
 )
 
 
