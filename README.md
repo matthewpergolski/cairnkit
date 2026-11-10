@@ -672,7 +672,9 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   helper's `SubagentStop` (Claude Code fires it for a helper that TaskStop stops only when the
   stop cuts its stream), the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. A compaction (or a reload) names the helpers of its own session
+  stays while the worktree does. A load names a record for 24 hours after its call, which is longer
+  than a helper runs. After that, the line is noise, and the checkout still shows as live work
+  while it holds changes. A compaction (or a reload) names the helpers of its own session
   first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
   and its next stop does not end them. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.
@@ -1061,9 +1063,19 @@ blocks a call on a reply that its schema does not know, and Grok Build reads ano
 so neither gets it. A context line is no answer: Claude Code adds it with the tool result, after
 the command ran.
 
+**The shared git stash.** All checkouts of a repo share one stash list, so a `git stash pop` in one
+worktree can take the entry of another. On Claude Code, a `git stash` command that can take or lose
+an entry of other work gets a warning, once in a session, while another session or a helper in
+another checkout is live (the markers of **Live work**). That is `clear`, a `pop`, `apply` or `drop`
+of the top entry, and a push with no message, which a bare pop elsewhere takes. The warning names
+the live checkouts and says to commit the work on a branch, or to use `git stash push -m NAME` and
+then `git stash apply stash@{n}` for that name. It never stops the command, so it arrives with the
+tool result. A named push, `list`, `show` and an entry named by `stash@{n}` get no warning. A
+command with no `stash` in it does no more work in this hook.
+
 **A stop blocks for a new event or a capture check.** A block costs the owner a turn. The events are a health
 problem, a command that failed at least twice and then passed, a command that failed once and then
-passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Each is named once in a session. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
+passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Only a retry pairs a failure with a pass: the same work steps in the same order, where a `cd` or an `echo` is no work. A pass that did other work is no fix, also when one failed step is in it. Each is named once in a session, also when a helper's hook saves the session state from an older read. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
 text at stop without a turn (Claude Code, Codex and Cursor say so in their docs), so the news
 waits for the next prompt or tool result, which adds text with no turn.
 

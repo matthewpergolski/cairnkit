@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The before-shell hook warns on Claude Code, once in a session, when a `git stash` command can
+  take or lose an entry of other live work: all checkouts of a repo share one stash list. It
+  speaks while another session, or a helper in another checkout, is live (the markers that
+  `## Live work` reads), for `clear`, a `pop`, `apply` or `drop` of the top entry, and a push with
+  no message. The warning names the live checkouts and gives `git stash push -m NAME` and
+  `git stash apply stash@{n}`, or a commit on a branch. It never stops the command, so Claude Code
+  adds it with the tool result. A command with no `stash` in it does no more work.
 - `memory init --refresh` prints one line that the repo's own hooks run as before, with their
   names and folder: the hooks in the folder that core.hooksPath names (such as `.githooks`; the
   memory hooks run beside them), or hook files in `.git/hooks` that hold more than the memory
@@ -325,6 +332,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   approved, with `--supersedes` and the new id; those words confirm when they are the question
   that the yes answered in this turn. A short rule such as "Use uv." still confirms. A prompt of a
   few approvals in a row (`yes, go ahead`) and `go with your rec` now count as a short yes.
+- The stop asks "What fixed it?" only for a real retry. The failed command and the pass must do
+  the same work steps in the same order, and the pass puts a setting or a wrapper in front of one.
+  A `cd`, `pushd`, `popd`, `echo` or `printf` step is no work. Before, one shared step was enough,
+  so `cd ...; cat spec; sed ...` that failed paired with a later `S=... gh ...; S=... sed ...` that
+  did other work.
+- A stop event that the stop asked about is not asked again in the session. What was asked is in
+  `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
+  hook that saved that state from a read before the stop brought the question back on later turns.
+- A Claude Code helper with no recorded end leaves the `## Live work` list 24 hours after its
+  call. Before, a helper whose worktree stayed was named for days. Its checkout still shows as live
+  work while it holds changes.
 - A helper line with no recorded end now says that the helper may have been stopped: "no end
   recorded, so it may have been stopped or ended unseen", and in a compaction of the session that
   started it, "started by this session; it may still be running, or it was stopped or ended

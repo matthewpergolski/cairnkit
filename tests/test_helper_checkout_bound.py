@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+import time
 
 from conftest import add_worktree
 
@@ -41,7 +42,7 @@ def record(mem, checkout, **extra):
         "kind": "",
         "about": "a helper",
         "task": "",
-        "started_at": 1,
+        "started_at": time.time(),
         "agent": "h1",
         "checkout": str(checkout),
         "base": "HEAD",

@@ -51,6 +51,8 @@ OPENERS = "`'\"("
 # After the core: the text ends, a space, a closing mark, or a stop that ends a sentence.
 AFTER_CORE = r"(?=$|[\s`'\"),;:]|[.!?](?:\s|$))"
 TOLD_LOCK = ".before-shell.lock"
+# A step that moves to a folder or reports a status, around the work: `cd x;`, `echo "exit=$?"`.
+NOT_WORK = frozenset({"cd", "pushd", "popd", "echo", "printf"})
 
 
 @dataclass(frozen=True)
@@ -161,26 +163,32 @@ def steps(command: str) -> list[Step]:
     return [step for step in all_steps(command) if _plain_core(step.core.split())]
 
 
+def _work(command: str) -> list[Step]:
+    return [step for step in all_steps(command) if step.core.split()[0] not in NOT_WORK]
+
+
 def added_in_front(failed: str, passed: str) -> tuple[str, str] | None:
     """What `passed` puts in front of a step of `failed`, and that step's core, or None.
 
-    That is a setting or a wrapper on the same command, which is how to run it. Steps that only
-    share a tail, such as `echo ok`, are not the same command.
+    Only a retry counts: `passed` does the same work steps in the same order, and puts a setting
+    or a wrapper in front of one, which is how to run it. A `cd` or an `echo` is no work. A pass
+    that does other work holds no fix of the failure, also when one failed step is in it.
     """
-    # In a chain, a plain word such as `ls` is no proof that it was the step that failed.
-    before = all_steps(failed)
-    if len(before) > 1:
-        before = [old for old in before if _plain_core(old.core.split())]
-    for step in all_steps(passed):
-        for old in before:
-            added = sorted(step.settings - old.settings)
-            if step.core == old.core and added:
-                return " ".join(added), old.core
-            for wrapper in WRAPPERS:
-                lead = " ".join(wrapper)
-                if step.core == f"{lead} {old.core}" and step.settings >= old.settings:
-                    return lead, old.core
-    return None
+    before, after = _work(failed), _work(passed)
+    if len(before) != len(after):
+        return None
+    found = None
+    for old, step in zip(before, after, strict=True):
+        leads = [" ".join(w) for w in WRAPPERS if step.core == f"{' '.join(w)} {old.core}"]
+        if step.core == old.core:
+            fix = " ".join(sorted(step.settings - old.settings))
+        elif leads and step.settings >= old.settings:
+            fix = leads[0]
+        else:
+            return None
+        if fix and found is None:
+            found = (fix, old.core)
+    return found
 
 
 def _wrapper_at_end(words: list[str]) -> tuple[str, ...] | None:
@@ -243,25 +251,27 @@ def _active(memory: Memory) -> list[dict]:
     return [s for s in memory.states.values() if effective_status(s, moment)[0] == "active"]
 
 
-def _told_path(memory: Memory, key: str) -> Path:
+def _told_path(memory: Memory, key: str, kind: str) -> Path:
     digest = hashlib.sha256(key.encode()).hexdigest()[:24]
-    return memory.dir / ".sessions" / f"before-{digest}.json"
+    return memory.dir / ".sessions" / f"{kind}-{digest}.json"
 
 
-def _take_untold(memory: Memory, key: str, found: list[Hit]) -> list[Hit]:
-    """The hits whose fact has not spoken in this session. Marks them as told."""
-    path = _told_path(memory, key)
+def take_once(memory: Memory, key: str, kind: str, tokens: list[str]) -> list[str]:
+    """The tokens of this kind that this session has not had. Marks them as had.
+
+    A file of its own for each kind, read and written under a lock. Helpers share their parent's
+    session key, so a hook of one can save the session state from a read before this write.
+    """
+    path = _told_path(memory, key, kind)
     with locked(memory.dir / ".sessions" / TOLD_LOCK, root=memory.dir):
         try:
             told = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
         except (OSError, ValueError, TypeError):
             told = set()
-        fresh = [hit for hit in found if hit.fact_id not in told]
+        fresh = [token for token in dict.fromkeys(tokens) if token not in told]
         if fresh:
             plainfile.write_text(
-                plainfile.inside(memory.dir, path),
-                json.dumps(sorted(told | {h.fact_id for h in fresh})),
-                "utf-8",
+                plainfile.inside(memory.dir, path), json.dumps(sorted(told | set(fresh))), "utf-8"
             )
     return fresh
 
@@ -277,7 +287,8 @@ def message(memory: Memory, key: str, command: str) -> str | None:
         for hit in found
         if effective_status(memory.states[hit.fact_id], now(), is_merged)[0] == "active"
     ]
-    found = _take_untold(memory, key, found) if found else []
+    fresh = set(take_once(memory, key, "before", [hit.fact_id for hit in found])) if found else ()
+    found = [hit for hit in found if hit.fact_id in fresh]
     if not found:
         return None
     lines = [f"{render(memory.states[hit.fact_id])}" for hit in found]

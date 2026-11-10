@@ -11,7 +11,7 @@ import re
 from pathlib import PurePosixPath
 
 from cairnkit import landed, loopbreak
-from cairnkit.beforeshell import added_in_front
+from cairnkit.beforeshell import added_in_front, take_once
 from cairnkit.clock import now, parse_time
 from cairnkit.load import active_states, changed_paths
 from cairnkit.memory import Memory
@@ -383,27 +383,29 @@ def _fix_is_stored(memory: Memory, failed: str, passed: str) -> bool:
 
 
 def session_events(memory: Memory, key: str) -> list[str]:
-    """New events that a later session may need. Each one is returned once."""
+    """New events that a later session may need. Each one is returned once in the session.
+
+    What was asked is in a file of its own (`take_once`), so a hook that saves the session state
+    from an older read cannot ask it again. A session from an older tool kept it in `told`.
+    """
     state = load_state(memory, key)
     if state is None:
         return []
     told = state.setdefault("told", [])
-    found = []
+    found = {}
     for command, count, *by in state.get("fixed", []):
         shown = _quoted(loopbreak.without_secret(command, memory.env))
         line = f"{shown} failed {count} times, then passed. What fixed it?"
         if by:
             if _fix_is_stored(memory, command, by[0]):
-                told.append(f"fixed:{command}")
                 continue
             passed = _quoted(loopbreak.without_secret(by[0], memory.env))
             line = f"{shown} failed, then {passed} passed. What fixed it? {DOC_IS_NO_RECORD}"
-        found.append((f"fixed:{command}", line))
+        found.setdefault(f"fixed:{command}", line)
     for line in _reverts(memory.project.root, state):
-        found.append((f"revert:{line}", f"A revert: {line}. Why did the first attempt not hold?"))
-    fresh = [(token, line) for token, line in found if token not in told]
-    told.extend(token for token, _ in fresh)
-    lines = [line for _, line in fresh]
+        found[f"revert:{line}"] = f"A revert: {line}. Why did the first attempt not hold?"
+    new = [token for token in found if token not in told]
+    lines = [found[token] for token in take_once(memory, key, "asked", new)] if new else []
     lines += [line for line in (_correction_line(memory, state), _gone_line(memory, state)) if line]
     save_state(memory, key, state)
     return lines

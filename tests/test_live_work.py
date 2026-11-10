@@ -9,6 +9,7 @@ import time
 
 import pytest
 from conftest import add_worktree, git
+from test_helper_checkout_bound import record
 
 from cairnkit import deadline, live
 from cairnkit.cli import main
@@ -149,6 +150,19 @@ def test_a_session_that_died_mid_turn_drops_out_with_time(repo, mem, capsys, mon
         os.utime(marker, (old, old))
     assert HEADING not in start(capsys, monkeypatch, "next")
     assert not list(folder.iterdir())
+
+
+def test_a_helper_with_no_end_leaves_the_load_after_a_day(repo, mem, capsys):
+    """No hook event ends a lost helper record. Its checkout still shows the work that it left."""
+    tree = add_worktree(repo, "helper")
+    (tree / "work.txt").write_text("x\n")
+    record(mem, tree, started_at=time.time() - 3 * 3600)
+    assert '[helper] "a helper"' in plain_load(capsys)
+    # The field case: a helper that started 2 days ago.
+    record(mem, tree, started_at=time.time() - 2 * 86400)
+    out = plain_load(capsys)
+    assert "[helper]" not in out
+    assert any("helper" in line and "uncommitted work.txt" in line for line in live_lines(out))
 
 
 def test_another_session_in_this_checkout_is_named(repo, mem, capsys, monkeypatch):
