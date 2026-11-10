@@ -71,6 +71,7 @@ from cairnkit.told_match import (
     choice_evidence,
     final_question,
     is_approval,
+    only_approval,
 )
 
 PROMPTS_KEPT = 12
@@ -103,6 +104,11 @@ VIA = {
     "choice": "the option the owner picked in this turn",
     "approval": "the proposal the owner approved in this turn",
 }
+
+
+APPROVAL_ONLY = (
+    'its words are only a reply such as "yes" or "ok", which says nothing to a later reader'
+)
 
 
 @dataclass(frozen=True)
@@ -466,6 +472,8 @@ def evidence(data: dict, seen: Seen | None = None) -> list[Evidence]:
 
 def check_claim(memory: Memory, text: str) -> Verdict:
     """Does a `told` claim of an agent match the owner's evidence of its session?"""
+    if only_approval(text):
+        return Verdict(False, APPROVAL_ONLY)
     path = _session_file(memory)
     data = _read(path) if path else {}
     if not data or not data.get("agent"):

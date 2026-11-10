@@ -87,6 +87,12 @@ def one_work(text: str) -> bool:
     return any(not _NEGATED.search(text[: m.start()]) for m in _APPROVAL.finditer(text))
 
 
+def one_time(state: dict) -> bool:
+    """A rule that may be for one piece of work: it reads as one (`one_work`), and no check
+    enforces it. The test can read a lasting policy as one, so such a rule still binds."""
+    return not state.get("enforced_by") and one_work(str(state.get("text", "")))
+
+
 def work_files(state: dict) -> tuple[str, ...]:
     """The paths whose commits can land this fact. Empty for a fact that can never land."""
     if state.get("kind") not in ENDS_WITH_WORK or not one_work(str(state.get("text", ""))):

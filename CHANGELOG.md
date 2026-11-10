@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The before-shell hook warns on Claude Code, once in a session, when a `git stash` command can
+  take or lose an entry of other live work: all checkouts of a repo share one stash list. It
+  speaks while another session, or a helper in another checkout, is live (the markers that
+  `## Live work` reads), for `clear`, a `pop`, `apply` or `drop` of the top entry, and a push with
+  no message. The warning names the live checkouts and gives `git stash push -m NAME` and
+  `git stash apply stash@{n}`, or a commit on a branch. It never stops the command, so Claude Code
+  adds it with the tool result. A step in `( )` or `$( )`, or after `sudo` or `env`, counts; a
+  `bash -c` script and a git alias do not. A command with no `stash` in it does no more work.
 - `memory init --refresh` prints one line that the repo's own hooks run as before, with their
   names and folder: the hooks in the folder that core.hooksPath names (such as `.githooks`; the
   memory hooks run beside them), or hook files in `.git/hooks` that hold more than the memory
@@ -222,6 +230,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A rule that reads as the owner's yes to one piece of work (the test of the `memory add` note),
+  and that no check enforces, loads under `## Rules that may be for one piece of work` below the
+  lasting rules. The heading says that these rules bind and to end one when its work is done.
+  They count toward the limit of 1000 words of rules, and the load holds them back first, so a
+  pile of approvals cannot push out a lasting rule. The note that the rules pass the word budget
+  counts only the lasting rules ("9 rules hold 372 words, outside the word budget of 299" came
+  from approvals), and `memory check` gives the words of these rules on a line of their own. The
+  rule stays a rule, because the test can read a lasting policy as an approval ("Merge only
+  after the owner approves the PR."), and a rule must never drop out of the load.
 - The "facts that match the files you changed" hint leaves out a fact, decision or event whose
   work landed (a trap, lesson or preference still shows), and shows at most 2 facts. It names the
   rest by id.
@@ -312,6 +329,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
+  also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
+  `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The
+  add output says to save the words of the proposal that the owner approved, with `--supersedes`
+  and the new id; those words confirm when they are the question that the yes answered in this
+  turn. A short rule such as "Use uv." still confirms, and so does a claim with a digit, a mark
+  or a word of another script (`Approved: #42.`). A prompt of a few approvals in a row
+  (`yes, go ahead`, `let's do it`) now counts as a short yes.
+- An owner prompt with a digit or a word of another script (`yes 2`, `yes` and a Chinese
+  sentence) is no short yes, so it no longer approves the closing question of the agent. Before,
+  the test read only the a-z words.
+- The stop asks "What fixed it?" only for a real retry. The failed command and the pass must do
+  the same work steps in the same order, and the pass puts a setting or a wrapper in front of one.
+  A `cd`, `pushd`, `popd`, `echo` or `printf` step is no work, and nor is a filter after a pipe
+  (`tail`, `head`, `grep`, `wc`, `tee`, `sort`, `uniq`, `less` or `cat`), so
+  `pytest -q 2>&1 | tail -5` and `uv run pytest -q 2>&1 | tail -20` pair. Before, one shared
+  step was enough, so `cd ...; cat spec; sed ...` that failed paired with a later
+  `S=... gh ...; S=... sed ...` that did other work.
+- A stop event that the stop asked about is not asked again in the session. What was asked is in
+  `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
+  hook that saved that state from a read before the stop brought the question back on later turns.
+- A Claude Code helper with no recorded end leaves the `## Live work` list 24 hours after its
+  call, when its own checkout is gone or holds nothing. Before, a helper whose worktree stayed
+  was named for days. A helper whose checkout still holds commits since it started or
+  uncommitted changes stays on the list, because that is live work that a tidy-up must leave.
 - A helper line with no recorded end now says that the helper may have been stopped: "no end
   recorded, so it may have been stopped or ended unseen", and in a compaction of the session that
   started it, "started by this session; it may still be running, or it was stopped or ended

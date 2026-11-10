@@ -16,6 +16,10 @@ An event ends a record, never a clock:
   That checkout holds the evidence, so the record stays with it. A gone checkout is no end by
   itself: on a Ctrl+C, Claude Code removes the worktree of a killed helper that changed nothing.
 
+A load names a record for SHOWN_SECONDS after the call. After that, it names the record only while
+the record's own checkout holds commits since the start or uncommitted changes (live.py), because
+that is live work. Else the record is noise.
+
 All records live in one file under one lock, because helpers of one session start at once.
 The text is agent-written: each field is masked and cut before it is stored.
 """
@@ -47,6 +51,9 @@ MAX_RECORDS = 50
 GIT_TIMEOUT = 1.0
 # A record may wait this long for another hook's write. A load must not wait longer.
 LOCK_WAIT = 0.5
+# No hook event comes from a helper record after its start, so a lost end stays. A load names it
+# for a day, longer than a helper runs, and then only while its checkout holds the work it left.
+SHOWN_SECONDS = 24 * 3600
 
 
 @dataclass(frozen=True)
@@ -236,7 +243,7 @@ def on_main_stop(memory: Memory, session: str) -> None:
 
 
 def shown(memory: Memory, hide_session: str | None) -> list[Helper]:
-    """The records that a load names, oldest first.
+    """The records that a load can name, oldest first. live.py drops the old ones with no work.
 
     `hide_session` is the session of a helper's own load, whose siblings can still run.
     """

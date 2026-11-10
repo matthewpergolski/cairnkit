@@ -483,7 +483,11 @@ parser", "go ahead with the move", "OK'd the new parser", "LGTM on the refactor"
 work. For a told rule it says that the decision replaces the rule only when the
 owner's words in this turn confirm it, and else to ask the owner. A text that opens
 with `only`, `never`, `always`, `do not`, `every` or `each`, or a negated yes, is a
-lasting policy and stays a rule.
+lasting policy and stays a rule. A rule that the test reads as an approval stays a rule
+too, because the test can be wrong about a lasting policy ("Merge only after the owner
+approves the PR"). It loads under `## Rules that may be for one piece of work`, whose heading
+says that they bind and to end one when its work is done. A rule with `enforced_by` stays
+with the lasting rules.
 
 **A source that is gone is named, not ended.** `memory load` prints one line with
 the facts whose `file:` or `commit:` source no longer exists. A long-term fact stays
@@ -529,11 +533,14 @@ evidence of the session: the last 12 prompts that the owner typed (a fenced past
 notification do not count), the option that the owner picked in an agent question
 (Claude Code's AskUserQuestion; only the label the owner picked counts, not the agent's
 question or option descriptions), and, when the whole prompt is a short yes (`yes`,
-`y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`), the
-question that ends the agent's message just before it, read from the transcript that
-the hook names. Only that closing question counts, so the claim must be in it. A
-message that ends in no question, or a tool step after it, gives no approval. `ok
-thanks`, `correct` and `yes, and also ...` approve nothing. A `told` claim binds only when it is a near-verbatim
+`y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`, or a
+few of them in a row such as `yes, go ahead` or `let's do it`), the question that ends the
+agent's message just before it, read from the transcript that the hook names. Only that
+closing question counts, so the claim must be in it. A message that ends in no question, or
+a tool step after it, gives no approval. `ok thanks`, `correct`, `yes, and also ...`, `I'll
+do it` (the owner takes the task), `go with your rec` (the closing question is often not the
+recommendation) and a prompt with a digit or a word of another script (`yes 2`) approve
+nothing. A `told` claim binds only when it is a near-verbatim
 copy of one sentence of this evidence. Each sentence of the claim (or a run of them)
 must match one sentence of the owner, word for word and in the same order. Only
 articles, `please`, pronouns, punctuation, case, word endings (`commits`, `committing`)
@@ -547,6 +554,13 @@ the tests", and "Don't merge to main until CI is green" does not confirm "Never 
 main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. An approval and an answer count only in their own turn, until the next owner prompt.
+A claim whose words are only a reply that says nothing (`yes`, `Owner said: go ahead`,
+`ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`)
+confirms nothing, because it tells a later reader nothing. This list is wider than the
+short yes above: a word on it that is no yes costs only one refused empty claim. A claim
+with a digit, a mark such as `#` or a word of another script (`Approved: #42.`) names its
+work, so it is matched as usual. The add output says to save the words
+of the proposal that the owner approved, with `--supersedes` and the new fact's id.
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
 confirmed)` data, and the add output says so and how the owner confirms it.
 `memory add` finds its session by the session id in the agent's shell (Claude Code,
@@ -612,7 +626,12 @@ reopened and its history stays. The write never fails because of it.
    words the load holds back the rest and says how many. A rule that no check enforces goes
    first. `memory load --budget 0` prints them all. Over the budget or the limit, one line
    names the rules most likely stale: work that landed first, then the oldest one-time
-   approvals. `memory check` names them too, past 500 words.
+   approvals. `memory check` names them too, past 500 words. A rule that reads as the owner's
+   yes to one piece of work (the test below), and that no check enforces, loads and binds
+   under `## Rules that may be for one piece of work`, below the other rules. It counts toward the
+   limit of 1000 words, and the load holds such rules back first, so the lasting rules stay.
+   The note on the word budget counts only the lasting rules, and `memory check` gives the
+   words of these rules on a line of their own. The hook cut keeps them, as it keeps every rule.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.
@@ -662,7 +681,9 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   helper's `SubagentStop` (Claude Code fires it for a helper that TaskStop stops only when the
   stop cuts its stream), the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. A compaction (or a reload) names the helpers of its own session
+  stays while the worktree does. A load names a record for 24 hours after its call, which is longer
+  than a helper runs. After that, it names the record only while the helper's own checkout holds
+  commits since the helper started or uncommitted changes; else the line is noise. A compaction (or a reload) names the helpers of its own session
   first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
   and its next stop does not end them. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.
@@ -1051,9 +1072,21 @@ blocks a call on a reply that its schema does not know, and Grok Build reads ano
 so neither gets it. A context line is no answer: Claude Code adds it with the tool result, after
 the command ran.
 
+**The shared git stash.** All checkouts of a repo share one stash list, so a `git stash pop` in one
+worktree can take the entry of another. On Claude Code, a `git stash` command that can take or lose
+an entry of other work gets a warning, once in a session, while another session or a helper in
+another checkout is live (the markers of **Live work**). That is `clear`, a `pop`, `apply` or `drop`
+of the top entry, and a push with no message, which a bare pop elsewhere takes. The warning names
+the live checkouts and says to commit the work on a branch, or to use `git stash push -m NAME` and
+then `git stash apply stash@{n}` for that name. It never stops the command, so it arrives with the
+tool result. A named push, `list`, `show` and an entry named by `stash@{n}` get no warning. A
+step in `( )` or `$( )`, or after `sudo` or `env` and its settings, counts too. A `bash -c`
+script and a git alias do not: the hook reads no script and no git config. A command with no
+`stash` in it does no more work in this hook.
+
 **A stop blocks for a new event or a capture check.** A block costs the owner a turn. The events are a health
 problem, a command that failed at least twice and then passed, a command that failed once and then
-passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Each is named once in a session. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
+passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Only a retry pairs a failure with a pass: the same work steps in the same order, where a `cd`, an `echo` and a filter after a pipe (`| tail -5`, `| grep`, `| wc`) are no work. A pass that did other work is no fix, also when one failed step is in it. Each is named once in a session, also when a helper's hook saves the session state from an older read. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
 text at stop without a turn (Claude Code, Codex and Cursor say so in their docs), so the news
 waits for the next prompt or tool result, which adds text with no turn.
 

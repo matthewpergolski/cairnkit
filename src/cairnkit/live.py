@@ -17,9 +17,10 @@ import hashlib
 import os
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from cairnkit import deadline, helpers, plainfile
+from cairnkit.beforeshell import SETTING, _core_words, _parts, _words, take_once
 from cairnkit.load import note_head
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git, tree_env
@@ -38,6 +39,10 @@ MAX_LINES = 3
 MAX_FILES = 5
 MAX_HELPERS = 3
 NOTE_WORDS = 20
+# Options of git before its command that take a value as the next word.
+GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
+# Words in front of a command that run it as it is, with their options and settings.
+RUN_AS = frozenset({"sudo", "env"})
 ORDER = (
     "Live work that this session did not start is listed under `## Live work`. Do not commit, "
     "discard or remove it, also in a general tidy-up, unless the owner names that checkout or "
@@ -92,6 +97,92 @@ def _others_at_work(memory: Memory, session: str | None) -> dict[str, float]:
             path = plainfile.read_text(marker, encoding="utf-8")
             found[path] = max(seen_at, found.get(path, 0.0))
     return found
+
+
+def _sharers(memory: Memory, session: str) -> list[str]:
+    """Where other work had a hook event in the last WORKING_SECONDS: another session anywhere,
+    or a helper of this session in another checkout, because helpers share their parent's key."""
+    mine = f"{_key(session)}-{_key(str(memory.project.root))}"
+    limit = time.time() - WORKING_SECONDS
+    found = set()
+    for marker in plainfile.files_in(memory.dir, _folder(memory)):
+        with contextlib.suppress(OSError, UnicodeDecodeError):  # a stop removes markers at once
+            if marker.name != mine and marker.stat().st_mtime >= limit:
+                found.add(_place(memory, plainfile.read_text(marker, encoding="utf-8")))
+    return sorted(found)
+
+
+def _command_words(part: str) -> list[str]:
+    """The words of one step from its command on: past `(` and `$(`, settings (also `x=$(`),
+    `sudo` and `env` with their options, and with no `)` at the end. A `bash -c` script and a
+    git alias stay out: the parser reads no script and no git config."""
+    words = [word for word in _core_words(_words(part.strip())) if word]
+    run_as = False
+    while words:
+        word = words[0]
+        if SETTING.fullmatch(word) and "$(" in word:
+            words[0] = word.split("$(", 1)[1]
+        elif word.startswith(("(", "$(")):
+            words[0] = word.lstrip("$(")
+        elif SETTING.fullmatch(word) or word in RUN_AS or (run_as and word.startswith("-")):
+            run_as = run_as or word in RUN_AS
+            words.pop(0)
+        else:
+            break
+        if words and not words[0]:
+            words.pop(0)
+    if words:
+        words[-1] = words[-1].rstrip(")")
+    return [word for word in words if word]
+
+
+def _stash_args(words: list[str]) -> list[str] | None:
+    """The words after `stash` in a `git stash` step, or None for another command."""
+    if not words or PurePath(words[0]).name != "git":
+        return None
+    index = 1
+    while index < len(words) and words[index].startswith("-"):
+        index += 2 if words[index] in GIT_VALUE_OPTIONS else 1
+    return words[index + 1 :] if words[index : index + 1] == ["stash"] else None
+
+
+def takes_shared_stash(command: str) -> bool:
+    """True when a step can take or lose an entry of another checkout: `clear`, a `pop`, `apply`,
+    `drop` or `branch` of the top entry, or a push with no message, which a bare pop takes."""
+    for part, _ in _parts(command):
+        args = _stash_args(_command_words(part))
+        if args is None:
+            continue
+        sub = args[0] if args and not args[0].startswith("-") else "push"
+        named = [arg for arg in args[1:] if not arg.startswith("-")]
+        message = any(arg.startswith(("-m", "--message")) for arg in args)
+        if (
+            sub == "clear"
+            or (sub in ("pop", "apply", "drop") and not named)
+            or (sub == "branch" and len(named) < 2)
+            or (sub in ("push", "save") and not message and not (sub == "save" and named))
+        ):
+            return True
+    return False
+
+
+def stash_note(memory: Memory, session: str, command: str) -> str | None:
+    """A warning, once in a session, when this command uses the stash list that live work shares."""
+    if not takes_shared_stash(command):
+        return None
+    places = _sharers(memory, session)
+    if not places or not take_once(memory, session, "stash", ["stash"]):
+        return None
+    more = f" and {len(places) - MAX_LINES} more" if len(places) > MAX_LINES else ""
+    shown = ", ".join(places[:MAX_LINES]) + more
+    return (
+        "memory: all checkouts of this repo share one git stash list, and other work is live in "
+        f"{shown}. A `pop`, `apply`, `drop` or `clear` of the top entry can take or lose an entry "
+        "of that work, and a bare pop there can take an entry with no name. Make sure that each "
+        "entry that you use is yours (`git stash list`). To put work aside, commit it on a branch, "
+        "or run `git stash push -m NAME`, then `git stash apply stash@{n}` for the entry with that "
+        "name."
+    )
 
 
 def _read_status(path: Path) -> tuple[str | None, list[str]] | None:
@@ -164,12 +255,13 @@ def _place(memory: Memory, path: str) -> str:
     return name(os.path.relpath(Path(path).resolve(), root))
 
 
-def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
-    """The branch of the helper's checkout, and what that checkout holds now."""
+def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool]:
+    """The branch of the helper's checkout, what that checkout holds now, and False when it
+    holds no commit since the start and no uncommitted change."""
     path = Path(helper.checkout or "")
     status = _read_status(path)
     if status is None:
-        return "", "its checkout could not be read in time"
+        return "", "its checkout could not be read in time", True
     branch, files = _work_in(memory, path, status)
     commits = 0
     if helper.base:
@@ -183,7 +275,7 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
         more = len(files) - MAX_FILES
         parts.append(f"uncommitted {shown}" + (f" and {more} more" if more > 0 else ""))
     held = ", ".join(parts) or "no uncommitted change and no commit there"
-    return (f", branch {name(branch)}" if branch else ""), held
+    return (f", branch {name(branch)}" if branch else ""), held, bool(parts)
 
 
 # Only an end that the hooks saw ends a record. A missed one is no proof that the helper runs.
@@ -193,7 +285,43 @@ NO_END = "no end recorded, so it may have been stopped or ended unseen"
 RUNNING = "started by this session; it may still be running, or it was stopped or ended unseen"
 
 
-def _helper_line(memory: Memory, helper: helpers.Helper, running: bool = False) -> str:
+def _named_helpers(
+    memory: Memory, records: list[helpers.Helper]
+) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int]:
+    """The records that the load names, the work in the checkout of each, and how many more.
+
+    No hook event ends a lost record. Past helpers.SHOWN_SECONDS, a record is named only while
+    its own checkout holds commits since it started or uncommitted changes, because that is live
+    work; else it is noise. The work is read once, for the line too, and only until MAX_HELPERS
+    are named. At most MAX_HELPERS old records are read at all, so a pile of stale records costs
+    no more git than the lines do; an old record past that count is not named.
+    """
+    since = time.time() - helpers.SHOWN_SECONDS
+    named, work, more, old_reads = [], {}, 0, 0
+    for helper in records:
+        inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
+        old = helper.started_at < since
+        if old and (not inside or old_reads >= MAX_HELPERS):
+            continue
+        if len(named) >= MAX_HELPERS:
+            more += 1
+            continue
+        if inside:
+            old_reads += old
+            work[helper.call] = _helper_work(memory, helper)
+            if old and not work[helper.call][2]:
+                continue
+        named.append(helper)
+    return named, work, more
+
+
+def _helper_line(
+    memory: Memory,
+    helper: helpers.Helper,
+    work: tuple[str, str, bool] | None,
+    running: bool = False,
+) -> str:
+    """One line. `work` is what `_helper_work` read, for a helper in a checkout of the project."""
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
     ago = _ago(helper.started_at)
@@ -201,8 +329,8 @@ def _helper_line(memory: Memory, helper: helpers.Helper, running: bool = False) 
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]
-    elif helpers.is_checkout(memory.project, helper.checkout):
-        branch, held = _helper_work(memory, helper)
+    elif work:
+        branch, held, _ = work
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}{branch}"
         state = [end, held]
     elif helper.checkout:
@@ -275,14 +403,17 @@ def add_lines(
         return lines
     records = helpers.shown(memory, hide_helpers_of)
     records.sort(key=lambda helper: helper.session != own_helpers_of)
-    named = records[:MAX_HELPERS]
+    named: list[helpers.Helper] = []
     body: list[str] = []
     found: list[Checkout] = []
     unread = 0
     with deadline.within(BUDGET):
-        body = [_helper_line(memory, h, h.session == own_helpers_of) for h in named]
-        if len(records) > MAX_HELPERS:
-            body.append(f"- [helper] {len(records) - MAX_HELPERS} more helper(s) with no end.")
+        named, work, more = _named_helpers(memory, records)
+        body = [
+            _helper_line(memory, h, work.get(h.call), h.session == own_helpers_of) for h in named
+        ]
+        if more:
+            body.append(f"- [helper] {more} more helper(s) with no end.")
         if memory.project.is_git:
             at_work = _others_at_work(memory, session)
             here = session is not None and str(memory.project.root) in at_work

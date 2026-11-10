@@ -9,6 +9,7 @@ import time
 
 import pytest
 from conftest import add_worktree, git
+from test_helper_checkout_bound import record
 
 from cairnkit import deadline, live
 from cairnkit.cli import main
@@ -151,6 +152,40 @@ def test_a_session_that_died_mid_turn_drops_out_with_time(repo, mem, capsys, mon
     assert not list(folder.iterdir())
 
 
+DAYS_AGO = 2 * 86400
+
+
+def test_an_old_helper_with_uncommitted_work_stays_in_the_load(repo, mem, capsys):
+    """No hook event ends a lost helper record. Its checkout still holds the work that it left."""
+    tree = add_worktree(repo, "helper")
+    (tree / "work.txt").write_text("x\n")
+    record(mem, tree, started_at=time.time() - DAYS_AGO)
+    helper = [line for line in plain_load(capsys).splitlines() if '[helper] "a helper"' in line]
+    assert len(helper) == 1 and "uncommitted work.txt" in helper[0]
+
+
+def test_an_old_helper_with_only_commits_stays_in_the_load(repo, mem, capsys):
+    """The checkout is clean and no session works there, so only the helper line names it."""
+    tree = add_worktree(repo, "helper")
+    base = git(tree, "rev-parse", "HEAD").strip()
+    (tree / "work.txt").write_text("x\n")
+    git(tree, "add", "work.txt")
+    git(tree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work")
+    record(mem, tree, started_at=time.time() - DAYS_AGO, base=base)
+    out = plain_load(capsys)
+    assert '[helper] "a helper"' in out and "1 commit(s) since it started" in out
+
+
+def test_an_old_helper_whose_checkout_holds_nothing_or_is_gone_leaves_the_load(repo, mem, capsys):
+    tree = add_worktree(repo, "helper")
+    record(mem, tree, started_at=time.time() - 3 * 3600)
+    assert '[helper] "a helper"' in plain_load(capsys)
+    record(mem, tree, started_at=time.time() - DAYS_AGO)
+    assert "[helper]" not in plain_load(capsys)
+    git(repo, "worktree", "remove", "--force", str(tree))
+    assert "[helper]" not in plain_load(capsys)
+
+
 def test_another_session_in_this_checkout_is_named(repo, mem, capsys, monkeypatch):
     work(capsys, monkeypatch, "other")
     line = live_lines(start(capsys, monkeypatch))[0]
@@ -238,3 +273,22 @@ def test_a_plain_folder_has_no_list(tmp_path, monkeypatch):
     memory = Memory.open(find_project(folder), str(folder / "memory"))
     lines = ["head", FRAME_HEADER]
     assert live.add_lines(memory, lines, None) == lines
+
+
+def test_a_pile_of_stale_helpers_costs_a_bounded_count_of_git_reads(repo, mem, capsys, monkeypatch):
+    """A review found that each old record of a clean checkout cost a git read, with no bound."""
+    tree = add_worktree(repo, "helper")
+    rows = [
+        {"call": f"c{n}", "session": "x", "kind": "", "about": f"helper {n}", "task": "",
+         "started_at": time.time() - DAYS_AGO, "agent": f"h{n}", "checkout": str(tree),
+         "base": "HEAD"}
+        for n in range(30)
+    ]  # fmt: skip
+    folder = mem / ".sessions" / "helpers"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "open.json").write_text(json.dumps(rows))
+    reads = []
+    real = live._helper_work
+    monkeypatch.setattr(live, "_helper_work", lambda *a: reads.append(1) or real(*a))
+    assert "[helper]" not in plain_load(capsys)
+    assert len(reads) <= live.MAX_HELPERS

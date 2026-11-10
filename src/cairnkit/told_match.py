@@ -99,6 +99,36 @@ _CONDITION = re.compile(r"(?i)^(?:what if|suppose|imagine)\b")
 APPROVALS = frozenset(
     {"yes", "y", "yep", "go ahead", "do it", "do that", "approved", "sounds good", "ok do it"}
 )
+# A claim of only these words tells a later reader nothing, so it confirms nothing. The list is
+# wider than APPROVALS: a word here that is no yes costs one refused empty claim, but a word in
+# APPROVALS makes the closing question of the agent bind. `go with your rec` is no approval: the
+# closing question is often not the recommendation.
+SAYS_NOTHING = APPROVALS | {
+    "ok", "okay", "k", "sure", "yeah", "yup", "lgtm", "ship it", "go for it", "please do",
+    "do", "proceed", "agreed", "correct", "right", "fine", "great", "perfect", "cool", "done",
+    "thanks", "thank you", "ty", "go with your rec", "go with your recommendation",
+}  # fmt: skip
+
+
+def _run_of(phrases: frozenset[str], lead: str) -> re.Pattern[str]:
+    """One or more phrases in a row, each with `lead` or not: `yes, go ahead`, `let's do it`."""
+    choices = "|".join(re.escape(phrase) for phrase in sorted(phrases, key=len, reverse=True))
+    part = rf"(?:{lead})?(?:{choices})(?: please)?"
+    return re.compile(rf"(?:please )?{part}(?: {part})*")
+
+
+# `I'll do it` is the owner who takes the task, so it approves no question.
+_APPROVAL_RUN = _run_of(APPROVALS, r"let s |lets ")
+_NOTHING_RUN = _run_of(SAYS_NOTHING, r"i ll |i will |let s |lets ")
+# A word that is no a-z word: a digit or a letter of another script. `yes 2` picks something.
+_OTHER_WORD = re.compile(r"[^\Wa-zA-Z]")
+# Past the a-z words and the marks of a sentence, a claim with anything else (`#42`, `0018`) says
+# which work the yes is for.
+_OTHER_MARK = re.compile(r"[^a-zA-Z\s.,!?;:'\"()\u2018\u2019\u201c\u201d\u2013\u2014-]")
+
+
+def _letters(text: str) -> str:
+    return " ".join(re.findall(r"[a-z]+", text.lower()))
 
 
 @dataclass(frozen=True)
@@ -257,10 +287,21 @@ def best_match(text: str, evidence: list[Evidence]) -> Match | None:
 def is_approval(prompt: str) -> bool:
     """True for a prompt that is only a short yes: `yes`, `go ahead`, `ok, do it`.
 
-    `ok thanks`, `correct` and `yes, and also ...` approve no rule.
+    `ok thanks`, `correct`, `I'll do it`, `yes 2` and `yes, and also ...` approve no rule.
     """
-    words = " ".join(re.findall(r"[a-z]+", prompt.lower()))
-    return words.removesuffix(" please").removeprefix("please ") in APPROVALS
+    return not _OTHER_WORD.search(prompt) and bool(_APPROVAL_RUN.fullmatch(_letters(prompt)))
+
+
+def only_approval(text: str) -> bool:
+    """True for a claim whose words say nothing, with `The owner said:` or not: `yes`, `ok`.
+
+    It tells a later reader nothing. The words of the proposal that the yes approved do.
+    """
+    parts = [part for part in _UNIT_END.split(_GAP.sub(" ", text)) if part.strip()]
+    if parts and _is_attribution(parts[0].strip()):
+        parts = parts[1:]
+    rest = " ".join(_unframed(part) for part in parts)
+    return not _OTHER_MARK.search(rest) and bool(_NOTHING_RUN.fullmatch(_letters(rest)))
 
 
 def final_question(message: str) -> str | None:

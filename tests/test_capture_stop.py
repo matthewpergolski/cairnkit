@@ -13,7 +13,9 @@ from test_stop_replay import PLAIN, Session
 from cairnkit.cli import main
 from cairnkit.discover import CAPTURE_GUIDE
 from cairnkit.instructions import text as rules_block
-from cairnkit.session import WORK_GAP
+from cairnkit.memory import Memory
+from cairnkit.paths import find_project
+from cairnkit.session import WORK_GAP, state_path
 
 AGENTS = ("claude", "codex", "cursor", "pi", "opencode")
 STATEMENT = "We decided to keep the old API, because our partners rely on it."
@@ -202,6 +204,11 @@ def test_a_subagent_still_hears_its_own_event_without_the_guide(session):
         ("sh report.sh", "REPORT_LOCALE=C sh report.sh"),
         ("cd /tmp/x && sh report.sh", "cd /tmp/x && REPORT_LOCALE=C sh report.sh"),
         ("pytest", "uv run pytest"),
+        # A `cd` moves, so it is no part of the work. The same work is a retry from any folder.
+        ("cd /tmp/x; sh report.sh", "REPORT_LOCALE=C sh report.sh"),
+        # A filter after a pipe only shows a part of the output. A retry often shows another part.
+        ("pytest -q 2>&1 | tail -5", "uv run pytest -q 2>&1 | tail -20"),
+        ("pytest -q | grep -c FAILED", "uv run pytest -q |& tee out.log | wc -l"),
     ],
 )
 def test_a_failure_fixed_by_how_the_command_runs_is_named_once(session, failed, passed):
@@ -254,12 +261,37 @@ def test_a_fact_on_the_same_script_without_the_fix_keeps_the_event(session):
         ),
         ("ls build | head -5", "cat <<EOF > a.txt\nnotes\nEOF\nls build | head -5"),
         ("make lint; echo ok", "git stash && echo ok"),
+        # Field cases: the pass did other work. One failed step in it is no retry of the command.
+        (
+            "cd /w/app; cat docs/spec.md; sed -n '1,40p' app/models.py",
+            "S=/w/scratch gh pr view 12 > /w/scratch/pr.txt; S=/w/scratch sed -n '1,40p' "
+            "app/models.py",
+        ),
+        (
+            "cd /w/app; cat docs/spec.md; sed -n '1,40p' app/models.py",
+            "cd /w/app && S=1 cat docs/spec.md && gh pr create --fill",
+        ),
+        # `||` is no pipe, so the step after it is work.
+        ("pytest -q | tail -5", "uv run pytest -q || cat log.txt"),
     ],
 )
 def test_red_then_green_or_another_command_is_no_event(session, failed, passed):
     session.tool(failed, False)
     session.tool(passed, True)
     assert session.stop_text(session.hook("stop")) is None
+
+
+def test_an_asked_fix_is_not_asked_again_when_a_hook_saves_an_older_state(session):
+    """Helpers of one session share its key, so a helper's hook can read the session state before
+    a stop and save it after. A pair that the stop asked about must stay asked."""
+    session.tool("sh report.sh", False)
+    session.tool("REPORT_LOCALE=C sh report.sh", True)
+    path = state_path(Memory.open(find_project()), "s1")
+    read_before_the_stop = path.read_text()
+    assert "What fixed it?" in session.stop_text(session.hook("stop"))
+    path.write_text(read_before_the_stop)
+    for number in (2, 3):
+        assert "What fixed it?" not in (session.turn(number, "go on", [], []) or "")
 
 
 def test_the_block_comes_with_a_real_event_only_once(session):

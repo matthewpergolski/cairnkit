@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import subprocess
 import sys
 
 import pytest
-from conftest import make_fact, write_facts
+from conftest import add_worktree, make_fact, write_facts
 
 from cairnkit.beforeshell import hits
 from cairnkit.cli import main
+from cairnkit.live import takes_shared_stash
 
 LONG = "REPORT_LOCALE=C sh report.sh"
 FIX = (
@@ -209,3 +211,99 @@ def test_a_new_hook_line_never_stops_a_tool_under_an_older_build(repo, mem):
             ["sh", "-c", old], cwd=repo, input="{}", capture_output=True, text=True
         )
         assert done.returncode == 0, (line, done.stderr)
+
+
+def note(out: str) -> str | None:
+    """The text that a hook adds to the context with no decision, so the command runs."""
+    if not out or out == "{}":
+        return None
+    data = json.loads(out)["hookSpecificOutput"]
+    assert data["hookEventName"] == "PreToolUse"
+    assert "permissionDecision" not in data
+    return data["additionalContext"]
+
+
+def live_in_worktree(repo, monkeypatch, session: str) -> None:
+    """A session, or a helper that shares its parent's key, at work in another worktree."""
+    tree = add_worktree(repo, "other")
+    monkeypatch.chdir(tree)
+    payload = json.dumps({"session_id": session, "prompt": "go on"})
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    assert main(["hook", "prompt", "--agent", "claude"]) == 0
+    monkeypatch.chdir(repo)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git stash pop",
+        "cd /x && git stash",
+        "git -C . stash drop",
+        "git stash apply",
+        "git stash clear",
+    ],
+)
+def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, monkeypatch, command):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = installed(repo, "claude", "PreToolUse")
+    said = note(run(argv, repo, command))
+    assert said and "stash list" in said and ".worktrees/other" in said
+    assert "git stash push -m" in said and "git stash apply stash@{n}" in said
+    assert run(argv, repo, command) == ""
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "(cd ../x && git stash pop)",
+        "(git stash pop)",
+        "x=$(git stash pop)",
+        "$(git stash pop)",
+        "sudo git stash pop",
+        "sudo -E git stash pop",
+        "env X=1 git stash pop",
+        "env -i X=1 git stash drop",
+        "cd a && (git stash pop) 2>/dev/null",
+    ],
+)
+def test_a_stash_step_in_a_subshell_or_behind_sudo_or_env_takes_the_stash(command):
+    assert takes_shared_stash(command)
+
+
+@pytest.mark.parametrize(
+    "command", ["(git stash push -m wip)", "x=$(git stash list)", "sudo git stash list"]
+)
+def test_a_named_or_reading_stash_step_in_a_subshell_takes_nothing(command):
+    assert not takes_shared_stash(command)
+
+
+def test_a_helper_of_the_same_session_in_another_worktree_counts(repo, mem, monkeypatch):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    live_in_worktree(repo, monkeypatch, "s1")
+    assert note(run(installed(repo, "claude", "PreToolUse"), repo, "git stash pop"))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git stash push -m wip-tests",
+        "git stash list",
+        "git stash show -p",
+        "git stash apply stash@{2}",
+        "echo 'git stash pop'",
+        "git status",
+    ],
+)
+def test_a_named_or_reading_stash_command_says_nothing(repo, mem, monkeypatch, command):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    assert run(installed(repo, "claude", "PreToolUse"), repo, command) == ""
+
+
+def test_a_stash_pop_with_only_this_session_at_work_says_nothing(repo, mem, monkeypatch):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "s1", "prompt": "go"})))
+    assert main(["hook", "prompt", "--agent", "claude"]) == 0
+    add_worktree(repo, "idle")
+    assert run(installed(repo, "claude", "PreToolUse"), repo, "git stash pop") == ""

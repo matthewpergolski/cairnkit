@@ -55,7 +55,7 @@ from cairnkit.paths import (
     run_git,
     unverified_pointers,
 )
-from cairnkit.selection import AGENT_RULES, FRAME_FOOTER, FRAME_HEADER, clean
+from cairnkit.selection import AGENT_RULES, APPROVAL_RULES, FRAME_FOOTER, FRAME_HEADER, clean
 from cairnkit.session import (
     capture_reasons,
     hold_heard,
@@ -317,7 +317,7 @@ MAX_LOAD_PASSES = 4
 LOAD_TIME_LEFT = 2.0
 
 
-RULE_HEADINGS = ("## Enforced rules", "## Advisory rules")
+RULE_HEADINGS = ("## Enforced rules", "## Advisory rules", APPROVAL_RULES)
 # The sections of the frame that a cut drops, first to last, each from its end. Long-term facts go
 # first: a search finds them. Live work goes last: it names the work that a restarted session
 # must not touch.
@@ -733,10 +733,13 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
     """Before a shell command: a command that would forge the owner's evidence is refused (see
     forgery.py), and a fact with a longer form of it stops this call once. Exits 0.
 
+    A `git stash` command that can take an entry of other live work gets a warning once, on
+    Claude Code, and runs (`live.stash_note`). The tool adds that text with the tool result.
+
     It never prints an allow, so the person's own approval of the command still applies. On any
     error or past its time it says nothing, and the command runs.
     """
-    text = None
+    text = note = None
     with contextlib.suppress(Exception), _time_budget(BEFORE_SHELL_BUDGET):
         command = loopbreak.shell_command(payload)
         if agent in BEFORE_SHELL_AGENTS and command and has_memory(project, flag):
@@ -745,6 +748,13 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
             text = forgery.refusal(command, folders, LINK_NAME) or beforeshell.message(
                 memory, session_key(payload), command
             )
+            # This hook runs before each command, so only a command that names the stash pays.
+            if not text and agent == "claude" and "stash" in command:
+                note = live.stash_note(memory, session_key(payload), command)
+    if note:
+        context = {"hookEventName": "PreToolUse", "additionalContext": note}
+        print(json.dumps({"hookSpecificOutput": context}))
+        return 0
     if not text:
         if agent == "codex":
             print("{}")

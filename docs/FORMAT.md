@@ -108,6 +108,7 @@ stops before the home folder and the file system root.
   auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
+  .sessions/{before,asked,stash}-<hash>.json  what a session heard once, written under a lock: facts before a command, stop events, the stash warning (safe to delete)
   .sessions/live/<session>-<checkout>  a session in a turn in that checkout: holds its path, and the file time is the last event (safe to delete)
   .sessions/helpers/open.json   each helper with no recorded end: why it started, and where (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
@@ -528,8 +529,12 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   prompt or tool result names those lines once), the loop nudge, the load that a tool holds, and the events of this session. The events
   are a command that failed at least twice and then passed, a command that failed and then
   passed with a setting or a wrapper in front of it, a revert since the session
-  started, a correction, and a lost file that no prompt named or asked to remove. Each
-  event is named once. A fix with a setting in front is no event when an active fact names the
+  started, a correction, and a lost file that no prompt named or asked to remove. A pass pairs
+  with a failure only when both do the same work steps in the same order, where a `cd`,
+  `pushd`, `popd`, `echo` or `printf` step is no work, and nor is a `tail`, `head`, `grep`,
+  `wc`, `tee`, `sort`, `uniq`, `less` or `cat` step that a pipe (`|`, `|&`) leads into. Each
+  event is named once; a command or revert event that a stop named is kept in
+  `.sessions/asked-*.json`. A fix with a setting in front is no event when an active fact names the
   setting and the command. It adds the capture check when no fact followed new work or a statement
   of the owner, and the guide. Events with no capture check get the `memory add` line and no guide.
   A payload with `agent_id` gets no capture check. It adds no text
@@ -558,7 +563,14 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   "permissionDecisionReason": TEXT}}` for `claude` and `codex`, and TEXT on stdout for `pi` and
   `opencode`. It never prints an allow, because an allow skips the person's own approval. With
   nothing to say, on any error and past 2.5 seconds, it prints nothing (`{}` for `codex`), and the
-  command runs. Other agents get nothing. It always exits 0.
+  command runs. Other agents get nothing. It always exits 0. For `claude` only, a command that
+  holds `stash` and has a `git stash` step that can take or lose an entry of other work
+  (`clear`; `pop`, `apply` or `drop` with no entry named; `branch` with no entry; a push or
+  `save` with no message; also in `( )` or `$( )`, or after `sudo` or `env`; not in a
+  `bash -c` script or a git alias) gets
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": TEXT}}` and
+  runs, when a marker in `.sessions/live/` from the last 30 minutes names another session, or
+  this session in another checkout. It speaks once in a session (`.sessions/stash-*.json`).
 - `after-shell` and `post-tool`: record one shell or tool result for the loop
   breaker and for the events of `stop`. Then they add the same news as
   `prompt`, and the load that `grok` holds. The third identical failure adds the nudge. The output is
@@ -583,8 +595,9 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   for `"status": "async_launched"`, adds its `agentId`. `stop` removes the calls of its turn with
   no helper, and each record that its session's load named whose checkout is not there.
 - The load adds one `- [helper]` line under `## Live work` for each of the 3 oldest records (with
-  the count of the others). It is inside the frame of stored notes, because the text came from an
-  agent. A load for `compact` or `reload` leaves out the records of its own session.
+  the count of the others) whose `started_at` is in the last 24 hours, or whose own checkout
+  still holds commits since `base` or uncommitted changes. It is inside the frame of
+  stored notes, because the text came from an agent. A load for `compact` or `reload` leaves out the records of its own session.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
   checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before
   it removes them, it adds each other checkout that they name to `helpers` in
