@@ -282,6 +282,41 @@ def test_the_prompt_already_in_the_transcript_does_not_hide_the_proposal(
     assert binds(capsys, "uv run pytest -x before every commit")
 
 
+@pytest.mark.parametrize(
+    ("owner", "claim"),
+    [
+        ("yes", "yes"),
+        ("Yes.", "Owner said: yes"),
+        ("go ahead", "Go ahead."),
+        ("sounds good", "sounds good"),
+        ("i'll go with your rec", "I'll go with your rec"),
+        ("yes, go ahead", "Yes, go ahead."),
+    ],
+)
+def test_a_bare_approval_saved_as_told_does_not_bind(mem, capsys, monkeypatch, owner, claim):
+    prompt(capsys, monkeypatch, owner)
+    out = agent_add(capsys, monkeypatch, claim)
+    assert "told: not confirmed" in out and "only an approval" in out
+    assert f"--supersedes {facts(mem)[-1]['id']}" in out
+    assert not binds(capsys, claim)
+
+
+@pytest.mark.parametrize("rule", ["Use uv.", "Never push to main."])
+def test_a_short_rule_in_the_owners_words_still_binds(mem, capsys, monkeypatch, rule):
+    prompt(capsys, monkeypatch, rule)
+    assert "told: confirmed" in agent_add(capsys, monkeypatch, rule)
+    assert binds(capsys, rule.rstrip("."))
+
+
+def test_the_proposal_of_a_bare_approval_binds(mem, capsys, monkeypatch, tmp_path):
+    path = session_with_proposal(tmp_path)
+    prompt(capsys, monkeypatch, "i'll go with your rec", transcript_path=path)
+    assert "only an approval" in agent_add(capsys, monkeypatch, "i'll go with your rec")
+    out = agent_add(capsys, monkeypatch, RULE)
+    assert "told: confirmed by the proposal the owner approved in this turn" in out
+    assert binds(capsys, "uv run pytest -x before every commit")
+
+
 def test_a_yes_to_another_proposal_does_not_bind(mem, capsys, monkeypatch, tmp_path):
     path = session_with_proposal(tmp_path, "Shall I rename parse_args to parse_cli everywhere?")
     prompt(capsys, monkeypatch, "yes", transcript_path=path)

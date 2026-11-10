@@ -312,6 +312,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A told claim whose words are only a short yes (`memory add "yes" --basis told`, also
+  `Owner said: go ahead` or `I'll go with your rec`) is no longer confirmed, because it tells a
+  later reader nothing. The add output says to save the words of the proposal that the owner
+  approved, with `--supersedes` and the new id; those words confirm when they are the question
+  that the yes answered in this turn. A short rule such as "Use uv." still confirms. A prompt of a
+  few approvals in a row (`yes, go ahead`) and `go with your rec` now count as a short yes.
 - A helper line with no recorded end now says that the helper may have been stopped: "no end
   recorded, so it may have been stopped or ended unseen", and in a compaction of the session that
   started it, "started by this session; it may still be running, or it was stopped or ended

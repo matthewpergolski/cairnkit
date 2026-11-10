@@ -529,8 +529,9 @@ evidence of the session: the last 12 prompts that the owner typed (a fenced past
 notification do not count), the option that the owner picked in an agent question
 (Claude Code's AskUserQuestion; only the label the owner picked counts, not the agent's
 question or option descriptions), and, when the whole prompt is a short yes (`yes`,
-`y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`), the
-question that ends the agent's message just before it, read from the transcript that
+`y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`, `go
+with your rec`, or a few of them in a row such as `yes, go ahead` or `I'll go with your
+rec`), the question that ends the agent's message just before it, read from the transcript that
 the hook names. Only that closing question counts, so the claim must be in it. A
 message that ends in no question, or a tool step after it, gives no approval. `ok
 thanks`, `correct` and `yes, and also ...` approve nothing. A `told` claim binds only when it is a near-verbatim
@@ -547,6 +548,9 @@ the tests", and "Don't merge to main until CI is green" does not confirm "Never 
 main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. An approval and an answer count only in their own turn, until the next owner prompt.
+A claim whose words are only a short yes (`yes`, `Owner said: go ahead`) confirms
+nothing, because it tells a later reader nothing. The add output says to save the words
+of the proposal that the owner approved, with `--supersedes` and the new fact's id.
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
 confirmed)` data, and the add output says so and how the owner confirms it.
 `memory add` finds its session by the session id in the agent's shell (Claude Code,

@@ -97,8 +97,16 @@ _QUESTION = re.compile(
 # FORMAT.md" is a rule, and `if` is a strict word, so a claim that drops the condition fails.
 _CONDITION = re.compile(r"(?i)^(?:what if|suppose|imagine)\b")
 APPROVALS = frozenset(
-    {"yes", "y", "yep", "go ahead", "do it", "do that", "approved", "sounds good", "ok do it"}
+    {"yes", "y", "yep", "go ahead", "do it", "do that", "approved", "sounds good", "ok do it",
+     "go with your rec", "go with your recommendation"}
+)  # fmt: skip
+_APPROVAL_PART = (
+    r"(?:i ll |i will |let s |lets )?(?:"
+    + "|".join(re.escape(phrase) for phrase in sorted(APPROVALS, key=len, reverse=True))
+    + r")(?: please)?"
 )
+# A short yes is one or more approvals in a row, also `yes, go ahead` or `I'll go with your rec`.
+_APPROVAL_RUN = re.compile(rf"(?:please )?{_APPROVAL_PART}(?: {_APPROVAL_PART})*")
 
 
 @dataclass(frozen=True)
@@ -259,8 +267,18 @@ def is_approval(prompt: str) -> bool:
 
     `ok thanks`, `correct` and `yes, and also ...` approve no rule.
     """
-    words = " ".join(re.findall(r"[a-z]+", prompt.lower()))
-    return words.removesuffix(" please").removeprefix("please ") in APPROVALS
+    return bool(_APPROVAL_RUN.fullmatch(" ".join(re.findall(r"[a-z]+", prompt.lower()))))
+
+
+def only_approval(text: str) -> bool:
+    """True for a claim whose words are only a short yes, with `The owner said:` or not.
+
+    It tells a later reader nothing. The words of the proposal that the yes approved do.
+    """
+    parts = [part for part in _UNIT_END.split(_GAP.sub(" ", text)) if part.strip()]
+    if parts and _is_attribution(parts[0].strip()):
+        parts = parts[1:]
+    return is_approval(" ".join(_unframed(part) for part in parts))
 
 
 def final_question(message: str) -> str | None:
