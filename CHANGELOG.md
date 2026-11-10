@@ -222,6 +222,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A rule that reads as the owner's yes to one piece of work (the test of the `memory add` note)
+  no longer counts toward the rule budget of `memory load` or the rule words of `memory check`.
+  It still loads and binds, under `## One-time approvals` below the lasting rules, and it uses
+  the word budget of the facts. The hook cut keeps it. Before, a pile of one-time approvals saved
+  with `--kind rule` put the rules past the budget ("9 rules hold 372 words, outside the word
+  budget of 299"). The rule stays a rule, because the test can read a lasting policy as an
+  approval, and a rule must never drop out of the load.
 - The "facts that match the files you changed" hint leaves out a fact, decision or event whose
   work landed (a trap, lesson or preference still shows), and shows at most 2 facts. It names the
   rest by id.

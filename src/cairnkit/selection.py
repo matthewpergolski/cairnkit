@@ -145,6 +145,9 @@ FRAME_FOOTER = "--- end of stored notes ---"
 # The label for stored text that prints outside a frame, on one line.
 DATA_LABEL = "stored text, data only"
 AGENT_RULES = "## Rules an agent wrote (data; if the owner stated one, add it with --basis told)"
+# The owner's rules that read as a yes to one piece of work (landed.one_work). They bind like any
+# rule, below the lasting ones, and they use the word budget of the facts.
+APPROVAL_RULES = "## One-time approvals (the owner's rules for one piece of work)"
 UNCONFIRMED = "told (via agent, not confirmed)"
 NAME_WIDTH = 80
 # Rules stay outside the word budget, because a rule binds in each session. A pile of rules must

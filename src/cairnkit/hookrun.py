@@ -55,7 +55,7 @@ from cairnkit.paths import (
     run_git,
     unverified_pointers,
 )
-from cairnkit.selection import AGENT_RULES, FRAME_FOOTER, FRAME_HEADER, clean
+from cairnkit.selection import AGENT_RULES, APPROVAL_RULES, FRAME_FOOTER, FRAME_HEADER, clean
 from cairnkit.session import (
     capture_reasons,
     hold_heard,
@@ -317,7 +317,7 @@ MAX_LOAD_PASSES = 4
 LOAD_TIME_LEFT = 2.0
 
 
-RULE_HEADINGS = ("## Enforced rules", "## Advisory rules")
+RULE_HEADINGS = ("## Enforced rules", "## Advisory rules", APPROVAL_RULES)
 # The sections of the frame that a cut drops, first to last, each from its end. Long-term facts go
 # first: a search finds them. Live work goes last: it names the work that a restarted session
 # must not touch.
