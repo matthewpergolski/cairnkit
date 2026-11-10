@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Collection
 from datetime import datetime
 
 from cairnkit.clock import parse_time
@@ -145,9 +146,12 @@ FRAME_FOOTER = "--- end of stored notes ---"
 # The label for stored text that prints outside a frame, on one line.
 DATA_LABEL = "stored text, data only"
 AGENT_RULES = "## Rules an agent wrote (data; if the owner stated one, add it with --basis told)"
-# The owner's rules that read as a yes to one piece of work (landed.one_work). They bind like any
-# rule, below the lasting ones, and they use the word budget of the facts.
-APPROVAL_RULES = "## One-time approvals (the owner's rules for one piece of work)"
+# The owner's rules that read as a yes to one piece of work (landed.one_time). The test can read a
+# lasting rule as one, so the heading says that they bind and claims no rule is used up.
+APPROVAL_RULES = (
+    "## Rules that may be for one piece of work (they bind; when the work of one is done, end it: "
+    'memory change ID --status expired --reason "...")'
+)
 UNCONFIRMED = "told (via agent, not confirmed)"
 NAME_WIDTH = 80
 # Rules stay outside the word budget, because a rule binds in each session. A pile of rules must
@@ -265,16 +269,22 @@ def words_in(line: str) -> int:
     return len(line.split())
 
 
-def bound_rules(rules: list[dict]) -> tuple[list[dict], list[dict]]:
+def bound_rules(rules: list[dict], one_time: Collection[str] = ()) -> tuple[list[dict], list[dict]]:
     """(shown, held back). A rule with a person behind it goes before a rule that loads as data.
 
     An instruction outranks data, so one held instruction holds back each data rule, also one that
-    would fit. Inside a class, a rule that no check enforces goes first, because only the load gives
-    it force. Then the newest goes first. The id settles a tie, so no file order can change this.
+    would fit. Inside a class, a lasting rule goes before a rule in `one_time` (the ids of rules
+    that may be for one piece of work), so a pile of approvals is held back first. Then a rule
+    that no check enforces goes first, because only the load gives it force. Then the newest goes
+    first. The id settles a tie, so no file order can change this.
     """
     newest = sorted(rules, key=lambda s: (s.get("learned_at") or "", s["id"]), reverse=True)
+
+    def order(state: dict) -> tuple[bool, bool, bool]:
+        return not owner_rule(state), state["id"] in one_time, bool(state.get("enforced_by"))
+
     shown, held, used = [], [], 0
-    for state in sorted(newest, key=lambda s: (not owner_rule(s), bool(s.get("enforced_by")))):
+    for state in sorted(newest, key=order):
         cost = words_in(render(state))
         outranked = held and owner_rule(held[0]) and not owner_rule(state)
         if outranked or used + cost > RULE_WORD_LIMIT:

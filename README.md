@@ -485,8 +485,9 @@ owner's words in this turn confirm it, and else to ask the owner. A text that op
 with `only`, `never`, `always`, `do not`, `every` or `each`, or a negated yes, is a
 lasting policy and stays a rule. A rule that the test reads as an approval stays a rule
 too, because the test can be wrong about a lasting policy ("Merge only after the owner
-approves the PR"). It loads under `## One-time approvals` and uses the fact budget, so a
-pile of approvals cannot push the lasting rules past the budget.
+approves the PR"). It loads under `## Rules that may be for one piece of work`, whose heading
+says that they bind and to end one when its work is done. A rule with `enforced_by` stays
+with the lasting rules.
 
 **A source that is gone is named, not ended.** `memory load` prints one line with
 the facts whose `file:` or `commit:` source no longer exists. A long-term fact stays
@@ -626,9 +627,11 @@ reopened and its history stays. The write never fails because of it.
    first. `memory load --budget 0` prints them all. Over the budget or the limit, one line
    names the rules most likely stale: work that landed first, then the oldest one-time
    approvals. `memory check` names them too, past 500 words. A rule that reads as the owner's
-   yes to one piece of work (the test below) is no lasting rule: it loads and binds under
-   `## One-time approvals`, below the other rules, and it uses the word budget of the facts,
-   not the rule budget. The hook cut keeps it, as it keeps every rule.
+   yes to one piece of work (the test below), and that no check enforces, loads and binds
+   under `## Rules that may be for one piece of work`, below the other rules. It counts toward the
+   limit of 1000 words, and the load holds such rules back first, so the lasting rules stay.
+   The note on the word budget counts only the lasting rules, and `memory check` gives the
+   words of these rules on a line of their own. The hook cut keeps them, as it keeps every rule.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.
