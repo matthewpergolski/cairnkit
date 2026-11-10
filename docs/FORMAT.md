@@ -108,6 +108,7 @@ stops before the home folder and the file system root.
   auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
+  .sessions/{before,asked}-<hash>.json  what a session heard once, written under a lock: facts before a command, stop events (safe to delete)
   .sessions/live/<session>-<checkout>  a session in a turn in that checkout: holds its path, and the file time is the last event (safe to delete)
   .sessions/helpers/open.json   each helper with no recorded end: why it started, and where (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
@@ -528,8 +529,11 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   prompt or tool result names those lines once), the loop nudge, the load that a tool holds, and the events of this session. The events
   are a command that failed at least twice and then passed, a command that failed and then
   passed with a setting or a wrapper in front of it, a revert since the session
-  started, a correction, and a lost file that no prompt named or asked to remove. Each
-  event is named once. A fix with a setting in front is no event when an active fact names the
+  started, a correction, and a lost file that no prompt named or asked to remove. A pass pairs
+  with a failure only when both do the same work steps in the same order, where a `cd`,
+  `pushd`, `popd`, `echo` or `printf` step is no work. Each
+  event is named once; a command or revert event that a stop named is kept in
+  `.sessions/asked-*.json`. A fix with a setting in front is no event when an active fact names the
   setting and the command. It adds the capture check when no fact followed new work or a statement
   of the owner, and the guide. Events with no capture check get the `memory add` line and no guide.
   A payload with `agent_id` gets no capture check. It adds no text

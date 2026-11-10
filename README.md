@@ -1053,7 +1053,7 @@ the command ran.
 
 **A stop blocks for a new event or a capture check.** A block costs the owner a turn. The events are a health
 problem, a command that failed at least twice and then passed, a command that failed once and then
-passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Each is named once in a session. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
+passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Only a retry pairs a failure with a pass: the same work steps in the same order, where a `cd` or an `echo` is no work. A pass that did other work is no fix, also when one failed step is in it. Each is named once in a session, also when a helper's hook saves the session state from an older read. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
 text at stop without a turn (Claude Code, Codex and Cursor say so in their docs), so the news
 waits for the next prompt or tool result, which adds text with no turn.
 

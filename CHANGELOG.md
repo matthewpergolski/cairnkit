@@ -312,6 +312,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The stop asks "What fixed it?" only for a real retry. The failed command and the pass must do
+  the same work steps in the same order, and the pass puts a setting or a wrapper in front of one.
+  A `cd`, `pushd`, `popd`, `echo` or `printf` step is no work. Before, one shared step was enough,
+  so `cd ...; cat spec; sed ...` that failed paired with a later `S=... gh ...; S=... sed ...` that
+  did other work.
+- A stop event that the stop asked about is not asked again in the session. What was asked is in
+  `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
+  hook that saved that state from a read before the stop brought the question back on later turns.
 - A helper line with no recorded end now says that the helper may have been stopped: "no end
   recorded, so it may have been stopped or ended unseen", and in a compaction of the session that
   started it, "started by this session; it may still be running, or it was stopped or ended
