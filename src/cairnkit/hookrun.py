@@ -733,10 +733,13 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
     """Before a shell command: a command that would forge the owner's evidence is refused (see
     forgery.py), and a fact with a longer form of it stops this call once. Exits 0.
 
+    A `git stash` command that can take an entry of other live work gets a warning once, on
+    Claude Code, and runs (`live.stash_note`). The tool adds that text with the tool result.
+
     It never prints an allow, so the person's own approval of the command still applies. On any
     error or past its time it says nothing, and the command runs.
     """
-    text = None
+    text = note = None
     with contextlib.suppress(Exception), _time_budget(BEFORE_SHELL_BUDGET):
         command = loopbreak.shell_command(payload)
         if agent in BEFORE_SHELL_AGENTS and command and has_memory(project, flag):
@@ -745,6 +748,13 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
             text = forgery.refusal(command, folders, LINK_NAME) or beforeshell.message(
                 memory, session_key(payload), command
             )
+            # This hook runs before each command, so only a command that names the stash pays.
+            if not text and agent == "claude" and "stash" in command:
+                note = live.stash_note(memory, session_key(payload), command)
+    if note:
+        context = {"hookEventName": "PreToolUse", "additionalContext": note}
+        print(json.dumps({"hookSpecificOutput": context}))
+        return 0
     if not text:
         if agent == "codex":
             print("{}")

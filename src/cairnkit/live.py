@@ -17,9 +17,10 @@ import hashlib
 import os
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from cairnkit import deadline, helpers, plainfile
+from cairnkit.beforeshell import all_steps, take_once
 from cairnkit.load import note_head
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git, tree_env
@@ -38,6 +39,8 @@ MAX_LINES = 3
 MAX_FILES = 5
 MAX_HELPERS = 3
 NOTE_WORDS = 20
+# Options of git before its command that take a value as the next word.
+GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
 ORDER = (
     "Live work that this session did not start is listed under `## Live work`. Do not commit, "
     "discard or remove it, also in a general tidy-up, unless the owner names that checkout or "
@@ -92,6 +95,68 @@ def _others_at_work(memory: Memory, session: str | None) -> dict[str, float]:
             path = plainfile.read_text(marker, encoding="utf-8")
             found[path] = max(seen_at, found.get(path, 0.0))
     return found
+
+
+def _sharers(memory: Memory, session: str) -> list[str]:
+    """Where other work had a hook event in the last WORKING_SECONDS: another session anywhere,
+    or a helper of this session in another checkout, because helpers share their parent's key."""
+    mine = f"{_key(session)}-{_key(str(memory.project.root))}"
+    limit = time.time() - WORKING_SECONDS
+    found = set()
+    for marker in plainfile.files_in(memory.dir, _folder(memory)):
+        with contextlib.suppress(OSError, UnicodeDecodeError):  # a stop removes markers at once
+            if marker.name != mine and marker.stat().st_mtime >= limit:
+                found.add(_place(memory, plainfile.read_text(marker, encoding="utf-8")))
+    return sorted(found)
+
+
+def _stash_args(words: list[str]) -> list[str] | None:
+    """The words after `stash` in a `git stash` step, or None for another command."""
+    if not words or PurePath(words[0]).name != "git":
+        return None
+    index = 1
+    while index < len(words) and words[index].startswith("-"):
+        index += 2 if words[index] in GIT_VALUE_OPTIONS else 1
+    return words[index + 1 :] if words[index : index + 1] == ["stash"] else None
+
+
+def takes_shared_stash(command: str) -> bool:
+    """True when a step can take or lose an entry of another checkout: `clear`, a `pop`, `apply`,
+    `drop` or `branch` of the top entry, or a push with no message, which a bare pop takes."""
+    for step in all_steps(command):
+        args = _stash_args(step.core.split())
+        if args is None:
+            continue
+        sub = args[0] if args and not args[0].startswith("-") else "push"
+        named = [arg for arg in args[1:] if not arg.startswith("-")]
+        message = any(arg.startswith(("-m", "--message")) for arg in args)
+        if (
+            sub == "clear"
+            or (sub in ("pop", "apply", "drop") and not named)
+            or (sub == "branch" and len(named) < 2)
+            or (sub in ("push", "save") and not message and not (sub == "save" and named))
+        ):
+            return True
+    return False
+
+
+def stash_note(memory: Memory, session: str, command: str) -> str | None:
+    """A warning, once in a session, when this command uses the stash list that live work shares."""
+    if not takes_shared_stash(command):
+        return None
+    places = _sharers(memory, session)
+    if not places or not take_once(memory, session, "stash", ["stash"]):
+        return None
+    more = f" and {len(places) - MAX_LINES} more" if len(places) > MAX_LINES else ""
+    shown = ", ".join(places[:MAX_LINES]) + more
+    return (
+        "memory: all checkouts of this repo share one git stash list, and other work is live in "
+        f"{shown}. A `pop`, `apply`, `drop` or `clear` of the top entry can take or lose an entry "
+        "of that work, and a bare pop there can take an entry with no name. Make sure that each "
+        "entry that you use is yours (`git stash list`). To put work aside, commit it on a branch, "
+        "or run `git stash push -m NAME`, then `git stash apply stash@{n}` for the entry with that "
+        "name."
+    )
 
 
 def _read_status(path: Path) -> tuple[str | None, list[str]] | None:
