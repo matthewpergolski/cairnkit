@@ -249,7 +249,8 @@ def test_no_word_but_a_negation_stems_to_not(word):
 @pytest.mark.parametrize(
     "prompt",
     ["yes", "Yes.", "y", "yep", "go ahead", "Do it", "do that", "approved", "sounds good",
-     "ok, do it", "yes please"],
+     "ok, do it", "yes please", "yes, go ahead", "I'll go with your rec",
+     "go with your recommendation"],
 )  # fmt: skip
 def test_a_short_yes_is_an_approval(prompt):
     assert is_approval(prompt)
@@ -268,6 +269,7 @@ def test_a_short_yes_is_an_approval(prompt):
         "yes?" + " x",
         "lgtm",
         "Fix the parser",
+        "go with your rec, but skip the docs",
     ],
 )
 def test_other_prompts_are_no_approval(prompt):

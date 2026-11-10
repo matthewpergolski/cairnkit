@@ -43,6 +43,7 @@ from cairnkit.paths import (
 from cairnkit.secretscan import mask
 from cairnkit.selection import (
     AGENT_RULES,
+    APPROVAL_RULES,
     FRAME_FOOTER,
     FRAME_HEADER,
     RULE_WORD_LIMIT,
@@ -127,6 +128,11 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
 
     rules = [s for s in states if s.get("kind") == "rule"]
     states = [s for s in states if s.get("kind") != "rule"]
+    # A rule that approves one piece of work still loads and binds, but it costs the room of a
+    # fact, not of a lasting rule, so a pile of approvals cannot push the rules past the budget.
+    approvals = [s for s in rules if landed.one_work(str(s.get("text", "")))]
+    rules = [s for s in rules if s not in approvals]
+    approval_words = sum(words_in(render(s)) for s in approvals)
     short = [s for s in states if s.get("scope") == "short" and mine(s)]
     other_short = [s for s in states if s.get("scope") == "short" and not mine(s)]
     long = [s for s in states if s.get("scope", "long") == "long"]
@@ -140,7 +146,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     if short and not short_shown:
         short_shown = short[:1]
     used = sum(words_in(render(s)) for s in short_shown)
-    long_budget = max(budget - used, 1) if budget else 0
+    long_budget = max(budget - used - approval_words, 1) if budget else 0
     long_shown = pick(long, long_budget, moment, areas, words, used_at)
 
     out = [f"# Project memory ({clean_path(memory.dir)})"]
@@ -166,8 +172,8 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             f"note: {len(rules) + len(held_rules)} rule(s) hold {rule_words} words, outside the "
             f"word budget of {budget}, because a rule binds in each session."
         )
-    if held_rules or (budget and rule_words > budget):
-        stale = landed.stale_line(memory, rules + held_rules)
+    if held_rules or (budget and rule_words + approval_words > budget):
+        stale = landed.stale_line(memory, rules + held_rules + approvals)
         if stale:
             out.append(stale)
     rules.sort(key=lambda s: (s.get("learned_at") or "", s["id"]))
@@ -186,8 +192,13 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             f"(no check found for {name(s['enforced_by'])})"
             for s in false_claims
         ]
+    approvals.sort(key=lambda s: (s.get("learned_at") or "", s["id"]))
+    owner_approvals = [s for s in approvals if owner_rule(s)]
+    if owner_approvals:
+        out.append(APPROVAL_RULES)
+        out += [render(s, with_files=False) for s in owner_approvals]
     out.append(FRAME_HEADER)
-    agent_rules = [s for s in rules if not owner_rule(s)]
+    agent_rules = [s for s in rules + approvals if not owner_rule(s)]
     if agent_rules:
         out.append(AGENT_RULES)
         out += [render(s) for s in agent_rules]
@@ -231,7 +242,7 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             "git answers.",
         )
     hidden = held + len(held_rules) + len(short) + len(long) - len(short_shown) - len(long_shown)
-    shown = len(rules) + len(short_shown) + len(long_shown)
+    shown = len(rules) + len(approvals) + len(short_shown) + len(long_shown)
     parts = [f"{shown} fact(s) shown"]
     if hidden > 0:
         parts.append(f"{hidden} active fact(s) not shown")

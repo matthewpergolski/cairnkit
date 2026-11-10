@@ -286,6 +286,14 @@ def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
         return f"told: confirmed by {verdict.via}.{force}"
     kind = " --kind rule" if rule else ""
     force = ", and this rule loads as data" if rule else ""
+    if verdict.via == owner_evidence.APPROVAL_ONLY:
+        return (
+            f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not "
+            "tell the owner that it binds. Save the words of the proposal that the owner "
+            f'approved: memory add "PROPOSAL"{kind} --basis told --supersedes {fact["id"]}. '
+            "They confirm when they are the question that ended your message before the "
+            "owner's yes, in this turn."
+        )
     return (
         f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not tell "
         "the owner that it binds. A told fact must be the owner's words alone (`The owner said:` "

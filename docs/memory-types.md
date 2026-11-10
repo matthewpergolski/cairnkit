@@ -115,7 +115,10 @@ A rule with no `enforced_by` is **advisory**: it is prose only.
   short-term and other long-term facts share it. `memory check` prints a
   note when the active rules hold more than 500 words. A rule that an agent
   wrote with no person behind it (basis not `told`) prints inside the data
-  frame instead, under "Rules an agent wrote".
+  frame instead, under "Rules an agent wrote". A rule that reads as the
+  owner's yes to one piece of work ("Yes to migration 0018") prints under
+  "One-time approvals", below the other rules. It still binds, but it uses
+  the word budget of the facts, and `memory check` does not count it.
 - `memory check --advisory` lists the advisory rules. Each one is a place
   where a test, a lint rule or a hook can do the work of the note.
 - The tool does not record when a rule is broken, so it cannot tell which

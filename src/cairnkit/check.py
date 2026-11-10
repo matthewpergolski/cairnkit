@@ -560,13 +560,15 @@ def _read_health(project: Project, flag: str | None) -> Health:
     health.info += list(filter(None, (history_note(memory), native.secret_note(memory))))
     health.info += list(filter(None, (owner_line(project, memdir), beside_line(project, memdir))))
     rules = active_rules(memory)
-    words = sum(len(str(state.get("text", "")).split()) for state in rules)
+    lasting = [state for state in rules if not landed.one_work(str(state.get("text", "")))]
+    words = sum(len(str(state.get("text", "")).split()) for state in lasting)
     if words > RULE_WORD_CAP:
         health.todo.append(
-            f"note: {len(rules)} active rule(s) hold {words} words; every session loads up to "
+            f"note: {len(lasting)} active rule(s) hold {words} words; every session loads up to "
             f"{RULE_WORD_LIMIT} words of them. Above {RULE_WORD_CAP} words, merge rules or end "
             "the ones that do not apply."
         )
+    if sum(len(str(state.get("text", "")).split()) for state in rules) > RULE_WORD_CAP:
         health.info += list(filter(None, [landed.stale_line(memory, rules)]))
     health.todo += migrate_refs.check_notes(memdir)
     health.stray = migrate_refs.stray_files(memdir)
