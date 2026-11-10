@@ -273,3 +273,22 @@ def test_a_plain_folder_has_no_list(tmp_path, monkeypatch):
     memory = Memory.open(find_project(folder), str(folder / "memory"))
     lines = ["head", FRAME_HEADER]
     assert live.add_lines(memory, lines, None) == lines
+
+
+def test_a_pile_of_stale_helpers_costs_a_bounded_count_of_git_reads(repo, mem, capsys, monkeypatch):
+    """A review found that each old record of a clean checkout cost a git read, with no bound."""
+    tree = add_worktree(repo, "helper")
+    rows = [
+        {"call": f"c{n}", "session": "x", "kind": "", "about": f"helper {n}", "task": "",
+         "started_at": time.time() - DAYS_AGO, "agent": f"h{n}", "checkout": str(tree),
+         "base": "HEAD"}
+        for n in range(30)
+    ]  # fmt: skip
+    folder = mem / ".sessions" / "helpers"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "open.json").write_text(json.dumps(rows))
+    reads = []
+    real = live._helper_work
+    monkeypatch.setattr(live, "_helper_work", lambda *a: reads.append(1) or real(*a))
+    assert "[helper]" not in plain_load(capsys)
+    assert len(reads) <= live.MAX_HELPERS

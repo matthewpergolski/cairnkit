@@ -293,19 +293,21 @@ def _named_helpers(
     No hook event ends a lost record. Past helpers.SHOWN_SECONDS, a record is named only while
     its own checkout holds commits since it started or uncommitted changes, because that is live
     work; else it is noise. The work is read once, for the line too, and only until MAX_HELPERS
-    are named, so a pile of old records costs no more git than the lines do.
+    are named. At most MAX_HELPERS old records are read at all, so a pile of stale records costs
+    no more git than the lines do; an old record past that count is not named.
     """
     since = time.time() - helpers.SHOWN_SECONDS
-    named, work, more = [], {}, 0
+    named, work, more, old_reads = [], {}, 0, 0
     for helper in records:
         inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
         old = helper.started_at < since
-        if old and not inside:
+        if old and (not inside or old_reads >= MAX_HELPERS):
             continue
         if len(named) >= MAX_HELPERS:
             more += 1
             continue
         if inside:
+            old_reads += old
             work[helper.call] = _helper_work(memory, helper)
             if old and not work[helper.call][2]:
                 continue
