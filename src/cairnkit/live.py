@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath
 
 from cairnkit import deadline, helpers, plainfile
-from cairnkit.beforeshell import all_steps, take_once
+from cairnkit.beforeshell import SETTING, _core_words, _parts, _words, take_once
 from cairnkit.load import note_head
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git, tree_env
@@ -41,6 +41,8 @@ MAX_HELPERS = 3
 NOTE_WORDS = 20
 # Options of git before its command that take a value as the next word.
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
+# Words in front of a command that run it as it is, with their options and settings.
+RUN_AS = frozenset({"sudo", "env"})
 ORDER = (
     "Live work that this session did not start is listed under `## Live work`. Do not commit, "
     "discard or remove it, also in a general tidy-up, unless the owner names that checkout or "
@@ -110,6 +112,30 @@ def _sharers(memory: Memory, session: str) -> list[str]:
     return sorted(found)
 
 
+def _command_words(part: str) -> list[str]:
+    """The words of one step from its command on: past `(` and `$(`, settings (also `x=$(`),
+    `sudo` and `env` with their options, and with no `)` at the end. A `bash -c` script and a
+    git alias stay out: the parser reads no script and no git config."""
+    words = [word for word in _core_words(_words(part.strip())) if word]
+    run_as = False
+    while words:
+        word = words[0]
+        if SETTING.fullmatch(word) and "$(" in word:
+            words[0] = word.split("$(", 1)[1]
+        elif word.startswith(("(", "$(")):
+            words[0] = word.lstrip("$(")
+        elif SETTING.fullmatch(word) or word in RUN_AS or (run_as and word.startswith("-")):
+            run_as = run_as or word in RUN_AS
+            words.pop(0)
+        else:
+            break
+        if words and not words[0]:
+            words.pop(0)
+    if words:
+        words[-1] = words[-1].rstrip(")")
+    return [word for word in words if word]
+
+
 def _stash_args(words: list[str]) -> list[str] | None:
     """The words after `stash` in a `git stash` step, or None for another command."""
     if not words or PurePath(words[0]).name != "git":
@@ -123,8 +149,8 @@ def _stash_args(words: list[str]) -> list[str] | None:
 def takes_shared_stash(command: str) -> bool:
     """True when a step can take or lose an entry of another checkout: `clear`, a `pop`, `apply`,
     `drop` or `branch` of the top entry, or a push with no message, which a bare pop takes."""
-    for step in all_steps(command):
-        args = _stash_args(step.core.split())
+    for part, _ in _parts(command):
+        args = _stash_args(_command_words(part))
         if args is None:
             continue
         sub = args[0] if args and not args[0].startswith("-") else "push"

@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `## Live work` reads), for `clear`, a `pop`, `apply` or `drop` of the top entry, and a push with
   no message. The warning names the live checkouts and gives `git stash push -m NAME` and
   `git stash apply stash@{n}`, or a commit on a branch. It never stops the command, so Claude Code
-  adds it with the tool result. A command with no `stash` in it does no more work.
+  adds it with the tool result. A step in `( )` or `$( )`, or after `sudo` or `env`, counts; a
+  `bash -c` script and a git alias do not. A command with no `stash` in it does no more work.
 - `memory init --refresh` prints one line that the repo's own hooks run as before, with their
   names and folder: the hooks in the folder that core.hooksPath names (such as `.githooks`; the
   memory hooks run beside them), or hook files in `.git/hooks` that hold more than the memory
@@ -341,9 +342,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the test read only the a-z words.
 - The stop asks "What fixed it?" only for a real retry. The failed command and the pass must do
   the same work steps in the same order, and the pass puts a setting or a wrapper in front of one.
-  A `cd`, `pushd`, `popd`, `echo` or `printf` step is no work. Before, one shared step was enough,
-  so `cd ...; cat spec; sed ...` that failed paired with a later `S=... gh ...; S=... sed ...` that
-  did other work.
+  A `cd`, `pushd`, `popd`, `echo` or `printf` step is no work, and nor is a filter after a pipe
+  (`tail`, `head`, `grep`, `wc`, `tee`, `sort`, `uniq`, `less` or `cat`), so
+  `pytest -q 2>&1 | tail -5` and `uv run pytest -q 2>&1 | tail -20` pair. Before, one shared
+  step was enough, so `cd ...; cat spec; sed ...` that failed paired with a later
+  `S=... gh ...; S=... sed ...` that did other work.
 - A stop event that the stop asked about is not asked again in the session. What was asked is in
   `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
   hook that saved that state from a read before the stop brought the question back on later turns.

@@ -13,6 +13,7 @@ from conftest import add_worktree, make_fact, write_facts
 
 from cairnkit.beforeshell import hits
 from cairnkit.cli import main
+from cairnkit.live import takes_shared_stash
 
 LONG = "REPORT_LOCALE=C sh report.sh"
 FIX = (
@@ -250,6 +251,31 @@ def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, mo
     assert said and "stash list" in said and ".worktrees/other" in said
     assert "git stash push -m" in said and "git stash apply stash@{n}" in said
     assert run(argv, repo, command) == ""
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "(cd ../x && git stash pop)",
+        "(git stash pop)",
+        "x=$(git stash pop)",
+        "$(git stash pop)",
+        "sudo git stash pop",
+        "sudo -E git stash pop",
+        "env X=1 git stash pop",
+        "env -i X=1 git stash drop",
+        "cd a && (git stash pop) 2>/dev/null",
+    ],
+)
+def test_a_stash_step_in_a_subshell_or_behind_sudo_or_env_takes_the_stash(command):
+    assert takes_shared_stash(command)
+
+
+@pytest.mark.parametrize(
+    "command", ["(git stash push -m wip)", "x=$(git stash list)", "sudo git stash list"]
+)
+def test_a_named_or_reading_stash_step_in_a_subshell_takes_nothing(command):
+    assert not takes_shared_stash(command)
 
 
 def test_a_helper_of_the_same_session_in_another_worktree_counts(repo, mem, monkeypatch):

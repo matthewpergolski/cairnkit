@@ -1080,11 +1080,13 @@ of the top entry, and a push with no message, which a bare pop elsewhere takes. 
 the live checkouts and says to commit the work on a branch, or to use `git stash push -m NAME` and
 then `git stash apply stash@{n}` for that name. It never stops the command, so it arrives with the
 tool result. A named push, `list`, `show` and an entry named by `stash@{n}` get no warning. A
-command with no `stash` in it does no more work in this hook.
+step in `( )` or `$( )`, or after `sudo` or `env` and its settings, counts too. A `bash -c`
+script and a git alias do not: the hook reads no script and no git config. A command with no
+`stash` in it does no more work in this hook.
 
 **A stop blocks for a new event or a capture check.** A block costs the owner a turn. The events are a health
 problem, a command that failed at least twice and then passed, a command that failed once and then
-passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Only a retry pairs a failure with a pass: the same work steps in the same order, where a `cd` or an `echo` is no work. A pass that did other work is no fix, also when one failed step is in it. Each is named once in a session, also when a helper's hook saves the session state from an older read. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
+passed with a setting or a wrapper in front of it, a revert, a correction, a lost file, and a loop nudge that no tool result carried. Only a retry pairs a failure with a pass: the same work steps in the same order, where a `cd`, an `echo` and a filter after a pipe (`| tail -5`, `| grep`, `| wc`) are no work. A pass that did other work is no fix, also when one failed step is in it. Each is named once in a session, also when a helper's hook saves the session state from an older read. A line that looks secret in a file that this session did not write is no event: a new version can catch a line that no one touched. The next prompt or tool result names these lines once, and `memory check` and `memory status` keep them. No adapter can add
 text at stop without a turn (Claude Code, Codex and Cursor say so in their docs), so the news
 waits for the next prompt or tool result, which adds text with no turn.
 

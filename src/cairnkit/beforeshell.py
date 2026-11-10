@@ -53,12 +53,16 @@ AFTER_CORE = r"(?=$|[\s`'\"),;:]|[.!?](?:\s|$))"
 TOLD_LOCK = ".before-shell.lock"
 # A step that moves to a folder or reports a status, around the work: `cd x;`, `echo "exit=$?"`.
 NOT_WORK = frozenset({"cd", "pushd", "popd", "echo", "printf"})
+# A step that reads the output of the step before it through a pipe and only shows a part of it:
+# `pytest -q 2>&1 | tail -5`. A retry often shows another part, so it is no work either.
+FILTERS = frozenset({"tail", "head", "grep", "wc", "tee", "sort", "uniq", "less", "cat"})
 
 
 @dataclass(frozen=True)
 class Step:
     settings: frozenset[str]
     core: str
+    piped: bool = False  # it reads the output of the step before it (`a | b`)
 
 
 @dataclass(frozen=True)
@@ -105,13 +109,14 @@ def _past_heredocs(command: str, index: int, ends: list[str]) -> int | None:
     return index
 
 
-def _parts(command: str) -> list[str]:
+def _parts(command: str) -> list[tuple[str, bool]]:
     """The command split at each `;`, `&`, `|` and newline outside quotes and heredoc bodies.
 
-    Empty if a quote or a heredoc is open. A split inside quotes would make a step of a grep
-    pattern such as `'check\\.py|manage\\.py'`, and a heredoc body is text, not commands.
+    Each part comes with True when a pipe (`|` or `|&`, not `||`) leads into it. Empty if a quote
+    or a heredoc is open. A split inside quotes would make a step of a grep pattern such as
+    `'check\\.py|manage\\.py'`, and a heredoc body is text, not commands.
     """
-    parts, start, quote, index, ends = [], 0, "", 0, []
+    parts, start, quote, index, ends, piped = [], 0, "", 0, [], False
     while index < len(command):
         char = command[index]
         if char == "\\" and quote != "'":
@@ -127,7 +132,10 @@ def _parts(command: str) -> list[str]:
         elif char in "'\"":
             quote = char
         elif char in ";|\n" or (char == "&" and not _redirect_amp(command, index)):
-            parts.append(command[start:index])
+            parts.append((command[start:index], piped))
+            pair = command[index : index + 2]
+            piped = char == "|" and pair != "||"
+            index += 1 if pair in ("||", "|&", "&&") else 0
             start = index + 1
             if char == "\n" and ends:
                 after = _past_heredocs(command, start, ends)
@@ -137,7 +145,7 @@ def _parts(command: str) -> list[str]:
                 index = after
                 continue
         index += 1
-    return [] if quote or ends else [*parts, command[start:]]
+    return [] if quote or ends else [*parts, (command[start:], piped)]
 
 
 def _plain_core(core: list[str]) -> bool:
@@ -148,14 +156,14 @@ def _plain_core(core: list[str]) -> bool:
 def all_steps(command: str) -> list[Step]:
     """Each step of the command, one plain word too."""
     found = []
-    for part in _parts(command):
+    for part, piped in _parts(command):
         words = _words(part.strip())
         settings = []
         while words and SETTING.fullmatch(words[0]):
             settings.append(words.pop(0))
         core = _core_words(words)
         if core:
-            found.append(Step(frozenset(settings), " ".join(core)))
+            found.append(Step(frozenset(settings), " ".join(core), piped))
     return found
 
 
@@ -164,15 +172,20 @@ def steps(command: str) -> list[Step]:
 
 
 def _work(command: str) -> list[Step]:
-    return [step for step in all_steps(command) if step.core.split()[0] not in NOT_WORK]
+    def is_work(step: Step) -> bool:
+        head = step.core.split()[0]
+        return head not in NOT_WORK and not (step.piped and head in FILTERS)
+
+    return [step for step in all_steps(command) if is_work(step)]
 
 
 def added_in_front(failed: str, passed: str) -> tuple[str, str] | None:
     """What `passed` puts in front of a step of `failed`, and that step's core, or None.
 
     Only a retry counts: `passed` does the same work steps in the same order, and puts a setting
-    or a wrapper in front of one, which is how to run it. A `cd` or an `echo` is no work. A pass
-    that does other work holds no fix of the failure, also when one failed step is in it.
+    or a wrapper in front of one, which is how to run it. A `cd`, an `echo` and a filter after a
+    pipe (`| tail -5`) are no work. A pass that does other work holds no fix of the failure, also
+    when one failed step is in it.
     """
     before, after = _work(failed), _work(passed)
     if len(before) != len(after):

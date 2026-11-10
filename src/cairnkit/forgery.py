@@ -133,7 +133,7 @@ def _script(words: list[str]) -> tuple[str, str] | None:
 
 def _steps(command: str, depth: int = 0) -> Iterable[tuple[list[str], set[str], str]]:
     """(program words, changed variables, kind) for each step, `bash -c` scripts too."""
-    for part in _parts(command):
+    for part, _ in _parts(command):
         words, changed = _unwrapped(_words(part.strip()))
         script = _script(words)
         if script and script[0] == "shell" and depth < 3:

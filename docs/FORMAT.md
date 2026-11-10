@@ -531,7 +531,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   passed with a setting or a wrapper in front of it, a revert since the session
   started, a correction, and a lost file that no prompt named or asked to remove. A pass pairs
   with a failure only when both do the same work steps in the same order, where a `cd`,
-  `pushd`, `popd`, `echo` or `printf` step is no work. Each
+  `pushd`, `popd`, `echo` or `printf` step is no work, and nor is a `tail`, `head`, `grep`,
+  `wc`, `tee`, `sort`, `uniq`, `less` or `cat` step that a pipe (`|`, `|&`) leads into. Each
   event is named once; a command or revert event that a stop named is kept in
   `.sessions/asked-*.json`. A fix with a setting in front is no event when an active fact names the
   setting and the command. It adds the capture check when no fact followed new work or a statement
@@ -565,7 +566,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   command runs. Other agents get nothing. It always exits 0. For `claude` only, a command that
   holds `stash` and has a `git stash` step that can take or lose an entry of other work
   (`clear`; `pop`, `apply` or `drop` with no entry named; `branch` with no entry; a push or
-  `save` with no message) gets
+  `save` with no message; also in `( )` or `$( )`, or after `sudo` or `env`; not in a
+  `bash -c` script or a git alias) gets
   `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": TEXT}}` and
   runs, when a marker in `.sessions/live/` from the last 30 minutes names another session, or
   this session in another checkout. It speaks once in a session (`.sessions/stash-*.json`).

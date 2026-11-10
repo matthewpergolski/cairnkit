@@ -206,6 +206,9 @@ def test_a_subagent_still_hears_its_own_event_without_the_guide(session):
         ("pytest", "uv run pytest"),
         # A `cd` moves, so it is no part of the work. The same work is a retry from any folder.
         ("cd /tmp/x; sh report.sh", "REPORT_LOCALE=C sh report.sh"),
+        # A filter after a pipe only shows a part of the output. A retry often shows another part.
+        ("pytest -q 2>&1 | tail -5", "uv run pytest -q 2>&1 | tail -20"),
+        ("pytest -q | grep -c FAILED", "uv run pytest -q |& tee out.log | wc -l"),
     ],
 )
 def test_a_failure_fixed_by_how_the_command_runs_is_named_once(session, failed, passed):
@@ -268,6 +271,8 @@ def test_a_fact_on_the_same_script_without_the_fix_keeps_the_event(session):
             "cd /w/app; cat docs/spec.md; sed -n '1,40p' app/models.py",
             "cd /w/app && S=1 cat docs/spec.md && gh pr create --fill",
         ),
+        # `||` is no pipe, so the step after it is work.
+        ("pytest -q | tail -5", "uv run pytest -q || cat log.txt"),
     ],
 )
 def test_red_then_green_or_another_command_is_no_event(session, failed, passed):
