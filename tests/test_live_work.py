@@ -152,17 +152,38 @@ def test_a_session_that_died_mid_turn_drops_out_with_time(repo, mem, capsys, mon
     assert not list(folder.iterdir())
 
 
-def test_a_helper_with_no_end_leaves_the_load_after_a_day(repo, mem, capsys):
-    """No hook event ends a lost helper record. Its checkout still shows the work that it left."""
+DAYS_AGO = 2 * 86400
+
+
+def test_an_old_helper_with_uncommitted_work_stays_in_the_load(repo, mem, capsys):
+    """No hook event ends a lost helper record. Its checkout still holds the work that it left."""
     tree = add_worktree(repo, "helper")
     (tree / "work.txt").write_text("x\n")
+    record(mem, tree, started_at=time.time() - DAYS_AGO)
+    helper = [line for line in plain_load(capsys).splitlines() if '[helper] "a helper"' in line]
+    assert len(helper) == 1 and "uncommitted work.txt" in helper[0]
+
+
+def test_an_old_helper_with_only_commits_stays_in_the_load(repo, mem, capsys):
+    """The checkout is clean and no session works there, so only the helper line names it."""
+    tree = add_worktree(repo, "helper")
+    base = git(tree, "rev-parse", "HEAD").strip()
+    (tree / "work.txt").write_text("x\n")
+    git(tree, "add", "work.txt")
+    git(tree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work")
+    record(mem, tree, started_at=time.time() - DAYS_AGO, base=base)
+    out = plain_load(capsys)
+    assert '[helper] "a helper"' in out and "1 commit(s) since it started" in out
+
+
+def test_an_old_helper_whose_checkout_holds_nothing_or_is_gone_leaves_the_load(repo, mem, capsys):
+    tree = add_worktree(repo, "helper")
     record(mem, tree, started_at=time.time() - 3 * 3600)
     assert '[helper] "a helper"' in plain_load(capsys)
-    # The field case: a helper that started 2 days ago.
-    record(mem, tree, started_at=time.time() - 2 * 86400)
-    out = plain_load(capsys)
-    assert "[helper]" not in out
-    assert any("helper" in line and "uncommitted work.txt" in line for line in live_lines(out))
+    record(mem, tree, started_at=time.time() - DAYS_AGO)
+    assert "[helper]" not in plain_load(capsys)
+    git(repo, "worktree", "remove", "--force", str(tree))
+    assert "[helper]" not in plain_load(capsys)
 
 
 def test_another_session_in_this_checkout_is_named(repo, mem, capsys, monkeypatch):

@@ -351,8 +351,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
   hook that saved that state from a read before the stop brought the question back on later turns.
 - A Claude Code helper with no recorded end leaves the `## Live work` list 24 hours after its
-  call. Before, a helper whose worktree stayed was named for days. Its checkout still shows as live
-  work while it holds changes.
+  call, when its own checkout is gone or holds nothing. Before, a helper whose worktree stayed
+  was named for days. A helper whose checkout still holds commits since it started or
+  uncommitted changes stays on the list, because that is live work that a tidy-up must leave.
 - A helper line with no recorded end now says that the helper may have been stopped: "no end
   recorded, so it may have been stopped or ended unseen", and in a compaction of the session that
   started it, "started by this session; it may still be running, or it was stopped or ended

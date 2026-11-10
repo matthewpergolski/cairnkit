@@ -255,12 +255,13 @@ def _place(memory: Memory, path: str) -> str:
     return name(os.path.relpath(Path(path).resolve(), root))
 
 
-def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
-    """The branch of the helper's checkout, and what that checkout holds now."""
+def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool]:
+    """The branch of the helper's checkout, what that checkout holds now, and False when it
+    holds no commit since the start and no uncommitted change."""
     path = Path(helper.checkout or "")
     status = _read_status(path)
     if status is None:
-        return "", "its checkout could not be read in time"
+        return "", "its checkout could not be read in time", True
     branch, files = _work_in(memory, path, status)
     commits = 0
     if helper.base:
@@ -274,7 +275,7 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str]:
         more = len(files) - MAX_FILES
         parts.append(f"uncommitted {shown}" + (f" and {more} more" if more > 0 else ""))
     held = ", ".join(parts) or "no uncommitted change and no commit there"
-    return (f", branch {name(branch)}" if branch else ""), held
+    return (f", branch {name(branch)}" if branch else ""), held, bool(parts)
 
 
 # Only an end that the hooks saw ends a record. A missed one is no proof that the helper runs.
@@ -284,7 +285,41 @@ NO_END = "no end recorded, so it may have been stopped or ended unseen"
 RUNNING = "started by this session; it may still be running, or it was stopped or ended unseen"
 
 
-def _helper_line(memory: Memory, helper: helpers.Helper, running: bool = False) -> str:
+def _named_helpers(
+    memory: Memory, records: list[helpers.Helper]
+) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int]:
+    """The records that the load names, the work in the checkout of each, and how many more.
+
+    No hook event ends a lost record. Past helpers.SHOWN_SECONDS, a record is named only while
+    its own checkout holds commits since it started or uncommitted changes, because that is live
+    work; else it is noise. The work is read once, for the line too, and only until MAX_HELPERS
+    are named, so a pile of old records costs no more git than the lines do.
+    """
+    since = time.time() - helpers.SHOWN_SECONDS
+    named, work, more = [], {}, 0
+    for helper in records:
+        inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
+        old = helper.started_at < since
+        if old and not inside:
+            continue
+        if len(named) >= MAX_HELPERS:
+            more += 1
+            continue
+        if inside:
+            work[helper.call] = _helper_work(memory, helper)
+            if old and not work[helper.call][2]:
+                continue
+        named.append(helper)
+    return named, work, more
+
+
+def _helper_line(
+    memory: Memory,
+    helper: helpers.Helper,
+    work: tuple[str, str, bool] | None,
+    running: bool = False,
+) -> str:
+    """One line. `work` is what `_helper_work` read, for a helper in a checkout of the project."""
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
     ago = _ago(helper.started_at)
@@ -292,8 +327,8 @@ def _helper_line(memory: Memory, helper: helpers.Helper, running: bool = False) 
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]
-    elif helpers.is_checkout(memory.project, helper.checkout):
-        branch, held = _helper_work(memory, helper)
+    elif work:
+        branch, held, _ = work
         head = f"{about}{kind}, started {ago} ago in {_place(memory, helper.checkout)}{branch}"
         state = [end, held]
     elif helper.checkout:
@@ -366,14 +401,17 @@ def add_lines(
         return lines
     records = helpers.shown(memory, hide_helpers_of)
     records.sort(key=lambda helper: helper.session != own_helpers_of)
-    named = records[:MAX_HELPERS]
+    named: list[helpers.Helper] = []
     body: list[str] = []
     found: list[Checkout] = []
     unread = 0
     with deadline.within(BUDGET):
-        body = [_helper_line(memory, h, h.session == own_helpers_of) for h in named]
-        if len(records) > MAX_HELPERS:
-            body.append(f"- [helper] {len(records) - MAX_HELPERS} more helper(s) with no end.")
+        named, work, more = _named_helpers(memory, records)
+        body = [
+            _helper_line(memory, h, work.get(h.call), h.session == own_helpers_of) for h in named
+        ]
+        if more:
+            body.append(f"- [helper] {more} more helper(s) with no end.")
         if memory.project.is_git:
             at_work = _others_at_work(memory, session)
             here = session is not None and str(memory.project.root) in at_work

@@ -595,7 +595,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   for `"status": "async_launched"`, adds its `agentId`. `stop` removes the calls of its turn with
   no helper, and each record that its session's load named whose checkout is not there.
 - The load adds one `- [helper]` line under `## Live work` for each of the 3 oldest records (with
-  the count of the others) whose `started_at` is in the last 24 hours. It is inside the frame of
+  the count of the others) whose `started_at` is in the last 24 hours, or whose own checkout
+  still holds commits since `base` or uncommitted changes. It is inside the frame of
   stored notes, because the text came from an agent. A load for `compact` or `reload` leaves out the records of its own session.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
   checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before
