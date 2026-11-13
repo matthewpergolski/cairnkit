@@ -38,7 +38,7 @@ import os
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 
 from cairnkit import deadline, plainfile
@@ -123,10 +123,13 @@ def _read(memory: Memory) -> list[Helper]:
         rows = json.loads(plainfile.read_text(_file(memory), encoding="utf-8"))
     except (OSError, ValueError):
         return []
+    known = {item.name for item in fields(Helper)}
     found = []
     for row in rows if isinstance(rows, list) else []:
         with contextlib.suppress(TypeError, ValueError, AttributeError):
-            found.append(Helper(**{**row, "told": tuple(row.get("told") or ())}))
+            # A field of a later build is left out, so its records are still read.
+            kept = {key: value for key, value in row.items() if key in known}
+            found.append(Helper(**{**kept, "told": tuple(row.get("told") or ())}))
     return found
 
 
@@ -214,13 +217,18 @@ def on_result(memory: Memory, payload: dict) -> None:
 
 
 def _own_transcript(payload: dict, agent: str) -> str | None:
-    """Where Claude Code writes the helper's transcript, from the parent's `transcript_path`."""
-    named = str(payload.get("agent_transcript_path") or "")
-    if named:
-        return os.path.expanduser(named)
+    """Where Claude Code writes the helper's transcript, from the parent's `transcript_path`.
+
+    `agent_transcript_path` counts only in the folder of the parent's transcript, where Claude
+    Code writes it. A load reads the time of that file, so no payload can point it elsewhere.
+    """
     parent = os.path.expanduser(str(payload.get("transcript_path") or ""))
     if not parent.endswith(".jsonl"):
         return None
+    named = str(payload.get("agent_transcript_path") or "")
+    own = Path(os.path.normpath(os.path.expanduser(named))) if named else None
+    if own and Path(os.path.normpath(parent)).parent in own.parents:
+        return str(own)
     name = agent.removeprefix("agent-")  # Claude Code ids carry no prefix; never write it twice
     return str(Path(parent).with_suffix("") / "subagents" / f"agent-{name}.jsonl")
 

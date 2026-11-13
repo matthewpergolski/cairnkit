@@ -487,3 +487,42 @@ def test_a_helper_whose_own_transcript_went_quiet_is_not_named(repo, hooks, tmp_
 def test_a_helper_with_no_transcript_file_keeps_the_day_rule(repo, hooks, tmp_path):
     started_with_transcript(repo, hooks, tmp_path)
     assert helper_lines(hooks.load(repo)), "no file is no end: another agent, or not written yet"
+
+
+def stored_transcript(repo, mem):
+    [row] = json.loads((mem / ".sessions" / "helpers" / "open.json").read_text())
+    return row["transcript"]
+
+
+def test_a_named_helper_transcript_outside_the_parent_folder_is_not_kept(
+    repo, mem, hooks, tmp_path
+):
+    parent = tmp_path / "transcripts" / "s1.jsonl"
+    parent.parent.mkdir()
+    parent.write_text("{}\n")
+    path = worktree(repo)
+    hooks.call(repo, "toolu_1", isolation="worktree")
+    elsewhere = tmp_path / "elsewhere" / "agent-a1.jsonl"
+    hooks.start(repo, "a1", path, transcript_path=str(parent), agent_transcript_path=str(elsewhere))
+    assert stored_transcript(repo, mem) == str(
+        parent.with_suffix("") / "subagents" / "agent-a1.jsonl"
+    )
+
+
+def test_a_named_helper_transcript_in_the_parent_folder_is_kept(repo, mem, hooks, tmp_path):
+    parent = tmp_path / "transcripts" / "s1.jsonl"
+    parent.parent.mkdir()
+    parent.write_text("{}\n")
+    path = worktree(repo)
+    hooks.call(repo, "toolu_1", isolation="worktree")
+    named = tmp_path / "transcripts" / "agent-a1.jsonl"
+    hooks.start(repo, "a1", path, transcript_path=str(parent), agent_transcript_path=str(named))
+    assert stored_transcript(repo, mem) == str(named)
+
+
+def test_a_record_with_a_field_of_a_later_build_is_still_read(repo, hooks, mem):
+    killed_mid_helper(repo, hooks)
+    file = mem / ".sessions" / "helpers" / "open.json"
+    rows = json.loads(file.read_text())
+    file.write_text(json.dumps([{**row, "later_field": 1} for row in rows]))
+    assert helper_lines(hooks.load(repo))

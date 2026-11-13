@@ -388,9 +388,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uncommitted changes or commits since it started, as after 24 hours, and its line says "it
   ended, because its transcript had no write for 30 minutes". The `SubagentStart` hook keeps the
   path of the helper's transcript: `<parent transcript without .jsonl>/subagents/agent-<agent_id>.jsonl`,
-  from the parent's `transcript_path`. The load reads only the file time, never the file. A
+  from the parent's `transcript_path`, or the payload's `agent_transcript_path` when that is in
+  the folder of the parent's transcript. The load reads only the file time, never the file. A
   helper with no such file (another agent, or a transcript not written yet) keeps the 24-hour
-  rule.
+  rule. A helper record with a field that this build does not know is still read.
 - Commits of a helper that `main`, `master`, `dev` or `develop` (local or on `origin`) holds are
   no live work. So a helper older than 24 hours whose commits merged leaves the list. Before, each
   commit since the helper started kept it there. The helper's own branch never counts as merged,
