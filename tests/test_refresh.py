@@ -230,3 +230,21 @@ def test_a_new_build_of_the_same_version_records_its_commit(repo, monkeypatch):
     assert main(["init", "--refresh"]) == 0
     assert stamp(repo)["commit"] == NEW_BUILD
     assert refresh.repo_line(find_project(), None) is None
+
+
+def test_files_from_another_build_of_the_same_version_are_not_current(repo, monkeypatch):
+    monkeypatch.setattr(refresh, "build_commit", lambda: OLD_BUILD)
+    assert main(["init"]) == 0
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    assert refresh.repo_line(find_project(), None) is None
+    monkeypatch.setattr(refresh, "build_commit", lambda: NEW_BUILD)
+    line = refresh.repo_line(find_project(), None)
+    assert f"come from memory {__version__} @6b4bdf0; this is {__version__} @81f8499" in line
+
+
+def test_a_build_with_no_commit_keeps_the_version_compare(repo, monkeypatch):
+    monkeypatch.setattr(refresh, "build_commit", lambda: OLD_BUILD)
+    assert main(["init"]) == 0
+    assert main(["hooks", "install", "--agent", "generic"]) == 0
+    monkeypatch.setattr(refresh, "build_commit", lambda: None)
+    assert refresh.repo_line(find_project(), None) is None
