@@ -263,6 +263,57 @@ def test_another_build_that_writes_the_same_files_says_nothing(repo, monkeypatch
     assert "memory init --refresh" not in capsys.readouterr().out
 
 
+def counted_plans(monkeypatch) -> list[bool]:
+    calls = []
+    plan = refresh._plan
+
+    def counted(*args, **kwargs):
+        calls.append(True)
+        return plan(*args, **kwargs)
+
+    monkeypatch.setattr(refresh, "_plan", counted)
+    return calls
+
+
+def new_process(monkeypatch) -> None:
+    monkeypatch.setattr(refresh, "_compared", {}, raising=False)
+
+
+def test_a_second_session_start_does_not_compare_the_same_builds_again(repo, monkeypatch, capsys):
+    files_from_another_build(monkeypatch)
+    plans = counted_plans(monkeypatch)
+    assert "memory init --refresh" not in load_text(capsys)
+    new_process(monkeypatch)
+    assert "memory init --refresh" not in load_text(capsys)
+    assert len(plans) == 1
+    monkeypatch.setattr(refresh, "build_commit", lambda: "0c0ffee" + "3" * 33)
+    new_process(monkeypatch)
+    assert "memory init --refresh" not in load_text(capsys)
+    assert len(plans) == 2
+
+
+def test_a_cache_that_cannot_be_written_compares_once_in_one_load(
+    repo, tmp_path, monkeypatch, capsys
+):
+    from cairnkit import hookrun
+
+    files_from_another_build(monkeypatch)
+    blocked = tmp_path / "not-a-folder"
+    blocked.write_text("")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(blocked))
+    plans = counted_plans(monkeypatch)
+    passes = []
+    run_load = hookrun.run_load
+    monkeypatch.setattr(hookrun, "run_load", lambda *a, **k: passes.append(1) or run_load(*a, **k))
+    assert hookrun.fitted_load(find_project(), None, 600, room=1)
+    assert len(passes) > 1
+    assert len(plans) == 1
+    new_process(monkeypatch)
+    new_rules_text(monkeypatch)
+    assert "memory init --refresh" in load_text(capsys)
+    assert len(plans) == 2
+
+
 def new_rules_text(monkeypatch):
     text = instructions.text()
     monkeypatch.setattr(instructions, "text", lambda: text + "A rule of the new build.\n")
