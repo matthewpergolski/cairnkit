@@ -635,8 +635,10 @@ reopened and its history stays. The write never fails because of it.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.
-5. The first 8 lines of `notes/status.md` and `branches/<branch>.md`. These do not
-   use the budget.
+5. The first 8 lines of `notes/status.md` and `branches/<branch>.md`, up to 200 words for
+   each. A longer note ends with a line that names its file, such as `(200 of 1180 words shown.
+   The rest is in /path/to/memory/notes/status.md.)`. These do not use the budget, so the cap
+   keeps the hook's room for facts.
 
 The default budget is 600 words. A subagent load uses 300 words. Each fact that
 loads shows its text. A fact may carry an optional `--summary`, so the load line
@@ -677,13 +679,18 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   ends the process in a turn, so no stop runs and the conversation is the only other place that
   holds the aim. So the hooks record it while the helper starts: `PreToolUse` on `Agent|Task` keeps
   the description and at most 60 words of the prompt, masked, in `.sessions/helpers/open.json`, and
-  `SubagentStart` adds the helper's id and worktree. An event ends the record, never a clock: the
+  `SubagentStart` adds the helper's id and worktree. An event ends the record, not the time since
+  its call: the
   helper's `SubagentStop` (Claude Code fires it for a helper that TaskStop stops only when the
   stop cuts its stream), the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. A load names a record for 24 hours after its call, which is longer
-  than a helper runs. After that, it names the record only while the helper's own checkout holds
-  commits since the helper started or uncommitted changes; else the line is noise. A compaction (or a reload) names the helpers of its own session
+  stays while the worktree does. TaskStop does not always fire `SubagentStop`, so the load also
+  ends a helper whose own transcript (`<parent transcript>/subagents/agent-<id>.jsonl`, from the
+  parent's `transcript_path`) had no write for 30 minutes. It reads only the file time. A load
+  names a record for 24 hours after its call, which is longer than a helper runs. After that, it
+  names the record only while the helper's own checkout holds uncommitted changes, or commits
+  since the helper started that `main`, `master`, `dev` and `develop` (local or on `origin`) do
+  not hold; else the line is noise. A compaction (or a reload) names the helpers of its own session
   first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
   and its next stop does not end them. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.

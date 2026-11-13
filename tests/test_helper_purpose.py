@@ -17,6 +17,7 @@ import time
 import pytest
 from conftest import git
 
+from cairnkit import helpers
 from cairnkit.cli import main
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER
 
@@ -84,8 +85,8 @@ class Hooks:
         assert out == "", out
         return out
 
-    def start(self, repo, agent, cwd, session="s1", kind="general-purpose"):
-        payload = {"agent_id": agent, "agent_type": kind, "cwd": str(cwd)}
+    def start(self, repo, agent, cwd, session="s1", kind="general-purpose", **extra):
+        payload = {"agent_id": agent, "agent_type": kind, "cwd": str(cwd), **extra}
         out = self.run("subagent-start", repo, session, **payload)
         context = json.loads(out)["hookSpecificOutput"]
         assert context["hookEventName"] == "SubagentStart"
@@ -459,3 +460,30 @@ def test_a_helper_stopped_with_no_end_event_reads_as_maybe_stopped(repo, hooks):
     assert "may have been stopped or ended unseen" in other
     hooks.run("stop", repo, session="s2")
     assert not helper_lines(hooks.load(repo, "s3")), "the record ends after one session heard it"
+
+
+def started_with_transcript(repo, hooks, tmp_path):
+    """A helper whose parent transcript is a synthetic file in Claude Code's layout."""
+    parent = tmp_path / "transcripts" / "s1.jsonl"
+    own = parent.with_suffix("") / "subagents" / "agent-a1.jsonl"
+    own.parent.mkdir(parents=True)
+    parent.write_text("{}\n")
+    path = worktree(repo)
+    hooks.call(repo, "toolu_1", isolation="worktree")
+    hooks.start(repo, "a1", path, transcript_path=str(parent))
+    return own
+
+
+def test_a_helper_whose_own_transcript_went_quiet_is_not_named(repo, hooks, tmp_path):
+    """TaskStop does not always fire SubagentStop. A quiet transcript ends the helper anyway."""
+    own = started_with_transcript(repo, hooks, tmp_path)
+    own.write_text("{}\n")
+    assert helper_lines(hooks.load(repo)), "a helper that writes its transcript is named"
+    quiet = time.time() - helpers.QUIET_SECONDS - 60
+    os.utime(own, (quiet, quiet))
+    assert not helper_lines(hooks.load(repo, "s3"))
+
+
+def test_a_helper_with_no_transcript_file_keeps_the_day_rule(repo, hooks, tmp_path):
+    started_with_transcript(repo, hooks, tmp_path)
+    assert helper_lines(hooks.load(repo)), "no file is no end: another agent, or not written yet"

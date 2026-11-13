@@ -176,6 +176,18 @@ def test_an_old_helper_with_only_commits_stays_in_the_load(repo, mem, capsys):
     assert '[helper] "a helper"' in out and "1 commit(s) since it started" in out
 
 
+def test_an_old_helper_whose_commits_landed_in_dev_leaves_the_load(repo, mem, capsys):
+    """A commit that a main branch holds is no live work."""
+    tree = add_worktree(repo, "helper")
+    base = git(tree, "rev-parse", "HEAD").strip()
+    (tree / "work.txt").write_text("x\n")
+    git(tree, "add", "work.txt")
+    git(tree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work")
+    git(repo, "branch", "dev", "helper")
+    record(mem, tree, started_at=time.time() - DAYS_AGO, base=base)
+    assert "[helper]" not in plain_load(capsys)
+
+
 def test_an_old_helper_whose_checkout_holds_nothing_or_is_gone_leaves_the_load(repo, mem, capsys):
     tree = add_worktree(repo, "helper")
     record(mem, tree, started_at=time.time() - 3 * 3600)

@@ -23,7 +23,7 @@ from cairnkit import deadline, helpers, plainfile
 from cairnkit.beforeshell import SETTING, _core_words, _parts, _words, take_once
 from cairnkit.load import note_head
 from cairnkit.memory import Memory
-from cairnkit.paths import run_git, tree_env
+from cairnkit.paths import INTEGRATION_BRANCHES, run_git, tree_env
 from cairnkit.secretscan import mask
 from cairnkit.selection import FRAME_HEADER, clean, load_text, name
 from cairnkit.session import is_junk_path, is_memory_path
@@ -38,6 +38,12 @@ MAX_CHECKOUTS = 12
 MAX_LINES = 3
 MAX_FILES = 5
 MAX_HELPERS = 3
+# Where the work of a helper lands, local and on origin.
+MAIN_REFS = tuple(
+    f"refs/{side}/{branch}"
+    for side in ("heads", "remotes/origin")
+    for branch in ("main", "master", *INTEGRATION_BRANCHES)
+)
 NOTE_WORDS = 20
 # Options of git before its command that take a value as the next word.
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
@@ -257,7 +263,8 @@ def _place(memory: Memory, path: str) -> str:
 
 def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool]:
     """The branch of the helper's checkout, what that checkout holds now, and False when it
-    holds no commit since the start and no uncommitted change."""
+    holds no commit since the start and no uncommitted change. A commit that a main branch holds
+    landed, so it is no live work. A missing branch is no error."""
     path = Path(helper.checkout or "")
     status = _read_status(path)
     if status is None:
@@ -265,7 +272,17 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool
     branch, files = _work_in(memory, path, status)
     commits = 0
     if helper.base:
-        count = run_git(path, "rev-list", "--count", f"{helper.base}..HEAD", timeout=GIT_TIMEOUT)
+        merged = [f"^{ref}" for ref in MAIN_REFS]
+        count = run_git(
+            path,
+            "rev-list",
+            "--count",
+            "--ignore-missing",
+            "HEAD",
+            f"^{helper.base}",
+            *merged,
+            timeout=GIT_TIMEOUT,
+        )
         commits = int(count) if count and count.strip().isdigit() else 0
     parts = []
     if commits:
@@ -290,15 +307,18 @@ def _named_helpers(
 ) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int]:
     """The records that the load names, the work in the checkout of each, and how many more.
 
-    No hook event ends a lost record. Past helpers.SHOWN_SECONDS, a record is named only while
-    its own checkout holds commits since it started or uncommitted changes, because that is live
-    work; else it is noise. The work is read once, for the line too, and only until MAX_HELPERS
-    are named. At most MAX_HELPERS old records are read at all, so a pile of stale records costs
-    no more git than the lines do; an old record past that count is not named.
+    A helper whose own transcript is quiet ended, so it is not named. No hook event ends another
+    lost record. Past helpers.SHOWN_SECONDS, a record is named only while its own checkout holds
+    commits since it started or uncommitted changes, because that is live work; else it is noise.
+    The work is read once, for the line too, and only until MAX_HELPERS are named. At most
+    MAX_HELPERS old records are read at all, so a pile of stale records costs no more git than the
+    lines do; an old record past that count is not named.
     """
     since = time.time() - helpers.SHOWN_SECONDS
     named, work, more, old_reads = [], {}, 0, 0
     for helper in records:
+        if helper.quiet:
+            continue
         inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
         old = helper.started_at < since
         if old and (not inside or old_reads >= MAX_HELPERS):
