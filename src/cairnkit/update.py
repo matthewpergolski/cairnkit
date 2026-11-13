@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import os
 import shutil
 import subprocess
 import sys
@@ -343,23 +342,16 @@ def _fetch(bar: Progress, source, found: Latest, tmp: Path) -> tuple[Path, Lates
 
 
 def _uv(uv: str, command: tuple[str, ...], *args: str) -> tuple[int, str]:
-    """Run uv with no setting from the folder of the caller. The owner's own uv.toml still counts.
+    """Run uv with no setting from the folder of the caller. The owner's uv settings still count.
 
     uv reads `uv.toml`, `[tool.uv]` and a `.venv` in the folder where it starts and above it. A
-    repo can hold each of them, so uv starts in the tool's cache folder and finds no config.
+    repo can hold each of them, so uv starts in the tool's cache folder. An empty `uv.toml` there
+    stops the search upward, and uv still reads its user and system settings and UV_CONFIG_FILE.
     """
-    config = [] if os.environ.get("UV_CONFIG_FILE") else _owner_uv_config()
     home = cache_dir()
     home.mkdir(parents=True, exist_ok=True)
-    return _run([uv, *command, "--no-config", *config, *args], cwd=home)
-
-
-def _owner_uv_config() -> list[str]:
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    for path in (Path(base) / "uv" / "uv.toml", Path("/etc/uv/uv.toml")):
-        if path.is_file():
-            return ["--config-file", str(path)]
-    return []
+    (home / "uv.toml").write_text("")
+    return _run([uv, *command, *args], cwd=home)
 
 
 def _build(bar: Progress, uv: str, folder: Path, tmp: Path) -> Path:

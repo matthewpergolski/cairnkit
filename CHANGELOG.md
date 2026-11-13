@@ -379,6 +379,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folder, the `Tidy follow-up pending` line of `memory load` and the note lines of `memory search`
   name the memory folder path. The rules block and the push refusal of the guard name no link:
   "Never edit memory files by hand" and "add this to config.toml in the memory folder".
+- `memory update` reads the system `uv.toml` again (`/etc/uv/uv.toml` or `XDG_CONFIG_DIRS`, and
+  `%PROGRAMDATA%` on Windows), merged with your user `uv.toml` as uv does. Before, it gave uv
+  `--no-config` and one `--config-file`, so a user `uv.toml` hid the system one. uv now runs with
+  no config flag in `~/.cache/cairnkit`, where an empty `uv.toml` stops uv from reading one in a
+  folder above it. A `uv.toml`, `[tool.uv]` or `.venv` in the folder of the caller still has no
+  effect.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The
