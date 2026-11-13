@@ -11,7 +11,7 @@ An event ends a record, not the time since its call:
 
 - `SubagentStop` of its helper, or the result of its call (a foreground helper that returned, or
   a failure). A record whose own checkout is still there stays, marked ended, so that its work
-  stays named as for an old record (below);
+  stays named as for an old record (below). It goes at the next write once that checkout went;
 - the stop of its own turn, for a call that never launched a helper;
 - the stop of a session whose load named it, unless the helper's own checkout is still there.
   That checkout holds the evidence, so the record stays with it. A gone checkout is no end by
@@ -136,6 +136,8 @@ def _read(memory: Memory) -> list[Helper]:
 
 
 def _write(memory: Memory, helpers: list[Helper]) -> None:
+    """Write the records. One that ended and whose checkout went holds nothing a load names."""
+    helpers = [h for h in helpers if not (h.ended and not h.has_checkout)]
     path = plainfile.inside(memory.dir, _file(memory))
     for old in plainfile.files_in(memory.dir, path.parent, ".open-*.tmp"):  # a killed write
         with contextlib.suppress(OSError):

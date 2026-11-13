@@ -392,7 +392,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   others does not cover it.
   A load reads at most 3 old records, newest first. A record that ended, or is past 24 hours,
   whose checkout holds no such work, goes when the load reads it, so clean old records cannot
-  take each read from a record with unlanded work.
+  take each read from a record with unlanded work. A record that ended goes at the next write of
+  the helpers file once its checkout is gone.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`), or with no letter and no digit (an emoji such as `👍` or `✅ 👍`), is

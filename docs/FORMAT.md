@@ -600,7 +600,8 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   an end event that kept the record, below). A reader leaves out a
   field that it does not know, so a record of a later build is still read. Each text field is
   masked and made one line before it is written. The file
-  holds at most 50 records, under the lock `.sessions/helpers/.lock`. `subagent-stop` removes the
+  holds at most 50 records, under the lock `.sessions/helpers/.lock`. Each write leaves out a
+  record with `"ended": true` whose `checkout` is not there. `subagent-stop` removes the
   record of that `agent_id`. `after-shell` on the `Agent` tool removes the record of the call, or,
   for `"status": "async_launched"`, adds its `agentId`. When the record's own `checkout` is still
   there, these two set `"ended": true` in place of the removal. `stop` removes the calls of its turn with
