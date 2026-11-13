@@ -333,6 +333,8 @@ def test_the_prompt_already_in_the_transcript_does_not_hide_the_proposal(
         ("correct", "Correct."),
         ("go with your rec", "go with your rec"),
         ("thanks", "Thanks!"),
+        ("\U0001f44d", "\U0001f44d"),
+        ("\u2705 \U0001f44d", "Owner said: \u2705 \U0001f44d"),
     ],
 )
 def test_a_bare_approval_saved_as_told_does_not_bind(mem, capsys, monkeypatch, owner, claim):
