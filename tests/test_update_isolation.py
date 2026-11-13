@@ -8,7 +8,6 @@ the repo's index, or run the repo's `.venv/bin/python`.
 from __future__ import annotations
 
 import io
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -87,19 +86,35 @@ def test_an_install_from_a_repo_folder_still_installs(real_uv, tmp_path, monkeyp
     assert not marker.exists()
 
 
-def test_the_owner_uv_settings_still_count(tmp_path, monkeypatch):
-    config = tmp_path / "config"
-    (config / "uv").mkdir(parents=True)
-    (config / "uv" / "uv.toml").write_text('python-preference = "only-managed"\n')
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
-    monkeypatch.delenv("UV_CONFIG_FILE", raising=False)
-    log = tmp_path / "uv.log"
-    fake = tmp_path / "uv"
-    fake.write_text(f'#!/bin/sh\necho "$PWD $*" >> {log}\nexit 1\n')
-    fake.chmod(0o755)
-    monkeypatch.chdir(tmp_path)
+def uv_config(folder: Path, text: str) -> Path:
+    (folder / "uv").mkdir(parents=True, exist_ok=True)
+    (folder / "uv" / "uv.toml").write_text(text)
+    return folder
+
+
+def build_from(tmp_path: Path, uv: str) -> Path:
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    return update._build(Progress(io.StringIO()), uv, tiny_source(tmp_path / "src"), work)
+
+
+def test_the_owner_user_uv_settings_still_count(real_uv, tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(uv_config(tmp_path / "user", UNREACHABLE)))
     with pytest.raises(update.SourceError):
-        update._build(Progress(io.StringIO()), str(fake), tmp_path / "src", tmp_path)
-    line = log.read_text()
-    assert "--no-config" in line and f"--config-file {config / 'uv' / 'uv.toml'}" in line
-    assert not line.startswith(f"{os.path.realpath(tmp_path)} ")
+        build_from(tmp_path, real_uv)
+
+
+def test_the_system_uv_settings_count_next_to_the_owner_settings(real_uv, tmp_path, monkeypatch):
+    user = uv_config(tmp_path / "user", 'link-mode = "copy"\n')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(user))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(uv_config(tmp_path / "system", UNREACHABLE)))
+    with pytest.raises(update.SourceError):
+        build_from(tmp_path, real_uv)
+
+
+def test_a_uv_toml_above_the_cache_folder_does_not_count(real_uv, tmp_path, monkeypatch):
+    above = tmp_path / "above"
+    above.mkdir()
+    (above / "uv.toml").write_text(UNREACHABLE)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(above / "cache"))
+    assert build_from(tmp_path, real_uv).is_file()
