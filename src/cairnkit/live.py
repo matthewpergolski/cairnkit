@@ -38,12 +38,9 @@ MAX_CHECKOUTS = 12
 MAX_LINES = 3
 MAX_FILES = 5
 MAX_HELPERS = 3
-# Where the work of a helper lands, local and on origin.
-MAIN_REFS = tuple(
-    f"refs/{side}/{branch}"
-    for side in ("heads", "remotes/origin")
-    for branch in ("main", "master", *INTEGRATION_BRANCHES)
-)
+# Where the work of a helper lands, local and on origin. A default branch with another name is
+# not known here, so its merged commits still count as live work.
+LANDING_BRANCHES = ("main", "master", *INTEGRATION_BRANCHES)
 NOTE_WORDS = 20
 # Options of git before its command that take a value as the next word.
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
@@ -261,10 +258,19 @@ def _place(memory: Memory, path: str) -> str:
     return name(os.path.relpath(Path(path).resolve(), root))
 
 
+def _landed_refs(path: Path, branch: str | None) -> list[str]:
+    """The refs of LANDING_BRANCHES that exist, but not those of the checkout's own branch: a
+    helper on `dev` has its work on `dev`."""
+    names = [name for name in LANDING_BRANCHES if name != branch]
+    wanted = [f"refs/{side}/{name}" for side in ("heads", "remotes/origin") for name in names]
+    out = run_git(path, "for-each-ref", "--format=%(refname)", *wanted, timeout=GIT_TIMEOUT)
+    return (out or "").split()
+
+
 def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool]:
     """The branch of the helper's checkout, what that checkout holds now, and False when it
-    holds no commit since the start and no uncommitted change. A commit that a main branch holds
-    landed, so it is no live work. A missing branch is no error."""
+    holds no commit since the start and no uncommitted change. A commit that a landing branch
+    holds landed, so it is no live work. A missing base counts no commit."""
     path = Path(helper.checkout or "")
     status = _read_status(path)
     if status is None:
@@ -272,17 +278,9 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool
     branch, files = _work_in(memory, path, status)
     commits = 0
     if helper.base:
-        merged = [f"^{ref}" for ref in MAIN_REFS]
-        count = run_git(
-            path,
-            "rev-list",
-            "--count",
-            "--ignore-missing",
-            "HEAD",
-            f"^{helper.base}",
-            *merged,
-            timeout=GIT_TIMEOUT,
-        )
+        landed = [f"^{ref}" for ref in _landed_refs(path, branch)]
+        args = ("rev-list", "--count", "HEAD", f"^{helper.base}", *landed)
+        count = run_git(path, *args, timeout=GIT_TIMEOUT)
         commits = int(count) if count and count.strip().isdigit() else 0
     parts = []
     if commits:
@@ -299,6 +297,7 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool
 # Claude Code fires SubagentStop for a helper that TaskStop stops only when the stop cuts its
 # stream. When the stream ends first, no hook runs, so a missed end can be a stop.
 NO_END = "no end recorded, so it may have been stopped or ended unseen"
+ENDED = "it ended, because its transcript had no write for 30 minutes"
 RUNNING = "started by this session; it may still be running, or it was stopped or ended unseen"
 
 
@@ -307,20 +306,18 @@ def _named_helpers(
 ) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int]:
     """The records that the load names, the work in the checkout of each, and how many more.
 
-    A helper whose own transcript is quiet ended, so it is not named. No hook event ends another
-    lost record. Past helpers.SHOWN_SECONDS, a record is named only while its own checkout holds
-    commits since it started or uncommitted changes, because that is live work; else it is noise.
-    The work is read once, for the line too, and only until MAX_HELPERS are named. At most
-    MAX_HELPERS old records are read at all, so a pile of stale records costs no more git than the
-    lines do; an old record past that count is not named.
+    No hook event ends a lost record. A record past helpers.SHOWN_SECONDS, or one whose own
+    transcript is quiet (the helper ended), is named only while its own checkout holds commits
+    since it started or uncommitted changes, because that is live work; else it is noise. The
+    work is read once, for the line too, and only until MAX_HELPERS are named. At most
+    MAX_HELPERS such records are read at all, so a pile of stale records costs no more git than
+    the lines do; a record past that count is not named.
     """
     since = time.time() - helpers.SHOWN_SECONDS
     named, work, more, old_reads = [], {}, 0, 0
     for helper in records:
-        if helper.quiet:
-            continue
         inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
-        old = helper.started_at < since
+        old = helper.started_at < since or helper.quiet
         if old and (not inside or old_reads >= MAX_HELPERS):
             continue
         if len(named) >= MAX_HELPERS:
@@ -345,7 +342,7 @@ def _helper_line(
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
     ago = _ago(helper.started_at)
-    end = RUNNING if running else NO_END
+    end = ENDED if helper.quiet else RUNNING if running else NO_END
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]

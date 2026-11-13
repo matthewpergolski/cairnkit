@@ -369,18 +369,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pytest -q 2>&1 | tail -5` and `uv run pytest -q 2>&1 | tail -20` pair. Before, one shared
   step was enough, so `cd ...; cat spec; sed ...` that failed paired with a later
   `S=... gh ...; S=... sed ...` that did other work.
-- A Claude Code helper whose own transcript had no write for 30 minutes leaves the `## Live work`
-  list, also when no `SubagentStop` came. TaskStop does not always fire `SubagentStop`, so a
-  stopped helper and one that ended a day ago stayed on the list as "no end recorded", with the
-  order to leave their work. The `SubagentStart` hook keeps the path of the helper's transcript:
-  `<parent transcript without .jsonl>/subagents/agent-<agent_id>.jsonl`, from the parent's
-  `transcript_path`. The load reads only the file time, never the file. A helper with no such
-  file (another agent, or a transcript not written yet) keeps the 24-hour rule. Uncommitted
-  changes in the helper's worktree stay on the list as a checkout, as after a `SubagentStop`.
+- A Claude Code helper whose own transcript had no write for 30 minutes ended, also when no
+  `SubagentStop` came. TaskStop does not always fire `SubagentStop`, so a stopped helper and one
+  that ended a day ago stayed on the `## Live work` list as "no end recorded", with the order to
+  leave their work. Now such a helper stays on the list only while its own checkout holds
+  uncommitted changes or commits since it started, as after 24 hours, and its line says "it
+  ended, because its transcript had no write for 30 minutes". The `SubagentStart` hook keeps the
+  path of the helper's transcript: `<parent transcript without .jsonl>/subagents/agent-<agent_id>.jsonl`,
+  from the parent's `transcript_path`. The load reads only the file time, never the file. A
+  helper with no such file (another agent, or a transcript not written yet) keeps the 24-hour
+  rule.
 - Commits of a helper that `main`, `master`, `dev` or `develop` (local or on `origin`) holds are
   no live work. So a helper older than 24 hours whose commits merged leaves the list. Before, each
-  commit since the helper started kept it there. A squash merge or a rebase makes new commits, so
-  their old commits still count.
+  commit since the helper started kept it there. The helper's own branch never counts as merged,
+  so a helper that works on `dev` keeps its commits. A start commit that is gone counts no commit.
+  A squash merge or a rebase makes new commits, so their old commits still count. A default branch
+  with another name is not checked, so its merged commits still count.
 - The status note and the branch note in the load stop at 200 words, with a last line such as
   `(200 of 1180 words shown. The rest is in /path/to/memory/notes/status.md.)`. Before, only the
   first 8 lines counted, and long lines used no budget: in a real project the status used 740 of

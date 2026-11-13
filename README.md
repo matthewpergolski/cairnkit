@@ -684,13 +684,14 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   helper's `SubagentStop` (Claude Code fires it for a helper that TaskStop stops only when the
   stop cuts its stream), the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. TaskStop does not always fire `SubagentStop`, so the load also
-  ends a helper whose own transcript (`<parent transcript>/subagents/agent-<id>.jsonl`, from the
-  parent's `transcript_path`) had no write for 30 minutes. It reads only the file time. A load
-  names a record for 24 hours after its call, which is longer than a helper runs. After that, it
-  names the record only while the helper's own checkout holds uncommitted changes, or commits
-  since the helper started that `main`, `master`, `dev` and `develop` (local or on `origin`) do
-  not hold; else the line is noise. A compaction (or a reload) names the helpers of its own session
+  stays while the worktree does. A load names a record for 24 hours after its call, which is
+  longer than a helper runs. After that, it names the record only while the helper's own checkout
+  holds uncommitted changes, or commits since the helper started that `main`, `master`, `dev` and
+  `develop` (local or on `origin`) do not hold; else the line is noise. The helper's own branch
+  never counts as merged. TaskStop does not always fire `SubagentStop`, so a helper whose own
+  transcript (`<parent transcript>/subagents/agent-<id>.jsonl`, from the parent's
+  `transcript_path`) had no write for 30 minutes ended. The load reads only the file time. It
+  names such a helper only while its checkout holds that work, and says that it ended. A compaction (or a reload) names the helpers of its own session
   first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
   and its next stop does not end them. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.

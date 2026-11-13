@@ -11,7 +11,7 @@ import pytest
 from conftest import add_worktree, git
 from test_helper_checkout_bound import record
 
-from cairnkit import deadline, live
+from cairnkit import deadline, helpers, live
 from cairnkit.cli import main
 from cairnkit.memory import Memory
 from cairnkit.paths import find_project
@@ -185,6 +185,41 @@ def test_an_old_helper_whose_commits_landed_in_dev_leaves_the_load(repo, mem, ca
     git(tree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work")
     git(repo, "branch", "dev", "helper")
     record(mem, tree, started_at=time.time() - DAYS_AGO, base=base)
+    assert "[helper]" not in plain_load(capsys)
+
+
+def committed_helper(repo, branch="helper"):
+    tree = add_worktree(repo, branch)
+    base = git(tree, "rev-parse", "HEAD").strip()
+    (tree / "work.txt").write_text("x\n")
+    git(tree, "add", "work.txt")
+    git(tree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work")
+    return tree, base
+
+
+def test_a_helper_whose_transcript_went_quiet_keeps_its_commits_in_the_load(
+    repo, mem, capsys, tmp_path
+):
+    """A quiet transcript says that the helper ended, not that its work is gone."""
+    tree, base = committed_helper(repo)
+    own = tmp_path / "agent-h1.jsonl"
+    own.write_text("{}\n")
+    quiet = time.time() - helpers.QUIET_SECONDS - 60
+    os.utime(own, (quiet, quiet))
+    record(mem, tree, started_at=time.time() - 2 * 3600, base=base, transcript=str(own))
+    [line] = [line for line in plain_load(capsys).splitlines() if "[helper]" in line]
+    assert "1 commit(s) since it started" in line and live.ENDED in line
+
+
+def test_a_helper_on_dev_counts_its_own_commits(repo, mem, capsys):
+    tree, base = committed_helper(repo, "dev")
+    record(mem, tree, started_at=time.time() - DAYS_AGO, base=base)
+    assert "1 commit(s) since it started" in plain_load(capsys)
+
+
+def test_a_helper_whose_start_commit_is_gone_counts_no_commit(repo, mem, capsys):
+    tree, _ = committed_helper(repo)
+    record(mem, tree, started_at=time.time() - DAYS_AGO, base="1" * 40)
     assert "[helper]" not in plain_load(capsys)
 
 
