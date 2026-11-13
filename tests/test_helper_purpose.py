@@ -17,7 +17,7 @@ import time
 import pytest
 from conftest import git
 
-from cairnkit import helpers
+from cairnkit import helpers, live
 from cairnkit.cli import main
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER
 
@@ -252,6 +252,56 @@ def test_a_helper_that_ended_is_not_named(repo, hooks, ending):
             error="the helper failed",
         )
     assert not helper_lines(hooks.load(repo))
+
+
+@pytest.mark.parametrize("ending", ["subagent-stop", "foreground-return"])
+@pytest.mark.parametrize("left", ["commit", "change"])
+def test_a_helper_that_ended_with_unlanded_work_stays_named_as_ended(repo, hooks, ending, left):
+    """A helper that ends normally leaves its work in its own checkout. No session works there
+    after it, so only the helper line names that work."""
+    path = killed_mid_helper(repo, hooks)
+    (path / "hostlink.py").write_text("def link(): pass\n")
+    if left == "commit":
+        git(path, "add", "hostlink.py")
+        git(path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "link")
+    if ending == "subagent-stop":
+        hooks.subagent_stop(repo, "a1", path)
+    else:
+        hooks.returned(repo, "toolu_1", {"status": "completed", "agentId": "a1", "content": []})
+    hooks.run("stop", repo)
+    [line] = helper_lines(hooks.load(repo, "s2"))
+    held = "1 commit(s) since it started" if left == "commit" else "uncommitted hostlink.py"
+    assert PURPOSE in line and live.ENDED in line and held in line
+    hooks.run("stop", repo, session="s2")
+    assert helper_lines(hooks.load(repo, "s3")), "the work is still there"
+    git(repo, "branch", "-f", "dev", "host-link-per-invitation")
+    if left == "change":
+        (path / "hostlink.py").unlink()
+    assert not helper_lines(hooks.load(repo, "s4")), "the work landed or went"
+
+
+def test_a_compaction_names_an_ended_helper_of_this_session_as_its_own(repo, hooks):
+    """The order of `## Live work` covers only work that this session did not start, so the
+    line must say whose the work is, also after the helper ended."""
+    path = killed_mid_helper(repo, hooks)
+    (path / "hostlink.py").write_text("def link(): pass\n")
+    hooks.subagent_stop(repo, "a1", path)
+    [line] = helper_lines(hooks.load(repo, "s1", source="compact"))
+    assert f"started by this session; {live.ENDED}" in line and "uncommitted hostlink.py" in line
+    [other] = helper_lines(hooks.load(repo, "s2"))
+    assert live.ENDED in other and "this session" not in other
+
+
+def test_an_ended_record_whose_worktree_went_leaves_the_file_at_the_next_write(repo, mem, hooks):
+    """A load never names such a record, so it only took one of the MAX_RECORDS places."""
+    path = killed_mid_helper(repo, hooks)
+    (path / "hostlink.py").write_text("def link(): pass\n")
+    hooks.subagent_stop(repo, "a1", path)
+    stored = mem / ".sessions" / "helpers" / "open.json"
+    assert [row["call"] for row in json.loads(stored.read_text())] == ["toolu_1"]
+    git(repo, "worktree", "remove", "--force", str(path))
+    hooks.call(repo, "toolu_2", description="read the docs")
+    assert [row["call"] for row in json.loads(stored.read_text())] == ["toolu_2"]
 
 
 def test_a_background_helper_outlives_the_turn_and_ends_at_its_own_stop(repo, hooks):

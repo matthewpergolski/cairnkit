@@ -209,6 +209,11 @@ def test_a_subagent_still_hears_its_own_event_without_the_guide(session):
         # A filter after a pipe only shows a part of the output. A retry often shows another part.
         ("pytest -q 2>&1 | tail -5", "uv run pytest -q 2>&1 | tail -20"),
         ("pytest -q | grep -c FAILED", "uv run pytest -q |& tee out.log | wc -l"),
+        # A `tee` only keeps a copy of the output. Where it writes is no part of the work.
+        ("pytest -q | tee a.log", "uv run pytest -q | tee b.log"),
+        ("pytest -q | tee o.log | tail -5", "uv run pytest -q | tail -5"),
+        ("pytest -q | tee a.log", "uv run pytest -q | tee -a a.log"),
+        ("pytest -q 2>&1 | tee /dev/stderr", "uv run pytest -q 2>&1 | tee /dev/stderr"),
     ],
 )
 def test_a_failure_fixed_by_how_the_command_runs_is_named_once(session, failed, passed):

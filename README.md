@@ -555,8 +555,8 @@ main". An ellipsis in the claim (`...` beside a space, or the ellipsis character
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. A claim with a rule and such a question binds only when it is the owner's whole prompt ("ok, make these changes. how?"), with only case, spaces and the marks at its end changed. An approval and an answer count only in their own turn, until the next owner prompt.
 A claim whose words are only a reply that says nothing (`yes`, `Owner said: go ahead`,
-`ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`)
-confirms nothing, because it tells a later reader nothing. This list is wider than the
+`ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`), or
+that has no letter and no digit (an emoji such as `👍` or `✅ 👍`), confirms nothing, because it tells a later reader nothing. This list is wider than the
 short yes above: a word on it that is no yes costs only one refused empty claim. A claim
 with a digit, a mark such as `#` or a word of another script (`Approved: #42.`) names its
 work, so it is matched as usual. The add output says to save the words
@@ -684,16 +684,20 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   helper's `SubagentStop` (Claude Code fires it for a helper that TaskStop stops only when the
   stop cuts its stream), the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. A load names a record for 24 hours after its call, which is
+  stays while the worktree does. A helper that ends while its worktree is there is marked as
+  ended, and its record stays as an old one (below). A load names a record for 24 hours after its call, which is
   longer than a helper runs. After that, it names the record only while the helper's own checkout
   holds uncommitted changes, or commits since the helper started that `main`, `master`, `dev` and
-  `develop` (local or on `origin`) do not hold; else the line is noise. The helper's own branch
+  `develop` (local or on `origin`) do not hold; else the line is noise, and a load removes a
+  record that ended or is past 24 hours when its checkout holds no such work. The load reads the
+  newest records first. The helper's own branch
   never counts as merged. TaskStop does not always fire `SubagentStop`, so a helper whose own
   transcript (`<parent transcript>/subagents/agent-<id>.jsonl`, from the parent's
   `transcript_path`) had no write for 30 minutes ended. The load reads only the file time. It
   names such a helper only while its checkout holds that work, and says that it ended. A compaction (or a reload) names the helpers of its own session
   first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
-  and its next stop does not end them. A resume is a new process, so it names them as having no
+  and its next stop does not end them. One that ended is "started by this session; it ended", so
+  the order for live work of others does not cover its work. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.
 
 This does not use the word budget. It reads each checkout with `git status`, with no optional lock,
@@ -748,8 +752,11 @@ and the agent runs the change in that turn. Or the owner types the id: "Forget I
 transcript must hold those words, as for a `told` claim (see "An agent's `told` claim needs the
 owner's words"). `--reason` is the agent's text and does not count, and a sentence that only
 shares a word with the fact ("forget the uv rule") names nothing. The sentence with the id must
-have no word such as not, never, keep or unless, and a question that the owner typed does not
-count. The record names the agent as `author`, and the output names each ended fact with its
+have no word such as not, never, keep or unless. A question that the owner typed does not
+count, except a request that only names ids: "Can you end ID?", "Could you please forget ID?",
+"Please end ID?". "Will you" and "would you" do not count. A later sentence of the same prompt
+with such a word, or with wait, cancel, hold or scratch, takes the end back: "End ID. Wait,
+don't." ends nothing. The record names the agent as `author`, and the output names each ended fact with its
 text. Anything else refuses, and the refusal says to ask "Shall I end ID?", or that the owner
 types the id or runs the command from their own shell.
 
@@ -1096,14 +1103,15 @@ so neither gets it. A context line is no answer: Claude Code adds it with the to
 the command ran.
 
 **The shared git stash.** All checkouts of a repo share one stash list, so a `git stash pop` in one
-worktree can take the entry of another. On Claude Code, a `git stash` command that can take or lose
+worktree can take the entry of another. On Claude Code and Codex, a `git stash` command that can take or lose
 an entry of other work gets a warning, once in a session, while another session or a helper in
 another checkout is live (the markers of **Live work**). That is `clear`, a `pop`, `apply` or `drop`
 of the top entry, and a push with no message, which a bare pop elsewhere takes. The warning names
 the live checkouts and says to commit the work on a branch, or to use `git stash push -m NAME` and
-then `git stash apply stash@{n}` for that name. It never stops the command, so it arrives with the
+then `git stash apply stash@{n}` for that name. It never stops the command, so on Claude Code it arrives with the
 tool result. A named push, `list`, `show` and an entry named by `stash@{n}` get no warning. A
-step in `( )` or `$( )`, or after `sudo` or `env` and its settings, counts too. A `bash -c`
+step in `( )` or `$( )`, or after `sudo` or `env` with its options and settings (`sudo -u root
+git stash`), counts too. A `bash -c`
 script and a git alias do not: the hook reads no script and no git config. A command with no
 `stash` in it does no more work in this hook.
 

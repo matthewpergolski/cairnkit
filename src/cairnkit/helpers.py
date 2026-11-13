@@ -10,7 +10,8 @@ session for that agent type that has no helper yet. Calls in one message start i
 An event ends a record, not the time since its call:
 
 - `SubagentStop` of its helper, or the result of its call (a foreground helper that returned, or
-  a failure);
+  a failure). A record whose own checkout is still there stays, marked ended, so that its work
+  stays named as for an old record (below). It goes at the next write once that checkout went;
 - the stop of its own turn, for a call that never launched a helper;
 - the stop of a session whose load named it, unless the helper's own checkout is still there.
   That checkout holds the evidence, so the record stays with it. A gone checkout is no end by
@@ -78,6 +79,7 @@ class Helper:
     base: str | None = None  # HEAD of that checkout when the helper started
     told: tuple[str, ...] = field(default_factory=tuple)  # sessions whose load named it
     transcript: str | None = None  # the helper's own transcript, on Claude Code
+    ended: bool = False  # an end event came while its own checkout was there
 
     @property
     def quiet(self) -> bool:
@@ -134,6 +136,8 @@ def _read(memory: Memory) -> list[Helper]:
 
 
 def _write(memory: Memory, helpers: list[Helper]) -> None:
+    """Write the records. One that ended and whose checkout went holds nothing a load names."""
+    helpers = [h for h in helpers if not (h.ended and not h.has_checkout)]
     path = plainfile.inside(memory.dir, _file(memory))
     for old in plainfile.files_in(memory.dir, path.parent, ".open-*.tmp"):  # a killed write
         with contextlib.suppress(OSError):
@@ -213,7 +217,7 @@ def on_result(memory: Memory, payload: dict) -> None:
             lambda helpers: [replace(h, agent=agent) if h.call == call else h for h in helpers],
         )
     else:
-        _update(memory, lambda helpers: [h for h in helpers if h.call != call])
+        _update(memory, lambda helpers: _end(helpers, lambda h: h.call == call))
 
 
 def _own_transcript(payload: dict, agent: str) -> str | None:
@@ -266,7 +270,17 @@ def on_end(memory: Memory, payload: dict) -> None:
     """`SubagentStop`: that helper ended."""
     agent = str(payload.get("agent_id") or "")
     if agent:
-        _update(memory, lambda helpers: [h for h in helpers if h.agent != agent])
+        _update(memory, lambda helpers: _end(helpers, lambda h: h.agent == agent))
+
+
+def _end(helpers: list[Helper], ends: Callable[[Helper], bool]) -> list[Helper]:
+    """The records with those that `ends` picks ended. A record whose own checkout is still there
+    stays, marked ended: that checkout can hold commits that no session works on any more."""
+    return [
+        replace(h, ended=True) if ends(h) and h.has_checkout else h
+        for h in helpers
+        if not ends(h) or h.has_checkout
+    ]
 
 
 def on_main_stop(memory: Memory, session: str) -> None:
@@ -283,11 +297,17 @@ def on_main_stop(memory: Memory, session: str) -> None:
 
 
 def shown(memory: Memory, hide_session: str | None) -> list[Helper]:
-    """The records that a load can name, oldest first. live.py drops the old ones with no work.
+    """The records that a load can name. live.py drops the old ones with no work.
 
     `hide_session` is the session of a helper's own load, whose siblings can still run.
     """
     return [h for h in _read(memory) if h.session != hide_session]
+
+
+def forget(memory: Memory, calls: list[str]) -> None:
+    """A load found no work in the checkouts of these old records."""
+    if calls:
+        _update(memory, lambda helpers: [h for h in helpers if h.call not in calls])
 
 
 def note_told(memory: Memory, calls: list[str], session: str) -> None:

@@ -572,10 +572,11 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   "permissionDecisionReason": TEXT}}` for `claude` and `codex`, and TEXT on stdout for `pi` and
   `opencode`. It never prints an allow, because an allow skips the person's own approval. With
   nothing to say, on any error and past 2.5 seconds, it prints nothing (`{}` for `codex`), and the
-  command runs. Other agents get nothing. It always exits 0. For `claude` only, a command that
+  command runs. Other agents get nothing. It always exits 0. For `claude` and `codex`, a command that
   holds `stash` and has a `git stash` step that can take or lose an entry of other work
   (`clear`; `pop`, `apply` or `drop` with no entry named; `branch` with no entry; a push or
-  `save` with no message; also in `( )` or `$( )`, or after `sudo` or `env`; not in a
+  `save` with no message; also in `( )` or `$( )`, or after `sudo` or `env` with their options
+  and the values of those options (`sudo -u root`, `env -u NAME`); not in a
   `bash -c` script or a git alias) gets
   `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": TEXT}}` and
   runs, when a marker in `.sessions/live/` from the last 30 minutes names another session, or
@@ -600,20 +601,26 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base`, `told` (the sessions
   whose load named it) and `transcript` (the helper's own transcript, set by `subagent-start`:
   `agent_transcript_path` when it is in the folder of `transcript_path`, else
-  `<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). A reader leaves out a
+  `<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`), and `ended` (true after
+  an end event that kept the record, below). A reader leaves out a
   field that it does not know, so a record of a later build is still read. Each text field is
   masked and made one line before it is written. The file
-  holds at most 50 records, under the lock `.sessions/helpers/.lock`. `subagent-stop` removes the
+  holds at most 50 records, under the lock `.sessions/helpers/.lock`. Each write leaves out a
+  record with `"ended": true` whose `checkout` is not there. `subagent-stop` removes the
   record of that `agent_id`. `after-shell` on the `Agent` tool removes the record of the call, or,
-  for `"status": "async_launched"`, adds its `agentId`. `stop` removes the calls of its turn with
+  for `"status": "async_launched"`, adds its `agentId`. When the record's own `checkout` is still
+  there, these two set `"ended": true` in place of the removal. `stop` removes the calls of its turn with
   no helper, and each record that its session's load named whose checkout is not there.
-- The load adds one `- [helper]` line under `## Live work` for each of the 3 oldest records (with
+- The load adds one `- [helper]` line under `## Live work` for each of the 3 newest records (with
   the count of the others) whose `started_at` is in the last 24 hours, or whose own checkout
   still holds uncommitted changes or commits since `base` that no `main`, `master`, `dev` or
   `develop` ref (local or `origin`) holds. The refs of the checkout's own branch do not count, and
   a `base` that git does not know counts no commit. A record whose `transcript` file exists and has
-  a file time older than 30 minutes ended: it is named only while its checkout holds such work, and
-  its line says that it ended. The load reads only that file time. It is inside the frame of
+  a file time older than 30 minutes ended, as a record with `"ended": true` did: it is named only while its checkout holds such work, and
+  its line says that it ended. The load reads only that file time. It reads the checkouts of at
+  most 3 records that are past 24 hours, ended or quiet, newest first. When git answers in time
+  and such a checkout holds no such work, the load removes the record if it ended or is past 24
+  hours. It is inside the frame of
   stored notes, because the text came from an agent. A load for `compact` or `reload` leaves out the records of its own session.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
   checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before

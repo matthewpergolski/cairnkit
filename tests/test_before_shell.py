@@ -241,6 +241,10 @@ def live_in_worktree(repo, monkeypatch, session: str) -> None:
         "git -C . stash drop",
         "git stash apply",
         "git stash clear",
+        "sudo -u root git stash",
+        "sudo git stash pop",
+        "sudo -c staff git stash pop",
+        "env -P /bin git stash pop",
     ],
 )
 def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, monkeypatch, command):
@@ -253,6 +257,17 @@ def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, mo
     assert run(argv, repo, command) == ""
 
 
+def test_codex_gets_the_stash_warning_as_context_that_does_not_block(repo, mem, monkeypatch):
+    """The Codex hooks docs: PreToolUse `additionalContext` adds model-visible context without
+    blocking (https://learn.chatgpt.com/docs/hooks, read 2026-11-13)."""
+    assert main(["hooks", "install", "--agent", "codex"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = installed(repo, "codex", "PreToolUse")
+    said = note(run(argv, repo, "sudo -u root git stash pop"))
+    assert said and "stash list" in said and ".worktrees/other" in said
+    assert run(argv, repo, "git stash pop") == "{}"
+
+
 @pytest.mark.parametrize(
     "command",
     [
@@ -262,6 +277,21 @@ def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, mo
         "$(git stash pop)",
         "sudo git stash pop",
         "sudo -E git stash pop",
+        "sudo -u root git stash",
+        "sudo -u root -- git stash clear",
+        "sudo -Hu root git stash pop",
+        "sudo -uroot git stash pop",
+        "sudo --user root git stash drop",
+        "sudo -g wheel -E -- git stash apply",
+        "env -u HOME git stash pop",
+        "env -C /x git stash pop",
+        "sudo -c staff git stash pop",
+        "sudo -a pam git stash drop",
+        "sudo --login-class staff git stash pop",
+        "sudo --auth-type pam git stash clear",
+        "env -P /bin git stash pop",
+        "env -a name git stash pop",
+        "env --argv0 name git stash apply",
         "env X=1 git stash pop",
         "env -i X=1 git stash drop",
         "cd a && (git stash pop) 2>/dev/null",
@@ -272,7 +302,16 @@ def test_a_stash_step_in_a_subshell_or_behind_sudo_or_env_takes_the_stash(comman
 
 
 @pytest.mark.parametrize(
-    "command", ["(git stash push -m wip)", "x=$(git stash list)", "sudo git stash list"]
+    "command",
+    [
+        "(git stash push -m wip)",
+        "x=$(git stash list)",
+        "sudo git stash list",
+        "sudo -u root git stash push -m wip",
+        "sudo -u root git stash list",
+        "sudo -c staff git stash list",
+        "env -P /bin git stash push -m wip",
+    ],
 )
 def test_a_named_or_reading_stash_step_in_a_subshell_takes_nothing(command):
     assert not takes_shared_stash(command)
@@ -293,6 +332,7 @@ def test_a_helper_of_the_same_session_in_another_worktree_counts(repo, mem, monk
         "git stash apply stash@{2}",
         "echo 'git stash pop'",
         "git status",
+        "sudo -c staff git stash list",
     ],
 )
 def test_a_named_or_reading_stash_command_says_nothing(repo, mem, monkeypatch, command):

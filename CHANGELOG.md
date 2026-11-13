@@ -21,9 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session hold its id: the agent's closing question that a short "yes" approved in this turn, such
   as "Shall I end ID?", or a prompt that the owner typed ("Forget ID."). The transcript must
   hold those words, as for `memory add --basis told`. `--reason` is the agent's text, so it does
-  not count. The sentence with the id must have no word such as not, never, keep or unless, and a
-  question that the owner typed ("Should we end ID?") does not count. The newest sentence with the
-  id decides, so "Keep ID." after "Forget ID." keeps it. Each ID of a batch must be in those
+  not count. The sentence with the id must have no word such as not, never, keep or unless. A
+  question that the owner typed ("Should we end ID?") does not count, but a request that only
+  names ids does: "can or could you (please) end, expire, forget, drop or remove ID?" and
+  "Please end ID?". "Will you" and "would you" do not count, because they often ask about the
+  agent's plan. The newest sentence with the id decides, so "Keep ID." after "Forget ID." keeps
+  it, and a later sentence of the same prompt with such a word, or with wait, cancel, hold or
+  scratch, takes the end back: "End ID. Wait, don't." and "Can you end ID? Never mind." end
+  nothing. Each ID of a batch must be in those
   words, and one refusal changes no fact. The change record gets
   `"author": "agent:<tool>"`, `memory show` names that author, and the output prints a `told:`
   line for each ended fact with its text. The refusal says how to end it: ask "Shall I end ID?" as
@@ -39,13 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the search words of four letters or more). The note names a file in the same folder, or a
   tracked file with the same name, that holds them, with the command to name it. It also prints a
   note when git does not track FILE. A note is no refusal: the change is written.
-- The before-shell hook warns on Claude Code, once in a session, when a `git stash` command can
+- The before-shell hook warns on Claude Code and Codex, once in a session, when a `git stash` command can
   take or lose an entry of other live work: all checkouts of a repo share one stash list. It
   speaks while another session, or a helper in another checkout, is live (the markers that
   `## Live work` reads), for `clear`, a `pop`, `apply` or `drop` of the top entry, and a push with
   no message. The warning names the live checkouts and gives `git stash push -m NAME` and
   `git stash apply stash@{n}`, or a commit on a branch. It never stops the command, so Claude Code
-  adds it with the tool result. A step in `( )` or `$( )`, or after `sudo` or `env`, counts; a
+  adds it with the tool result. Codex reads PreToolUse `additionalContext` as context for the
+  model, and the call runs (its hooks docs, checked 2026-11-13). A step in `( )` or `$( )`, or after `sudo` or `env` with their
+  options and option values (`sudo -u root git stash`, `sudo -c staff git stash pop`,
+  `env -P /bin git stash pop`), counts; a
   `bash -c` script and a git alias do not. A command with no `stash` in it does no more work.
 - `memory init --refresh` prints one line that the repo's own hooks run as before, with their
   names and folder: the hooks in the folder that core.hooksPath names (such as `.githooks`; the
@@ -394,9 +402,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   kept in the user cache for each repo and pair of commits, so only the first session start after
   a new build pays for the compare (about 0.2 s); later ones read the answer in less than 1 ms.
   When the record or the running tool has no commit, the version compare stays as it was.
+- A Claude Code helper that ended normally and left commits in its own worktree is no longer
+  lost from `## Live work`. Its `SubagentStop`, or the result of its call, removed its record, and
+  after 30 minutes no session marker named that checkout, so its unlanded commits were in no line.
+  Now an end event marks the record `"ended": true` while its own checkout is there. The load names
+  it as "it ended" only while that checkout holds uncommitted changes or commits that no landing
+  branch holds, as for an old record. A compaction of the session that started it names it as
+  "started by this session; it ended", so the order not to commit or remove the live work of
+  others does not cover it.
+  A load reads at most 3 old records, newest first. A record that ended, or is past 24 hours,
+  whose checkout holds no such work, goes when the load reads it, so clean old records cannot
+  take each read from a record with unlanded work. A record that ended goes at the next write of
+  the helpers file once its checkout is gone.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
-  `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The
+  `I'll go with your rec`), or with no letter and no digit (an emoji such as `👍` or `✅ 👍`), is
+  no longer confirmed, because it tells a later reader nothing. The
   add output says to save the words of the proposal that the owner approved, with `--supersedes`
   and the new id; those words confirm when they are the question that the yes answered in this
   turn. A short rule such as "Use uv." still confirms, and so does a claim with a digit, a mark

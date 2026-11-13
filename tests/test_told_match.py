@@ -322,7 +322,8 @@ def test_other_prompts_are_no_approval(prompt):
     "claim",
     ["yes", "The owner said: go ahead.", "ok", "Sure.", "yeah", "yup", "k", "LGTM", "Ship it.",
      "Go for it.", "Please do.", "Proceed.", "Agreed.", "Correct.", "go with your rec",
-     "I'll go with your rec", "Thanks!", "I'll do it"],
+     "I'll go with your rec", "Thanks!", "I'll do it", "\U0001f44d", "\u2705 \U0001f44d",
+     "The owner said: \U0001f44d", "\U0001f680!", "..."],
 )  # fmt: skip
 def test_a_claim_of_only_a_reply_says_nothing(claim):
     assert only_approval(claim)
@@ -332,7 +333,7 @@ def test_a_claim_of_only_a_reply_says_nothing(claim):
     "claim",
     ["Use uv.", "Never push to main.", "Approved: #42.", "Go ahead: 0018", "Yes, to 0018",
      "Yes: \u6c38\u8fdc\u4e0d\u8981\u63a8\u9001", "\u6c38\u8fdc\u4e0d\u8981\u63a8\u9001\u3002",
-     "OK to drop the cache"],
+     "OK to drop the cache", "\U0001f44d #42", "\u2705 0018"],
 )  # fmt: skip
 def test_a_claim_that_names_work_says_something(claim):
     assert not only_approval(claim)

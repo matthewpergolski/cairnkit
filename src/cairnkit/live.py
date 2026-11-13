@@ -44,8 +44,18 @@ LANDING_BRANCHES = ("main", "master", *INTEGRATION_BRANCHES)
 NOTE_WORDS = 20
 # Options of git before its command that take a value as the next word.
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
-# Words in front of a command that run it as it is, with their options and settings.
-RUN_AS = frozenset({"sudo", "env"})
+# Words in front of a command that run it as it is, with their options and settings. For each:
+# its short options that take a value, and its long options that take one as the next word.
+# The value of sudo's `-h` is optional, so only `-hHOST` gives one; `--host` needs one.
+RUN_AS = {
+    "sudo": (
+        "aCcDgpRrTtUu",
+        frozenset({"--auth-type", "--close-from", "--login-class", "--chdir", "--group",
+                   "--host", "--prompt", "--chroot", "--role", "--command-timeout", "--type",
+                   "--other-user", "--user"}),
+    ),
+    "env": ("aCPSu", frozenset({"--argv0", "--chdir", "--split-string", "--unset"})),
+}  # fmt: skip
 ORDER = (
     "Live work that this session did not start is listed under `## Live work`. Do not commit, "
     "discard or remove it, also in a general tidy-up, unless the owner names that checkout or "
@@ -117,19 +127,23 @@ def _sharers(memory: Memory, session: str) -> list[str]:
 
 def _command_words(part: str) -> list[str]:
     """The words of one step from its command on: past `(` and `$(`, settings (also `x=$(`),
-    `sudo` and `env` with their options, and with no `)` at the end. A `bash -c` script and a
-    git alias stay out: the parser reads no script and no git config."""
+    `sudo` and `env` with their options and option values, and with no `)` at the end. A
+    `bash -c` script and a git alias stay out: the parser reads no script and no git config."""
     words = [word for word in _core_words(_words(part.strip())) if word]
-    run_as = False
+    run_as = None
     while words:
         word = words[0]
         if SETTING.fullmatch(word) and "$(" in word:
             words[0] = word.split("$(", 1)[1]
         elif word.startswith(("(", "$(")):
             words[0] = word.lstrip("$(")
-        elif SETTING.fullmatch(word) or word in RUN_AS or (run_as and word.startswith("-")):
-            run_as = run_as or word in RUN_AS
+        elif SETTING.fullmatch(word) or word in RUN_AS:
+            run_as = word if word in RUN_AS else run_as
             words.pop(0)
+        elif run_as and word.startswith("-"):
+            words.pop(0)
+            if _takes_value(run_as, word) and words:
+                words.pop(0)
         else:
             break
         if words and not words[0]:
@@ -137,6 +151,17 @@ def _command_words(part: str) -> list[str]:
     if words:
         words[-1] = words[-1].rstrip(")")
     return [word for word in words if word]
+
+
+def _takes_value(run_as: str, option: str) -> bool:
+    """True when the next word is the value of this option: `-u root`, `-Hu root`, `--user root`."""
+    short, long = RUN_AS[run_as]
+    if option.startswith("--"):
+        return option in long
+    for index, letter in enumerate(option[1:], 2):
+        if letter in short:
+            return index == len(option)
+    return False
 
 
 def _stash_args(words: list[str]) -> list[str] | None:
@@ -297,27 +322,32 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool
 # Claude Code fires SubagentStop for a helper that TaskStop stops only when the stop cuts its
 # stream. When the stream ends first, no hook runs, so a missed end can be a stop.
 NO_END = "no end recorded, so it may have been stopped or ended unseen"
-ENDED = "it ended, because its transcript had no write for 30 minutes"
-RUNNING = "started by this session; it may still be running, or it was stopped or ended unseen"
+ENDED = "it ended"
+QUIET_END = f"{ENDED}, because its transcript had no write for 30 minutes"
+OWN = "started by this session"
+RUNNING = f"{OWN}; it may still be running, or it was stopped or ended unseen"
 
 
 def _named_helpers(
     memory: Memory, records: list[helpers.Helper]
-) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int]:
-    """The records that the load names, the work in the checkout of each, and how many more.
+) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int, list[str]]:
+    """The records that the load names, the work in the checkout of each, how many more, and
+    the records that hold no work and can go.
 
-    No hook event ends a lost record. A record past helpers.SHOWN_SECONDS, or one whose own
-    transcript is quiet (the helper ended), is named only while its own checkout holds commits
-    since it started or uncommitted changes, because that is live work; else it is noise. The
-    work is read once, for the line too, and only until MAX_HELPERS are named. At most
+    No hook event ends a lost record. A record past helpers.SHOWN_SECONDS, one that ended, or one
+    whose own transcript is quiet (the helper ended), is named only while its own checkout holds
+    commits since it started or uncommitted changes, because that is live work; else it is
+    noise. The work is read once, for the line too, and only until MAX_HELPERS are named. At most
     MAX_HELPERS such records are read at all, so a pile of stale records costs no more git than
-    the lines do; a record past that count is not named.
+    the lines do; a record past that count is not named. A record that ended, or one past
+    SHOWN_SECONDS, whose checkout was read in full with no work, can go: no helper adds work
+    there any more, so it does not take a read from a record with work at the next load.
     """
     since = time.time() - helpers.SHOWN_SECONDS
-    named, work, more, old_reads = [], {}, 0, 0
+    named, work, more, old_reads, done = [], {}, 0, 0, []
     for helper in records:
         inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
-        old = helper.started_at < since or helper.quiet
+        old = helper.started_at < since or helper.ended or helper.quiet
         if old and (not inside or old_reads >= MAX_HELPERS):
             continue
         if len(named) >= MAX_HELPERS:
@@ -325,11 +355,15 @@ def _named_helpers(
             continue
         if inside:
             old_reads += old
+            cuts = deadline.git_cuts()
             work[helper.call] = _helper_work(memory, helper)
             if old and not work[helper.call][2]:
+                gone = helper.ended or helper.started_at < since
+                if gone and deadline.git_cuts() == cuts:
+                    done.append(helper.call)
                 continue
         named.append(helper)
-    return named, work, more
+    return named, work, more, done
 
 
 def _helper_line(
@@ -342,7 +376,10 @@ def _helper_line(
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
     ago = _ago(helper.started_at)
-    end = ENDED if helper.quiet else RUNNING if running else NO_END
+    ended = ENDED if helper.ended else QUIET_END if helper.quiet else None
+    end = ended or NO_END
+    if running:
+        end = f"{OWN}; {ended}" if ended else RUNNING
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]
@@ -419,13 +456,14 @@ def add_lines(
     if FRAME_HEADER not in lines:
         return lines
     records = helpers.shown(memory, hide_helpers_of)
-    records.sort(key=lambda helper: helper.session != own_helpers_of)
+    records.sort(key=lambda helper: (helper.session != own_helpers_of, -helper.started_at))
     named: list[helpers.Helper] = []
+    done: list[str] = []
     body: list[str] = []
     found: list[Checkout] = []
     unread = 0
     with deadline.within(BUDGET):
-        named, work, more = _named_helpers(memory, records)
+        named, work, more, done = _named_helpers(memory, records)
         body = [
             _helper_line(memory, h, work.get(h.call), h.session == own_helpers_of) for h in named
         ]
@@ -436,6 +474,7 @@ def add_lines(
             here = session is not None and str(memory.project.root) in at_work
             skip = {Path(h.checkout or "").resolve() for h in named if h.has_checkout}
             found, unread = _read_checkouts(memory, at_work, here, skip)
+    helpers.forget(memory, done)
     if session is not None:
         told = [helper.call for helper in named if helper.session != own_helpers_of]
         helpers.note_told(memory, told, session)

@@ -333,6 +333,8 @@ def test_the_prompt_already_in_the_transcript_does_not_hide_the_proposal(
         ("correct", "Correct."),
         ("go with your rec", "go with your rec"),
         ("thanks", "Thanks!"),
+        ("\U0001f44d", "\U0001f44d"),
+        ("\u2705 \U0001f44d", "Owner said: \u2705 \U0001f44d"),
     ],
 )
 def test_a_bare_approval_saved_as_told_does_not_bind(mem, capsys, monkeypatch, owner, claim):
@@ -862,11 +864,60 @@ def test_the_owner_typing_the_id_ends_the_fact(mem, capsys, monkeypatch, prompts
 
 
 @pytest.mark.parametrize(
+    "words",
+    [
+        "Can you end {fid}?",
+        "could you please forget {fid}?",
+        "Could you drop {fid}, please?",
+        "Can you expire {fid} and {fid}?",
+        "Please end {fid}?",
+        "Can you end {fid}? I thought told facts were locked.",
+    ],
+)
+def test_an_owner_request_phrased_as_a_question_ends_the_fact(mem, capsys, monkeypatch, words):
+    fid = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, words.format(fid=fid))
+    code, out = end(capsys, monkeypatch, fid)
+    assert code == 0, out
+    assert f"told: {fid} is expired on the owner's words, confirmed by words the owner typed" in out
+    assert UV_RULE not in loaded(capsys)
+
+
+def test_an_owner_request_with_two_ids_ends_both_facts(mem, capsys, monkeypatch):
+    a = added(owner_add(capsys, UV_RULE))
+    b = added(owner_add(capsys, "Do not merge work without review."))
+    prompt(capsys, monkeypatch, f"Can you expire {a} and {b}?")
+    code, out = end(capsys, monkeypatch, a, b)
+    assert code == 0, out
+    assert changes_of(mem, a) and changes_of(mem, b)
+
+
+@pytest.mark.parametrize(
     "prompts",
     [
         ["Do not end {fid}."],
         ["Should we end {fid}? The project uses pip now."],
+        ["Should I end {fid}?"],
+        ["Did you end {fid}?"],
+        ["Why end {fid}?"],
+        ["Can you not end {fid}?"],
+        ["Can you end {fid} unless CI is red?"],
+        ["Could you keep {fid}?"],
+        ["Can you end the cache note in {fid}?"],
+        ["Can you tell me why we would end {fid}?"],
         ["End {fid}.", "Actually, keep {fid}."],
+        ["Can you end {fid}?", "Actually, keep {fid}."],
+        # "Will you" and "would you" often ask about the agent's plan.
+        ["Will you remove {fid}?"],
+        ["Would you drop {fid}, please?"],
+        # A later sentence of the same prompt takes the end back.
+        ["End {fid}. Wait, don't."],
+        ["Forget {fid}. No wait."],
+        ["Can you end {fid}? Actually, keep it."],
+        ["Can you end {fid}? Never mind."],
+        ["Expire {fid}. Don't."],
+        ["End {fid}. Wait."],
+        ["Can you end {fid}? I do not want to lose it."],
     ],
 )
 def test_owner_words_that_keep_or_ask_about_the_id_end_nothing(mem, capsys, monkeypatch, prompts):
