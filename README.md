@@ -741,9 +741,17 @@ ends only when an agent ends it. `--expires` takes effect only with `--short`.
 `--status wrong`, with a reason. The fact leaves the load, and the archive
 keeps it, so an agent can answer "did we try this before?". `memory change` takes one or more
 IDs with one set of flags. Each ID gets every check, and one refusal changes no fact. An agent
-cannot mark a fact that a person stated (a confirmed told fact or the owner's rule) `expired` or
-`wrong`: it asks the owner, then quotes the owner's words with `memory add "WORDS" --basis told
---supersedes ID`, or the owner runs the command from their own shell.
+marks a fact that a person stated (a confirmed told fact or the owner's rule) `expired` or
+`wrong` only when the owner's own words in this session hold its id. The agent asks "Shall I end
+ID?" as the last sentence of its message (the fact text can come before it), the owner says yes,
+and the agent runs the change in that turn. Or the owner types the id: "Forget ID." The
+transcript must hold those words, as for a `told` claim (see "An agent's `told` claim needs the
+owner's words"). `--reason` is the agent's text and does not count, and a sentence that only
+shares a word with the fact ("forget the uv rule") names nothing. The sentence with the id must
+have no word such as not, never, keep or unless, and a question that the owner typed does not
+count. The record names the agent as `author`, and the output names each ended fact with its
+text. Anything else refuses, and the refusal says to ask "Shall I end ID?", or that the owner
+types the id or runs the command from their own shell.
 
 **The only deletion is `purge`**, for a secret or private data stored by
 mistake: `memory purge ID --reason secret --yes`. It removes every line for

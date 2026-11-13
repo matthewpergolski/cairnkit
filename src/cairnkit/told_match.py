@@ -203,7 +203,7 @@ def _unframed(unit: str) -> str:
     return _TRAIL.sub("", _LEAD.sub("", unit.strip()))
 
 
-def _states_a_rule(unit: str) -> bool:
+def states_a_rule(unit: str) -> bool:
     text = unit.strip()
     return not (text.endswith("?") or _QUESTION.match(text) or _CONDITION.match(text))
 
@@ -221,7 +221,7 @@ def units(evidence: Evidence) -> list[tuple[Token, ...]]:
     for part in _UNIT_END.split(evidence.text):
         if evidence.kind == "approval":
             part = _asked(part)
-        elif evidence.kind == "prompt" and not _states_a_rule(_unframed(part)):
+        elif evidence.kind == "prompt" and not states_a_rule(_unframed(part)):
             continue
         words = tokens(_unframed(part))
         if words:
@@ -300,7 +300,7 @@ def best_match(text: str, evidence: list[Evidence]) -> Match | None:
     The question stays in the fact, so a reader sees it.
     """
     parts = _claim_parts(text)
-    rules = [_states_a_rule(part) for part in parts]
+    rules = [states_a_rule(part) for part in parts]
     if any(rules) and not all(rules) and (whole := _whole_prompt(text, evidence)):
         return whole
     claim = [tokens(part) for part in parts]
@@ -335,9 +335,14 @@ def final_question(message: str) -> str | None:
 
     A short "yes" answers that question, and nothing else of the message.
     """
-    sentences = [part for part in _SENTENCE_END.split(message.strip()) if part.strip()]
-    last = sentences[-1].strip() if sentences else ""
+    found = sentences(message)
+    last = found[-1] if found else ""
     return last if last.endswith("?") else None
+
+
+def sentences(text: str) -> list[str]:
+    """The sentences of a text: it splits at `.`, `!` or `?` before a space, and at line breaks."""
+    return [part.strip() for part in _SENTENCE_END.split(text.strip()) if part.strip()]
 
 
 def choice_evidence(labels: list[str], answer: str) -> Evidence | None:

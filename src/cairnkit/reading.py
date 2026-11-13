@@ -83,7 +83,8 @@ def run_show(memory: Memory, fact_id: str) -> int:
         for link in change.get("remove_links", []):
             parts.append(f"unlink {link['rel']} {link['id']}")
         why = f": {change['reason']}" if change.get("reason") else ""
-        line = f"{change.get('at')}  {', '.join(parts)}{why} ({change.get('writer')})"
+        who = ", ".join(str(change[k]) for k in ("writer", "author") if change.get(k))
+        line = f"{change.get('at')}  {', '.join(parts)}{why} ({who})"
         print("  " + clean(mask(line, memory.env)))
     computed = " (computed at read time)" if status != state["status"] else ""
     print(f"Now: {status}{computed}" + (f": {clean(reason)}" if reason else ""))

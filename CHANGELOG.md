@@ -16,12 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   can run again after the fix. The output prints `changed ID` for each ID. One ID works as before.
   A `--superseded-by` or `--link` target that is one of the changed IDs is refused: a fact cannot
   replace itself or link to itself.
-- `memory change ID --status expired` or `--status wrong` from an agent refuses when a person
-  stated ID (a confirmed told fact or the owner's rule), also in a batch. The refusal says how to
-  end it: ask the owner, then quote the owner's words with
-  `memory add "WORDS" --basis told --supersedes ID --reason "..."`, or the owner runs the command
-  from their own shell. An agent can still mark such a fact `promoted --held-by FILE`, because the
-  file keeps the rule. The owner at a terminal can change any fact as before.
+- `memory change ID --status expired` or `--status wrong` from an agent ends a fact that a person
+  stated (a confirmed told fact or the owner's rule) only when the owner's own words in this
+  session hold its id: the agent's closing question that a short "yes" approved in this turn, such
+  as "Shall I end ID?", or a prompt that the owner typed ("Forget ID."). The transcript must
+  hold those words, as for `memory add --basis told`. `--reason` is the agent's text, so it does
+  not count. The sentence with the id must have no word such as not, never, keep or unless, and a
+  question that the owner typed ("Should we end ID?") does not count. The newest sentence with the
+  id decides, so "Keep ID." after "Forget ID." keeps it. Each ID of a batch must be in those
+  words, and one refusal changes no fact. The change record gets
+  `"author": "agent:<tool>"`, `memory show` names that author, and the output prints a `told:`
+  line for each ended fact with its text. The refusal says how to end it: ask "Shall I end ID?" as
+  the last sentence and run the change after the yes, or the owner types the id, or the owner runs
+  the command from their own shell. An agent can still mark such a fact
+  `promoted --held-by FILE`, because the file keeps the rule. The owner at a terminal can change
+  any fact as before.
 - `memory instructions` and the session rules name the promote step:
   `memory change ID --status promoted --held-by FILE --reason "..."` when a tracked file (a skill,
   `CLAUDE.md`, a lint) now holds a fact. Before, they named only `expired` and `wrong`, so an agent
@@ -53,7 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The first commit of work in progress counts too, so the agent checks before it ends one. The
   proposal shows the commit, its date and subject, and the exact
   `memory change ID --status expired --reason "..."` command. For a fact that a person stated (a
-  told fact, or the owner's rule), the proposal says to ask the owner first, and
+  told fact, or the owner's rule), the proposal gives the question to ask the owner first,
+  "Shall I end ID, whose work landed?", and the command to run after the yes, with no fact text in
+  either, and
   `memory tidy --apply` skips it with a line that says so; `memory change` then prints the owner
   notice. The session start names those facts in one line, and names the ones that a person
   stated. Nothing ends on its own: auto-tidy still never retires a rule or a told fact. A

@@ -251,6 +251,10 @@ MUST_NOT_MATCH = {
         "Save it.",
         [approved("I can add a rule so this sticks. Want me to save it?")],
     ),
+    "asking words of the claim turn an approved remove into a keep": (
+        "OK to keep the old generated build output files in the cache folder.",
+        [approved("Shall I remove the old generated build output files in the cache folder?")],
+    ),
 }
 
 

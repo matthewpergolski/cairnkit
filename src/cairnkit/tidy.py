@@ -117,16 +117,17 @@ def _landed(memory: Memory, active: list[dict]) -> list[Proposal]:
     for fid, work in sorted(landed_work(memory, active, patient=True).items()):
         reason = f"Work landed in {work.commit} on {work.date}."
         ask = person_said(by_id[fid])
+        # No fact text in the question or the command: it is data, and a shell runs the command.
         end = (
-            f"{ASK_OWNER} If the owner agrees, end it: memory change"
+            f'{ASK_OWNER} Ask "Shall I end {fid}, whose work landed?" After their yes: memory '
+            f'change {fid} --status expired --reason "{reason[:-1]}; the owner approved."'
             if ask
-            else "End it: memory change"
+            else f'End it: memory change {fid} --status expired --reason "{reason}"'
         )
         summary = clean(
             f"{fid} ({by_id[fid].get('kind')}, {_snippet(by_id[fid])!r}): its work landed in "
-            f"{work.commit} on {work.date} ({work.subject!r}). {end} {fid} "
-            f'--status expired --reason "{reason}" If it still holds: memory change {fid} '
-            f'--status active --reason "Still holds after {work.commit}."'
+            f"{work.commit} on {work.date} ({work.subject!r}). {end} If it still holds: memory "
+            f'change {fid} --status active --reason "Still holds after {work.commit}."'
         )
         change = {"id": fid, "status": "expired", "reason": reason}
         out.append(Proposal("landed", summary, [change], ask=ask))
@@ -248,8 +249,8 @@ def run_tidy(memory: Memory, apply: list[str] | None) -> int:
         if by_id[pid].ask and running_tool():
             ids = ", ".join(change["id"] for change in by_id[pid].changes)
             print(
-                f"skipped {pid}: a person stated {ids}, so ask the owner. If the owner agrees, run "
-                "the `memory change` command that `memory tidy` shows."
+                f"skipped {pid}: a person stated {ids}, so ask the owner the question that "
+                "`memory tidy` shows, and after their yes run its `memory change` command."
             )
             continue
         chosen.append(pid)
