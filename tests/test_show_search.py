@@ -129,3 +129,13 @@ def test_search_names_the_memory_folder_when_no_link_leads_to_it(mem, repo, caps
     _, out = run(capsys, "search", "kubernetes")
     assert f"- {mem}/notes/status.md:3: Kubernetes is out of scope." in out
     assert "memory-bank" not in out
+
+
+def test_search_names_the_memory_folder_when_the_link_is_a_loop(mem, repo, capsys, monkeypatch):
+    write_note(mem, "status.md", "# Status\n\nKubernetes is out of scope.\n")
+    (repo / "memory-bank").unlink()
+    (repo / "memory-bank").symlink_to(repo / "memory-bank")
+    monkeypatch.setenv("MEMORY_DIR", str(mem))
+    code, out = run(capsys, "search", "kubernetes")
+    assert code == 0
+    assert f"- {mem}/notes/status.md:3: Kubernetes is out of scope." in out
