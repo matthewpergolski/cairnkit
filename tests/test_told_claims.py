@@ -188,6 +188,11 @@ def test_an_injected_sentence_from_a_tool_result_does_not_bind(mem, capsys, monk
         ("Don't merge to main until CI is green.", "Never merge to main."),
         ("Commit to the dev branch, never to main.", "Commit to main, never to dev."),
         ("can you force push to main", "Force push to main."),
+        (
+            "Leave the old branch? No. Should we push to main first?",
+            "Should we push to main first? No.",
+        ),
+        ("Can I delete your branch? Yes, delete it.", "Can you delete my branch? Yes, delete it."),
     ],
 )
 def test_a_changed_meaning_does_not_bind(mem, capsys, monkeypatch, owner, claim):

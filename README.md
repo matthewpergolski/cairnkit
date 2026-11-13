@@ -553,7 +553,7 @@ number, a path, a flag, a name). So "Stop skipping the tests" does not confirm "
 the tests", and "Don't merge to main until CI is green" does not confirm "Never merge to
 main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
-and a sentence that opens with `if` state no rule. A copy of the whole prompt with such a question in it ("ok, make these changes. how?") binds by its rule when each question in it is the owner's, word for word. An approval and an answer count only in their own turn, until the next owner prompt.
+and a sentence that opens with `if` state no rule. A claim with a rule and such a question binds only when it is the owner's whole prompt ("ok, make these changes. how?"), with only case, spaces and the marks at its end changed. An approval and an answer count only in their own turn, until the next owner prompt.
 A claim whose words are only a reply that says nothing (`yes`, `Owner said: go ahead`,
 `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`)
 confirms nothing, because it tells a later reader nothing. This list is wider than the
