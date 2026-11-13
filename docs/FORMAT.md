@@ -589,14 +589,18 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   of objects with `call` (the `tool_use_id`), `session`, `kind` (`subagent_type`), `about` (the
   `description`, at most 12 words), `task` (the prompt, at most 60 words), `started_at` (Unix
   seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base` and `told` (the sessions
-  whose load named it). Each text field is masked and made one line before it is written. The file
+  seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base`, `told` (the sessions
+  whose load named it) and `transcript` (the helper's own transcript: `agent_transcript_path`, else
+  `<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`, set by `subagent-start`). is masked and made one line before it is written. The file
   holds at most 50 records, under the lock `.sessions/helpers/.lock`. `subagent-stop` removes the
   record of that `agent_id`. `after-shell` on the `Agent` tool removes the record of the call, or,
   for `"status": "async_launched"`, adds its `agentId`. `stop` removes the calls of its turn with
   no helper, and each record that its session's load named whose checkout is not there.
 - The load adds one `- [helper]` line under `## Live work` for each of the 3 oldest records (with
   the count of the others) whose `started_at` is in the last 24 hours, or whose own checkout
-  still holds commits since `base` or uncommitted changes. It is inside the frame of
+  still holds uncommitted changes or commits since `base` that no `main`, `master`, `dev` or
+  `develop` ref (local or `origin`) holds. A record whose `transcript` file exists and has a file
+  time older than 30 minutes is not named. The load reads only that file time. It is inside the frame of
   stored notes, because the text came from an agent. A load for `compact` or `reload` leaves out the records of its own session.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
   checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before

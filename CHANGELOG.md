@@ -347,6 +347,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pytest -q 2>&1 | tail -5` and `uv run pytest -q 2>&1 | tail -20` pair. Before, one shared
   step was enough, so `cd ...; cat spec; sed ...` that failed paired with a later
   `S=... gh ...; S=... sed ...` that did other work.
+- A Claude Code helper whose own transcript had no write for 30 minutes leaves the `## Live work`
+  list, also when no `SubagentStop` came. TaskStop does not always fire `SubagentStop`, so a
+  stopped helper and one that ended a day ago stayed on the list as "no end recorded", with the
+  order to leave their work. The `SubagentStart` hook keeps the path of the helper's transcript:
+  `<parent transcript without .jsonl>/subagents/agent-<agent_id>.jsonl`, from the parent's
+  `transcript_path`. The load reads only the file time, never the file. A helper with no such
+  file (another agent, or a transcript not written yet) keeps the 24-hour rule. Uncommitted
+  changes in the helper's worktree stay on the list as a checkout, as after a `SubagentStop`.
+- Commits of a helper that `main`, `master`, `dev` or `develop` (local or on `origin`) holds are
+  no live work. So a helper older than 24 hours whose commits merged leaves the list. Before, each
+  commit since the helper started kept it there. A squash merge or a rebase makes new commits, so
+  their old commits still count.
 - A stop event that the stop asked about is not asked again in the session. What was asked is in
   `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
   hook that saved that state from a read before the stop brought the question back on later turns.

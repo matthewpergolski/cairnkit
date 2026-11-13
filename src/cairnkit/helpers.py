@@ -7,7 +7,7 @@ no brief. A background call returns at once with the id (`async_launched`), and 
 on it. A foreground call returns only at its end, so `SubagentStart` takes the oldest call of the
 session for that agent type that has no helper yet. Calls in one message start in the order sent.
 
-An event ends a record, never a clock:
+An event ends a record, not the time since its call:
 
 - `SubagentStop` of its helper, or the result of its call (a foreground helper that returned, or
   a failure);
@@ -16,9 +16,15 @@ An event ends a record, never a clock:
   That checkout holds the evidence, so the record stays with it. A gone checkout is no end by
   itself: on a Ctrl+C, Claude Code removes the worktree of a killed helper that changed nothing.
 
+TaskStop does not always fire SubagentStop, so a stopped helper can leave its record. Claude Code
+writes each step of a helper to the helper's own transcript, `<parent transcript without
+.jsonl>/subagents/agent-<agent_id>.jsonl`, so a transcript with no write for QUIET_SECONDS is an
+end too. A load only reads the file time, never the file. A record with no such file (another
+agent, or a transcript not written yet) has no such end.
+
 A load names a record for SHOWN_SECONDS after the call. After that, it names the record only while
-the record's own checkout holds commits since the start or uncommitted changes (live.py), because
-that is live work. Else the record is noise.
+the record's own checkout holds commits since the start that no main branch holds, or uncommitted
+changes (live.py), because that is live work. Else the record is noise.
 
 All records live in one file under one lock, because helpers of one session start at once.
 The text is agent-written: each field is masked and cut before it is stored.
@@ -54,6 +60,8 @@ LOCK_WAIT = 0.5
 # No hook event comes from a helper record after its start, so a lost end stays. A load names it
 # for a day, longer than a helper runs, and then only while its checkout holds the work it left.
 SHOWN_SECONDS = 24 * 3600
+# A helper writes its transcript at each step. One Bash call ends in 10 minutes at most.
+QUIET_SECONDS = 1800
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,17 @@ class Helper:
     checkout: str | None = None  # the helper's own checkout, when it is not the parent's
     base: str | None = None  # HEAD of that checkout when the helper started
     told: tuple[str, ...] = field(default_factory=tuple)  # sessions whose load named it
+    transcript: str | None = None  # the helper's own transcript, on Claude Code
+
+    @property
+    def quiet(self) -> bool:
+        """True when its own transcript is there and had no write for QUIET_SECONDS."""
+        if not self.transcript:
+            return False
+        try:
+            return os.stat(self.transcript).st_mtime < time.time() - QUIET_SECONDS
+        except (OSError, ValueError):
+            return False
 
     @property
     def launched(self) -> bool:
@@ -194,6 +213,17 @@ def on_result(memory: Memory, payload: dict) -> None:
         _update(memory, lambda helpers: [h for h in helpers if h.call != call])
 
 
+def _own_transcript(payload: dict, agent: str) -> str | None:
+    """Where Claude Code writes the helper's transcript, from the parent's `transcript_path`."""
+    named = str(payload.get("agent_transcript_path") or "")
+    if named:
+        return os.path.expanduser(named)
+    parent = os.path.expanduser(str(payload.get("transcript_path") or ""))
+    if not parent.endswith(".jsonl"):
+        return None
+    return str(Path(parent).with_suffix("") / "subagents" / f"agent-{agent}.jsonl")
+
+
 def on_start(memory: Memory, session: str, payload: dict) -> None:
     """`SubagentStart`: the helper's id and its own checkout."""
     agent = str(payload.get("agent_id") or "")
@@ -216,7 +246,8 @@ def on_start(memory: Memory, session: str, payload: dict) -> None:
         here = cwd and not _same(cwd, mine.parent) and is_checkout(memory.project, cwd)
         own = cwd if here else None
         base = run_git(Path(own), "rev-parse", "HEAD", timeout=GIT_TIMEOUT) if own else None
-        found = replace(mine, agent=agent, checkout=own, base=base or None)
+        transcript = _own_transcript(payload, agent)
+        found = replace(mine, agent=agent, checkout=own, base=base or None, transcript=transcript)
         return [found if h.call == mine.call else h for h in helpers]
 
     _update(memory, join)
