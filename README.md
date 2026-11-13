@@ -751,7 +751,9 @@ owner's words"). `--reason` is the agent's text and does not count, and a senten
 shares a word with the fact ("forget the uv rule") names nothing. The sentence with the id must
 have no word such as not, never, keep or unless. A question that the owner typed does not
 count, except a request that only names ids: "Can you end ID?", "Could you please forget ID?",
-"Please end ID?". The record names the agent as `author`, and the output names each ended fact with its
+"Please end ID?". "Will you" and "would you" do not count. A later sentence of the same prompt
+with such a word, or with wait, cancel, hold or scratch, takes the end back: "End ID. Wait,
+don't." ends nothing. The record names the agent as `author`, and the output names each ended fact with its
 text. Anything else refuses, and the refusal says to ask "Shall I end ID?", or that the owner
 types the id or runs the command from their own shell.
 

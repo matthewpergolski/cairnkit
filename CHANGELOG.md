@@ -23,9 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hold those words, as for `memory add --basis told`. `--reason` is the agent's text, so it does
   not count. The sentence with the id must have no word such as not, never, keep or unless. A
   question that the owner typed ("Should we end ID?") does not count, but a request that only
-  names ids does: "can, could, would or will you (please) end, expire, forget, drop or remove ID?"
-  and "Please end ID?". The newest sentence with the
-  id decides, so "Keep ID." after "Forget ID." keeps it. Each ID of a batch must be in those
+  names ids does: "can or could you (please) end, expire, forget, drop or remove ID?" and
+  "Please end ID?". "Will you" and "would you" do not count, because they often ask about the
+  agent's plan. The newest sentence with the id decides, so "Keep ID." after "Forget ID." keeps
+  it, and a later sentence of the same prompt with such a word, or with wait, cancel, hold or
+  scratch, takes the end back: "End ID. Wait, don't." and "Can you end ID? Never mind." end
+  nothing. Each ID of a batch must be in those
   words, and one refusal changes no fact. The change record gets
   `"author": "agent:<tool>"`, `memory show` names that author, and the output prints a `told:`
   line for each ended fact with its text. The refusal says how to end it: ask "Shall I end ID?" as

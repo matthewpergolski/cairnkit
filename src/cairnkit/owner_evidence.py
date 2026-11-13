@@ -508,10 +508,13 @@ def check_claim(memory: Memory, text: str) -> Verdict:
 # A sentence with one of these words keeps the fact, or makes its end wait for something.
 _KEEP_TEXT = "keep stay retain stop skip avoid refuse except unless until without if"
 _KEEPS = frozenset([NOT, *map(stem, _KEEP_TEXT.split())])
+# A later sentence of the same prompt with one of these words takes an end back: "Wait, don't."
+_TAKES_BACK = _KEEPS | {*map(stem, ["wait", "cancel", "hold", "scratch"])}
 # A request in the form of a question: "Can you end ID?", "Please end ID?". Only the ids follow
-# the verb, so "Can you end the note in ID?" asks for no end.
+# the verb, so "Can you end the note in ID?" asks for no end. "Will you" and "would you" often ask
+# about the agent's plan, so they do not count.
 _END_REQUEST = re.compile(
-    rf"(?i)(?:(?:can|could|would|will) you(?: please)?|please) (?:end|expire|forget|drop|remove)"
+    rf"(?i)(?:(?:can|could) you(?: please)?|please) (?:end|expire|forget|drop|remove)"
     rf" {ID}(?:(?:,? and|,) {ID})*(?:,? please)?\?*"
 )
 
@@ -524,9 +527,10 @@ def names_ids(memory: Memory, ids: list[str]) -> Verdict:
     closing question that the owner approved with a short yes in this turn counts, with the
     transcript proof of `check_claim`. The id must be in that sentence itself: words that only
     share a word with the fact name nothing. The newest such sentence decides, so "Keep ID" after
-    "End ID" keeps it. A sentence with a word of _KEEPS ("Do not end ID") keeps the fact. A
-    question that the owner typed ("Should we end ID?") counts for nothing, unless it is a request
-    of _END_REQUEST ("Can you end ID?").
+    "End ID" keeps it. A sentence with a word of _KEEPS ("Do not end ID") keeps the fact, and so
+    does a later sentence of the same prompt with a word of _TAKES_BACK ("End ID. Wait, don't."),
+    with no id or another one. A question that the owner typed ("Should we end ID?") counts for
+    nothing, unless it is a request of _END_REQUEST ("Can you end ID?").
     """
     items = _session_evidence(memory)
     if isinstance(items, Verdict):
@@ -537,17 +541,21 @@ def names_ids(memory: Memory, ids: list[str]) -> Verdict:
         for item in items:  # oldest first; the approval of this turn is last
             if item.kind not in ("prompt", "approval"):
                 continue
+            ended_here = False
             for sentence in sentences(item.text):
+                keys = {key for key, _ in tokens(sentence)}
                 if fact_id not in re.findall(ID, sentence.lower()):
+                    if ended_here and keys & _TAKES_BACK:
+                        newest, ended_here = "keep", False
                     continue
-                if any(key in _KEEPS for key, _ in tokens(sentence)):
-                    newest = "keep"
+                if keys & _KEEPS:
+                    newest, ended_here = "keep", False
                 elif (
                     item.kind == "approval"
                     or states_a_rule(sentence)
                     or _END_REQUEST.fullmatch(" ".join(sentence.split()))
                 ):
-                    newest = item.kind
+                    newest, ended_here = item.kind, True
         if newest is None:
             return Verdict(
                 False,
