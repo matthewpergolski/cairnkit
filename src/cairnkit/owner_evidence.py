@@ -508,6 +508,12 @@ def check_claim(memory: Memory, text: str) -> Verdict:
 # A sentence with one of these words keeps the fact, or makes its end wait for something.
 _KEEP_TEXT = "keep stay retain stop skip avoid refuse except unless until without if"
 _KEEPS = frozenset([NOT, *map(stem, _KEEP_TEXT.split())])
+# A request in the form of a question: "Can you end ID?", "Please end ID?". Only the ids follow
+# the verb, so "Can you end the note in ID?" asks for no end.
+_END_REQUEST = re.compile(
+    rf"(?i)(?:(?:can|could|would|will) you(?: please)?|please) (?:end|expire|forget|drop|remove)"
+    rf" {ID}(?:(?:,? and|,) {ID})*(?:,? please)?\?*"
+)
 
 
 def names_ids(memory: Memory, ids: list[str]) -> Verdict:
@@ -518,8 +524,9 @@ def names_ids(memory: Memory, ids: list[str]) -> Verdict:
     closing question that the owner approved with a short yes in this turn counts, with the
     transcript proof of `check_claim`. The id must be in that sentence itself: words that only
     share a word with the fact name nothing. The newest such sentence decides, so "Keep ID" after
-    "End ID" keeps it. A sentence with a word of _KEEPS ("Do not end ID") keeps the fact, and a
-    question that the owner typed ("Should we end ID?") counts for nothing.
+    "End ID" keeps it. A sentence with a word of _KEEPS ("Do not end ID") keeps the fact. A
+    question that the owner typed ("Should we end ID?") counts for nothing, unless it is a request
+    of _END_REQUEST ("Can you end ID?").
     """
     items = _session_evidence(memory)
     if isinstance(items, Verdict):
@@ -535,7 +542,11 @@ def names_ids(memory: Memory, ids: list[str]) -> Verdict:
                     continue
                 if any(key in _KEEPS for key, _ in tokens(sentence)):
                     newest = "keep"
-                elif item.kind == "approval" or states_a_rule(sentence):
+                elif (
+                    item.kind == "approval"
+                    or states_a_rule(sentence)
+                    or _END_REQUEST.fullmatch(" ".join(sentence.split()))
+                ):
                     newest = item.kind
         if newest is None:
             return Verdict(

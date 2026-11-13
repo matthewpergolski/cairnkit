@@ -21,8 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session hold its id: the agent's closing question that a short "yes" approved in this turn, such
   as "Shall I end ID?", or a prompt that the owner typed ("Forget ID."). The transcript must
   hold those words, as for `memory add --basis told`. `--reason` is the agent's text, so it does
-  not count. The sentence with the id must have no word such as not, never, keep or unless, and a
-  question that the owner typed ("Should we end ID?") does not count. The newest sentence with the
+  not count. The sentence with the id must have no word such as not, never, keep or unless. A
+  question that the owner typed ("Should we end ID?") does not count, but a request that only
+  names ids does: "can, could, would or will you (please) end, expire, forget, drop or remove ID?"
+  and "Please end ID?". The newest sentence with the
   id decides, so "Keep ID." after "Forget ID." keeps it. Each ID of a batch must be in those
   words, and one refusal changes no fact. The change record gets
   `"author": "agent:<tool>"`, `memory show` names that author, and the output prints a `told:`
