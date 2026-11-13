@@ -46,13 +46,15 @@ NOTE_WORDS = 20
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
 # Words in front of a command that run it as it is, with their options and settings. For each:
 # its short options that take a value, and its long options that take one as the next word.
+# The value of sudo's `-h` is optional, so only `-hHOST` gives one; `--host` needs one.
 RUN_AS = {
     "sudo": (
-        "CDghpRrTtUu",
-        frozenset({"--close-from", "--chdir", "--group", "--host", "--prompt", "--chroot",
-                   "--role", "--command-timeout", "--type", "--other-user", "--user"}),
+        "aCcDgpRrTtUu",
+        frozenset({"--auth-type", "--close-from", "--login-class", "--chdir", "--group",
+                   "--host", "--prompt", "--chroot", "--role", "--command-timeout", "--type",
+                   "--other-user", "--user"}),
     ),
-    "env": ("CSu", frozenset({"--chdir", "--split-string", "--unset"})),
+    "env": ("aCPSu", frozenset({"--argv0", "--chdir", "--split-string", "--unset"})),
 }  # fmt: skip
 ORDER = (
     "Live work that this session did not start is listed under `## Live work`. Do not commit, "
