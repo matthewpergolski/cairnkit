@@ -30,6 +30,10 @@ SIGNING_PICKED = choice_evidence(
 RUNNER = choice_evidence(["pytest", "unittest"], "pytest")
 
 MUST_MATCH = {
+    "a whole prompt that ends in the owner's question": (
+        "ok let's make these optimizations.  how?",
+        [said("ok let's make these optimizations.  how?")],
+    ),
     "an attribution in front": (
         "The owner said: Keep forget after 90 days as the default.",
         [said('Keep "forget after 90 days" as the default')],
@@ -100,6 +104,11 @@ MUST_MATCH = {
 }
 
 MUST_NOT_MATCH = {
+    "a question that the owner did not type": (
+        "Never push to main. How?",
+        [said("Never push to main. Why?")],
+    ),
+    "a question with no rule": ("Should we push to main?", [said("Should we push to main?")]),
     "an ellipsis that joins two sentences": (
         "Never \u2026 commit directly to main.",
         [said("No. Commit directly to main.")],

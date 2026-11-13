@@ -84,7 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped or changed, and the claim must hold 80 percent of the sentence. An ellipsis in the
   claim (`...` beside a space, or the ellipsis character) marks words left out of one sentence of
   the owner, never a join of two sentences. A typed question and a
-  hypothetical (`what if`, `suppose`) state no rule. A condition the owner typed whole ("If you
+  hypothetical (`what if`, `suppose`) state no rule; a copy of the whole prompt with a question
+  in it binds by its rule when each question in it is the owner's, word for word. A condition the owner typed whole ("If you
   touch the schema, update FORMAT.md") binds whole; a claim that drops the condition does not.
   An attribution in front (`The owner said:`, `Owner (Sam) decided 2026-11-08:`, `User:`) does not
   count against the match. It must name who spoke with a verb such as `said` or the word owner or

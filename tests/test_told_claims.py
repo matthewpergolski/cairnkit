@@ -723,3 +723,11 @@ def test_confirmed_is_only_false_on_a_told_fact(value):
     assert validate_record(record)
     assert not validate_record({**record, "confirmed": False})
     assert validate_record({**record, "confirmed": False, "basis": "seen"})
+
+
+def test_a_copy_of_the_whole_prompt_with_its_question_binds(mem, capsys, monkeypatch):
+    """A field agent copied "ok let's make these optimizations.  how?" exactly; it stayed
+    unconfirmed, because the question in it stated no rule."""
+    words = "ok let's make these optimizations.  how?"
+    prompt(capsys, monkeypatch, words)
+    assert "told: confirmed" in agent_add(capsys, monkeypatch, words)
