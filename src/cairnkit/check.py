@@ -516,7 +516,7 @@ def _hook_lines(state: githook.HookState, health: Health) -> None:
         health.todo.append(state.line)
 
 
-def _read_health(project: Project, flag: str | None) -> Health:
+def _read_health(project: Project, flag: str | None, compare: bool) -> Health:
     memdir, source = resolve_memory_dir(project, flag)
     health = Health(memdir, source, linked=ensure_all_linked(project, flag))
     health.warnings += _bad_path_file(project)
@@ -582,7 +582,11 @@ def _read_health(project: Project, flag: str | None) -> Health:
     health.stray = migrate_refs.stray_files(memdir)
     _hook_lines(hooks, health)
     # For a hook that it can fix, repo_line says only what the hook state already said.
-    repo = refresh.gone_python_line(project) if hooks.fixable else refresh.repo_line(project, flag)
+    repo = (
+        refresh.gone_python_line(project)
+        if hooks.fixable
+        else refresh.repo_line(project, flag, compare)
+    )
     if repo:
         health.todo.append(repo)
     note = preset_note(project, memdir)
@@ -591,10 +595,14 @@ def _read_health(project: Project, flag: str | None) -> Health:
     return health
 
 
-def read_health(project: Project, flag: str | None = None) -> Health:
-    """Compute the answer once. A command never fails on the way to saying what is wrong."""
+def read_health(project: Project, flag: str | None = None, compare: bool = False) -> Health:
+    """Compute the answer once. A command never fails on the way to saying what is wrong.
+
+    `compare` reads the repo files to find out if another build of this version writes them
+    differently. A hook that runs on each turn leaves it off.
+    """
     try:
-        return _read_health(project, flag)
+        return _read_health(project, flag, compare)
     except MemoryTracked as exc:
         return Health(missing=str(exc), gone=True)
     except MemoryMissing as exc:

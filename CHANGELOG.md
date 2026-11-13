@@ -374,6 +374,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Text for an agent names `memory-bank/` only when that link leads to the memory. When
+  `.memory-path` or `MEMORY_DIR` picks the memory and `memory-bank` is gone or leads to another
+  folder, the `Tidy follow-up pending` line of `memory load` and the note lines of `memory search`
+  name the memory folder path. The rules block and the push refusal of the guard name no link:
+  "Never edit memory files by hand" and "add this to config.toml in the memory folder".
+- `memory update` reads the system `uv.toml` again (`/etc/uv/uv.toml` or `XDG_CONFIG_DIRS`, and
+  `%PROGRAMDATA%` on Windows), merged with your user `uv.toml` as uv does. Before, it gave uv
+  `--no-config` and one `--config-file`, so a user `uv.toml` hid the system one. uv now runs with
+  no config flag in `~/.cache/cairnkit`, with `--project` and `--directory` on that folder. An
+  empty `pyproject.toml` and an empty `uv.toml` there stop uv from reading settings in a folder
+  above it, also from a project or workspace above the cache. A `uv.toml`, `[tool.uv]` or `.venv`
+  in the folder of the caller, and `UV_PROJECT` or `UV_WORKING_DIR`, still have no effect.
+- The session start and `memory status` ask for `memory init --refresh` when the repo files come
+  from another build of the same version and this build would write them differently, as "come
+  from memory 0.3.1 @6b4bdf0; this is 0.3.1 @81f8499". Before, only the version counted, so such
+  files read as current. They compare the hooks and the rules block with what the refresh would
+  write, and write no repo file. When the files are the same, they say nothing. The answer is
+  kept in the user cache for each repo and pair of commits, so only the first session start after
+  a new build pays for the compare (about 0.2 s); later ones read the answer in less than 1 ms.
+  When the record or the running tool has no commit, the version compare stays as it was.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The

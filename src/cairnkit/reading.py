@@ -8,7 +8,7 @@ from pathlib import Path
 from cairnkit import plainfile, ranking, usage
 from cairnkit.clock import now
 from cairnkit.memory import Memory
-from cairnkit.paths import LINK_NAME, merged_checker
+from cairnkit.paths import merged_checker
 from cairnkit.secretscan import mask, readable
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean, render
 from cairnkit.state import effective_status
@@ -118,7 +118,7 @@ def note_files(folder: Path) -> list[Path]:
 def note_hits(
     memory: Memory, terms: list[str], strict: bool = False, prefix: bool = False
 ) -> list[str]:
-    """Lines of notes/ as `memory-bank/notes/PATH:LINE: text`, best first.
+    """Lines of notes/ as `<memory>/notes/PATH:LINE: text`, best first.
 
     A line counts when it holds any term (BM25 over the lines). With `strict`, it must
     hold every term, as a substring, and the lines come in file order. With `prefix`, a term
@@ -147,7 +147,7 @@ def note_hits(
     shown = []
     for rel, n, line, _ in picked:
         text = _snippet(line, terms, strict, prefix)
-        shown.append(clean(f"- {LINK_NAME}/notes/{rel}:{n}: {text}"))
+        shown.append(clean(f"- {memory.where}/notes/{rel}:{n}: {text}"))
     return shown
 
 

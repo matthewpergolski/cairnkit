@@ -504,7 +504,12 @@ dev builds can have one version number, so the refresh line names both builds:
 "come from memory 0.3.1 @6b4bdf0; this is 0.3.1 @81f8499". A record with no
 `commit` reads as an older build of that version.
 When `version` is lower than the running tool, the session start prints one
-line that asks for `memory init --refresh`. The same line appears when the
+line that asks for `memory init --refresh`. For the same `version`, when
+`commit` and the running build's commit are both known and differ, the session
+start and `memory status` print it only when the running build would write the
+repo files differently. They read the files to find out and write no repo
+file. The user cache keeps the answer for this repo and these two commits, so
+the compare runs once for each pair. The stop hook does not make this compare. The same line appears when the
 local `post-merge` hook still holds `# cairnkit:docs-check`, the docs check
 that older builds of the same version wrote. A release that changes a block
 or hook raises the version.
@@ -692,6 +697,10 @@ The user cache is `$XDG_CACHE_HOME/cairnkit`, else `~/.cache/cairnkit`:
   fresh for one day, or one hour after a failure.
 - `update-notice.json`: the last update notice that a load showed. It holds
   the notice to once per version pair.
+- `build-compare/<16 hex of the repo path>.json`: the last answer of the
+  compare with another build of the same version (`key`: the repo, the memory
+  folder, the recorded commit and the running commit; `differs`). A different
+  key compares again.
 - `wheels/<12 hex of the environment path>/install-*/<wheel>`: the wheel that
   the uv receipt points to after `memory update`.
 - `wheels/update.lock`: the lock that one update holds from the check to the

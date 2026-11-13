@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import os
 import shutil
 import subprocess
 import sys
@@ -343,23 +342,20 @@ def _fetch(bar: Progress, source, found: Latest, tmp: Path) -> tuple[Path, Lates
 
 
 def _uv(uv: str, command: tuple[str, ...], *args: str) -> tuple[int, str]:
-    """Run uv with no setting from the folder of the caller. The owner's own uv.toml still counts.
+    """Run uv with no setting from the folder of the caller. The owner's uv settings still count.
 
-    uv reads `uv.toml`, `[tool.uv]` and a `.venv` in the folder where it starts and above it. A
-    repo can hold each of them, so uv starts in the tool's cache folder and finds no config.
+    uv reads `uv.toml`, `[tool.uv]` and a `.venv` from the project it finds: the folder where it
+    starts, UV_PROJECT or UV_WORKING_DIR, and a workspace in a folder above. A repo can hold each
+    of them, so uv runs on the tool's cache folder as its project, where an empty `pyproject.toml`
+    and `uv.toml` hold no setting and stop the search upward. uv still reads its user and system
+    settings and UV_CONFIG_FILE.
     """
-    config = [] if os.environ.get("UV_CONFIG_FILE") else _owner_uv_config()
-    home = cache_dir()
+    home = cache_dir().absolute()
     home.mkdir(parents=True, exist_ok=True)
-    return _run([uv, *command, "--no-config", *config, *args], cwd=home)
-
-
-def _owner_uv_config() -> list[str]:
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    for path in (Path(base) / "uv" / "uv.toml", Path("/etc/uv/uv.toml")):
-        if path.is_file():
-            return ["--config-file", str(path)]
-    return []
+    for name in ("pyproject.toml", "uv.toml"):
+        (home / name).write_text("")
+    where = ("--project", str(home), "--directory", str(home))
+    return _run([uv, *command, *where, *args], cwd=home)
 
 
 def _build(bar: Progress, uv: str, folder: Path, tmp: Path) -> Path:
@@ -468,7 +464,7 @@ def run_status(project, flag: str | None) -> int:
     print(src.update_line(background=False) or "No update found.")
     for line in src.pending_change_lines():
         print(line)
-    health = read_health(project, flag)
+    health = read_health(project, flag, compare=True)
     for line in [
         *health.linked,
         health.answer(),

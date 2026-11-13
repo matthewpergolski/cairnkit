@@ -177,6 +177,19 @@ def test_a_candidate_file_that_is_not_utf8_does_not_raise(mem):
     assert not path.exists()
 
 
+def test_the_refresh_names_the_memory_folder_when_no_link_leads_to_it(
+    repo, mem, capsys, monkeypatch
+):
+    write_facts(mem, [make_fact("f-20261001-0001", FRAGMENT, **GATE)])
+    _candidates(mem, "f-20261001-0001")
+    (repo / "memory-bank").unlink()
+    monkeypatch.setenv("MEMORY_DIR", str(mem))
+    capsys.readouterr()
+    assert main(["init", "--refresh"]) == 0
+    line = next(item for item in capsys.readouterr().out.splitlines() if "mined" in item)
+    assert f"`grep mined {mem}/auto-tidy.log`" in line
+
+
 def test_clean_is_safe_to_repeat_and_needs_no_file(mem):
     memory = Memory.open(find_project(), None)
     assert legacy.clean(memory) == []

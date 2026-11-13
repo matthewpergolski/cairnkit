@@ -7,7 +7,15 @@ from pathlib import Path
 
 from cairnkit.config import load_config
 from cairnkit.envsecrets import EnvValues, read_env_values
-from cairnkit.paths import Project, lost_memory, lost_note, memory_tracked_by, resolve_memory_dir
+from cairnkit.init import is_linked
+from cairnkit.paths import (
+    LINK_NAME,
+    Project,
+    lost_memory,
+    lost_note,
+    memory_tracked_by,
+    resolve_memory_dir,
+)
 from cairnkit.secretscan import (
     find_in_closed_fields,
     find_in_record,
@@ -134,6 +142,11 @@ class Memory:
             if find_in_closed_fields(state):
                 state = mask_closed_fields(state)
             self.states[state["id"]] = state
+
+    @property
+    def where(self) -> str:
+        """How text for an agent names this folder: the link, only when it leads here."""
+        return LINK_NAME if is_linked(self.project.root, self.dir) else clean_path(self.dir)
 
     def writer_file(self, writer: str) -> Path:
         return self.dir / "facts" / f"{writer}.jsonl"

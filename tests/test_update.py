@@ -99,9 +99,8 @@ def test_update_from_a_local_folder_shows_each_step_and_both_versions(machine, c
         assert f"  {step}... done" in out
     assert "0.1.0 -> 0.2.0" in out
     calls = machine.uv_calls()
-    build = next(c for c in calls if c.startswith("build --no-config "))
+    build = next(c for c in calls if c.startswith("build "))
     assert not build.endswith(str(machine.source))  # a fixed copy, not the live folder
-    assert install_line(machine).startswith("tool install --no-config ")
     assert " --force --reinstall cairnkit @ file:" in install_line(machine)
     assert install_line(machine).endswith(".whl")
     record = machine.record()
@@ -156,7 +155,6 @@ def test_an_install_under_the_old_name_updates_to_cairnkit(machine, monkeypatch,
     assert install_source.installed(None) == (install_source.parse(str(machine.source)), "0" * 40)
     assert main(["update"]) == 0
     out = capsys.readouterr().out
-    assert install_line(machine).startswith("tool install --no-config ")
     assert " --force --reinstall cairnkit @ file:" in install_line(machine)
     assert machine.record()["commit"] == head(machine.source)  # in the new cairnkit env
     assert "uv tool uninstall project-memory" in out

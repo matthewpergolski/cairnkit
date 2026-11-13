@@ -18,9 +18,9 @@ PAIRS = ((START, END), ("<!-- project-memory:start -->", "<!-- project-memory:en
 TEXT = """\
 ## Project memory
 
-This project has a private memory outside the repo, linked as `memory-bank`.
-`memory load` prints the facts for this session. A connected agent tool runs it by
-itself. If its output is not in your context, run it. Read it before you work.
+This project has a private memory outside the repo. `memory load` names its folder and
+prints the facts for this session. A connected agent tool runs it by itself. If its output
+is not in your context, run it. Read it before you work.
 
 ### Write a fact
 
@@ -64,8 +64,8 @@ commit:HASH, file:PATH, pr:N, person:ROLE.
   owner's words alone; save your own context in a second fact with --basis seen. The add output
   says if the claim is confirmed. If not, tell the owner, and do not say that it binds.
 - **Never store a secret** (password, key, token, private link) in a fact.
-- **Never edit files in `memory-bank/` by hand**, except `notes/`. Use the
-  `memory` command. Never commit `memory-bank`.
+- **Never edit memory files by hand**, except `notes/`. Use the `memory`
+  command. Never commit the memory or a link to it.
 - **If a repo doc teaches an older memory layout** (read a status file, update notes
   by hand, run an old checker), this block and `memory load` win for the memory. The
   rest of that doc still stands.

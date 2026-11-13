@@ -17,7 +17,7 @@ from cairnkit import autotidy, deadline, plainfile, presets
 from cairnkit.autotidy import _protected, outranks
 from cairnkit.clock import now
 from cairnkit.memory import Memory
-from cairnkit.paths import LINK_NAME, merged_checker
+from cairnkit.paths import merged_checker
 from cairnkit.selection import name
 from cairnkit.similar import (
     MAX_COMPARISONS,
@@ -258,4 +258,4 @@ def pending_line(memory: Memory) -> str | None:
     if not found or int(found.group(1)) > MAX_PAIRS:
         return None  # a file from a tool with no limit: its count is not one this tool made
     counts = f"{found.group(1)} pairs" + (f", {found.group(2)} items" if found.group(2) else "")
-    return f"Tidy follow-up pending: {counts}; task: {LINK_NAME}/{TASK_PATH}"
+    return f"Tidy follow-up pending: {counts}; task: {memory.where}/{TASK_PATH}"
