@@ -868,10 +868,10 @@ def test_the_owner_typing_the_id_ends_the_fact(mem, capsys, monkeypatch, prompts
     [
         "Can you end {fid}?",
         "could you please forget {fid}?",
-        "Would you drop {fid}, please?",
-        "Will you remove {fid}?",
+        "Could you drop {fid}, please?",
         "Can you expire {fid} and {fid}?",
         "Please end {fid}?",
+        "Can you end {fid}? I thought told facts were locked.",
     ],
 )
 def test_an_owner_request_phrased_as_a_question_ends_the_fact(mem, capsys, monkeypatch, words):
@@ -881,6 +881,15 @@ def test_an_owner_request_phrased_as_a_question_ends_the_fact(mem, capsys, monke
     assert code == 0, out
     assert f"told: {fid} is expired on the owner's words, confirmed by words the owner typed" in out
     assert UV_RULE not in loaded(capsys)
+
+
+def test_an_owner_request_with_two_ids_ends_both_facts(mem, capsys, monkeypatch):
+    a = added(owner_add(capsys, UV_RULE))
+    b = added(owner_add(capsys, "Do not merge work without review."))
+    prompt(capsys, monkeypatch, f"Can you expire {a} and {b}?")
+    code, out = end(capsys, monkeypatch, a, b)
+    assert code == 0, out
+    assert changes_of(mem, a) and changes_of(mem, b)
 
 
 @pytest.mark.parametrize(
@@ -898,6 +907,17 @@ def test_an_owner_request_phrased_as_a_question_ends_the_fact(mem, capsys, monke
         ["Can you tell me why we would end {fid}?"],
         ["End {fid}.", "Actually, keep {fid}."],
         ["Can you end {fid}?", "Actually, keep {fid}."],
+        # "Will you" and "would you" often ask about the agent's plan.
+        ["Will you remove {fid}?"],
+        ["Would you drop {fid}, please?"],
+        # A later sentence of the same prompt takes the end back.
+        ["End {fid}. Wait, don't."],
+        ["Forget {fid}. No wait."],
+        ["Can you end {fid}? Actually, keep it."],
+        ["Can you end {fid}? Never mind."],
+        ["Expire {fid}. Don't."],
+        ["End {fid}. Wait."],
+        ["Can you end {fid}? I do not want to lose it."],
     ],
 )
 def test_owner_words_that_keep_or_ask_about_the_id_end_nothing(mem, capsys, monkeypatch, prompts):
