@@ -120,3 +120,12 @@ def test_search_skips_a_notes_folder_that_is_a_link(mem, capsys, tmp_path):
     (mem / "notes").symlink_to(outside, target_is_directory=True)
     _, out = run(capsys, "search", "needle")
     assert "needle outside" not in out and "no match" in out
+
+
+def test_search_names_the_memory_folder_when_no_link_leads_to_it(mem, repo, capsys, monkeypatch):
+    write_note(mem, "status.md", "# Status\n\nKubernetes is out of scope.\n")
+    (repo / "memory-bank").unlink()
+    monkeypatch.setenv("MEMORY_DIR", str(mem))
+    _, out = run(capsys, "search", "kubernetes")
+    assert f"- {mem}/notes/status.md:3: Kubernetes is out of scope." in out
+    assert "memory-bank" not in out

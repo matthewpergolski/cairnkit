@@ -160,3 +160,16 @@ def test_the_scan_is_fast_for_many_facts(mem):
     start = time.perf_counter()
     refresh(memory)
     assert time.perf_counter() - start < 3.0
+
+
+def test_load_names_the_memory_folder_when_the_link_leads_elsewhere(mem, repo, capsys):
+    write_facts(mem, pair_facts())
+    run(capsys, "tidy")
+    other = repo.parent / "other"
+    other.mkdir()
+    (repo / "memory-bank").unlink()
+    (repo / "memory-bank").symlink_to(other)
+    (repo / ".memory-path").write_text(f"{mem}\n")
+    _, out = run(capsys, "load")
+    assert f"task: {mem}/proposals/tidy-followups.md" in out
+    assert "memory-bank/" not in out

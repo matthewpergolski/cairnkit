@@ -124,3 +124,13 @@ def test_kinds_line_lists_every_kind(capsys):
     out = capsys.readouterr().out
     [line] = [x for x in out.splitlines() if "Kinds:" in x]
     assert line.strip() == f"Kinds: {', '.join(KINDS)}. Basis: {', '.join(BASES)}."
+
+
+def test_the_rules_block_names_no_link_that_may_not_lead_to_the_memory(repo, capsys, monkeypatch):
+    memdir = repo.parent / "elsewhere"
+    assert main(["init", "--path", str(memdir)]) == 0
+    (repo / "memory-bank").unlink()
+    monkeypatch.setenv("MEMORY_DIR", str(memdir))
+    capsys.readouterr()
+    assert main(["instructions"]) == 0
+    assert "memory-bank" not in capsys.readouterr().out

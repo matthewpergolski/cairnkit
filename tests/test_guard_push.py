@@ -440,3 +440,12 @@ def test_the_printed_rebase_works_beside_a_tracked_hooks_folder(repo, mem, capsy
     done = run_printed(repo, printed(refused.stderr, "git rebase"))
     assert done.returncode == 0, done.stderr
     assert run(repo, "push", str(remote), "main").returncode == 0
+
+
+def test_the_refusal_names_no_link_that_may_not_lead_to_the_memory(pushed, mem):
+    (pushed / "memory-bank").unlink()
+    (pushed / ".memory-path").write_text(f"{mem}\n")
+    tree_commit(pushed, author=AI)
+    result = run(pushed, "push", "origin", "main")
+    assert result.returncode != 0 and "[commit_msg_guard]" in result.stderr
+    assert "memory-bank" not in result.stderr
