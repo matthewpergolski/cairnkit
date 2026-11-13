@@ -292,6 +292,18 @@ def test_a_compaction_names_an_ended_helper_of_this_session_as_its_own(repo, hoo
     assert live.ENDED in other and "this session" not in other
 
 
+def test_an_ended_record_whose_worktree_went_leaves_the_file_at_the_next_write(repo, mem, hooks):
+    """A load never names such a record, so it only took one of the MAX_RECORDS places."""
+    path = killed_mid_helper(repo, hooks)
+    (path / "hostlink.py").write_text("def link(): pass\n")
+    hooks.subagent_stop(repo, "a1", path)
+    stored = mem / ".sessions" / "helpers" / "open.json"
+    assert [row["call"] for row in json.loads(stored.read_text())] == ["toolu_1"]
+    git(repo, "worktree", "remove", "--force", str(path))
+    hooks.call(repo, "toolu_2", description="read the docs")
+    assert [row["call"] for row in json.loads(stored.read_text())] == ["toolu_2"]
+
+
 def test_a_background_helper_outlives_the_turn_and_ends_at_its_own_stop(repo, hooks):
     path = worktree(repo)
     hooks.call(repo, "toolu_1", isolation="worktree", run_in_background=True)
