@@ -53,11 +53,10 @@ def build_commit() -> str | None:
         return None
 
 
-def _origin(version: str | None, recorded: str | None) -> str:
+def _origin(version: str | None, recorded: str | None, running: str | None) -> str:
     """Which build wrote the repo files, and which build runs now."""
     from cairnkit.install_source import ref_tag
 
-    running = build_commit()
     this = f"{tool_version()}{ref_tag(running)}"
     if not version:
         return f"come from an older memory; this is {this}"
@@ -253,13 +252,15 @@ def repo_line(project: Project, flag: str | None) -> str | None:
                 f"Run `{COMMAND}` now. It removes them."
             )
         stale_hook = _hook_text_is_old(project) or any(map(_OPEN_LAUNCH.search, texts))
+        running = build_commit()
         if version:
-            if not is_behind(version, tool_version()) and not stale_hook:
+            other_build = version == tool_version() and recorded and running and recorded != running
+            if not is_behind(version, tool_version()) and not stale_hook and not other_build:
                 return None
         elif not wrote_files(project, memdir) and not stale_hook:
             return None
         return (
-            f"memory: this repo's hooks and rules block {_origin(version, recorded)}. "
+            f"memory: this repo's hooks and rules block {_origin(version, recorded, running)}. "
             f"Run `{COMMAND}` now. It rewrites them in place."
         )
     except Exception:

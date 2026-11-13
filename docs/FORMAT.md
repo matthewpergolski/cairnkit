@@ -504,7 +504,9 @@ dev builds can have one version number, so the refresh line names both builds:
 "come from memory 0.3.1 @6b4bdf0; this is 0.3.1 @81f8499". A record with no
 `commit` reads as an older build of that version.
 When `version` is lower than the running tool, the session start prints one
-line that asks for `memory init --refresh`. The same line appears when the
+line that asks for `memory init --refresh`. It also prints it for the same
+`version` when `commit` and the running build's commit are both known and
+differ. The same line appears when the
 local `post-merge` hook still holds `# cairnkit:docs-check`, the docs check
 that older builds of the same version wrote. A release that changes a block
 or hook raises the version.
