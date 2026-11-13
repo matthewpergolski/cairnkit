@@ -339,3 +339,29 @@ def test_a_pile_of_stale_helpers_costs_a_bounded_count_of_git_reads(repo, mem, c
     monkeypatch.setattr(live, "_helper_work", lambda *a: reads.append(1) or real(*a))
     assert "[helper]" not in plain_load(capsys)
     assert len(reads) <= live.MAX_HELPERS
+
+
+@pytest.mark.parametrize("worker", ["newest", "oldest"])
+def test_ended_helpers_with_clean_checkouts_do_not_hide_one_with_commits(repo, mem, capsys, worker):
+    """A review measured that three ended helpers with clean worktrees took each read of old
+    records, so no load named a fourth that ended with a commit."""
+    tree, base = committed_helper(repo, "worker")
+    now = time.time()
+    rows = [
+        {"call": f"c{n}", "session": "x", "kind": "", "about": f"clean {n}", "task": "",
+         "started_at": now - 3600 + n, "agent": f"h{n}",
+         "checkout": str(add_worktree(repo, f"clean{n}")), "base": "HEAD", "ended": True}
+        for n in range(live.MAX_HELPERS)
+    ]  # fmt: skip
+    found = {"call": "w", "session": "x", "kind": "", "about": "the worker", "task": "",
+             "started_at": now - 3600 + (60 if worker == "newest" else -60), "agent": "hw",
+             "checkout": str(tree), "base": base, "ended": True}  # fmt: skip
+    rows = [*rows, found] if worker == "newest" else [found, *rows]
+    folder = mem / ".sessions" / "helpers"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "open.json").write_text(json.dumps(rows))
+    first, second = plain_load(capsys), plain_load(capsys)
+    if worker == "newest":
+        assert '"the worker"' in first
+    assert '"the worker"' in second and "1 commit(s) since it started" in second
+    assert '"clean ' not in first + second
