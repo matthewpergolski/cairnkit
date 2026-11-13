@@ -694,7 +694,8 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   `transcript_path`) had no write for 30 minutes ended. The load reads only the file time. It
   names such a helper only while its checkout holds that work, and says that it ended. A compaction (or a reload) names the helpers of its own session
   first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
-  and its next stop does not end them. A resume is a new process, so it names them as having no
+  and its next stop does not end them. One that ended is "started by this session; it ended", so
+  the order for live work of others does not cover its work. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.
 
 This does not use the word budget. It reads each checkout with `git status`, with no optional lock,

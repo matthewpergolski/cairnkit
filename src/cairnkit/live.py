@@ -324,7 +324,8 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool
 NO_END = "no end recorded, so it may have been stopped or ended unseen"
 ENDED = "it ended"
 QUIET_END = f"{ENDED}, because its transcript had no write for 30 minutes"
-RUNNING = "started by this session; it may still be running, or it was stopped or ended unseen"
+OWN = "started by this session"
+RUNNING = f"{OWN}; it may still be running, or it was stopped or ended unseen"
 
 
 def _named_helpers(
@@ -368,7 +369,10 @@ def _helper_line(
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
     ago = _ago(helper.started_at)
-    end = ENDED if helper.ended else QUIET_END if helper.quiet else RUNNING if running else NO_END
+    ended = ENDED if helper.ended else QUIET_END if helper.quiet else None
+    end = ended or NO_END
+    if running:
+        end = f"{OWN}; {ended}" if ended else RUNNING
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]

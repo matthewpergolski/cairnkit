@@ -387,7 +387,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after 30 minutes no session marker named that checkout, so its unlanded commits were in no line.
   Now an end event marks the record `"ended": true` while its own checkout is there. The load names
   it as "it ended" only while that checkout holds uncommitted changes or commits that no landing
-  branch holds, as for an old record.
+  branch holds, as for an old record. A compaction of the session that started it names it as
+  "started by this session; it ended", so the order not to commit or remove the live work of
+  others does not cover it.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`), or with no letter and no digit (an emoji such as `👍` or `✅ 👍`), is
