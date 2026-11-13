@@ -286,23 +286,18 @@ def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
         return f"told: confirmed by {verdict.via}.{force}"
     kind = " --kind rule" if rule else ""
     force = ", and this rule loads as data" if rule else ""
+    status = (
+        f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not say "
+        "that it binds."
+    )
     if verdict.via == owner_evidence.APPROVAL_ONLY:
         return (
-            f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not "
-            "tell the owner that it binds. Save the words of the proposal that the owner "
-            f'approved: memory add "PROPOSAL"{kind} --basis told --supersedes {fact["id"]}. '
-            "They confirm when they are the question that ended your message before the "
-            "owner's yes, in this turn."
+            f"{status} Save the question that the owner said yes to, in this turn: "
+            f'memory add "PROPOSAL"{kind} --basis told --supersedes {fact["id"]}'
         )
     return (
-        f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not tell "
-        "the owner that it binds. A told fact must be the owner's words alone (`The owner said:` "
-        "in "
-        "front is fine). Put your own context, such as what is still open, in a second fact with "
-        "--basis seen --link related:ID. It binds when you add the owner's words with --basis told "
-        "in "
-        "the turn where the owner types it word for word, picks it in your question, or says yes "
-        "to your question that ends with it. Or the owner runs this from their own shell: "
+        f"{status} Use only the owner's exact words, and put your context in a second fact "
+        f"(--basis seen --link related:{fact['id']}). Or the owner runs: "
         f'memory add "TEXT"{kind} --basis told'
     )
 

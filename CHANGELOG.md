@@ -234,6 +234,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `told: not confirmed` note of `memory add` is two short sentences after the status. It keeps
+  the commands: `--basis seen --link related:ID` (now with the new ID) for your own context, and
+  `memory add "TEXT" --basis told` for the owner, or `--supersedes ID` for the words of an
+  approved proposal.
 - A rule that reads as the owner's yes to one piece of work (the test of the `memory add` note),
   and that no check enforces, loads under `## Rules that may be for one piece of work` below the
   lasting rules. The heading says that these rules bind and to end one when its work is done.
