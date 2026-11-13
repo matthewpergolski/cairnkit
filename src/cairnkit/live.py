@@ -125,8 +125,8 @@ def _sharers(memory: Memory, session: str) -> list[str]:
 
 def _command_words(part: str) -> list[str]:
     """The words of one step from its command on: past `(` and `$(`, settings (also `x=$(`),
-    `sudo` and `env` with their options and option values, and with no `)` at the end. A `bash -c` script and a
-    git alias stay out: the parser reads no script and no git config."""
+    `sudo` and `env` with their options and option values, and with no `)` at the end. A
+    `bash -c` script and a git alias stay out: the parser reads no script and no git config."""
     words = [word for word in _core_words(_words(part.strip())) if word]
     run_as = None
     while words:
@@ -331,9 +331,9 @@ def _named_helpers(
     """The records that the load names, the work in the checkout of each, and how many more.
 
     No hook event ends a lost record. A record past helpers.SHOWN_SECONDS, one that ended, or one
-    whose own transcript is quiet (the helper ended), is named only while its own checkout holds commits
-    since it started or uncommitted changes, because that is live work; else it is noise. The
-    work is read once, for the line too, and only until MAX_HELPERS are named. At most
+    whose own transcript is quiet (the helper ended), is named only while its own checkout holds
+    commits since it started or uncommitted changes, because that is live work; else it is
+    noise. The work is read once, for the line too, and only until MAX_HELPERS are named. At most
     MAX_HELPERS such records are read at all, so a pile of stale records costs no more git than
     the lines do; a record past that count is not named.
     """
