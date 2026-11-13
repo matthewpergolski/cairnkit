@@ -8,16 +8,20 @@ the repo's index, or run the repo's `.venv/bin/python`.
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import sys
 from pathlib import Path
 
 import pytest
 
-from cairnkit import update
+from cairnkit import install_source, update
 from cairnkit.progress import Progress
 
 UNREACHABLE = '[[index]]\nurl = "http://127.0.0.1:9/simple"\ndefault = true\n'
+PROJECT_INDEX = '[project]\nname = "repo"\nversion = "0"\n' + UNREACHABLE.replace(
+    "[[index]]", "[[tool.uv.index]]"
+)
 
 
 def tiny_source(path: Path) -> Path:
@@ -39,7 +43,7 @@ def repo_folder(path: Path, marker: Path) -> Path:
     shim.chmod(0o755)
     (path / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin\n")
     (path / "uv.toml").write_text(UNREACHABLE)
-    (path / "pyproject.toml").write_text(f'[project]\nname = "repo"\n[tool.uv]\n{UNREACHABLE}')
+    (path / "pyproject.toml").write_text(PROJECT_INDEX)
     return path
 
 
@@ -86,6 +90,34 @@ def test_an_install_from_a_repo_folder_still_installs(real_uv, tmp_path, monkeyp
     assert not marker.exists()
 
 
+def test_uv_runs_on_the_cache_folder_with_no_setting_of_its_own(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    monkeypatch.setattr(update, "wheels_dir", lambda: tmp_path / "kept")
+    log = tmp_path / "uv.log"
+    fake = tmp_path / "uv"
+    fake.write_text(f'#!/bin/sh\necho "$PWD|$*" >> {log}\nexit 1\n')
+    fake.chmod(0o755)
+    monkeypatch.chdir(repo_folder(tmp_path / "repo", tmp_path / "MARKER"))
+    with pytest.raises(update.SourceError):
+        update._build(Progress(io.StringIO()), str(fake), tmp_path / "src", tmp_path)
+    wheel = tmp_path / "x.whl"
+    wheel.write_text("")
+    source = install_source.parse(str(tmp_path / "src"))
+    with pytest.raises(update.SourceError):
+        update._install(Progress(io.StringIO()), str(fake), source, wheel, None)
+    home = cache / "cairnkit"
+    on_home = f"--project {home} --directory {home} "
+    calls = log.read_text().splitlines()
+    assert [c.split("|")[1].split(" --")[0] for c in calls] == ["build", "tool install"]
+    for call in calls:
+        folder, args = call.split("|")
+        assert folder == os.path.realpath(home)
+        assert on_home in args
+    assert (home / "pyproject.toml").read_text() == ""
+    assert (home / "uv.toml").read_text() == ""
+
+
 def uv_config(folder: Path, text: str) -> Path:
     (folder / "uv").mkdir(parents=True, exist_ok=True)
     (folder / "uv" / "uv.toml").write_text(text)
@@ -118,3 +150,31 @@ def test_a_uv_toml_above_the_cache_folder_does_not_count(real_uv, tmp_path, monk
     (above / "uv.toml").write_text(UNREACHABLE)
     monkeypatch.setenv("XDG_CACHE_HOME", str(above / "cache"))
     assert build_from(tmp_path, real_uv).is_file()
+
+
+def test_a_project_above_the_cache_folder_does_not_count(real_uv, tmp_path, monkeypatch):
+    above = tmp_path / "above"
+    above.mkdir()
+    (above / "pyproject.toml").write_text(PROJECT_INDEX)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(above / "cache"))
+    assert build_from(tmp_path, real_uv).is_file()
+
+
+def test_a_workspace_above_the_cache_folder_does_not_count(real_uv, tmp_path, monkeypatch):
+    above = tmp_path / "above"
+    above.mkdir()
+    (above / "pyproject.toml").write_text("[tool.uv.workspace]\nmembers = []\n")
+    (above / "uv.toml").write_text(UNREACHABLE)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(above / "cache"))
+    assert build_from(tmp_path, real_uv).is_file()
+
+
+@pytest.mark.parametrize("variable", ["UV_PROJECT", "UV_WORKING_DIR"])
+def test_a_project_named_in_the_environment_does_not_count(
+    real_uv, tmp_path, monkeypatch, variable
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(PROJECT_INDEX)
+    monkeypatch.setenv(variable, str(repo))
+    assert build_from(tmp_path, real_uv).name.startswith("cairnkit-0.0.1-")
