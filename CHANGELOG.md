@@ -364,6 +364,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first 8 lines counted, and long lines used no budget: in a real project the status used 740 of
   2,112 words, and the hook cut 106 facts to fit its size limit. `memory export` still writes the
   first 8 lines.
+- A session start whose cut fit the load to the character printed one character past the hook's
+  size limit, because the limit did not count the last line end. Now it does.
 - A stop event that the stop asked about is not asked again in the session. What was asked is in
   `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
   hook that saved that state from a read before the stop brought the question back on later turns.

@@ -7,6 +7,7 @@ preview only.
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -14,6 +15,8 @@ import sys
 import pytest
 from conftest import make_fact, write_facts
 
+from cairnkit import hookrun
+from cairnkit.cli import main
 from cairnkit.hookrun import HOOK_TEXT_LIMIT
 from cairnkit.selection import FRAME_FOOTER
 
@@ -87,3 +90,12 @@ def test_a_subagent_load_stays_under_the_hook_limit(repo, mem):
     text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
     assert len(out) <= HOOK_TEXT_LIMIT
     assert frame_is_whole(text)
+
+
+def test_a_load_that_fills_its_room_prints_no_more_than_the_limit(mem, capsys, monkeypatch):
+    """A cut can fit the room to the character. The line end that print adds counts too."""
+    monkeypatch.setattr(hookrun, "fitted_load", lambda *args, **options: "x" * args[3])
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "s1"})))
+    capsys.readouterr()
+    assert main(["hook", "session-start", "--agent", "claude"]) == 0
+    assert len(capsys.readouterr().out) <= HOOK_TEXT_LIMIT
