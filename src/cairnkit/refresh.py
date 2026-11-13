@@ -8,6 +8,7 @@ git hooks. It records its version in the memory folder when it writes them.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -19,7 +20,7 @@ from cairnkit.clock import now, stamp
 from cairnkit.ignore import exclude
 from cairnkit.paths import Project, resolve_memory_dir
 from cairnkit.selection import clean_path, shell_word
-from cairnkit.skills import is_behind
+from cairnkit.skills import cache_dir, is_behind
 
 STAMP = "tool-version.json"
 # Untracked block homes only. Tracked CLAUDE.md / AGENTS.md are migrated out, not refreshed.
@@ -37,6 +38,9 @@ _OPEN_LAUNCH = re.compile(
 )
 # 0.3.1 builds on the dev channel wrote this line into post-merge. It printed on each merge.
 OLD_DOCS_CHECK_MARK = "# cairnkit:docs-check"
+COMPARED = "build-compare"
+# The compare answers of this process. A load runs read_health once for each pass.
+_compared: dict[tuple, bool] = {}
 
 
 def tool_version() -> str:
@@ -261,7 +265,9 @@ def repo_line(project: Project, flag: str | None, compare: bool = False) -> str 
             other_build = version == tool_version() and recorded and running and recorded != running
             current = not is_behind(version, tool_version()) and not stale_hook
             if current and not (
-                compare and other_build and _writes_other_files(project, flag, memdir)
+                compare
+                and other_build
+                and _writes_other_files(project, flag, memdir, recorded, running)
             ):
                 return None
         elif not wrote_files(project, memdir) and not stale_hook:
@@ -355,10 +361,31 @@ def _is_plain(step: str) -> bool:
     return step.startswith(("skip", "note"))
 
 
-def _writes_other_files(project: Project, flag: str | None, memdir: Path) -> bool:
-    """True when this build would rewrite a repo file. It only reads."""
+def _writes_other_files(
+    project: Project, flag: str | None, memdir: Path, recorded: str, running: str
+) -> bool:
+    """True when this build would rewrite a repo file. It writes no repo file.
+
+    The answer holds until the record or the running build changes, so it is kept in the user
+    cache, one small file for each repo. When the cache cannot be read or written, it compares.
+    """
+    key = (str(project.root), str(memdir), recorded, running)
+    if key in _compared:
+        return _compared[key]
+    path = cache_dir() / COMPARED / f"{hashlib.sha1(key[0].encode()).hexdigest()[:16]}.json"
+    with contextlib.suppress(OSError, ValueError, AttributeError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("key") == list(key) and isinstance(data.get("differs"), bool):
+            _compared[key] = data["differs"]
+            return data["differs"]
     steps, _ = _plan(project, flag, memdir, dry_run=True)
-    return not all(map(_is_plain, steps))
+    differs = _compared[key] = not all(map(_is_plain, steps))
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(f".{path.name}.{os.getpid()}")
+        temp.write_text(json.dumps({"key": key, "differs": differs}) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+    return differs
 
 
 def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:

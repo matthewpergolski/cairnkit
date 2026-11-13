@@ -276,7 +276,7 @@ def counted_plans(monkeypatch) -> list[bool]:
 
 
 def new_process(monkeypatch) -> None:
-    monkeypatch.setattr(refresh, "_compared", {}, raising=False)
+    monkeypatch.setattr(refresh, "_compared", {})
 
 
 def test_a_second_session_start_does_not_compare_the_same_builds_again(repo, monkeypatch, capsys):

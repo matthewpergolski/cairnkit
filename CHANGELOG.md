@@ -390,8 +390,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from another build of the same version and this build would write them differently, as "come
   from memory 0.3.1 @6b4bdf0; this is 0.3.1 @81f8499". Before, only the version counted, so such
   files read as current. They compare the hooks and the rules block with what the refresh would
-  write, and write nothing. When the files are the same, they say nothing. When the record or the
-  running tool has no commit, the version compare stays as it was.
+  write, and write no repo file. When the files are the same, they say nothing. The answer is
+  kept in the user cache for each repo and pair of commits, so only the first session start after
+  a new build pays for the compare (about 0.2 s); later ones read the answer in less than 1 ms.
+  When the record or the running tool has no commit, the version compare stays as it was.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The

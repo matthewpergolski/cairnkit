@@ -203,8 +203,11 @@ When the record and the running tool both know their commit and the builds
 differ, the session start and `memory status` compare the files: they show the
 line only when this build would write a hook or a rules block differently. A
 dev update that changes no such text asks for nothing. The compare reads each
-file and writes nothing. It costs about 0.2 s, so the stop hook, which runs on
-each turn, does not make it.
+file and writes no repo file. It costs about 0.2 s, so the stop hook, which
+runs on each turn, does not make it. The answer is kept in
+`~/.cache/cairnkit/build-compare/`, so the compare runs once for each repo and
+pair of builds. A later session start reads the answer in less than 1 ms. A
+refresh records the new build, so the next compare is for a new pair.
 A release that changes these files raises the version in `__init__.py`.
 `pyproject.toml` reads that file. The docs-check stanza does not raise the
 version. Refresh reads `# cairnkit:docs-check` in the hook instead. A test
