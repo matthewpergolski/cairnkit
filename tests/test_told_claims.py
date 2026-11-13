@@ -862,11 +862,40 @@ def test_the_owner_typing_the_id_ends_the_fact(mem, capsys, monkeypatch, prompts
 
 
 @pytest.mark.parametrize(
+    "words",
+    [
+        "Can you end {fid}?",
+        "could you please forget {fid}?",
+        "Would you drop {fid}, please?",
+        "Will you remove {fid}?",
+        "Can you expire {fid} and {fid}?",
+        "Please end {fid}?",
+    ],
+)
+def test_an_owner_request_phrased_as_a_question_ends_the_fact(mem, capsys, monkeypatch, words):
+    fid = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, words.format(fid=fid))
+    code, out = end(capsys, monkeypatch, fid)
+    assert code == 0, out
+    assert f"told: {fid} is expired on the owner's words, confirmed by words the owner typed" in out
+    assert UV_RULE not in loaded(capsys)
+
+
+@pytest.mark.parametrize(
     "prompts",
     [
         ["Do not end {fid}."],
         ["Should we end {fid}? The project uses pip now."],
+        ["Should I end {fid}?"],
+        ["Did you end {fid}?"],
+        ["Why end {fid}?"],
+        ["Can you not end {fid}?"],
+        ["Can you end {fid} unless CI is red?"],
+        ["Could you keep {fid}?"],
+        ["Can you end the cache note in {fid}?"],
+        ["Can you tell me why we would end {fid}?"],
         ["End {fid}.", "Actually, keep {fid}."],
+        ["Can you end {fid}?", "Actually, keep {fid}."],
     ],
 )
 def test_owner_words_that_keep_or_ask_about_the_id_end_nothing(mem, capsys, monkeypatch, prompts):
