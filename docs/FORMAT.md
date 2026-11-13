@@ -211,7 +211,7 @@ A change does not edit the fact. It adds a new state.
 | `status` | no | The new status. |
 | `reason` | with `status` | Why. |
 | `superseded_by` | with `superseded` | The id of the newer fact. |
-| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must be a file in the repo, not a folder, and exist when the change is written. `memory change` stores it as a repo path with `/`. Later, `memory check` accepts a path that exists here or in the history of any branch. |
+| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must be a regular file in the repo (its real path too, after links), not in `.git` or the memory folder, and exist when the change is written. `memory change` stores it as a repo path with `/`. Later, `memory check` accepts a path that exists here or in the history of any branch. |
 | `scope` | no | `long` or `short`. `memory keep` writes `"scope": "long"`. |
 | `add_links` | no | Links to add. |
 | `remove_links` | no | Links to remove, each one the fact holds. A build before this field keeps the link, and its `memory check` names the record. |

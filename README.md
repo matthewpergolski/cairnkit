@@ -713,8 +713,8 @@ rules, and live work last. This is the same at a startup, a resume and a compact
 lesson matters to every contributor, a person or an agent moves it into a tracked
 rules file, a doc, a test or a lint check, and marks the fact `promoted`:
 `memory change ID ID --status promoted --held-by FILE --reason "..."`. Not `expired`, which says
-the fact stopped being true. The tool does not do this move. `--held-by` must name a file in the
-repo. When that file holds none of the key words of a fact, or git does not track it, a note says
+the fact stopped being true. The tool does not do this move. `--held-by` must name a regular
+file in the repo, also after links are followed, and not in `.git` or the memory folder. When that file holds none of the key words of a fact, or git does not track it, a note says
 so, and names a file in the same folder or with the same name that holds the words.
 
 ## Three layers
@@ -740,7 +740,10 @@ ends only when an agent ends it. `--expires` takes effect only with `--short`.
 **Forgetting is a status change.** `memory change ID --status expired` or
 `--status wrong`, with a reason. The fact leaves the load, and the archive
 keeps it, so an agent can answer "did we try this before?". `memory change` takes one or more
-IDs with one set of flags. Each ID gets every check, and one refusal changes no fact.
+IDs with one set of flags. Each ID gets every check, and one refusal changes no fact. An agent
+cannot mark a fact that a person stated (a confirmed told fact or the owner's rule) `expired` or
+`wrong`: it asks the owner, then quotes the owner's words with `memory add "WORDS" --basis told
+--supersedes ID`, or the owner runs the command from their own shell.
 
 **The only deletion is `purge`**, for a secret or private data stored by
 mistake: `memory purge ID --reason secret --yes`. It removes every line for

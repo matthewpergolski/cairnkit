@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check of a single change (the authority check of `--superseded-by`, the secret check, the link
   and rule checks). One refusal changes no fact, and the error names the ID, so the same command
   can run again after the fix. The output prints `changed ID` for each ID. One ID works as before.
+  A `--superseded-by` or `--link` target that is one of the changed IDs is refused: a fact cannot
+  replace itself or link to itself.
+- `memory change ID --status expired` or `--status wrong` from an agent refuses when a person
+  stated ID (a confirmed told fact or the owner's rule), also in a batch. The refusal says how to
+  end it: ask the owner, then quote the owner's words with
+  `memory add "WORDS" --basis told --supersedes ID --reason "..."`, or the owner runs the command
+  from their own shell. An agent can still mark such a fact `promoted --held-by FILE`, because the
+  file keeps the rule. The owner at a terminal can change any fact as before.
 - `memory instructions` and the session rules name the promote step:
   `memory change ID --status promoted --held-by FILE --reason "..."` when a tracked file (a skill,
   `CLAUDE.md`, a lint) now holds a fact. Before, they named only `expired` and `wrong`, so an agent
@@ -250,8 +258,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the commands: `--basis seen --link related:ID` (now with the new ID) for your own context, and
   `memory add "TEXT" --basis told` for the owner, or `--supersedes ID` for the words of an
   approved proposal.
-- `memory change --held-by` refuses a path outside the repo and a folder. It stores the path as a
-  repo path, also when it was given as an absolute path in the repo.
+- `memory change --held-by` refuses a path outside the repo, a folder, and a pipe, a device or
+  another file that is not a regular file. The check uses the real path, so a link to a file
+  outside the repo, a path through a folder link that leads outside, a path in `.git` and a path
+  in the memory folder or its `memory-bank` link are refused too. It stores the path as a repo
+  path, also when it was given as an absolute path in the repo. The word check of the note reads
+  only regular files, so a pipe beside the file cannot stop the command.
 - A rule that reads as the owner's yes to one piece of work (the test of the `memory add` note),
   and that no check enforces, loads under `## Rules that may be for one piece of work` below the
   lasting rules. The heading says that these rules bind and to end one when its work is done.

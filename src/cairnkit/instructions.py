@@ -48,7 +48,7 @@ commit:HASH, file:PATH, pr:N, person:ROLE.
   It was never true: `memory change ID --status wrong --reason "..."`.
   A tracked file (a skill, CLAUDE.md, a lint) now holds it: `memory change ID --status promoted
   --held-by FILE --reason "..."`. Not `expired`: that says it stopped being true. Name more IDs to
-  change them all.
+  change them all. A fact that a person stated ends only with the owner's words.
   A short-term note is still true later: `memory keep ID`.
 - **Pin, link, tidy.** `memory add "..." --pinned` loads a fact in each session.
   `memory change ID --link related:OTHER` links two facts. `memory tidy` lists what to clean.

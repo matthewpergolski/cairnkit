@@ -6,15 +6,17 @@ import contextlib
 import os
 import re
 import secrets
+import stat
 import sys
 from pathlib import Path, PurePosixPath
 
-from cairnkit import deadline, followups, owner_evidence
+from cairnkit import deadline, followups, owner_evidence, plainfile
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.landed import one_work
 from cairnkit.memory import Memory
 from cairnkit.paths import (
+    LINK_NAME,
     branch_exists,
     branch_tip,
     current_branch,
@@ -261,6 +263,13 @@ def _inherit(args, old: dict) -> bool:
 
 CONFIRM = (
     "To confirm the new fact, quote the owner's words in this turn, or the owner runs the "
+    "command from their own shell."
+)
+# An agent's word does not end a person's: ask, then quote the owner's words, or the owner acts.
+ENDS = ("expired", "wrong")
+ASK_TO_END = (
+    "Ask the owner. When the owner says that it ended, quote the owner's words in this turn: "
+    'memory add "WORDS" --basis told --supersedes {id} --reason "...". Or the owner runs this '
     "command from their own shell."
 )
 
@@ -583,6 +592,7 @@ def change_fact(memory: Memory, args) -> None:
         states = [_need_fact(memory, fact_id) for fact_id in ids]
         # First, because a refusal below can name the value.
         _check_secrets(memory, args.reason, args.enforced_by, names=(args.held_by,))
+        _check_not_itself(args, ids)
         for state in states:
             where = f"{state['id']}: "
             records.append(_one_change(memory, args, state, ids, at, writer))
@@ -602,9 +612,27 @@ def change_fact(memory: Memory, args) -> None:
             print(line)
 
 
+def _check_not_itself(args, ids: list[str]) -> None:
+    """A fact that this command changes cannot replace it or be its link."""
+    targets = [("--superseded-by", args.superseded_by)] if args.superseded_by else []
+    targets += [("--link", value) for value in args.link or []]
+    for flag, value in targets:
+        target = parse_link(value)["id"] if flag == "--link" else value
+        if target in ids:
+            raise Refused(
+                f"{flag} {value} names {target}, a fact that this command changes. A fact cannot "
+                "replace itself or link to itself. Name another fact."
+            )
+
+
 def _one_change(memory: Memory, args, state: dict, ids: list[str], at: str, writer: str) -> dict:
     fact_id = state["id"]
     change: dict = {"type": "change", "id": fact_id, "at": at}
+    if args.status in ENDS and running_tool() and person_said(state):
+        raise Refused(
+            f"{fact_id} was stated by a person, so an agent does not mark it {args.status}. "
+            + ASK_TO_END.format(id=fact_id)
+        )
     if args.status:
         change["status"] = args.status
     if args.reason:
@@ -615,8 +643,7 @@ def _one_change(memory: Memory, args, state: dict, ids: list[str], at: str, writ
         if running_tool() and person_said(state) and not person_said(new):
             raise Refused(
                 f"{fact_id} was stated by a person, and {args.superseded_by} has less authority "
-                "(not stated, or a told claim that the owner's words did not confirm). Nothing "
-                f"changed. {CONFIRM}"
+                f"(not stated, or a told claim that the owner's words did not confirm). {CONFIRM}"
             )
         change["superseded_by"] = args.superseded_by
     if args.held_by:
@@ -650,13 +677,35 @@ def _held_by_path(memory: Memory, args, ids: list[str]) -> str:
             "--held-by needs --status promoted. Run: memory change "
             f'{" ".join(ids)} --status promoted --held-by {args.held_by} --reason "..."'
         )
-    root = memory.project.root
-    if not os.path.exists(root / args.held_by):
-        raise Refused(f"held_by {args.held_by!r} does not exist in {root}")
-    [rel] = clean_files(root, [args.held_by], flag="--held-by")
-    if (root / rel).is_dir():
-        raise Refused(f"held_by {rel!r} is a folder. Name the file that holds the rule.")
+    [rel] = clean_files(memory.project.root, [args.held_by], flag="--held-by")
+    problem = _held_by_problem(memory, rel)
+    if problem:
+        raise Refused(f"--held-by {rel!r} {problem}. Name the repo file that holds the rule.")
     return rel
+
+
+def _held_by_problem(memory: Memory, rel: str) -> str | None:
+    """Why the repo path rel is no file for held_by, or None. The check uses the real path, so a
+    link cannot lead out of the repo, into .git or into the memory."""
+    root = memory.project.root.resolve()
+    try:
+        real = (root / rel).resolve()
+    except (OSError, RuntimeError):
+        return "cannot be read"
+    memory_dir = memory.dir.resolve()
+    if PurePosixPath(rel).parts[0] == LINK_NAME or memory_dir in (real, *real.parents):
+        return "is in the memory folder"
+    if root not in real.parents:
+        return "leads outside the repo"
+    if ".git" in (*PurePosixPath(rel).parts, *real.relative_to(root).parts):
+        return "is in .git"
+    try:
+        mode = os.stat(real).st_mode
+    except OSError:
+        return "does not exist"
+    if stat.S_ISDIR(mode):
+        return "is a folder"
+    return None if stat.S_ISREG(mode) else "is no regular file"
 
 
 HELD_BY_READ = 1_000_000  # the bytes of each file that the word check of held_by reads
@@ -664,8 +713,9 @@ HELD_BY_PEERS = 50  # the other files that it reads to find the right one
 
 
 def _file_words(path: Path) -> set[str]:
+    """The search words of a regular file. A pipe or a device is no such file, so no read waits."""
     try:
-        with open(path, "rb") as fh:
+        with os.fdopen(plainfile.open_fd(path), "rb") as fh:
             return set(index_words(fh.read(HELD_BY_READ).decode("utf-8", "replace")))
     except OSError:
         return set()
@@ -696,7 +746,7 @@ def _held_by_notes(memory: Memory, rel: str, states: list[dict]) -> list[str]:
         return notes
     ids = " ".join(fact_id for fact_id, _ in lost)
     best, score = None, 0
-    for peer in _held_by_peers(project, rel):
+    for peer in _held_by_peers(memory, rel):
         found = _file_words(project.root / peer)
         got = sum(_holds(found, terms) for _, terms in lost)
         if got > score:
@@ -711,9 +761,10 @@ def _held_by_notes(memory: Memory, rel: str, states: list[dict]) -> list[str]:
     return notes
 
 
-def _held_by_peers(project, rel: str) -> list[str]:
-    """The other files in the folder of rel, then the tracked files with its name."""
-    path = PurePosixPath(rel)
+def _held_by_peers(memory: Memory, rel: str) -> list[str]:
+    """The other files in the folder of rel, then the tracked files with its name. Each one is a
+    file that --held-by takes."""
+    project, path = memory.project, PurePosixPath(rel)
     found: list[str] = []
     with contextlib.suppress(OSError):
         for entry in sorted(os.scandir(project.root / path.parent), key=lambda e: e.name):
@@ -723,7 +774,8 @@ def _held_by_peers(project, rel: str) -> list[str]:
         listed = run_git(project.root, "ls-files", "-z", "--", f"*{path.name}", timeout=2.0)
         found += [p for p in (listed or "").split("\0") if PurePosixPath(p).name == path.name]
     # A name that does not print could steer the terminal, and no --held-by takes it.
-    return [p for p in dict.fromkeys(found) if p != rel and not file_problem(p)][:HELD_BY_PEERS]
+    names = [p for p in dict.fromkeys(found) if p != rel and not file_problem(p)][:HELD_BY_PEERS]
+    return [p for p in names if not _held_by_problem(memory, p)]
 
 
 def keep_fact(memory: Memory, fact_id: str, reason: str | None) -> None:
