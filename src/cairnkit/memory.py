@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from cairnkit.config import load_config
 from cairnkit.envsecrets import EnvValues, read_env_values
+from cairnkit.init import is_linked
 from cairnkit.paths import (
     LINK_NAME,
     Project,
@@ -146,11 +146,7 @@ class Memory:
     @property
     def where(self) -> str:
         """How text for an agent names this folder: the link, only when it leads here."""
-        link = self.project.root / LINK_NAME
-        with contextlib.suppress(OSError):
-            if link.is_symlink() and link.resolve() == self.dir.resolve():
-                return LINK_NAME
-        return clean_path(self.dir)
+        return LINK_NAME if is_linked(self.project.root, self.dir) else clean_path(self.dir)
 
     def writer_file(self, writer: str) -> Path:
         return self.dir / "facts" / f"{writer}.jsonl"
