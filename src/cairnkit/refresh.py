@@ -260,20 +260,21 @@ def repo_line(project: Project, flag: str | None, compare: bool = False) -> str 
                 f"Run `{COMMAND}` now. It removes them."
             )
         stale_hook = _hook_text_is_old(project) or any(map(_OPEN_LAUNCH.search, texts))
-        running = build_commit()
+        running = None
         if version:
-            other_build = version == tool_version() and recorded and running and recorded != running
             current = not is_behind(version, tool_version()) and not stale_hook
+            if compare and current and version == tool_version() and recorded:
+                running = build_commit()
+            other_build = running and recorded != running
             if current and not (
-                compare
-                and other_build
-                and _writes_other_files(project, flag, memdir, recorded, running)
+                other_build and _writes_other_files(project, flag, memdir, recorded, running)
             ):
                 return None
         elif not wrote_files(project, memdir) and not stale_hook:
             return None
         return (
-            f"memory: this repo's hooks and rules block {_origin(version, recorded, running)}. "
+            "memory: this repo's hooks and rules block "
+            f"{_origin(version, recorded, running or build_commit())}. "
             f"Run `{COMMAND}` now. It rewrites them in place."
         )
     except Exception:
@@ -374,7 +375,7 @@ def _writes_other_files(
         return _compared[key]
     path = cache_dir() / COMPARED / f"{hashlib.sha1(key[0].encode()).hexdigest()[:16]}.json"
     with contextlib.suppress(OSError, ValueError, AttributeError):
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(path, encoding="utf-8"))
         if data.get("key") == list(key) and isinstance(data.get("differs"), bool):
             _compared[key] = data["differs"]
             return data["differs"]
@@ -383,7 +384,7 @@ def _writes_other_files(
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name(f".{path.name}.{os.getpid()}")
-        temp.write_text(json.dumps({"key": key, "differs": differs}) + "\n", encoding="utf-8")
+        plainfile.write_text(temp, json.dumps({"key": key, "differs": differs}) + "\n", "utf-8")
         os.replace(temp, path)
     return differs
 

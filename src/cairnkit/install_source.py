@@ -389,6 +389,10 @@ def _direct_url() -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+# One process reads the commit of its own checkout once; a hook asks for it from several places.
+_CHECKOUT_HEADS: dict[str, str | None] = {}
+
+
 def built_from() -> tuple[Source, str | None] | None:
     """The git source or the editable checkout that runs now, and its commit."""
     data = _direct_url()
@@ -401,7 +405,9 @@ def built_from() -> tuple[Source, str | None] | None:
         return parse(f"git+{url}"), commit if isinstance(commit, str) else None
     if isinstance(folder, dict) and folder.get("editable"):
         path = unquote(urlparse(url).path)
-        return parse(path, editable=True), git(["-C", path, "rev-parse", "HEAD"])
+        if path not in _CHECKOUT_HEADS:
+            _CHECKOUT_HEADS[path] = git(["-C", path, "rev-parse", "HEAD"])
+        return parse(path, editable=True), _CHECKOUT_HEADS[path]
     return None
 
 
