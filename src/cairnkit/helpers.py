@@ -221,7 +221,8 @@ def _own_transcript(payload: dict, agent: str) -> str | None:
     parent = os.path.expanduser(str(payload.get("transcript_path") or ""))
     if not parent.endswith(".jsonl"):
         return None
-    return str(Path(parent).with_suffix("") / "subagents" / f"agent-{agent}.jsonl")
+    name = agent.removeprefix("agent-")  # Claude Code ids carry no prefix; never write it twice
+    return str(Path(parent).with_suffix("") / "subagents" / f"agent-{name}.jsonl")
 
 
 def on_start(memory: Memory, session: str, payload: dict) -> None:
