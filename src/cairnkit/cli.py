@@ -257,8 +257,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="short-term until BRANCH (default: this branch) is merged",
     )
 
-    p = sub.add_parser("change", parents=[common], help="change the status or links of a fact")
-    p.add_argument("id")
+    p = sub.add_parser(
+        "change", parents=[common], help="change the status or links of one or more facts"
+    )
+    p.add_argument("ids", nargs="+", metavar="ID", help="one or more facts; all change, or none")
     p.add_argument("--status", choices=STATUSES)
     p.add_argument("--reason", help="why (required with --status)")
     p.add_argument("--superseded-by", metavar="ID")
@@ -590,7 +592,6 @@ def run(args) -> int:
                 hooks_cmd.sync_guard_only(project, args.path)
         elif args.command == "change":
             change_fact(memory, args)
-            print(f"changed {args.id}")
         elif args.command in ("keep", "promote"):
             keep_fact(memory, args.id, args.reason)
             print(f"kept {args.id} as long-term")

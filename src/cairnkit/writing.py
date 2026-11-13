@@ -20,8 +20,10 @@ from cairnkit.paths import (
     current_branch,
     default_branch,
     merged_checker,
+    run_git,
     writer_name,
 )
+from cairnkit.ranking import PREFIX_MIN, forms, index_words, query_terms
 from cairnkit.rule_notices import note_change
 from cairnkit.schema import MAX_FILES, RELS, file_problem, stated, validate_record
 from cairnkit.secretscan import (
@@ -99,8 +101,8 @@ def _check_secrets(memory: Memory, *texts: str | None, names: tuple[str | None, 
         )
 
 
-def clean_files(root: Path, values: list[str] | None) -> list[str]:
-    """The paths of --files, repo-relative with / between parts, in order and each once.
+def clean_files(root: Path, values: list[str] | None, flag: str = "--files") -> list[str]:
+    """The paths of a flag (--files), repo-relative with / between parts, in order and each once.
 
     A relative path is taken from the repo root. An absolute path must be inside the repo.
     """
@@ -120,7 +122,7 @@ def clean_files(root: Path, values: list[str] | None) -> list[str]:
             problem = "is not inside the repo"
         problem = problem or file_problem(rel)
         if problem:
-            raise Refused(f"--files {clean(repr(value))}: {problem}. Give paths in the repo.")
+            raise Refused(f"{flag} {clean(repr(value))}: {problem}. Give paths in the repo.")
         if rel not in found:
             found.append(rel)
     if len(found) > MAX_FILES:
@@ -570,11 +572,39 @@ def _print_conflicts(memory: Memory, fact: dict, moment, skip: set) -> None:
 
 
 def change_fact(memory: Memory, args) -> None:
-    state = _need_fact(memory, args.id)
-    # First, because a refusal below can name the value.
-    _check_secrets(memory, args.reason, args.enforced_by, names=(args.held_by,))
-    moment = now()
-    change: dict = {"type": "change", "id": args.id, "at": stamp(moment)}
+    """Change each fact in args.ids with one set of flags, in one write.
+
+    Each fact gets every check. One refusal writes nothing, so the same command can run again.
+    """
+    ids = list(dict.fromkeys(args.ids))
+    at, writer = stamp(now()), writer_name(memory.project.root)
+    records, where = [], ""
+    try:
+        states = [_need_fact(memory, fact_id) for fact_id in ids]
+        # First, because a refusal below can name the value.
+        _check_secrets(memory, args.reason, args.enforced_by, names=(args.held_by,))
+        for state in states:
+            where = f"{state['id']}: "
+            records.append(_one_change(memory, args, state, ids, at, writer))
+    except Refused as exc:
+        if len(ids) == 1:
+            raise
+        text = str(exc).removesuffix(".")
+        raise Refused(f"{where}{text}. No fact changed.") from None
+    append_records(memory.writer_file(writer), records, root=memory.dir)
+    _refresh_followups(memory)
+    for state in states:
+        note_change(memory, state, f"status {args.status}" if args.status else "edited")
+    for fact_id in ids:
+        print(f"changed {fact_id}")
+    if records[0].get("held_by"):
+        for line in _held_by_notes(memory, records[0]["held_by"], states):
+            print(line)
+
+
+def _one_change(memory: Memory, args, state: dict, ids: list[str], at: str, writer: str) -> dict:
+    fact_id = state["id"]
+    change: dict = {"type": "change", "id": fact_id, "at": at}
     if args.status:
         change["status"] = args.status
     if args.reason:
@@ -584,20 +614,13 @@ def change_fact(memory: Memory, args) -> None:
         # Like `memory add --supersedes`: an agent's word does not end a person's.
         if running_tool() and person_said(state) and not person_said(new):
             raise Refused(
-                f"{args.id} was stated by a person, and {args.superseded_by} has less authority "
+                f"{fact_id} was stated by a person, and {args.superseded_by} has less authority "
                 "(not stated, or a told claim that the owner's words did not confirm). Nothing "
                 f"changed. {CONFIRM}"
             )
         change["superseded_by"] = args.superseded_by
     if args.held_by:
-        if args.status != "promoted":
-            raise Refused(
-                "--held-by needs --status promoted. Run: memory change "
-                f'{args.id} --status promoted --held-by {args.held_by} --reason "..."'
-            )
-        if not os.path.exists(memory.project.root / args.held_by):
-            raise Refused(f"held_by {args.held_by!r} does not exist in {memory.project.root}")
-        change["held_by"] = args.held_by
+        change["held_by"] = _held_by_path(memory, args, ids)
     links = [parse_link(v) for v in args.link or []]
     _check_links(memory, links)
     if links:
@@ -605,21 +628,102 @@ def change_fact(memory: Memory, args) -> None:
     gone = [parse_link(v) for v in getattr(args, "unlink", None) or []]
     for link in gone:
         if link not in state.get("links", []):
-            raise Refused(f"{args.id} has no link {link['rel']}:{link['id']}")
+            raise Refused(f"{fact_id} has no link {link['rel']}:{link['id']}")
     if gone:
         change["remove_links"] = gone
         # The tool of 0.3.1 knows no remove_links and refuses a change with none of its fields.
         change.setdefault("add_links", [])
     if args.enforced_by:
         if state.get("kind") != "rule":
-            raise Refused(f"{args.id} is a {state.get('kind')}; --enforced-by is only for rules")
+            raise Refused(f"{fact_id} is a {state.get('kind')}; --enforced-by is only for rules")
         change["enforced_by"] = args.enforced_by
     elif args.no_enforced_by:
         change["enforced_by"] = None
-    change["writer"] = writer_name(memory.project.root)
-    append_records(memory.writer_file(change["writer"]), [_validated(change)], root=memory.dir)
-    _refresh_followups(memory)
-    note_change(memory, state, f"status {args.status}" if args.status else "edited")
+    change["writer"] = writer
+    return _validated(change)
+
+
+def _held_by_path(memory: Memory, args, ids: list[str]) -> str:
+    """The repo path of --held-by: a file in the repo that exists now."""
+    if args.status != "promoted":
+        raise Refused(
+            "--held-by needs --status promoted. Run: memory change "
+            f'{" ".join(ids)} --status promoted --held-by {args.held_by} --reason "..."'
+        )
+    root = memory.project.root
+    if not os.path.exists(root / args.held_by):
+        raise Refused(f"held_by {args.held_by!r} does not exist in {root}")
+    [rel] = clean_files(root, [args.held_by], flag="--held-by")
+    if (root / rel).is_dir():
+        raise Refused(f"held_by {rel!r} is a folder. Name the file that holds the rule.")
+    return rel
+
+
+HELD_BY_READ = 1_000_000  # the bytes of each file that the word check of held_by reads
+HELD_BY_PEERS = 50  # the other files that it reads to find the right one
+
+
+def _file_words(path: Path) -> set[str]:
+    try:
+        with open(path, "rb") as fh:
+            return set(index_words(fh.read(HELD_BY_READ).decode("utf-8", "replace")))
+    except OSError:
+        return set()
+
+
+def _key_terms(state: dict) -> list[str]:
+    """The words of a fact that a file that holds it is likely to hold too."""
+    return [t for t in query_terms(str(state.get("text", ""))) if len(t) >= PREFIX_MIN]
+
+
+def _holds(words: set[str], terms: list[str]) -> int:
+    return sum(not words.isdisjoint(forms(term)) for term in terms)
+
+
+def _held_by_notes(memory: Memory, rel: str, states: list[dict]) -> list[str]:
+    """Notes, not refusals. A typo of a real file makes a promoted fact a dead end, so a file that
+    holds no key word of the fact gets a note that names a file that holds them."""
+    from cairnkit.ignore import is_tracked
+
+    project, notes = memory.project, []
+    if project.is_git and not is_tracked(project, rel):
+        notes.append(
+            f"note: git does not track {rel}. Commit it, or other checkouts do not have the rule."
+        )
+    words = _file_words(project.root / rel)
+    lost = [(s["id"], t) for s in states if (t := _key_terms(s)) and not _holds(words, t)]
+    if not lost:
+        return notes
+    ids = " ".join(fact_id for fact_id, _ in lost)
+    best, score = None, 0
+    for peer in _held_by_peers(project, rel):
+        found = _file_words(project.root / peer)
+        got = sum(_holds(found, terms) for _, terms in lost)
+        if got > score:
+            best, score = peer, got
+    hint = (
+        f"{best} holds them. If it holds the rule, run: memory change {ids} --status promoted "
+        f'--held-by {best} --reason "..."'
+        if best
+        else "Check the path."
+    )
+    notes.append(f"note: {rel} holds none of the key words of {ids}. {hint}")
+    return notes
+
+
+def _held_by_peers(project, rel: str) -> list[str]:
+    """The other files in the folder of rel, then the tracked files with its name."""
+    path = PurePosixPath(rel)
+    found: list[str] = []
+    with contextlib.suppress(OSError):
+        for entry in sorted(os.scandir(project.root / path.parent), key=lambda e: e.name):
+            if entry.is_file():
+                found.append((path.parent / entry.name).as_posix())
+    if project.is_git:
+        listed = run_git(project.root, "ls-files", "-z", "--", f"*{path.name}", timeout=2.0)
+        found += [p for p in (listed or "").split("\0") if PurePosixPath(p).name == path.name]
+    # A name that does not print could steer the terminal, and no --held-by takes it.
+    return [p for p in dict.fromkeys(found) if p != rel and not file_problem(p)][:HELD_BY_PEERS]
 
 
 def keep_fact(memory: Memory, fact_id: str, reason: str | None) -> None:

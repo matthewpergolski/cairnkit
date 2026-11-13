@@ -9,10 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory change` takes more than one ID with one set of flags:
+  `memory change ID ID ID --status promoted --held-by FILE --reason "..."`. Each ID gets every
+  check of a single change (the authority check of `--superseded-by`, the secret check, the link
+  and rule checks). One refusal changes no fact, and the error names the ID, so the same command
+  can run again after the fix. The output prints `changed ID` for each ID. One ID works as before.
 - `memory instructions` and the session rules name the promote step:
   `memory change ID --status promoted --held-by FILE --reason "..."` when a tracked file (a skill,
   `CLAUDE.md`, a lint) now holds a fact. Before, they named only `expired` and `wrong`, so an agent
   marked a codified fact `expired`, which reads as "no longer true".
+- `memory change --held-by FILE` prints a note when FILE holds none of the key words of a fact
+  (the search words of four letters or more). The note names a file in the same folder, or a
+  tracked file with the same name, that holds them, with the command to name it. It also prints a
+  note when git does not track FILE. A note is no refusal: the change is written.
 - The before-shell hook warns on Claude Code, once in a session, when a `git stash` command can
   take or lose an entry of other live work: all checkouts of a repo share one stash list. It
   speaks while another session, or a helper in another checkout, is live (the markers that
@@ -238,6 +247,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the commands: `--basis seen --link related:ID` (now with the new ID) for your own context, and
   `memory add "TEXT" --basis told` for the owner, or `--supersedes ID` for the words of an
   approved proposal.
+- `memory change --held-by` refuses a path outside the repo and a folder. It stores the path as a
+  repo path, also when it was given as an absolute path in the repo.
 - A rule that reads as the owner's yes to one piece of work (the test of the `memory add` note),
   and that no check enforces, loads under `## Rules that may be for one piece of work` below the
   lasting rules. The heading says that these rules bind and to end one when its work is done.
