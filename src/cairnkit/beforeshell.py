@@ -54,8 +54,9 @@ TOLD_LOCK = ".before-shell.lock"
 # A step that moves to a folder or reports a status, around the work: `cd x;`, `echo "exit=$?"`.
 NOT_WORK = frozenset({"cd", "pushd", "popd", "echo", "printf"})
 # A step that reads the output of the step before it through a pipe and only shows a part of it:
-# `pytest -q 2>&1 | tail -5`. A retry often shows another part, so it is no work either.
-FILTERS = frozenset({"tail", "head", "grep", "wc", "tee", "sort", "uniq", "less", "cat"})
+# `pytest -q 2>&1 | tail -5`. A retry often shows another part, so it is no work either. `tee`
+# writes a file, so it is work: `| tee a.log` and `| tee b.log` are different work.
+FILTERS = frozenset({"tail", "head", "grep", "wc", "sort", "uniq", "less", "cat"})
 
 
 @dataclass(frozen=True)
