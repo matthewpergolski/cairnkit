@@ -10,7 +10,7 @@ import stat
 import sys
 from pathlib import Path, PurePosixPath
 
-from cairnkit import deadline, followups, owner_evidence, plainfile
+from cairnkit import deadline, followups, owner_evidence, plainfile, ranking
 from cairnkit.autotidy import outranks
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.landed import one_work
@@ -638,6 +638,47 @@ def _ends_told(args, state: dict) -> bool:
     return args.status in ENDS and bool(running_tool()) and person_said(state)
 
 
+# Words that name no fact: what an end says ("forget that rule"), not what it ends.
+_NO_NAME = ranking.STOPWORDS | frozenset(
+    [
+        "forget",
+        "end",
+        "drop",
+        "remove",
+        "delete",
+        "retire",
+        "expire",
+        "rule",
+        "rules",
+        "fact",
+        "facts",
+        "decision",
+        "note",
+        "memory",
+        "old",
+        "please",
+        "now",
+        "no",
+        "not",
+        "one",
+        "any",
+    ]
+)
+
+
+def _reason_names(reason: str, state: dict, ids: list[str]) -> bool:
+    """The owner's words name this fact: its id, or a word of its own text. An id in them that
+    this command does not end names no fact here, so "forget f-A" never ends f-B."""
+    named = set(re.findall(ranking.ID, reason.lower()))
+    if named - set(ids):
+        return False
+    if state["id"] in named:
+        return True
+    words = {w for w in ranking.WORD.findall(reason.lower()) if w not in _NO_NAME}
+    own = {w for w in ranking.WORD.findall(str(state.get("text", "")).lower())}
+    return bool(words & own)
+
+
 def _one_change(
     memory: Memory,
     args,
@@ -656,6 +697,13 @@ def _one_change(
                 f"{fact_id} was stated by a person, so an agent does not mark it {args.status} "
                 f"on its own word, and the reason is not the owner's words: {why}. "
                 + ASK_TO_END.format(id=fact_id, status=args.status)
+            )
+        if not _reason_names(args.reason or "", state, ids):
+            raise Refused(
+                f"the owner's words in --reason do not name {fact_id}: give its id, or a word of "
+                f'its text, so they cannot end another fact. Ask the owner "Shall I end '
+                f'{fact_id} ({clean(load_text(state))[:60]})?" and pass that question, after '
+                "their yes, as --reason."
             )
         change["author"] = f"agent:{running_tool()}"
     if args.status:

@@ -742,7 +742,7 @@ ends only when an agent ends it. `--expires` takes effect only with `--short`.
 keeps it, so an agent can answer "did we try this before?". `memory change` takes one or more
 IDs with one set of flags. Each ID gets every check, and one refusal changes no fact. An agent
 marks a fact that a person stated (a confirmed told fact or the owner's rule) `expired` or
-`wrong` only on the owner's words: `--reason` must pass the check of a `told` claim (see "An
+`wrong` only on the owner's words that name it (its id or a word of its text, so a sentence about other work ends nothing): `--reason` must pass the check of a `told` claim (see "An
 agent's `told` claim needs the owner's words"). So "forget the uv rule, we use pip now", typed by
 the owner, can be the reason. Or the agent asks "Shall I end ID (Use uv for Python)?", the owner
 says yes, and that question is the reason. The record keeps the reason and names the agent as

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A `--superseded-by` or `--link` target that is one of the changed IDs is refused: a fact cannot
   replace itself or link to itself.
 - `memory change ID --status expired` or `--status wrong` from an agent ends a fact that a person
-  stated (a confirmed told fact or the owner's rule) only when `--reason` is the owner's words. The
+  stated (a confirmed told fact or the owner's rule) only when `--reason` is the owner's words and names that fact (its id or a word of its text). The
   check is the check of `memory add --basis told`: words that the owner typed in this session, the
   option that the owner picked, or the agent's closing question that a short "yes" approved in
   this turn (the whole question, "Shall I end ID (TEXT)?", or its words without "Shall I"). A

@@ -95,7 +95,10 @@ def test_tidy_proposes_to_end_each_approval_whose_work_landed(mem, repo, capsys,
         fid = ids[kind]
         line = line_of(out, fid)
         assert "2026-10-12" in line and "Land 0018 and the app split" in line
-        assert f'memory change {fid} --status expired --reason "Work landed in ' in line
+        if kind == "decision":
+            assert f'memory change {fid} --status expired --reason "Work landed in ' in line
+        else:  # a person stated it: the reason is the question that the owner says yes to
+            assert f'memory change {fid} --status expired --reason "Shall I end {fid} (' in line
     assert ids["lesson"] not in out, "only a rule or a decision is about to be ended"
     assert ids["open"] not in out, "docs/a.md has no commit"
     assert status(mem, ids["rule"]) == "active", "tidy ends nothing"

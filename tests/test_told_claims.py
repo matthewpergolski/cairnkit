@@ -870,3 +870,26 @@ def test_the_owner_at_a_terminal_still_ends_any_fact(mem, capsys, monkeypatch):
     assert f"changed {fid}" in out and "told:" not in out
     [record] = changes_of(mem, fid)
     assert record["status"] == "wrong" and "author" not in record
+
+
+@pytest.mark.parametrize(
+    "words",
+    ["Add a cache to the parser.", "Forget that rule.", "Please forget f-20200101-abcd now."],
+)
+def test_owner_words_that_do_not_name_the_fact_end_nothing(mem, capsys, monkeypatch, words):
+    """Any sentence of the owner ended any owner fact before: the words must name it."""
+    fid = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, words)
+    code, out = agent_change(capsys, monkeypatch, fid, "--status", "expired", "--reason", words)
+    assert code == 1 and f"do not name {fid}" in out and f"Shall I end {fid}" in out
+    assert not changes_of(mem, fid)
+    assert UV_RULE in loaded(capsys)
+
+
+def test_owner_words_with_the_id_of_the_fact_end_it(mem, capsys, monkeypatch):
+    fid = added(owner_add(capsys, UV_RULE))
+    words = f"Forget {fid}."
+    prompt(capsys, monkeypatch, words)
+    code, out = agent_change(capsys, monkeypatch, fid, "--status", "expired", "--reason", words)
+    assert code == 0, out
+    assert changes_of(mem, fid)
