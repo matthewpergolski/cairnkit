@@ -11,7 +11,9 @@ from cairnkit.cli import main
 from cairnkit.discover import DISCOVER, RULES_SHORT
 
 AGENTS = ("claude", "codex", "cursor", "pi", "opencode", "grok")
-OTHER_WORDS_BUDGET = 104
+# 102 words, and 9 more for the promote step: a codified fact that an agent marks expired reads as
+# no longer true.
+OTHER_WORDS_BUDGET = 111
 
 
 def hook(capsys, monkeypatch, event, agent, payload):

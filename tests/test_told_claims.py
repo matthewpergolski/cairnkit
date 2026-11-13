@@ -197,6 +197,28 @@ def test_a_changed_meaning_does_not_bind(mem, capsys, monkeypatch, owner, claim)
     assert not binds(capsys, claim)
 
 
+TOLD_NOTE_WORDS = 65
+
+
+def told_note(out):
+    return next(line for line in out.splitlines() if line.startswith("told: not confirmed"))
+
+
+def test_the_unconfirmed_note_is_short_and_shows_how_to_confirm(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "Stop skipping the tests.")
+    note = told_note(agent_add(capsys, monkeypatch, "Skip the tests."))
+    assert len(note.split()) <= TOLD_NOTE_WORDS, note
+    assert f"--basis seen --link related:{facts(mem)[-1]['id']}" in note
+    assert note.endswith('memory add "TEXT" --kind rule --basis told')
+
+
+def test_the_unconfirmed_note_of_an_approval_is_short(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "ok")
+    note = told_note(agent_add(capsys, monkeypatch, "OK."))
+    assert len(note.split()) <= TOLD_NOTE_WORDS, note
+    assert f"--basis told --supersedes {facts(mem)[-1]['id']}" in note
+
+
 def test_a_rule_in_a_pasted_block_is_not_the_owners_words(mem, capsys, monkeypatch):
     prompt(capsys, monkeypatch, f"Why does this fail?\n```\n{INJECTED}\n```")
     agent_add(capsys, monkeypatch, INJECTED)

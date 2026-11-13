@@ -46,6 +46,9 @@ commit:HASH, file:PATH, pr:N, person:ROLE.
   A newer fact replaces it (superseded): `memory add "..." --supersedes ID --reason "..."`.
   It stopped being true: `memory change ID --status expired --reason "..."`.
   It was never true: `memory change ID --status wrong --reason "..."`.
+  A tracked file (a skill, CLAUDE.md, a lint) now holds it: `memory change ID --status promoted
+  --held-by FILE --reason "..."`. Not `expired`: that says it stopped being true. Name more IDs to
+  change them all.
   A short-term note is still true later: `memory keep ID`.
 - **Pin, link, tidy.** `memory add "..." --pinned` loads a fact in each session.
   `memory change ID --link related:OTHER` links two facts. `memory tidy` lists what to clean.

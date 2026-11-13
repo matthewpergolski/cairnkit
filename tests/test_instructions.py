@@ -22,6 +22,17 @@ def test_instructions_cover_the_rules(capsys):
         assert needle in out, needle
 
 
+def test_the_instructions_and_session_rules_name_the_promote_step(capsys):
+    """An agent that followed them marked a fact that a skill now holds `expired`."""
+    from cairnkit.discover import RULES_SHORT
+
+    promote = "--status promoted --held-by FILE"
+    assert main(["instructions"]) == 0
+    words = " ".join(capsys.readouterr().out.split())
+    assert f"memory change ID {promote} --reason" in words
+    assert promote in " ".join(RULES_SHORT.split())
+
+
 def test_init_does_not_write_instructions_by_default(repo):
     assert main(["init"]) == 0
     assert not (repo / "AGENTS.md").exists()
