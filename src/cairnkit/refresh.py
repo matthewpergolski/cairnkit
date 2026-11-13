@@ -17,8 +17,8 @@ from pathlib import Path
 from cairnkit import __version__, adapters, githook, instructions, markers, plainfile, rules_target
 from cairnkit.clock import now, stamp
 from cairnkit.ignore import exclude
-from cairnkit.paths import LINK_NAME, Project, resolve_memory_dir
-from cairnkit.selection import clean_path
+from cairnkit.paths import Project, resolve_memory_dir
+from cairnkit.selection import clean_path, shell_word
 from cairnkit.skills import is_behind
 
 STAMP = "tool-version.json"
@@ -285,9 +285,10 @@ def _end_mined_facts(project: Project, flag: str | None) -> list[str]:
     from cairnkit.memory import Memory
 
     with contextlib.suppress(Exception):
-        ended = legacy.clean(Memory.open(project, flag))
+        memory = Memory.open(project, flag)
+        ended = legacy.clean(memory)
         if ended:
-            log = f"{LINK_NAME}/{LOG_NAME}"
+            log = shell_word(f"{memory.where}/{LOG_NAME}")
             return [
                 f"end {len(ended)} fact(s) that 0.3.1 mined from commits. "
                 f"They stay in the archive. `grep mined {log}` lists each id with its undo "
