@@ -13,7 +13,8 @@ state (see session.py), so the other hooks of a session do not read or write it.
 
 Each text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
 choices and the approval of the turn before. The prompt hook writes it, and the hook after a tool
-adds the label that the owner picked in an agent question. `memory add` reads it (`check_claim`).
+adds the label that the owner picked in an agent question. `memory add` reads it (`check_claim`),
+and so does `memory change` when an agent ends a fact that a person stated (`names_ids`).
 
 The approval. When the owner's whole prompt is a short yes (see `is_approval`), the prompt hook
 reads the agent's last message from the transcript that the payload names. Only the sentence that
@@ -62,16 +63,22 @@ from pathlib import Path
 
 from cairnkit import plainfile
 from cairnkit.memory import Memory
+from cairnkit.ranking import ID
 from cairnkit.secretscan import mask
 from cairnkit.session import state_path, write_state
 from cairnkit.signals import NOT_THE_OWNER
 from cairnkit.told_match import (
+    NOT,
     Evidence,
     best_match,
     choice_evidence,
     final_question,
     is_approval,
     only_approval,
+    sentences,
+    states_a_rule,
+    stem,
+    tokens,
 )
 
 PROMPTS_KEPT = 12
@@ -470,10 +477,9 @@ def evidence(data: dict, seen: Seen | None = None) -> list[Evidence]:
     return items
 
 
-def check_claim(memory: Memory, text: str) -> Verdict:
-    """Does a `told` claim of an agent match the owner's evidence of its session?"""
-    if only_approval(text):
-        return Verdict(False, APPROVAL_ONLY)
+def _session_evidence(memory: Memory) -> list[Evidence] | Verdict:
+    """The proven evidence of the session that runs this command, or a Verdict that says why
+    there is none."""
     path = _session_file(memory)
     data = _read(path) if path else {}
     if not data or not data.get("agent"):
@@ -483,7 +489,60 @@ def check_claim(memory: Memory, text: str) -> Verdict:
         seen = transcript_seen(memory, data)
         if seen is None:
             return Verdict(False, "the transcript of this session could not be read")
-    found = best_match(text, evidence(data, seen))
+    return evidence(data, seen)
+
+
+def check_claim(memory: Memory, text: str) -> Verdict:
+    """Does a `told` claim of an agent match the owner's evidence of its session?"""
+    if only_approval(text):
+        return Verdict(False, APPROVAL_ONLY)
+    items = _session_evidence(memory)
+    if isinstance(items, Verdict):
+        return items
+    found = best_match(text, items)
     if found is None:
         return Verdict(False, "it is no copy of one sentence the owner said in this session")
     return Verdict(True, VIA[found.kind])
+
+
+# A sentence with one of these words keeps the fact, or makes its end wait for something.
+_KEEP_TEXT = "keep stay retain stop skip avoid refuse except unless until without if"
+_KEEPS = frozenset([NOT, *map(stem, _KEEP_TEXT.split())])
+
+
+def names_ids(memory: Memory, ids: list[str]) -> Verdict:
+    """Does the owner's own evidence of this session hold each id, so that an agent may end
+    the fact that a person stated?
+
+    Only a sentence that the owner typed (a prompt, or an answer that is no option) or the
+    closing question that the owner approved with a short yes in this turn counts, with the
+    transcript proof of `check_claim`. The id must be in that sentence itself: words that only
+    share a word with the fact name nothing. The newest such sentence decides, so "Keep ID" after
+    "End ID" keeps it. A sentence with a word of _KEEPS ("Do not end ID") keeps the fact, and a
+    question that the owner typed ("Should we end ID?") counts for nothing.
+    """
+    items = _session_evidence(memory)
+    if isinstance(items, Verdict):
+        return items
+    kinds = []
+    for fact_id in ids:
+        newest = None  # the kind of the evidence of the newest sentence, or "keep"
+        for item in items:  # oldest first; the approval of this turn is last
+            if item.kind not in ("prompt", "approval"):
+                continue
+            for sentence in sentences(item.text):
+                if fact_id not in re.findall(ID, sentence.lower()):
+                    continue
+                if any(key in _KEEPS for key, _ in tokens(sentence)):
+                    newest = "keep"
+                elif item.kind == "approval" or states_a_rule(sentence):
+                    newest = item.kind
+        if newest is None:
+            return Verdict(
+                False,
+                f"no sentence that the owner typed or approved in this session holds {fact_id}",
+            )
+        if newest == "keep":
+            return Verdict(False, f"the newest sentence of the owner with {fact_id} keeps it")
+        kinds.append(newest)
+    return Verdict(True, " and ".join(VIA[kind] for kind in dict.fromkeys(kinds)))

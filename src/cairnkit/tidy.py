@@ -117,10 +117,10 @@ def _landed(memory: Memory, active: list[dict]) -> list[Proposal]:
     for fid, work in sorted(landed_work(memory, active, patient=True).items()):
         reason = f"Work landed in {work.commit} on {work.date}."
         ask = person_said(by_id[fid])
-        question = f"Shall I end {fid} ({_snippet(by_id[fid])}), whose work landed?"
+        # No fact text in the question or the command: it is data, and a shell runs the command.
         end = (
-            f"{ASK_OWNER} Ask: {question!r} After their yes: memory change {fid} --status "
-            f'expired --reason "{question}"'
+            f'{ASK_OWNER} Ask "Shall I end {fid}, whose work landed?" After their yes: memory '
+            f'change {fid} --status expired --reason "{reason[:-1]}; the owner approved."'
             if ask
             else f'End it: memory change {fid} --status expired --reason "{reason}"'
         )

@@ -95,10 +95,7 @@ def test_tidy_proposes_to_end_each_approval_whose_work_landed(mem, repo, capsys,
         fid = ids[kind]
         line = line_of(out, fid)
         assert "2026-10-12" in line and "Land 0018 and the app split" in line
-        if kind == "decision":
-            assert f'memory change {fid} --status expired --reason "Work landed in ' in line
-        else:  # a person stated it: the reason is the question that the owner says yes to
-            assert f'memory change {fid} --status expired --reason "Shall I end {fid} (' in line
+        assert f'memory change {fid} --status expired --reason "Work landed in ' in line
     assert ids["lesson"] not in out, "only a rule or a decision is about to be ended"
     assert ids["open"] not in out, "docs/a.md has no commit"
     assert status(mem, ids["rule"]) == "active", "tidy ends nothing"
@@ -119,6 +116,26 @@ def test_a_told_rule_asks_the_owner_and_apply_skips_it(mem, repo, capsys, monkey
     told = line_of(tidy(capsys), ids["rule"])
     assert "skipped" not in tidy(capsys, "--apply", proposal_id(told))
     assert status(mem, ids["rule"]) == "expired", "the owner's own apply ends it"
+
+
+def test_the_question_and_command_for_a_told_rule_hold_no_fact_text(mem, repo, capsys, monkeypatch):
+    """Fact text inside a quoted shell command breaks it, or runs what the text holds."""
+    at(monkeypatch, "05")
+    commit(repo, "base", {"db/0018.sql": "a\n"})
+    at(monkeypatch, "10")
+    text = "Yes to migration 0018: run `touch PWNED` first, the owner's $(id) check."
+    fid = add(capsys, text, "--kind", "rule", "--files", "db/0018.sql", "--basis", "told")
+    at(monkeypatch, "12")
+    commit(repo, "Land 0018", {"db/0018.sql": "b\n"})
+    line = line_of(tidy(capsys), fid)
+    data, asks = line.split(": its work landed", 1)
+    assert "touch PWNED" in data, "the fact text shows as data"
+    assert not any(part in asks for part in ("`", "$(", "PWNED", "\\'"))
+    assert f'Ask "Shall I end {fid}, whose work landed?" After their yes:' in asks
+    assert (
+        f'memory change {fid} --status expired --reason "Work landed in ' in asks
+        and '; the owner approved."' in asks
+    )
 
 
 def test_the_session_start_names_them_and_retires_none(mem, repo, capsys, monkeypatch):

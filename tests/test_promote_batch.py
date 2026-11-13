@@ -174,8 +174,9 @@ def test_an_agent_cannot_end_the_owner_fact(mem, capsys, monkeypatch, end):
     as_agent(monkeypatch)
     for ids in ([owner], [mine, owner]):
         code, out = run(capsys, "change", *ids, "--status", end, "--reason", "r")
-        assert code == 1 and f"{owner} was stated by a person" in out
-        assert f'memory add "WORDS" --basis told --supersedes {owner}' in out
+        assert code == 1 and f"a person stated {owner}," in out
+        assert f'Ask the owner "Shall I end {owner}?"' in out
+        assert f"run: memory change {' '.join(ids)} --status {end}" in out
         assert "own shell" in out
     assert status(mem, owner) == ("active", None) and status(mem, mine) == ("active", None)
 
