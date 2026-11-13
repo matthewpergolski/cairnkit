@@ -390,6 +390,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   branch holds, as for an old record. A compaction of the session that started it names it as
   "started by this session; it ended", so the order not to commit or remove the live work of
   others does not cover it.
+  A load reads at most 3 old records, newest first. A record that ended, or is past 24 hours,
+  whose checkout holds no such work, goes when the load reads it, so clean old records cannot
+  take each read from a record with unlanded work.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`), or with no letter and no digit (an emoji such as `👍` or `✅ 👍`), is

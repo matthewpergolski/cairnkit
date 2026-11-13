@@ -605,13 +605,16 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   for `"status": "async_launched"`, adds its `agentId`. When the record's own `checkout` is still
   there, these two set `"ended": true` in place of the removal. `stop` removes the calls of its turn with
   no helper, and each record that its session's load named whose checkout is not there.
-- The load adds one `- [helper]` line under `## Live work` for each of the 3 oldest records (with
+- The load adds one `- [helper]` line under `## Live work` for each of the 3 newest records (with
   the count of the others) whose `started_at` is in the last 24 hours, or whose own checkout
   still holds uncommitted changes or commits since `base` that no `main`, `master`, `dev` or
   `develop` ref (local or `origin`) holds. The refs of the checkout's own branch do not count, and
   a `base` that git does not know counts no commit. A record whose `transcript` file exists and has
   a file time older than 30 minutes ended, as a record with `"ended": true` did: it is named only while its checkout holds such work, and
-  its line says that it ended. The load reads only that file time. It is inside the frame of
+  its line says that it ended. The load reads only that file time. It reads the checkouts of at
+  most 3 records that are past 24 hours, ended or quiet, newest first. When git answers in time
+  and such a checkout holds no such work, the load removes the record if it ended or is past 24
+  hours. It is inside the frame of
   stored notes, because the text came from an agent. A load for `compact` or `reload` leaves out the records of its own session.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
   checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before

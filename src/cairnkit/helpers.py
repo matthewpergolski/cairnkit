@@ -295,11 +295,17 @@ def on_main_stop(memory: Memory, session: str) -> None:
 
 
 def shown(memory: Memory, hide_session: str | None) -> list[Helper]:
-    """The records that a load can name, oldest first. live.py drops the old ones with no work.
+    """The records that a load can name. live.py drops the old ones with no work.
 
     `hide_session` is the session of a helper's own load, whose siblings can still run.
     """
     return [h for h in _read(memory) if h.session != hide_session]
+
+
+def forget(memory: Memory, calls: list[str]) -> None:
+    """A load found no work in the checkouts of these old records."""
+    if calls:
+        _update(memory, lambda helpers: [h for h in helpers if h.call not in calls])
 
 
 def note_told(memory: Memory, calls: list[str], session: str) -> None:

@@ -688,7 +688,9 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   ended, and its record stays as an old one (below). A load names a record for 24 hours after its call, which is
   longer than a helper runs. After that, it names the record only while the helper's own checkout
   holds uncommitted changes, or commits since the helper started that `main`, `master`, `dev` and
-  `develop` (local or on `origin`) do not hold; else the line is noise. The helper's own branch
+  `develop` (local or on `origin`) do not hold; else the line is noise, and a load removes a
+  record that ended or is past 24 hours when its checkout holds no such work. The load reads the
+  newest records first. The helper's own branch
   never counts as merged. TaskStop does not always fire `SubagentStop`, so a helper whose own
   transcript (`<parent transcript>/subagents/agent-<id>.jsonl`, from the parent's
   `transcript_path`) had no write for 30 minutes ended. The load reads only the file time. It

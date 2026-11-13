@@ -330,18 +330,21 @@ RUNNING = f"{OWN}; it may still be running, or it was stopped or ended unseen"
 
 def _named_helpers(
     memory: Memory, records: list[helpers.Helper]
-) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int]:
-    """The records that the load names, the work in the checkout of each, and how many more.
+) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int, list[str]]:
+    """The records that the load names, the work in the checkout of each, how many more, and
+    the records that hold no work and can go.
 
     No hook event ends a lost record. A record past helpers.SHOWN_SECONDS, one that ended, or one
     whose own transcript is quiet (the helper ended), is named only while its own checkout holds
     commits since it started or uncommitted changes, because that is live work; else it is
     noise. The work is read once, for the line too, and only until MAX_HELPERS are named. At most
     MAX_HELPERS such records are read at all, so a pile of stale records costs no more git than
-    the lines do; a record past that count is not named.
+    the lines do; a record past that count is not named. A record that ended, or one past
+    SHOWN_SECONDS, whose checkout was read in full with no work, can go: no helper adds work
+    there any more, so it does not take a read from a record with work at the next load.
     """
     since = time.time() - helpers.SHOWN_SECONDS
-    named, work, more, old_reads = [], {}, 0, 0
+    named, work, more, old_reads, done = [], {}, 0, 0, []
     for helper in records:
         inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
         old = helper.started_at < since or helper.ended or helper.quiet
@@ -352,11 +355,15 @@ def _named_helpers(
             continue
         if inside:
             old_reads += old
+            cuts = deadline.git_cuts()
             work[helper.call] = _helper_work(memory, helper)
             if old and not work[helper.call][2]:
+                gone = helper.ended or helper.started_at < since
+                if gone and deadline.git_cuts() == cuts:
+                    done.append(helper.call)
                 continue
         named.append(helper)
-    return named, work, more
+    return named, work, more, done
 
 
 def _helper_line(
@@ -449,13 +456,14 @@ def add_lines(
     if FRAME_HEADER not in lines:
         return lines
     records = helpers.shown(memory, hide_helpers_of)
-    records.sort(key=lambda helper: helper.session != own_helpers_of)
+    records.sort(key=lambda helper: (helper.session != own_helpers_of, -helper.started_at))
     named: list[helpers.Helper] = []
+    done: list[str] = []
     body: list[str] = []
     found: list[Checkout] = []
     unread = 0
     with deadline.within(BUDGET):
-        named, work, more = _named_helpers(memory, records)
+        named, work, more, done = _named_helpers(memory, records)
         body = [
             _helper_line(memory, h, work.get(h.call), h.session == own_helpers_of) for h in named
         ]
@@ -466,6 +474,7 @@ def add_lines(
             here = session is not None and str(memory.project.root) in at_work
             skip = {Path(h.checkout or "").resolve() for h in named if h.has_checkout}
             found, unread = _read_checkouts(memory, at_work, here, skip)
+    helpers.forget(memory, done)
     if session is not None:
         told = [helper.call for helper in named if helper.session != own_helpers_of]
         helpers.note_told(memory, told, session)
