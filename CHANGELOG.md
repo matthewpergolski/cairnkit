@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory instructions` and the session rules name the promote step:
+  `memory change ID --status promoted --held-by FILE --reason "..."` when a tracked file (a skill,
+  `CLAUDE.md`, a lint) now holds a fact. Before, they named only `expired` and `wrong`, so an agent
+  marked a codified fact `expired`, which reads as "no longer true".
 - The before-shell hook warns on Claude Code, once in a session, when a `git stash` command can
   take or lose an entry of other live work: all checkouts of a repo share one stash list. It
   speaks while another session, or a helper in another checkout, is live (the markers that

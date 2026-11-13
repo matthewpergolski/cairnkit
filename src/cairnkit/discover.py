@@ -21,7 +21,8 @@ CAPTURE_GUIDE = (
 )
 
 RULES_SHORT = """\
-Memory rules: save a decision, trap, lesson or correction with `memory add "TEXT"`
-(`--basis told` if the owner said it, `--short` for a branch note). Replace one with
-`--supersedes ID`; end one with `memory change ID --status expired|wrong`. Never store
-secrets or edit memory files."""
+Memory rules: save a decision, trap or lesson with `memory add "TEXT"`
+(`--basis told` if the owner said it, `--short` for branch notes). Replace one with
+`--supersedes ID`; end one with `memory change ID --status expired|wrong`, or
+`--status promoted --held-by FILE` when a tracked file holds it. Never store secrets or
+edit memory files."""
