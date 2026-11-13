@@ -241,6 +241,8 @@ def live_in_worktree(repo, monkeypatch, session: str) -> None:
         "git -C . stash drop",
         "git stash apply",
         "git stash clear",
+        "sudo -u root git stash",
+        "sudo git stash pop",
     ],
 )
 def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, monkeypatch, command):
@@ -262,6 +264,14 @@ def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, mo
         "$(git stash pop)",
         "sudo git stash pop",
         "sudo -E git stash pop",
+        "sudo -u root git stash",
+        "sudo -u root -- git stash clear",
+        "sudo -Hu root git stash pop",
+        "sudo -uroot git stash pop",
+        "sudo --user root git stash drop",
+        "sudo -g wheel -E -- git stash apply",
+        "env -u HOME git stash pop",
+        "env -C /x git stash pop",
         "env X=1 git stash pop",
         "env -i X=1 git stash drop",
         "cd a && (git stash pop) 2>/dev/null",
@@ -272,7 +282,14 @@ def test_a_stash_step_in_a_subshell_or_behind_sudo_or_env_takes_the_stash(comman
 
 
 @pytest.mark.parametrize(
-    "command", ["(git stash push -m wip)", "x=$(git stash list)", "sudo git stash list"]
+    "command",
+    [
+        "(git stash push -m wip)",
+        "x=$(git stash list)",
+        "sudo git stash list",
+        "sudo -u root git stash push -m wip",
+        "sudo -u root git stash list",
+    ],
 )
 def test_a_named_or_reading_stash_step_in_a_subshell_takes_nothing(command):
     assert not takes_shared_stash(command)
