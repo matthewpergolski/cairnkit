@@ -389,7 +389,7 @@ def _push_refusal() -> str:
         + _echo(f"The file {FIX_FILE} is gone. Run `memory hooks install`, then push again.")
         + "  fi\n"
         + _echo(
-            "To allow such lines here, add this to memory-bank/config.toml, "
+            "To allow such lines here, add this to config.toml in the memory folder, "
             "then run `memory hooks install`:",
             *(f"  {line}" for line in _OVERRIDE),
         )

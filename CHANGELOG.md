@@ -374,6 +374,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Text for an agent names `memory-bank/` only when that link leads to the memory. When
+  `.memory-path` or `MEMORY_DIR` picks the memory and `memory-bank` is gone or leads to another
+  folder, the `Tidy follow-up pending` line of `memory load` and the note lines of `memory search`
+  name the memory folder path. The rules block and the push refusal of the guard name no link:
+  "Never edit memory files by hand" and "add this to config.toml in the memory folder".
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The
