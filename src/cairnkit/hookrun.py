@@ -728,6 +728,8 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
 # Each tool here reads a deny before the command runs. See adapters.py for the others.
 BEFORE_SHELL_AGENTS = frozenset({"claude", "codex", "pi", "opencode"})
 BEFORE_SHELL_BUDGET = 2.5
+# Each tool here reads PreToolUse `additionalContext` and does not block the call.
+CONTEXT_BEFORE_SHELL = frozenset({"claude", "codex"})
 
 
 def before_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
@@ -735,7 +737,8 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
     forgery.py), and a fact with a longer form of it stops this call once. Exits 0.
 
     A `git stash` command that can take an entry of other live work gets a warning once, on
-    Claude Code, and runs (`live.stash_note`). The tool adds that text with the tool result.
+    Claude Code and Codex, and runs (`live.stash_note`). Claude Code adds that text with the tool
+    result.
 
     It never prints an allow, so the person's own approval of the command still applies. On any
     error or past its time it says nothing, and the command runs.
@@ -750,7 +753,7 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
                 memory, session_key(payload), command
             )
             # This hook runs before each command, so only a command that names the stash pays.
-            if not text and agent == "claude" and "stash" in command:
+            if not text and agent in CONTEXT_BEFORE_SHELL and "stash" in command:
                 note = live.stash_note(memory, session_key(payload), command)
     if note:
         context = {"hookEventName": "PreToolUse", "additionalContext": note}

@@ -568,7 +568,7 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   "permissionDecisionReason": TEXT}}` for `claude` and `codex`, and TEXT on stdout for `pi` and
   `opencode`. It never prints an allow, because an allow skips the person's own approval. With
   nothing to say, on any error and past 2.5 seconds, it prints nothing (`{}` for `codex`), and the
-  command runs. Other agents get nothing. It always exits 0. For `claude` only, a command that
+  command runs. Other agents get nothing. It always exits 0. For `claude` and `codex`, a command that
   holds `stash` and has a `git stash` step that can take or lose an entry of other work
   (`clear`; `pop`, `apply` or `drop` with no entry named; `branch` with no entry; a push or
   `save` with no message; also in `( )` or `$( )`, or after `sudo` or `env` with their options

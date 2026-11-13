@@ -1098,12 +1098,12 @@ so neither gets it. A context line is no answer: Claude Code adds it with the to
 the command ran.
 
 **The shared git stash.** All checkouts of a repo share one stash list, so a `git stash pop` in one
-worktree can take the entry of another. On Claude Code, a `git stash` command that can take or lose
+worktree can take the entry of another. On Claude Code and Codex, a `git stash` command that can take or lose
 an entry of other work gets a warning, once in a session, while another session or a helper in
 another checkout is live (the markers of **Live work**). That is `clear`, a `pop`, `apply` or `drop`
 of the top entry, and a push with no message, which a bare pop elsewhere takes. The warning names
 the live checkouts and says to commit the work on a branch, or to use `git stash push -m NAME` and
-then `git stash apply stash@{n}` for that name. It never stops the command, so it arrives with the
+then `git stash apply stash@{n}` for that name. It never stops the command, so on Claude Code it arrives with the
 tool result. A named push, `list`, `show` and an entry named by `stash@{n}` get no warning. A
 step in `( )` or `$( )`, or after `sudo` or `env` with its options and settings (`sudo -u root
 git stash`), counts too. A `bash -c`

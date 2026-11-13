@@ -12,7 +12,8 @@ breaker events rechecked 2026-10-30):
   `SubagentStop` its end (checked 2026-11-02, and in a real run of 2.1.316). Both print nothing.
 - Codex: `.codex/hooks.json`, the same shape with no `PostToolUseFailure`. Stop must print JSON
   on exit 0. Project hooks run only in a trusted project, after review in `/hooks`. `PreToolUse`
-  denies as in Claude Code.
+  denies as in Claude Code, and its `additionalContext` adds context that the model reads and
+  does not block the call (https://learn.chatgpt.com/docs/hooks, checked 2026-11-13).
 - Cursor: `.cursor/hooks.json` (`version: 1`), events `sessionStart` (JSON `additional_context`),
   `stop` (JSON `followup_message`, capped by `loop_limit`), `postToolUse` and `postToolUseFailure`
   (JSON `additional_context`), `beforeSubmitPrompt` (JSON `continue`, no text) and `preCompact`
