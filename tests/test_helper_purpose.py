@@ -17,7 +17,7 @@ import time
 import pytest
 from conftest import git
 
-from cairnkit import helpers
+from cairnkit import helpers, live
 from cairnkit.cli import main
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER
 
@@ -252,6 +252,32 @@ def test_a_helper_that_ended_is_not_named(repo, hooks, ending):
             error="the helper failed",
         )
     assert not helper_lines(hooks.load(repo))
+
+
+@pytest.mark.parametrize("ending", ["subagent-stop", "foreground-return"])
+@pytest.mark.parametrize("left", ["commit", "change"])
+def test_a_helper_that_ended_with_unlanded_work_stays_named_as_ended(repo, hooks, ending, left):
+    """A helper that ends normally leaves its work in its own checkout. No session works there
+    after it, so only the helper line names that work."""
+    path = killed_mid_helper(repo, hooks)
+    (path / "hostlink.py").write_text("def link(): pass\n")
+    if left == "commit":
+        git(path, "add", "hostlink.py")
+        git(path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "link")
+    if ending == "subagent-stop":
+        hooks.subagent_stop(repo, "a1", path)
+    else:
+        hooks.returned(repo, "toolu_1", {"status": "completed", "agentId": "a1", "content": []})
+    hooks.run("stop", repo)
+    [line] = helper_lines(hooks.load(repo, "s2"))
+    held = "1 commit(s) since it started" if left == "commit" else "uncommitted hostlink.py"
+    assert PURPOSE in line and live.ENDED in line and held in line
+    hooks.run("stop", repo, session="s2")
+    assert helper_lines(hooks.load(repo, "s3")), "the work is still there"
+    git(repo, "branch", "-f", "dev", "host-link-per-invitation")
+    if left == "change":
+        (path / "hostlink.py").unlink()
+    assert not helper_lines(hooks.load(repo, "s4")), "the work landed or went"
 
 
 def test_a_background_helper_outlives_the_turn_and_ends_at_its_own_stop(repo, hooks):
