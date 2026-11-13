@@ -236,14 +236,23 @@ def _is_attribution(unit: str) -> bool:
     return not any(token in STRICT or token == NOT for token, _ in tokens(unit.rstrip(":")))
 
 
-def _claim_units(text: str) -> list[tuple[Token, ...]]:
+def _claim_parts(text: str) -> list[str]:
     # An ellipsis marks words left out of ONE sentence of the owner: the parts must match that
     # sentence in order, so the gap is only a space here. Joining two sentences of the owner
     # could turn "No. Commit to main." into "Never commit to main".
     parts = _UNIT_END.split(_GAP.sub(" ", text))
     if parts and _is_attribution(parts[0].strip()):
         parts = parts[1:]  # who said it and when, not part of the rule
-    return [words for part in parts if (words := tokens(_unframed(part)))]
+    return [_unframed(part) for part in parts if tokens(_unframed(part))]
+
+
+def _claim_units(text: str) -> list[tuple[Token, ...]]:
+    return [tokens(part) for part in _claim_parts(text)]
+
+
+def _questions(text: str) -> list[tuple[Token, ...]]:
+    """The questions of an owner prompt, as tokens."""
+    return [tokens(part) for part in _claim_parts(text) if not _states_a_rule(part)]
 
 
 def run_matches(run: tuple[Token, ...], unit: tuple[Token, ...]) -> bool:
@@ -276,9 +285,19 @@ def _matches(claim: list[tuple[Token, ...]], owner: list[tuple[Token, ...]]) -> 
 
 
 def best_match(text: str, evidence: list[Evidence]) -> Match | None:
-    """The first piece of evidence that the claim copies, or None."""
-    claim = _claim_units(text)
+    """The first piece of evidence that the claim copies, or None.
+
+    A question states no rule. A claim that copies the owner's whole prompt, with a question
+    such as "how?" in it, still binds by its rule, when each question in it is one that the owner
+    typed in that prompt, word for word. The question stays in the fact, so a reader sees it.
+    """
+    parts = _claim_parts(text)
+    rule = [tokens(part) for part in parts if _states_a_rule(part)]
+    asked = [tokens(part) for part in parts if not _states_a_rule(part)]
     for item in evidence:
+        claim = _claim_units(text)
+        if asked and item.kind == "prompt" and all(q in _questions(item.text) for q in asked):
+            claim = rule
         if _matches(claim, units(item)):
             return Match(item.kind)
     return None
