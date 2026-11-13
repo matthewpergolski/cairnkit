@@ -44,8 +44,16 @@ LANDING_BRANCHES = ("main", "master", *INTEGRATION_BRANCHES)
 NOTE_WORDS = 20
 # Options of git before its command that take a value as the next word.
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
-# Words in front of a command that run it as it is, with their options and settings.
-RUN_AS = frozenset({"sudo", "env"})
+# Words in front of a command that run it as it is, with their options and settings. For each:
+# its short options that take a value, and its long options that take one as the next word.
+RUN_AS = {
+    "sudo": (
+        "CDghpRrTtUu",
+        frozenset({"--close-from", "--chdir", "--group", "--host", "--prompt", "--chroot",
+                   "--role", "--command-timeout", "--type", "--other-user", "--user"}),
+    ),
+    "env": ("CSu", frozenset({"--chdir", "--split-string", "--unset"})),
+}  # fmt: skip
 ORDER = (
     "Live work that this session did not start is listed under `## Live work`. Do not commit, "
     "discard or remove it, also in a general tidy-up, unless the owner names that checkout or "
@@ -117,19 +125,23 @@ def _sharers(memory: Memory, session: str) -> list[str]:
 
 def _command_words(part: str) -> list[str]:
     """The words of one step from its command on: past `(` and `$(`, settings (also `x=$(`),
-    `sudo` and `env` with their options, and with no `)` at the end. A `bash -c` script and a
+    `sudo` and `env` with their options and option values, and with no `)` at the end. A `bash -c` script and a
     git alias stay out: the parser reads no script and no git config."""
     words = [word for word in _core_words(_words(part.strip())) if word]
-    run_as = False
+    run_as = None
     while words:
         word = words[0]
         if SETTING.fullmatch(word) and "$(" in word:
             words[0] = word.split("$(", 1)[1]
         elif word.startswith(("(", "$(")):
             words[0] = word.lstrip("$(")
-        elif SETTING.fullmatch(word) or word in RUN_AS or (run_as and word.startswith("-")):
-            run_as = run_as or word in RUN_AS
+        elif SETTING.fullmatch(word) or word in RUN_AS:
+            run_as = word if word in RUN_AS else run_as
             words.pop(0)
+        elif run_as and word.startswith("-"):
+            words.pop(0)
+            if _takes_value(run_as, word) and words:
+                words.pop(0)
         else:
             break
         if words and not words[0]:
@@ -137,6 +149,17 @@ def _command_words(part: str) -> list[str]:
     if words:
         words[-1] = words[-1].rstrip(")")
     return [word for word in words if word]
+
+
+def _takes_value(run_as: str, option: str) -> bool:
+    """True when the next word is the value of this option: `-u root`, `-Hu root`, `--user root`."""
+    short, long = RUN_AS[run_as]
+    if option.startswith("--"):
+        return option in long
+    for index, letter in enumerate(option[1:], 2):
+        if letter in short:
+            return index == len(option)
+    return False
 
 
 def _stash_args(words: list[str]) -> list[str] | None:

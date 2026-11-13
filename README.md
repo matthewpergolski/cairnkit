@@ -1105,7 +1105,8 @@ of the top entry, and a push with no message, which a bare pop elsewhere takes. 
 the live checkouts and says to commit the work on a branch, or to use `git stash push -m NAME` and
 then `git stash apply stash@{n}` for that name. It never stops the command, so it arrives with the
 tool result. A named push, `list`, `show` and an entry named by `stash@{n}` get no warning. A
-step in `( )` or `$( )`, or after `sudo` or `env` and its settings, counts too. A `bash -c`
+step in `( )` or `$( )`, or after `sudo` or `env` with its options and settings (`sudo -u root
+git stash`), counts too. A `bash -c`
 script and a git alias do not: the hook reads no script and no git config. A command with no
 `stash` in it does no more work in this hook.
 

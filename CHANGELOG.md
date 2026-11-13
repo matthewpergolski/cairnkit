@@ -47,7 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `## Live work` reads), for `clear`, a `pop`, `apply` or `drop` of the top entry, and a push with
   no message. The warning names the live checkouts and gives `git stash push -m NAME` and
   `git stash apply stash@{n}`, or a commit on a branch. It never stops the command, so Claude Code
-  adds it with the tool result. A step in `( )` or `$( )`, or after `sudo` or `env`, counts; a
+  adds it with the tool result. A step in `( )` or `$( )`, or after `sudo` or `env` with their
+  options and option values (`sudo -u root git stash`, `env -u HOME git stash pop`), counts; a
   `bash -c` script and a git alias do not. A command with no `stash` in it does no more work.
 - `memory init --refresh` prints one line that the repo's own hooks run as before, with their
   names and folder: the hooks in the folder that core.hooksPath names (such as `.githooks`; the
