@@ -16,12 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   can run again after the fix. The output prints `changed ID` for each ID. One ID works as before.
   A `--superseded-by` or `--link` target that is one of the changed IDs is refused: a fact cannot
   replace itself or link to itself.
-- `memory change ID --status expired` or `--status wrong` from an agent refuses when a person
-  stated ID (a confirmed told fact or the owner's rule), also in a batch. The refusal says how to
-  end it: ask the owner, then quote the owner's words with
-  `memory add "WORDS" --basis told --supersedes ID --reason "..."`, or the owner runs the command
-  from their own shell. An agent can still mark such a fact `promoted --held-by FILE`, because the
-  file keeps the rule. The owner at a terminal can change any fact as before.
+- `memory change ID --status expired` or `--status wrong` from an agent ends a fact that a person
+  stated (a confirmed told fact or the owner's rule) only when `--reason` is the owner's words. The
+  check is the check of `memory add --basis told`: words that the owner typed in this session, the
+  option that the owner picked, or the agent's closing question that a short "yes" approved in
+  this turn (the whole question, "Shall I end ID (TEXT)?", or its words without "Shall I"). A
+  reason such as "yes" or "ok" says nothing and does not count. The change record keeps the reason
+  as written and gets `"author": "agent:<tool>"`, `memory show` names that author, and the output
+  prints a `told:` line for each ended fact with its text. Any other reason refuses, also in a
+  batch, where one refusal changes no fact. The refusal says how to end it: quote the owner's
+  words as `--reason`, or as a new fact with `memory add "WORDS" --basis told --supersedes ID`, or
+  the owner runs the command from their own shell. An agent can still mark such a fact
+  `promoted --held-by FILE`, because the file keeps the rule. The owner at a terminal can change
+  any fact as before.
 - `memory instructions` and the session rules name the promote step:
   `memory change ID --status promoted --held-by FILE --reason "..."` when a tracked file (a skill,
   `CLAUDE.md`, a lint) now holds a fact. Before, they named only `expired` and `wrong`, so an agent

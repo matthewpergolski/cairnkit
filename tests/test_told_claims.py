@@ -758,3 +758,115 @@ def test_a_copy_of_the_whole_prompt_with_its_question_binds(mem, capsys, monkeyp
     words = "ok let's make these optimizations.  how?"
     prompt(capsys, monkeypatch, words)
     assert "told: confirmed" in agent_add(capsys, monkeypatch, words)
+
+
+# --- an agent ends a fact that a person stated, on the owner's words ---------------------
+
+UV_RULE = "Use uv for Python."
+FORGET = "Forget the uv rule, we use pip now."
+QUOTE_HINT = "The owner's words of this turn as --reason end it too"
+
+
+def added(out):
+    return out.split("added ")[1].split()[0]
+
+
+def agent_change(capsys, monkeypatch, *argv, session="s"):
+    """`memory change` in the shell of a Claude Code agent of `session`."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+    capsys.readouterr()
+    code = main(["change", *argv])
+    captured = capsys.readouterr()
+    monkeypatch.delenv("CLAUDECODE")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    return code, captured.out + captured.err
+
+
+def changes_of(mem, fid):
+    return [r for r in facts(mem) if r["type"] == "change" and r["id"] == fid]
+
+
+def loaded(capsys):
+    capsys.readouterr()
+    assert main(["load"]) == 0
+    return capsys.readouterr().out
+
+
+def test_the_owners_words_as_the_reason_end_the_owners_fact(mem, capsys, monkeypatch):
+    fid = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, FORGET)
+    code, out = agent_change(capsys, monkeypatch, fid, "--status", "expired", "--reason", FORGET)
+    assert code == 0, out
+    told = f"told: {fid} is expired on the owner's words, confirmed by words the owner typed"
+    assert told in out and UV_RULE.rstrip(".") in out.split(told)[1]
+    [record] = changes_of(mem, fid)
+    assert record["status"] == "expired" and record["reason"] == FORGET
+    assert record["author"] == "agent:claude" and not validate_record(record)
+    assert UV_RULE not in loaded(capsys)
+    capsys.readouterr()
+    assert main(["show", fid]) == 0
+    assert f"expired: {FORGET} (" in capsys.readouterr().out
+
+
+def test_a_reason_that_the_owner_did_not_type_ends_nothing(mem, capsys, monkeypatch):
+    fid = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, FORGET)
+    reason = "The owner moved the project to pip."
+    code, out = agent_change(capsys, monkeypatch, fid, "--status", "wrong", "--reason", reason)
+    assert code == 1 and f"{fid} was stated by a person" in out
+    assert "no copy of one sentence the owner said" in out
+    assert f'{QUOTE_HINT}: memory change {fid} --status wrong --reason "WORDS"' in out
+    assert not changes_of(mem, fid)
+    assert UV_RULE in loaded(capsys)
+
+
+@pytest.mark.parametrize("reply", ["yes", "ok"])
+def test_a_reason_that_says_nothing_ends_nothing(mem, capsys, monkeypatch, reply):
+    fid = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, reply)
+    code, out = agent_change(capsys, monkeypatch, fid, "--status", "expired", "--reason", reply)
+    assert code == 1 and "says nothing" in out and QUOTE_HINT in out
+    assert not changes_of(mem, fid)
+
+
+def test_the_closing_question_that_the_owner_approved_ends_the_fact(
+    mem, capsys, monkeypatch, tmp_path
+):
+    fid = added(owner_add(capsys, UV_RULE))
+    question = f"Shall I end {fid} (Use uv for Python)?"
+    path = session_with_proposal(tmp_path, f"The project moved to pip. {question}")
+    prompt(capsys, monkeypatch, "yes", transcript_path=path)
+    code, out = agent_change(capsys, monkeypatch, fid, "--status", "expired", "--reason", question)
+    assert code == 0, out
+    assert f"told: {fid} is expired on the owner's words, confirmed by the proposal" in out
+    [record] = changes_of(mem, fid)
+    assert record["reason"] == question and record["author"] == "agent:claude"
+
+
+def test_a_batch_with_an_owner_fact_and_a_reason_that_does_not_match_writes_nothing(
+    mem, capsys, monkeypatch
+):
+    capsys.readouterr()
+    assert main(["add", "The cache lives in redis.", "--basis", "seen", "--area", "x"]) == 0
+    mine = added(capsys.readouterr().out)
+    owner = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, FORGET)
+    reason = "Both facts are stale."
+    code, out = agent_change(
+        capsys, monkeypatch, mine, owner, "--status", "expired", "--reason", reason
+    )
+    assert code == 1 and f"{owner}: {owner} was stated by a person" in out
+    assert "No fact changed" in out and QUOTE_HINT in out
+    assert not changes_of(mem, mine) and not changes_of(mem, owner)
+
+
+def test_the_owner_at_a_terminal_still_ends_any_fact(mem, capsys, monkeypatch):
+    fid = added(owner_add(capsys, UV_RULE))
+    prompt(capsys, monkeypatch, "Fix the lint.")
+    capsys.readouterr()
+    assert main(["change", fid, "--status", "wrong", "--reason", "r"]) == 0
+    out = capsys.readouterr().out
+    assert f"changed {fid}" in out and "told:" not in out
+    [record] = changes_of(mem, fid)
+    assert record["status"] == "wrong" and "author" not in record

@@ -298,14 +298,19 @@ def best_match(text: str, evidence: list[Evidence]) -> Match | None:
     these optimizations. how?": the same words in the same order. Only case, spaces and the marks
     at the end can differ, so no question of the owner can move to a rule of another sentence.
     The question stays in the fact, so a reader sees it.
+
+    The asking words go from an approved question (see `units`), so they may go from the claim
+    too: the claim can copy the whole question, such as "Shall I end f-20261113-0a1b (Use uv)?".
     """
     parts = _claim_parts(text)
     rules = [_states_a_rule(part) for part in parts]
     if any(rules) and not all(rules) and (whole := _whole_prompt(text, evidence)):
         return whole
     claim = [tokens(part) for part in parts]
+    asked = [tokens(_asked(part)) for part in parts]
     for item in evidence:
-        if _matches(claim, units(item)):
+        owner = units(item)
+        if _matches(claim, owner) or (item.kind == "approval" and _matches(asked, owner)):
             return Match(item.kind)
     return None
 

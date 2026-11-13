@@ -219,6 +219,7 @@ A change does not edit the fact. It adds a new state.
 | `branch_tip` | no | Auto-tidy only. The first tip that it saw of the end branch of a fact with no `branch_tip`. It changes no status. |
 | `cid` | no | A hash that auto-tidy writes. Two sessions that write the same change write it once. A reader applies only the first change with a `cid`. |
 | `case` | no | Auto-tidy only. Why it retired the fact: `duplicate`, `ended`, `file-gone` or `mined`. An older record can hold `near-duplicate`. |
+| `author` | no | `agent:<tool>`, as in a fact, when an agent marked a fact that a person stated `expired` or `wrong`. The owner's words in that session confirmed `reason` (see `owner_evidence.py`): words the owner typed, the option the owner picked, or the closing question that the owner approved with a short yes. Absent otherwise. |
 | `writer` | yes | The writer name. |
 
 A change must set at least one of `status`, `scope`, `add_links`, `remove_links`,

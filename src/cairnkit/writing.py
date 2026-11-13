@@ -270,7 +270,8 @@ ENDS = ("expired", "wrong")
 ASK_TO_END = (
     "Ask the owner. When the owner says that it ended, quote the owner's words in this turn: "
     'memory add "WORDS" --basis told --supersedes {id} --reason "...". Or the owner runs this '
-    "command from their own shell."
+    "command from their own shell. The owner's words of this turn as --reason end it too: "
+    'memory change {id} --status {status} --reason "WORDS".'
 )
 
 
@@ -593,9 +594,11 @@ def change_fact(memory: Memory, args) -> None:
         # First, because a refusal below can name the value.
         _check_secrets(memory, args.reason, args.enforced_by, names=(args.held_by,))
         _check_not_itself(args, ids)
+        told = [s for s in states if _ends_told(args, s)]
+        verdict = owner_evidence.check_claim(memory, args.reason or "") if told else None
         for state in states:
             where = f"{state['id']}: "
-            records.append(_one_change(memory, args, state, ids, at, writer))
+            records.append(_one_change(memory, args, state, ids, at, writer, verdict))
     except Refused as exc:
         if len(ids) == 1:
             raise
@@ -607,6 +610,11 @@ def change_fact(memory: Memory, args) -> None:
         note_change(memory, state, f"status {args.status}" if args.status else "edited")
     for fact_id in ids:
         print(f"changed {fact_id}")
+    for state in told:
+        print(
+            f"told: {state['id']} is {args.status} on the owner's words, confirmed by "
+            f"{verdict.via} ({DATA_LABEL}): {clean(load_text(state))}"
+        )
     if records[0].get("held_by"):
         for line in _held_by_notes(memory, records[0]["held_by"], states):
             print(line)
@@ -625,14 +633,31 @@ def _check_not_itself(args, ids: list[str]) -> None:
             )
 
 
-def _one_change(memory: Memory, args, state: dict, ids: list[str], at: str, writer: str) -> dict:
+def _ends_told(args, state: dict) -> bool:
+    """An agent ends a fact that a person stated. Only the owner's words as --reason may do it."""
+    return args.status in ENDS and bool(running_tool()) and person_said(state)
+
+
+def _one_change(
+    memory: Memory,
+    args,
+    state: dict,
+    ids: list[str],
+    at: str,
+    writer: str,
+    verdict: owner_evidence.Verdict | None,
+) -> dict:
     fact_id = state["id"]
     change: dict = {"type": "change", "id": fact_id, "at": at}
-    if args.status in ENDS and running_tool() and person_said(state):
-        raise Refused(
-            f"{fact_id} was stated by a person, so an agent does not mark it {args.status}. "
-            + ASK_TO_END.format(id=fact_id)
-        )
+    if _ends_told(args, state):
+        if verdict is None or not verdict.bound:
+            why = verdict.via if verdict else "it has no reason"
+            raise Refused(
+                f"{fact_id} was stated by a person, so an agent does not mark it {args.status} "
+                f"on its own word, and the reason is not the owner's words: {why}. "
+                + ASK_TO_END.format(id=fact_id, status=args.status)
+            )
+        change["author"] = f"agent:{running_tool()}"
     if args.status:
         change["status"] = args.status
     if args.reason:
