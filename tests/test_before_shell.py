@@ -255,6 +255,17 @@ def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, mo
     assert run(argv, repo, command) == ""
 
 
+def test_codex_gets_the_stash_warning_as_context_that_does_not_block(repo, mem, monkeypatch):
+    """The Codex hooks docs: PreToolUse `additionalContext` adds model-visible context without
+    blocking (https://learn.chatgpt.com/docs/hooks, read 2026-11-13)."""
+    assert main(["hooks", "install", "--agent", "codex"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = installed(repo, "codex", "PreToolUse")
+    said = note(run(argv, repo, "sudo -u root git stash pop"))
+    assert said and "stash list" in said and ".worktrees/other" in said
+    assert run(argv, repo, "git stash pop") == "{}"
+
+
 @pytest.mark.parametrize(
     "command",
     [
