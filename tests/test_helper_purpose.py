@@ -280,6 +280,18 @@ def test_a_helper_that_ended_with_unlanded_work_stays_named_as_ended(repo, hooks
     assert not helper_lines(hooks.load(repo, "s4")), "the work landed or went"
 
 
+def test_a_compaction_names_an_ended_helper_of_this_session_as_its_own(repo, hooks):
+    """The order of `## Live work` covers only work that this session did not start, so the
+    line must say whose the work is, also after the helper ended."""
+    path = killed_mid_helper(repo, hooks)
+    (path / "hostlink.py").write_text("def link(): pass\n")
+    hooks.subagent_stop(repo, "a1", path)
+    [line] = helper_lines(hooks.load(repo, "s1", source="compact"))
+    assert f"started by this session; {live.ENDED}" in line and "uncommitted hostlink.py" in line
+    [other] = helper_lines(hooks.load(repo, "s2"))
+    assert live.ENDED in other and "this session" not in other
+
+
 def test_a_background_helper_outlives_the_turn_and_ends_at_its_own_stop(repo, hooks):
     path = worktree(repo)
     hooks.call(repo, "toolu_1", isolation="worktree", run_in_background=True)
