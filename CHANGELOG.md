@@ -376,6 +376,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A Claude Code helper that ended normally and left commits in its own worktree is no longer
+  lost from `## Live work`. Its `SubagentStop`, or the result of its call, removed its record, and
+  after 30 minutes no session marker named that checkout, so its unlanded commits were in no line.
+  Now an end event marks the record `"ended": true` while its own checkout is there. The load names
+  it as "it ended" only while that checkout holds uncommitted changes or commits that no landing
+  branch holds, as for an old record.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
   `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The

@@ -297,7 +297,8 @@ def _helper_work(memory: Memory, helper: helpers.Helper) -> tuple[str, str, bool
 # Claude Code fires SubagentStop for a helper that TaskStop stops only when the stop cuts its
 # stream. When the stream ends first, no hook runs, so a missed end can be a stop.
 NO_END = "no end recorded, so it may have been stopped or ended unseen"
-ENDED = "it ended, because its transcript had no write for 30 minutes"
+ENDED = "it ended"
+QUIET_END = f"{ENDED}, because its transcript had no write for 30 minutes"
 RUNNING = "started by this session; it may still be running, or it was stopped or ended unseen"
 
 
@@ -306,8 +307,8 @@ def _named_helpers(
 ) -> tuple[list[helpers.Helper], dict[str, tuple[str, str, bool]], int]:
     """The records that the load names, the work in the checkout of each, and how many more.
 
-    No hook event ends a lost record. A record past helpers.SHOWN_SECONDS, or one whose own
-    transcript is quiet (the helper ended), is named only while its own checkout holds commits
+    No hook event ends a lost record. A record past helpers.SHOWN_SECONDS, one that ended, or one
+    whose own transcript is quiet (the helper ended), is named only while its own checkout holds commits
     since it started or uncommitted changes, because that is live work; else it is noise. The
     work is read once, for the line too, and only until MAX_HELPERS are named. At most
     MAX_HELPERS such records are read at all, so a pile of stale records costs no more git than
@@ -317,7 +318,7 @@ def _named_helpers(
     named, work, more, old_reads = [], {}, 0, 0
     for helper in records:
         inside = helper.launched and helpers.is_checkout(memory.project, helper.checkout)
-        old = helper.started_at < since or helper.quiet
+        old = helper.started_at < since or helper.ended or helper.quiet
         if old and (not inside or old_reads >= MAX_HELPERS):
             continue
         if len(named) >= MAX_HELPERS:
@@ -342,7 +343,7 @@ def _helper_line(
     about = '"' + helper.about.replace('"', "'") + '"'
     kind = f" ({name(helper.kind)})" if helper.kind else ""
     ago = _ago(helper.started_at)
-    end = ENDED if helper.quiet else RUNNING if running else NO_END
+    end = ENDED if helper.ended else QUIET_END if helper.quiet else RUNNING if running else NO_END
     if not helper.launched:
         head = f"{about}{kind}, called {ago} ago in {_place(memory, helper.parent)}"
         state = ["not started, no end recorded"]
