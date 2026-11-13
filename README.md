@@ -635,8 +635,10 @@ reopened and its history stays. The write never fails because of it.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.
-5. The first 8 lines of `notes/status.md` and `branches/<branch>.md`. These do not
-   use the budget.
+5. The first 8 lines of `notes/status.md` and `branches/<branch>.md`, up to 200 words for
+   each. A longer note ends with a line that names its file, such as `(200 of 1180 words shown.
+   The rest is in /path/to/memory/notes/status.md.)`. These do not use the budget, so the cap
+   keeps the hook's room for facts.
 
 The default budget is 600 words. A subagent load uses 300 words. Each fact that
 loads shows its text. A fact may carry an optional `--summary`, so the load line

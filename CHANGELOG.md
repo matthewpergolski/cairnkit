@@ -359,6 +359,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no live work. So a helper older than 24 hours whose commits merged leaves the list. Before, each
   commit since the helper started kept it there. A squash merge or a rebase makes new commits, so
   their old commits still count.
+- The status note and the branch note in the load stop at 200 words, with a last line such as
+  `(200 of 1180 words shown. The rest is in /path/to/memory/notes/status.md.)`. Before, only the
+  first 8 lines counted, and long lines used no budget: in a real project the status used 740 of
+  2,112 words, and the hook cut 106 facts to fit its size limit. `memory export` still writes the
+  first 8 lines.
 - A stop event that the stop asked about is not asked again in the session. What was asked is in
   `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
   hook that saved that state from a read before the stop brought the question back on later turns.
