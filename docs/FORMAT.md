@@ -536,8 +536,7 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   started, a correction, and a lost file that no prompt named or asked to remove. A pass pairs
   with a failure only when both do the same work steps in the same order, where a `cd`,
   `pushd`, `popd`, `echo` or `printf` step is no work, and nor is a `tail`, `head`, `grep`,
-  `wc`, `sort`, `uniq`, `less` or `cat` step that a pipe (`|`, `|&`) leads into. A `tee` writes a
-  file, so it is work. Each
+  `wc`, `tee`, `sort`, `uniq`, `less` or `cat` step that a pipe (`|`, `|&`) leads into. Each
   event is named once; a command or revert event that a stop named is kept in
   `.sessions/asked-*.json`. A fix with a setting in front is no event when an active fact names the
   setting and the command. It adds the capture check when no fact followed new work or a statement

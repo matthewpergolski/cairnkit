@@ -399,9 +399,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The stop asks "What fixed it?" only for a real retry. The failed command and the pass must do
   the same work steps in the same order, and the pass puts a setting or a wrapper in front of one.
   A `cd`, `pushd`, `popd`, `echo` or `printf` step is no work, and nor is a filter after a pipe
-  (`tail`, `head`, `grep`, `wc`, `sort`, `uniq`, `less` or `cat`), so
-  `pytest -q 2>&1 | tail -5` and `uv run pytest -q 2>&1 | tail -20` pair. A `tee` writes a file,
-  so it is work: `cmd | tee a.log` and `uv run cmd | tee b.log` do not pair. Before, one shared
+  (`tail`, `head`, `grep`, `wc`, `tee`, `sort`, `uniq`, `less` or `cat`), so
+  `pytest -q 2>&1 | tail -5` and `uv run pytest -q 2>&1 | tail -20` pair. Before, one shared
   step was enough, so `cd ...; cat spec; sed ...` that failed paired with a later
   `S=... gh ...; S=... sed ...` that did other work.
 - A Claude Code helper whose own transcript had no write for 30 minutes ended, also when no
