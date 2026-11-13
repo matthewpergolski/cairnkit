@@ -127,6 +127,7 @@ _OTHER_WORD = re.compile(r"[^\Wa-zA-Z]")
 # Past the a-z words and the marks of a sentence, a claim with anything else (`#42`, `0018`) says
 # which work the yes is for.
 _OTHER_MARK = re.compile(r"[^a-zA-Z\s.,!?;:'\"()\u2018\u2019\u201c\u201d\u2013\u2014-]")
+_LETTER_OR_DIGIT = re.compile(r"[^\W_]")
 
 
 def _letters(text: str) -> str:
@@ -319,7 +320,8 @@ def is_approval(prompt: str) -> bool:
 
 
 def only_approval(text: str) -> bool:
-    """True for a claim whose words say nothing, with `The owner said:` or not: `yes`, `ok`.
+    """True for a claim whose words say nothing, with `The owner said:` or not: `yes`, `ok`, and
+    a claim with no letter and no digit, such as an emoji.
 
     It tells a later reader nothing. The words of the proposal that the yes approved do.
     """
@@ -327,6 +329,8 @@ def only_approval(text: str) -> bool:
     if parts and _is_attribution(parts[0].strip()):
         parts = parts[1:]
     rest = " ".join(_unframed(part) for part in parts)
+    if not _LETTER_OR_DIGIT.search(rest):
+        return True
     return not _OTHER_MARK.search(rest) and bool(_NOTHING_RUN.fullmatch(_letters(rest)))
 
 

@@ -385,7 +385,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   branch holds, as for an old record.
 - A told claim whose words are only a reply that says nothing (`memory add "yes" --basis told`,
   also `Owner said: go ahead`, `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks` or
-  `I'll go with your rec`) is no longer confirmed, because it tells a later reader nothing. The
+  `I'll go with your rec`), or with no letter and no digit (an emoji such as `👍` or `✅ 👍`), is
+  no longer confirmed, because it tells a later reader nothing. The
   add output says to save the words of the proposal that the owner approved, with `--supersedes`
   and the new id; those words confirm when they are the question that the yes answered in this
   turn. A short rule such as "Use uv." still confirms, and so does a claim with a digit, a mark

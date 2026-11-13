@@ -555,8 +555,8 @@ main". An ellipsis in the claim (`...` beside a space, or the ellipsis character
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. A claim with a rule and such a question binds only when it is the owner's whole prompt ("ok, make these changes. how?"), with only case, spaces and the marks at its end changed. An approval and an answer count only in their own turn, until the next owner prompt.
 A claim whose words are only a reply that says nothing (`yes`, `Owner said: go ahead`,
-`ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`)
-confirms nothing, because it tells a later reader nothing. This list is wider than the
+`ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`), or
+that has no letter and no digit (an emoji such as `👍` or `✅ 👍`), confirms nothing, because it tells a later reader nothing. This list is wider than the
 short yes above: a word on it that is no yes costs only one refused empty claim. A claim
 with a digit, a mark such as `#` or a word of another script (`Approved: #42.`) names its
 work, so it is matched as usual. The add output says to save the words
