@@ -536,7 +536,7 @@ def run_load(states, specs, point, pol, ctx, budget, rng):
             writer_name=lambda root: point.branch,
             changed_paths=lambda root, branch: [f"{a}/x.py" for a in point.diff_areas],
             active_states=lambda memory: states,
-            note_head=lambda path, env: [],
+            note_head=lambda path, env, words=None: [],
         ),
         patch.object(usage, "last_used", lambda memory: ctx["used_at"]),
         patch.object(hygiene, "hygiene_line", lambda memory: None),

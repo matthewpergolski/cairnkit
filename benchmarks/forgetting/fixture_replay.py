@@ -70,7 +70,7 @@ def run(budget, nofold, honour_supersede, threshold, diff_area=None, recency=Tru
     usage.last_used = lambda memory: {}
     h.hygiene.hygiene_line = lambda memory: None
     h.followups.pending_line = lambda memory: None
-    load.note_head = lambda path, env: []
+    load.note_head = lambda path, env, words=None: []
     memory = h.SimpleNamespace(
         project=h.SimpleNamespace(root=h.Path("/nonexistent")),
         dir=h.Path("/nonexistent"),
