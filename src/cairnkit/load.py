@@ -63,6 +63,8 @@ from cairnkit.state import effective_status
 
 GIT_TIMEOUT = 1.0
 NOTE_LINES = 8
+# A note in the load uses no budget, so a cap keeps room for facts: a third of the session budget.
+NOTE_WORDS = 200
 TITLE = re.compile(r"# +\S")
 
 
@@ -77,7 +79,8 @@ def changed_paths(root: Path, branch: str | None) -> list[str]:
     return paths
 
 
-def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
+def note_head(path: Path, env: EnvValues | None = None, words: int | None = None) -> list[str]:
+    """The first NOTE_LINES lines, and at most `words` words, then where the rest is."""
     try:
         text = plainfile.read_bytes(path).decode("utf-8", errors="replace")
     except (FileNotFoundError, NotADirectoryError):
@@ -91,13 +94,26 @@ def note_head(path: Path, env: EnvValues | None = None) -> list[str]:
     # list its meaning, so both stay.
     if body and TITLE.match(body[0]):
         body = body[1:]
-    clipped = len(body) - NOTE_LINES
-    more = (
-        [f"({NOTE_LINES} of {len(body)} lines shown. The rest is in {clean_path(path)}.)"]
-        if clipped > 0
-        else []
-    )
-    return [mask(line, env) for line in body[:NOTE_LINES]] + more
+    # Masked before the cut, so that a cut cannot split a secret.
+    head = [mask(line, env) for line in body[:NOTE_LINES]]
+    rest = f"The rest is in {clean_path(path)}."
+    if words is not None and sum(len(line.split()) for line in head) > words:
+        total = sum(len(line.split()) for line in body)
+        return [*_first_words(head, words), f"({words} of {total} words shown. {rest})"]
+    if len(body) > NOTE_LINES:
+        return [*head, f"({NOTE_LINES} of {len(body)} lines shown. {rest})"]
+    return head
+
+
+def _first_words(lines: list[str], limit: int) -> list[str]:
+    kept = []
+    for line in lines:
+        words = line.split()
+        if len(words) >= limit:
+            return [*kept, " ".join(words[:limit]) + (" ..." if len(words) > limit else "")]
+        kept.append(line)
+        limit -= len(words)
+    return kept
 
 
 def active_states(memory: Memory) -> list[dict]:
@@ -219,13 +235,13 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
             current = state.get("area")
             out.append(f"### {name(current)}")
         out.append(render(state))
-    status = note_head(memory.dir / "notes" / "status.md", memory.env)
+    status = note_head(memory.dir / "notes" / "status.md", memory.env, NOTE_WORDS)
     if status:
         age = hygiene.commits_past_status(root, memory.dir / "notes" / "status.md")
         out.append(f"## Status (notes/status.md{age})")
         out += [f"- [status] {clean(x)}" for x in status]
     if branch:
-        branch_note = note_head(memory.dir / "branches" / f"{branch}.md", memory.env)
+        branch_note = note_head(memory.dir / "branches" / f"{branch}.md", memory.env, NOTE_WORDS)
         if branch_note:
             out.append(f"## Branch notes (branches/{branch}.md)")
             out += [f"- [branch] {clean(x)}" for x in branch_note]

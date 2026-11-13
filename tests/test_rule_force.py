@@ -40,16 +40,29 @@ def binds(output, words):
     return -1 < output.find(words) < output.find("Stored notes")
 
 
-@pytest.mark.parametrize(
-    "basis, status",
-    [("told", "expired"), ("told", "wrong"), ("seen", "expired")],
-)
+def promote(agent, repo, fid):
+    """An agent cannot mark the owner's rule expired or wrong, but a file can hold it."""
+    (repo / "RULES.md").write_text("Never force push to main.\n")
+    agent("change", fid, "--status", "promoted", "--held-by", "RULES.md", "--reason", "x")
+
+
+@pytest.mark.parametrize("basis", ["told", "seen"])
+@pytest.mark.parametrize("status", ["expired", "wrong"])
+def test_an_agent_cannot_end_the_owners_rule(mem, monkeypatch, capsys, basis, status):
+    fid = add_rule(capsys, "Never force push to main.", "--basis", basis)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert main(["change", fid, "--status", status, "--reason", "x"]) == 1
+    assert "Ask the owner" in capsys.readouterr().err
+    assert "Never force push to main." in load(capsys)
+
+
+@pytest.mark.parametrize("basis", ["told", "seen"])
 def test_an_agent_ending_a_rule_says_so_at_once_and_at_the_next_load_once(
-    mem, agent, capsys, basis, status
+    mem, repo, agent, capsys, basis
 ):
     fid = add_rule(capsys, "Never force push to main.", "--basis", basis)
     capsys.readouterr()
-    agent("change", fid, "--status", status, "--reason", "x")
+    promote(agent, repo, fid)
     now = capsys.readouterr().out
     assert fid in now and "Never force push to main." in now and "Tell the owner" in now
     first = load(capsys)
@@ -108,9 +121,9 @@ def test_an_agent_changing_its_own_data_rule_prints_no_notice(mem, agent, capsys
     assert fid not in load(capsys)
 
 
-def test_a_subagent_load_leaves_the_notice_for_the_session(mem, agent, capsys, monkeypatch):
+def test_a_subagent_load_leaves_the_notice_for_the_session(mem, repo, agent, capsys, monkeypatch):
     fid = add_rule(capsys, "Never force push to main.", "--basis", "told")
-    agent("change", fid, "--status", "expired", "--reason", "x")
+    promote(agent, repo, fid)
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
     capsys.readouterr()
     assert main(["hook", "subagent-start", "--agent", "claude"]) == 0
@@ -225,9 +238,9 @@ def test_the_migrate_worklist_states_the_force_of_a_rule():
     assert "--basis told" in _worklist([], {}, 0)
 
 
-def test_a_waiting_notice_is_no_problem_for_the_check(mem, agent, capsys):
+def test_a_waiting_notice_is_no_problem_for_the_check(mem, repo, agent, capsys):
     fid = add_rule(capsys, "Never force push to main.", "--basis", "told")
-    agent("change", fid, "--status", "expired", "--reason", "x")
+    promote(agent, repo, fid)
     assert (mem / ".rule-notices").is_file()
     assert main(["check", "--strict"]) == 0
     assert fid in load(capsys)

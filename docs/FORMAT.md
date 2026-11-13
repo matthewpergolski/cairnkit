@@ -211,7 +211,7 @@ A change does not edit the fact. It adds a new state.
 | `status` | no | The new status. |
 | `reason` | with `status` | Why. |
 | `superseded_by` | with `superseded` | The id of the newer fact. |
-| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must exist when the change is written. Later, `memory check` accepts a path that exists here or in the history of any branch. |
+| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must be a regular file in the repo (its real path too, after links), not in `.git` or the memory folder, and exist when the change is written. `memory change` stores it as a repo path with `/`. Later, `memory check` accepts a path that exists here or in the history of any branch. |
 | `scope` | no | `long` or `short`. `memory keep` writes `"scope": "long"`. |
 | `add_links` | no | Links to add. |
 | `remove_links` | no | Links to remove, each one the fact holds. A build before this field keeps the link, and its `memory check` names the record. |
@@ -223,6 +223,9 @@ A change does not edit the fact. It adds a new state.
 
 A change must set at least one of `status`, `scope`, `add_links`, `remove_links`,
 `enforced_by` or `branch_tip`.
+
+`memory change` with more than one ID writes one change record for each ID, with the same `at`,
+in one append. When the check of one ID refuses, it writes no record.
 
 ### Status
 
@@ -588,15 +591,23 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   up after 2.5 seconds. `helper-call` adds a record to `.sessions/helpers/open.json`: a JSON list
   of objects with `call` (the `tool_use_id`), `session`, `kind` (`subagent_type`), `about` (the
   `description`, at most 12 words), `task` (the prompt, at most 60 words), `started_at` (Unix
-  seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base` and `told` (the sessions
-  whose load named it). Each text field is masked and made one line before it is written. The file
+  seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base`, `told` (the sessions
+  whose load named it) and `transcript` (the helper's own transcript, set by `subagent-start`:
+  `agent_transcript_path` when it is in the folder of `transcript_path`, else
+  `<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). A reader leaves out a
+  field that it does not know, so a record of a later build is still read. Each text field is
+  masked and made one line before it is written. The file
   holds at most 50 records, under the lock `.sessions/helpers/.lock`. `subagent-stop` removes the
   record of that `agent_id`. `after-shell` on the `Agent` tool removes the record of the call, or,
   for `"status": "async_launched"`, adds its `agentId`. `stop` removes the calls of its turn with
   no helper, and each record that its session's load named whose checkout is not there.
 - The load adds one `- [helper]` line under `## Live work` for each of the 3 oldest records (with
   the count of the others) whose `started_at` is in the last 24 hours, or whose own checkout
-  still holds commits since `base` or uncommitted changes. It is inside the frame of
+  still holds uncommitted changes or commits since `base` that no `main`, `master`, `dev` or
+  `develop` ref (local or `origin`) holds. The refs of the checkout's own branch do not count, and
+  a `base` that git does not know counts no commit. A record whose `transcript` file exists and has
+  a file time older than 30 minutes ended: it is named only while its checkout holds such work, and
+  its line says that it ended. The load reads only that file time. It is inside the frame of
   stored notes, because the text came from an agent. A load for `compact` or `reload` leaves out the records of its own session.
 - `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
   checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before

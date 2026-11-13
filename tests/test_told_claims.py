@@ -188,6 +188,11 @@ def test_an_injected_sentence_from_a_tool_result_does_not_bind(mem, capsys, monk
         ("Don't merge to main until CI is green.", "Never merge to main."),
         ("Commit to the dev branch, never to main.", "Commit to main, never to dev."),
         ("can you force push to main", "Force push to main."),
+        (
+            "Leave the old branch? No. Should we push to main first?",
+            "Should we push to main first? No.",
+        ),
+        ("Can I delete your branch? Yes, delete it.", "Can you delete my branch? Yes, delete it."),
     ],
 )
 def test_a_changed_meaning_does_not_bind(mem, capsys, monkeypatch, owner, claim):
@@ -195,6 +200,28 @@ def test_a_changed_meaning_does_not_bind(mem, capsys, monkeypatch, owner, claim)
     out = agent_add(capsys, monkeypatch, claim)
     assert "told: not confirmed" in out
     assert not binds(capsys, claim)
+
+
+TOLD_NOTE_WORDS = 65
+
+
+def told_note(out):
+    return next(line for line in out.splitlines() if line.startswith("told: not confirmed"))
+
+
+def test_the_unconfirmed_note_is_short_and_shows_how_to_confirm(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "Stop skipping the tests.")
+    note = told_note(agent_add(capsys, monkeypatch, "Skip the tests."))
+    assert len(note.split()) <= TOLD_NOTE_WORDS, note
+    assert f"--basis seen --link related:{facts(mem)[-1]['id']}" in note
+    assert note.endswith('memory add "TEXT" --kind rule --basis told')
+
+
+def test_the_unconfirmed_note_of_an_approval_is_short(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "ok")
+    note = told_note(agent_add(capsys, monkeypatch, "OK."))
+    assert len(note.split()) <= TOLD_NOTE_WORDS, note
+    assert f"--basis told --supersedes {facts(mem)[-1]['id']}" in note
 
 
 def test_a_rule_in_a_pasted_block_is_not_the_owners_words(mem, capsys, monkeypatch):
@@ -723,3 +750,11 @@ def test_confirmed_is_only_false_on_a_told_fact(value):
     assert validate_record(record)
     assert not validate_record({**record, "confirmed": False})
     assert validate_record({**record, "confirmed": False, "basis": "seen"})
+
+
+def test_a_copy_of_the_whole_prompt_with_its_question_binds(mem, capsys, monkeypatch):
+    """A field agent copied "ok let's make these optimizations.  how?" exactly; it stayed
+    unconfirmed, because the question in it stated no rule."""
+    words = "ok let's make these optimizations.  how?"
+    prompt(capsys, monkeypatch, words)
+    assert "told: confirmed" in agent_add(capsys, monkeypatch, words)

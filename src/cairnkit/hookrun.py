@@ -406,7 +406,8 @@ def _session_text(
     same_process: bool = True,
     reserve: int = 0,
 ) -> str:
-    room = HOOK_TEXT_LIMIT - reserve - len(RULES_SHORT) - 2
+    # Two line ends before the rules, and the one that print adds.
+    room = HOOK_TEXT_LIMIT - reserve - len(RULES_SHORT) - 3
     own = session if same_process else None
     options = {"update_notice": update_notice, "session": session, "own_helpers_of": own}
     return fitted_load(project, flag, 600, room, **options) + "\n\n" + RULES_SHORT

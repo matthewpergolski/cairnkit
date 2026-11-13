@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory change` takes more than one ID with one set of flags:
+  `memory change ID ID ID --status promoted --held-by FILE --reason "..."`. Each ID gets every
+  check of a single change (the authority check of `--superseded-by`, the secret check, the link
+  and rule checks). One refusal changes no fact, and the error names the ID, so the same command
+  can run again after the fix. The output prints `changed ID` for each ID. One ID works as before.
+  A `--superseded-by` or `--link` target that is one of the changed IDs is refused: a fact cannot
+  replace itself or link to itself.
+- `memory change ID --status expired` or `--status wrong` from an agent refuses when a person
+  stated ID (a confirmed told fact or the owner's rule), also in a batch. The refusal says how to
+  end it: ask the owner, then quote the owner's words with
+  `memory add "WORDS" --basis told --supersedes ID --reason "..."`, or the owner runs the command
+  from their own shell. An agent can still mark such a fact `promoted --held-by FILE`, because the
+  file keeps the rule. The owner at a terminal can change any fact as before.
+- `memory instructions` and the session rules name the promote step:
+  `memory change ID --status promoted --held-by FILE --reason "..."` when a tracked file (a skill,
+  `CLAUDE.md`, a lint) now holds a fact. Before, they named only `expired` and `wrong`, so an agent
+  marked a codified fact `expired`, which reads as "no longer true".
+- `memory change --held-by FILE` prints a note when FILE holds none of the key words of a fact
+  (the search words of four letters or more). The note names a file in the same folder, or a
+  tracked file with the same name, that holds them, with the command to name it. It also prints a
+  note when git does not track FILE. A note is no refusal: the change is written.
 - The before-shell hook warns on Claude Code, once in a session, when a `git stash` command can
   take or lose an entry of other live work: all checkouts of a repo share one stash list. It
   speaks while another session, or a helper in another checkout, is live (the markers that
@@ -84,7 +105,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped or changed, and the claim must hold 80 percent of the sentence. An ellipsis in the
   claim (`...` beside a space, or the ellipsis character) marks words left out of one sentence of
   the owner, never a join of two sentences. A typed question and a
-  hypothetical (`what if`, `suppose`) state no rule. A condition the owner typed whole ("If you
+  hypothetical (`what if`, `suppose`) state no rule. A claim with a rule and a question binds
+  only when it is the owner's whole prompt ("ok let's make these optimizations. how?"), with only
+  case, spaces and the marks at its end changed. A question moved next to another sentence, or a
+  question with other pronouns, does not bind. A condition the owner typed whole ("If you
   touch the schema, update FORMAT.md") binds whole; a claim that drops the condition does not.
   An attribution in front (`The owner said:`, `Owner (Sam) decided 2026-11-08:`, `User:`) does not
   count against the match. It must name who spoke with a verb such as `said` or the word owner or
@@ -230,6 +254,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `told: not confirmed` note of `memory add` is two short sentences after the status. It keeps
+  the commands: `--basis seen --link related:ID` (now with the new ID) for your own context, and
+  `memory add "TEXT" --basis told` for the owner, or `--supersedes ID` for the words of an
+  approved proposal.
+- `memory change --held-by` refuses a path outside the repo, a folder, and a pipe, a device or
+  another file that is not a regular file. The check uses the real path, so a link to a file
+  outside the repo, a path through a folder link that leads outside, a path in `.git` and a path
+  in the memory folder or its `memory-bank` link are refused too. It stores the path as a repo
+  path, also when it was given as an absolute path in the repo. The word check of the note reads
+  only regular files, so a pipe beside the file cannot stop the command.
 - A rule that reads as the owner's yes to one piece of work (the test of the `memory add` note),
   and that no check enforces, loads under `## Rules that may be for one piece of work` below the
   lasting rules. The heading says that these rules bind and to end one when its work is done.
@@ -347,6 +381,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pytest -q 2>&1 | tail -5` and `uv run pytest -q 2>&1 | tail -20` pair. Before, one shared
   step was enough, so `cd ...; cat spec; sed ...` that failed paired with a later
   `S=... gh ...; S=... sed ...` that did other work.
+- A Claude Code helper whose own transcript had no write for 30 minutes ended, also when no
+  `SubagentStop` came. TaskStop does not always fire `SubagentStop`, so a stopped helper and one
+  that ended a day ago stayed on the `## Live work` list as "no end recorded", with the order to
+  leave their work. Now such a helper stays on the list only while its own checkout holds
+  uncommitted changes or commits since it started, as after 24 hours, and its line says "it
+  ended, because its transcript had no write for 30 minutes". The `SubagentStart` hook keeps the
+  path of the helper's transcript: `<parent transcript without .jsonl>/subagents/agent-<agent_id>.jsonl`,
+  from the parent's `transcript_path`, or the payload's `agent_transcript_path` when that is in
+  the folder of the parent's transcript. The load reads only the file time, never the file. A
+  helper with no such file (another agent, or a transcript not written yet) keeps the 24-hour
+  rule. A helper record with a field that this build does not know is still read.
+- Commits of a helper that `main`, `master`, `dev` or `develop` (local or on `origin`) holds are
+  no live work. So a helper older than 24 hours whose commits merged leaves the list. Before, each
+  commit since the helper started kept it there. The helper's own branch never counts as merged,
+  so a helper that works on `dev` keeps its commits. A start commit that is gone counts no commit.
+  A squash merge or a rebase makes new commits, so their old commits still count. A default branch
+  with another name is not checked, so its merged commits still count.
+- The status note and the branch note in the load stop at 200 words, with a last line such as
+  `(200 of 1180 words shown. The rest is in /path/to/memory/notes/status.md.)`. Before, only the
+  first 8 lines counted, and long lines used no budget: in a real project the status used 740 of
+  2,112 words, and the hook cut 106 facts to fit its size limit. `memory export` still writes the
+  first 8 lines.
+- A session start whose cut fit the load to the character printed one character past the hook's
+  size limit, because the limit did not count the last line end. Now it does.
 - A stop event that the stop asked about is not asked again in the session. What was asked is in
   `.sessions/asked-*.json`, under a lock. Before, it was only in the session state, and a helper's
   hook that saved that state from a read before the stop brought the question back on later turns.

@@ -26,7 +26,9 @@ matches a unit when:
 - the run holds at least PRECISION of the unit's tokens, so a qualifier cannot be dropped.
 
 A unit of a typed prompt that asks (it ends in `?`, or it opens with `can you`, `what`, ...) or
-that opens with `if` states no rule, and no claim matches it.
+that opens with `if` states no rule, and no claim matches it. One exception: a claim with a rule
+and a question binds when it is the owner's whole prompt, with only case, spaces and the marks at
+its end changed.
 """
 
 from __future__ import annotations
@@ -236,14 +238,27 @@ def _is_attribution(unit: str) -> bool:
     return not any(token in STRICT or token == NOT for token, _ in tokens(unit.rstrip(":")))
 
 
-def _claim_units(text: str) -> list[tuple[Token, ...]]:
+def _claim_parts(text: str) -> list[str]:
     # An ellipsis marks words left out of ONE sentence of the owner: the parts must match that
     # sentence in order, so the gap is only a space here. Joining two sentences of the owner
     # could turn "No. Commit to main." into "Never commit to main".
     parts = _UNIT_END.split(_GAP.sub(" ", text))
     if parts and _is_attribution(parts[0].strip()):
         parts = parts[1:]  # who said it and when, not part of the rule
-    return [words for part in parts if (words := tokens(_unframed(part)))]
+    return [_unframed(part) for part in parts if tokens(_unframed(part))]
+
+
+def _plain(text: str) -> str:
+    """Text with only case, spaces and the marks at its end made the same."""
+    return re.sub(r"\s+", " ", text).strip().rstrip(".!?;:, ").lower()
+
+
+def _whole_prompt(text: str, evidence: list[Evidence]) -> Match | None:
+    """The prompt that the claim copies whole, word for word, or None."""
+    head, *rest = _UNIT_END.split(text.strip(), maxsplit=1)
+    words = _plain(rest[0] if rest and _is_attribution(head.strip()) else text)
+    found = any(item.kind == "prompt" and _plain(item.text) == words for item in evidence)
+    return Match("prompt") if words and found else None
 
 
 def run_matches(run: tuple[Token, ...], unit: tuple[Token, ...]) -> bool:
@@ -276,8 +291,19 @@ def _matches(claim: list[tuple[Token, ...]], owner: list[tuple[Token, ...]]) -> 
 
 
 def best_match(text: str, evidence: list[Evidence]) -> Match | None:
-    """The first piece of evidence that the claim copies, or None."""
-    claim = _claim_units(text)
+    """The first piece of evidence that the claim copies, or None.
+
+    A question states no rule, so a question in a claim matches no unit of the owner. A claim
+    with a rule and a question binds when it is the owner's whole prompt, such as "ok let's make
+    these optimizations. how?": the same words in the same order. Only case, spaces and the marks
+    at the end can differ, so no question of the owner can move to a rule of another sentence.
+    The question stays in the fact, so a reader sees it.
+    """
+    parts = _claim_parts(text)
+    rules = [_states_a_rule(part) for part in parts]
+    if any(rules) and not all(rules) and (whole := _whole_prompt(text, evidence)):
+        return whole
+    claim = [tokens(part) for part in parts]
     for item in evidence:
         if _matches(claim, units(item)):
             return Match(item.kind)

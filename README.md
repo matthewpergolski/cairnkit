@@ -553,7 +553,7 @@ number, a path, a flag, a name). So "Stop skipping the tests" does not confirm "
 the tests", and "Don't merge to main until CI is green" does not confirm "Never merge to
 main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
-and a sentence that opens with `if` state no rule. An approval and an answer count only in their own turn, until the next owner prompt.
+and a sentence that opens with `if` state no rule. A claim with a rule and such a question binds only when it is the owner's whole prompt ("ok, make these changes. how?"), with only case, spaces and the marks at its end changed. An approval and an answer count only in their own turn, until the next owner prompt.
 A claim whose words are only a reply that says nothing (`yes`, `Owner said: go ahead`,
 `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`)
 confirms nothing, because it tells a later reader nothing. This list is wider than the
@@ -635,8 +635,10 @@ reopened and its history stays. The write never fails because of it.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.
-5. The first 8 lines of `notes/status.md` and `branches/<branch>.md`. These do not
-   use the budget.
+5. The first 8 lines of `notes/status.md` and `branches/<branch>.md`, up to 200 words for
+   each. A longer note ends with a line that names its file, such as `(200 of 1180 words shown.
+   The rest is in /path/to/memory/notes/status.md.)`. These do not use the budget, so the cap
+   keeps the hook's room for facts.
 
 The default budget is 600 words. A subagent load uses 300 words. Each fact that
 loads shows its text. A fact may carry an optional `--summary`, so the load line
@@ -677,13 +679,19 @@ names up to 3 checkouts, with up to 5 changed files and the short note of the br
   ends the process in a turn, so no stop runs and the conversation is the only other place that
   holds the aim. So the hooks record it while the helper starts: `PreToolUse` on `Agent|Task` keeps
   the description and at most 60 words of the prompt, masked, in `.sessions/helpers/open.json`, and
-  `SubagentStart` adds the helper's id and worktree. An event ends the record, never a clock: the
+  `SubagentStart` adds the helper's id and worktree. An event ends the record, not the time since
+  its call: the
   helper's `SubagentStop` (Claude Code fires it for a helper that TaskStop stops only when the
   stop cuts its stream), the result of its call, the stop of its own turn for a call that started
   no helper, or the stop of a session whose load named it. A record whose worktree is still there
-  stays while the worktree does. A load names a record for 24 hours after its call, which is longer
-  than a helper runs. After that, it names the record only while the helper's own checkout holds
-  commits since the helper started or uncommitted changes; else the line is noise. A compaction (or a reload) names the helpers of its own session
+  stays while the worktree does. A load names a record for 24 hours after its call, which is
+  longer than a helper runs. After that, it names the record only while the helper's own checkout
+  holds uncommitted changes, or commits since the helper started that `main`, `master`, `dev` and
+  `develop` (local or on `origin`) do not hold; else the line is noise. The helper's own branch
+  never counts as merged. TaskStop does not always fire `SubagentStop`, so a helper whose own
+  transcript (`<parent transcript>/subagents/agent-<id>.jsonl`, from the parent's
+  `transcript_path`) had no write for 30 minutes ended. The load reads only the file time. It
+  names such a helper only while its checkout holds that work, and says that it ended. A compaction (or a reload) names the helpers of its own session
   first, as "started by this session; it may still be running, or it was stopped or ended unseen", because the same process runs them,
   and its next stop does not end them. A resume is a new process, so it names them as having no
   recorded end. A helper's load does not name its siblings. The tool writes no fact.
@@ -703,8 +711,11 @@ rules, and live work last. This is the same at a startup, a resume and a compact
 
 **The codebase stays the source of truth.** Memory is a private aid. When a
 lesson matters to every contributor, a person or an agent moves it into a tracked
-rules file, a doc, a test or a lint check, and marks the fact `promoted`. The tool
-does not do this move.
+rules file, a doc, a test or a lint check, and marks the fact `promoted`:
+`memory change ID ID --status promoted --held-by FILE --reason "..."`. Not `expired`, which says
+the fact stopped being true. The tool does not do this move. `--held-by` must name a regular
+file in the repo, also after links are followed, and not in `.git` or the memory folder. When that file holds none of the key words of a fact, or git does not track it, a note says
+so, and names a file in the same folder or with the same name that holds the words.
 
 ## Three layers
 
@@ -728,7 +739,11 @@ ends only when an agent ends it. `--expires` takes effect only with `--short`.
 
 **Forgetting is a status change.** `memory change ID --status expired` or
 `--status wrong`, with a reason. The fact leaves the load, and the archive
-keeps it, so an agent can answer "did we try this before?".
+keeps it, so an agent can answer "did we try this before?". `memory change` takes one or more
+IDs with one set of flags. Each ID gets every check, and one refusal changes no fact. An agent
+cannot mark a fact that a person stated (a confirmed told fact or the owner's rule) `expired` or
+`wrong`: it asks the owner, then quotes the owner's words with `memory add "WORDS" --basis told
+--supersedes ID`, or the owner runs the command from their own shell.
 
 **The only deletion is `purge`**, for a secret or private data stored by
 mistake: `memory purge ID --reason secret --yes`. It removes every line for

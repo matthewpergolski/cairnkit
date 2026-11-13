@@ -1,8 +1,12 @@
 """What the load says about the status note. It only reads: nothing ends because of it."""
 
+import re
+
 from conftest import git
+from test_hook_size import fill, run_hook
 
 from cairnkit.cli import main
+from cairnkit.load import NOTE_WORDS
 
 
 def commit(repo, message: str) -> str:
@@ -96,3 +100,24 @@ def test_a_short_note_says_nothing_about_clipping(repo, capsys):
     capsys.readouterr()
     assert main(["load"]) == 0
     assert "lines shown" not in capsys.readouterr().out
+
+
+def facts_shown(text: str) -> int:
+    return int(re.search(r"(\d+) fact\(s\) shown", text)[1])
+
+
+def test_a_long_status_leaves_the_hook_room_for_facts_and_names_the_full_note(repo, mem):
+    """A field load spent 740 of 2,112 words on the status, and the hook cut 106 facts."""
+    fill(mem, 200, 4, 0)
+    line = " ".join(["the release waits on the queue migration"] * 20)
+    (mem / "notes" / "status.md").write_text("".join(f"- {n}: {line}\n" for n in range(8)))
+    long = run_hook(repo, "session-start")
+    cap = " ".join(f"- {n}: {line}" for n in range(8)).split()[:NOTE_WORDS]
+    (mem / "notes" / "status.md").write_text(" ".join(cap) + "\n")
+    short = run_hook(repo, "session-start", session_id="s2")
+    status = [
+        x.removeprefix("- [status] ") for x in long.splitlines() if x.startswith("- [status]")
+    ]
+    assert sum(len(x.split()) for x in status[:-1]) <= NOTE_WORDS + 1
+    assert status[-1].startswith(f"({NOTE_WORDS} of ") and "notes/status.md" in status[-1]
+    assert facts_shown(long) >= facts_shown(short) - 1, "the status past the cap costs no fact"

@@ -30,6 +30,14 @@ SIGNING_PICKED = choice_evidence(
 RUNNER = choice_evidence(["pytest", "unittest"], "pytest")
 
 MUST_MATCH = {
+    "a whole prompt that ends in the owner's question": (
+        "ok let's make these optimizations.  how?",
+        [said("ok let's make these optimizations.  how?")],
+    ),
+    "a whole prompt with its case, spaces and last mark changed": (
+        "The owner said: OK let's make these optimizations. How",
+        [said("ok let's make these optimizations.  how?")],
+    ),
     "an attribution in front": (
         "The owner said: Keep forget after 90 days as the default.",
         [said('Keep "forget after 90 days" as the default')],
@@ -100,6 +108,27 @@ MUST_MATCH = {
 }
 
 MUST_NOT_MATCH = {
+    "a question that the owner did not type": (
+        "Never push to main. How?",
+        [said("Never push to main. Why?")],
+    ),
+    "a question with no rule": ("Should we push to main?", [said("Should we push to main?")]),
+    "a question moved next to a rule of another sentence": (
+        "Should we push to main first? No.",
+        [said("Leave the old branch? No. Should we push to main first?")],
+    ),
+    "a question moved before a rule": (
+        "Do we deploy on Fridays? Never.",
+        [said("Never. Do we deploy on Fridays?")],
+    ),
+    "a question with its pronouns changed": (
+        "Can you delete my branch? Yes, delete it.",
+        [said("Can I delete your branch? Yes, delete it.")],
+    ),
+    "a whole prompt with a word left out": (
+        "ok let's make optimizations. how?",
+        [said("ok let's make these optimizations.  how?")],
+    ),
     "an ellipsis that joins two sentences": (
         "Never \u2026 commit directly to main.",
         [said("No. Commit directly to main.")],
