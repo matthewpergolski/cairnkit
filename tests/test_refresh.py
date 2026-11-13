@@ -240,6 +240,13 @@ def load_text(capsys) -> str:
     return capsys.readouterr().out
 
 
+def repo_files(repo) -> dict[str, bytes]:
+    git = repo / ".git"
+    paths = [p for p in repo.rglob("*") if git not in p.parents] + [git / "config"]
+    paths += [*(git / "hooks").rglob("*"), *(git / "info").rglob("*")]
+    return {str(p): p.read_bytes() for p in paths if p.is_file()}
+
+
 def files_from_another_build(monkeypatch) -> None:
     monkeypatch.setattr(refresh, "build_commit", lambda: OLD_BUILD)
     assert main(["init"]) == 0
@@ -273,7 +280,9 @@ def test_another_build_that_writes_other_files_asks_for_a_refresh(
     files_from_another_build(monkeypatch)
     change(monkeypatch)
     origin = f"come from memory {__version__} @6b4bdf0; this is {__version__} @81f8499"
+    before = repo_files(repo)
     assert origin in load_text(capsys)
+    assert repo_files(repo) == before
     capsys.readouterr()
     assert main(["status"]) == 0
     assert origin in capsys.readouterr().out

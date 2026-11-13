@@ -317,7 +317,7 @@ def run_load(
     from cairnkit import live  # it reads session state, and session.py imports this module
 
     try:
-        health = read_health(project, flag)
+        health = read_health(project, flag, compare=True)
         if health.missing:
             print(health.answer())
             return 0

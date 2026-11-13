@@ -464,7 +464,7 @@ def run_status(project, flag: str | None) -> int:
     print(src.update_line(background=False) or "No update found.")
     for line in src.pending_change_lines():
         print(line)
-    health = read_health(project, flag)
+    health = read_health(project, flag, compare=True)
     for line in [
         *health.linked,
         health.answer(),

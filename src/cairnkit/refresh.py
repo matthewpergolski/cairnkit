@@ -229,8 +229,12 @@ def gone_python_line(project: Project, texts: list[str] | None = None) -> str | 
     )
 
 
-def repo_line(project: Project, flag: str | None) -> str | None:
-    """One line when repo files are older than this tool. Never raises."""
+def repo_line(project: Project, flag: str | None, compare: bool = False) -> str | None:
+    """One line when repo files are older than this tool. Never raises.
+
+    With `compare`, files from another build of this version count when this build would write
+    them differently. The compare reads each file, so only the session start asks for it.
+    """
     try:
         memdir = _memdir(project, flag)
         if memdir is None:
@@ -255,7 +259,10 @@ def repo_line(project: Project, flag: str | None) -> str | None:
         running = build_commit()
         if version:
             other_build = version == tool_version() and recorded and running and recorded != running
-            if not is_behind(version, tool_version()) and not stale_hook and not other_build:
+            current = not is_behind(version, tool_version()) and not stale_hook
+            if current and not (
+                compare and other_build and _writes_other_files(project, flag, memdir)
+            ):
                 return None
         elif not wrote_files(project, memdir) and not stale_hook:
             return None
@@ -297,13 +304,13 @@ def _end_mined_facts(project: Project, flag: str | None) -> list[str]:
     return []
 
 
-def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
+def _plan(project: Project, flag: str | None, memdir: Path, dry_run: bool):
+    """The steps that rewrite the repo files, and the files too broken to rewrite.
+
+    With `dry_run`, it only reads. Raises adapters.BadConfig.
+    """
     from cairnkit.hooks_cmd import guard_patterns
 
-    memdir = _memdir(project, flag)
-    if memdir is None:
-        print("error: there is no memory here. Run `memory init` first.", file=sys.stderr)
-        return 1
     steps: list[str] = []
     broken: list[Path] = []
     migrate_steps, migrate_broken = instructions.migrate_shared_blocks(
@@ -322,12 +329,8 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
             steps.append(f"update the rules block in {path}")
         elif result == "broken":
             broken.append(path)
-    try:
-        for name, holders in _agents(project, linked=True).items():
-            steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
-    except adapters.BadConfig as exc:
-        print(f"error: {clean_path(exc)}")
-        return 1
+    for name, holders in _agents(project, linked=True).items():
+        steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
     patterns = guard_patterns(project, flag)
     bodies = {
         "pre-commit": githook.pre_commit_body(),
@@ -345,13 +348,35 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
             steps += githook.uninstall(project, hook, dry_run)
             continue
         steps += githook.install(project, hook, bodies[hook], dry_run)
+    return steps, broken
+
+
+def _is_plain(step: str) -> bool:
+    return step.startswith(("skip", "note"))
+
+
+def _writes_other_files(project: Project, flag: str | None, memdir: Path) -> bool:
+    """True when this build would rewrite a repo file. It only reads."""
+    steps, _ = _plan(project, flag, memdir, dry_run=True)
+    return not all(map(_is_plain, steps))
+
+
+def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
+    memdir = _memdir(project, flag)
+    if memdir is None:
+        print("error: there is no memory here. Run `memory init` first.", file=sys.stderr)
+        return 1
+    try:
+        steps, broken = _plan(project, flag, memdir, dry_run)
+    except adapters.BadConfig as exc:
+        print(f"error: {clean_path(exc)}")
+        return 1
     if not dry_run:
         steps += _end_mined_facts(project, flag)
     if dry_run:
         print("Dry run: nothing will change.")
     for step in steps:
-        plain = step.startswith(("skip", "note"))
-        print(("would " if dry_run and not plain else "") + step)
+        print(("would " if dry_run and not _is_plain(step) else "") + step)
     own = githook.own_hooks_line(project)
     if own:
         print(own)

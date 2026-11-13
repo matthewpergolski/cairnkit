@@ -199,8 +199,12 @@ commit, as `memory --version` does: "come from memory 0.3.1 @6b4bdf0; this is
 0.3.1 @81f8499". A record with no commit reads as "an older build".
 
 The line compares version numbers, and it also reads that post-merge block.
-When the record and the running tool both know their commit, it compares the
-builds: another build of the same version also shows the line.
+When the record and the running tool both know their commit and the builds
+differ, the session start and `memory status` compare the files: they show the
+line only when this build would write a hook or a rules block differently. A
+dev update that changes no such text asks for nothing. The compare reads each
+file and writes nothing. It costs about 0.2 s, so the stop hook, which runs on
+each turn, does not make it.
 A release that changes these files raises the version in `__init__.py`.
 `pyproject.toml` reads that file. The docs-check stanza does not raise the
 version. Refresh reads `# cairnkit:docs-check` in the hook instead. A test
