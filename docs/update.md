@@ -26,9 +26,12 @@ It runs five steps and shows each one in the terminal:
    the receipt names.
 5. **Verify.** It runs the new `memory --version`.
 
-The build and the install run uv in `~/.cache/cairnkit`. So a `uv.toml`, a `[tool.uv]` table
-or a `.venv` in the folder where you run `memory update` has no effect. An empty `uv.toml` in the
-cache stops uv from reading one in a folder above it. uv still finds its user and system
+The build and the install run uv in `~/.cache/cairnkit`, with `--project` and `--directory` on
+that folder. So a `uv.toml`, a `[tool.uv]` table or a `.venv` in the folder where you run
+`memory update` has no effect, and `UV_PROJECT` and `UV_WORKING_DIR` do not move uv to a repo.
+The cache holds an empty `pyproject.toml` and an empty `uv.toml`. Together they stop uv from
+reading settings above the cache: a `uv.toml`, or a project or workspace with `[tool.uv]` (for
+example when `XDG_CACHE_HOME` is a folder in a repo). uv still finds its user and system
 `uv.toml` as it always does (on Windows in `%APPDATA%` and `%PROGRAMDATA%` too) and merges
 them, and `UV_CONFIG_FILE` and the other `UV_*` variables still apply.
 

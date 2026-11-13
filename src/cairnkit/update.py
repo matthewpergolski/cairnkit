@@ -344,14 +344,18 @@ def _fetch(bar: Progress, source, found: Latest, tmp: Path) -> tuple[Path, Lates
 def _uv(uv: str, command: tuple[str, ...], *args: str) -> tuple[int, str]:
     """Run uv with no setting from the folder of the caller. The owner's uv settings still count.
 
-    uv reads `uv.toml`, `[tool.uv]` and a `.venv` in the folder where it starts and above it. A
-    repo can hold each of them, so uv starts in the tool's cache folder. An empty `uv.toml` there
-    stops the search upward, and uv still reads its user and system settings and UV_CONFIG_FILE.
+    uv reads `uv.toml`, `[tool.uv]` and a `.venv` from the project it finds: the folder where it
+    starts, UV_PROJECT or UV_WORKING_DIR, and a workspace in a folder above. A repo can hold each
+    of them, so uv runs on the tool's cache folder as its project, where an empty `pyproject.toml`
+    and `uv.toml` hold no setting and stop the search upward. uv still reads its user and system
+    settings and UV_CONFIG_FILE.
     """
-    home = cache_dir()
+    home = cache_dir().absolute()
     home.mkdir(parents=True, exist_ok=True)
-    (home / "uv.toml").write_text("")
-    return _run([uv, *command, *args], cwd=home)
+    for name in ("pyproject.toml", "uv.toml"):
+        (home / name).write_text("")
+    where = ("--project", str(home), "--directory", str(home))
+    return _run([uv, *command, *where, *args], cwd=home)
 
 
 def _build(bar: Progress, uv: str, folder: Path, tmp: Path) -> Path:

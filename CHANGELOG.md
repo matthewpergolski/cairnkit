@@ -382,9 +382,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory update` reads the system `uv.toml` again (`/etc/uv/uv.toml` or `XDG_CONFIG_DIRS`, and
   `%PROGRAMDATA%` on Windows), merged with your user `uv.toml` as uv does. Before, it gave uv
   `--no-config` and one `--config-file`, so a user `uv.toml` hid the system one. uv now runs with
-  no config flag in `~/.cache/cairnkit`, where an empty `uv.toml` stops uv from reading one in a
-  folder above it. A `uv.toml`, `[tool.uv]` or `.venv` in the folder of the caller still has no
-  effect.
+  no config flag in `~/.cache/cairnkit`, with `--project` and `--directory` on that folder. An
+  empty `pyproject.toml` and an empty `uv.toml` there stop uv from reading settings in a folder
+  above it, also from a project or workspace above the cache. A `uv.toml`, `[tool.uv]` or `.venv`
+  in the folder of the caller, and `UV_PROJECT` or `UV_WORKING_DIR`, still have no effect.
 - The session start and `memory status` ask for `memory init --refresh` when the repo files come
   from another build of the same version, as "come from memory 0.3.1 @6b4bdf0; this is 0.3.1
   @81f8499". Before, only the version counted, so such files read as current. When the record or
