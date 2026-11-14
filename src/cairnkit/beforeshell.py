@@ -14,10 +14,13 @@ most once in a session, and the text is the masked text that the load shows.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
 import re
 import shlex
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -270,7 +273,8 @@ def _told_path(memory: Memory, key: str, kind: str) -> Path:
 
 
 def take_once(memory: Memory, key: str, kind: str, tokens: list[str]) -> list[str]:
-    """The tokens of this kind that this session has not had. Marks them as had.
+    """The tokens of this kind that this key (a session, or one agent in it) has not had. Marks
+    them as had.
 
     A file of its own for each kind, read and written under a lock. Helpers share their parent's
     session key, so a hook of one can save the session state from a read before this write.
@@ -283,9 +287,18 @@ def take_once(memory: Memory, key: str, kind: str, tokens: list[str]) -> list[st
             told = set()
         fresh = [token for token in dict.fromkeys(tokens) if token not in told]
         if fresh:
-            plainfile.write_text(
-                plainfile.inside(memory.dir, path), json.dumps(sorted(told | set(fresh))), "utf-8"
-            )
+            # The time budget can end a write. A rename keeps the old record whole, and the session
+            # prune removes a `.state-*.tmp` that a kill left.
+            folder = plainfile.inside(memory.dir, path.parent)
+            fd, tmp = tempfile.mkstemp(dir=folder, prefix=".state-", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(json.dumps(sorted(told | set(fresh))))
+                os.replace(tmp, path)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp)
+                raise
     return fresh
 
 

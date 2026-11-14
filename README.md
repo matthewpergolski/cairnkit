@@ -1103,13 +1103,21 @@ so neither gets it. A context line is no answer: Claude Code adds it with the to
 the command ran.
 
 **The shared git stash.** All checkouts of a repo share one stash list, so a `git stash pop` in one
-worktree can take the entry of another. On Claude Code and Codex, a `git stash` command that can take or lose
-an entry of other work gets a warning, once in a session, while another session or a helper in
-another checkout is live (the markers of **Live work**). That is `clear`, a `pop`, `apply` or `drop`
-of the top entry, and a push with no message, which a bare pop elsewhere takes. The warning names
-the live checkouts and says to commit the work on a branch, or to use `git stash push -m NAME` and
-then `git stash apply stash@{n}` for that name. It never stops the command, so on Claude Code it arrives with the
-tool result. A named push, `list`, `show` and an entry named by `stash@{n}` get no warning. A
+worktree can take the entry of another. On Claude Code, Codex, Pi and OpenCode, the first `git stash`
+command of each agent in a session that can take or lose an entry of other work is refused, while
+another session or a helper in another checkout is live (the markers of **Live work**). That is
+`clear`, a `pop`, `apply` or `drop` of the top entry, and a push with no message, which a bare pop
+elsewhere takes. The reason names the live checkouts and says to make a WIP commit on a branch of
+its own, or to use `git stash push -m TAG`, then `git stash apply SHA` for that entry, and to remove
+it with `git stash drop stash@{n}` for the line with TAG in `git stash list` (a drop by sha fails).
+It says to run the command again only when each entry that it uses is the agent's own. Then it
+runs, and no later stash command of that agent in the session stops. A Claude Code helper, which
+has its parent's session id and an `agent_id`, gets its own refusal. A Codex helper sends no
+`agent_id` before a command, so it shares its parent's. When a stored fact stops the same call, the
+one refusal gives both reasons. A warning could not do this, because Claude Code adds hook context
+with the tool result, after the command ran. A session with no id is never refused, and a Pi run
+with no session file is a session with no id. A named push, `list`, `show` and an entry named by
+`stash@{n}` are never refused. A
 step in `( )` or `$( )`, or after `sudo` or `env` with its options and settings (`sudo -u root
 git stash`), counts too. A `bash -c`
 script and a git alias do not: the hook reads no script and no git config. A command with no

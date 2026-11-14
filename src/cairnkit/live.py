@@ -194,22 +194,26 @@ def takes_shared_stash(command: str) -> bool:
     return False
 
 
-def stash_note(memory: Memory, session: str, command: str) -> str | None:
-    """A warning, once in a session, when this command uses the stash list that live work shares."""
+def stash_refusal(memory: Memory, session: str, agent: str, command: str) -> str | None:
+    """Why the first command of one agent that uses the stash list that live work shares stops.
+    `agent` keys the record: a session, or one helper in it. A record that fails refuses nothing.
+    """
     if not takes_shared_stash(command):
         return None
     places = _sharers(memory, session)
-    if not places or not take_once(memory, session, "stash", ["stash"]):
+    if not places or not take_once(memory, agent, "stash", ["stash"]):
         return None
     more = f" and {len(places) - MAX_LINES} more" if len(places) > MAX_LINES else ""
     shown = ", ".join(places[:MAX_LINES]) + more
     return (
-        "memory: all checkouts of this repo share one git stash list, and other work is live in "
-        f"{shown}. A `pop`, `apply`, `drop` or `clear` of the top entry can take or lose an entry "
-        "of that work, and a bare pop there can take an entry with no name. Make sure that each "
-        "entry that you use is yours (`git stash list`). To put work aside, commit it on a branch, "
-        "or run `git stash push -m NAME`, then `git stash apply stash@{n}` for the entry with that "
-        "name."
+        f"All checkouts of this repo share one git stash list, and other work is live in {shown}. "
+        "A `pop`, `apply`, `drop` or `clear` of the top entry can take or lose an entry of that "
+        "work. To put work aside, make a WIP commit on a branch of its own. Or run "
+        "`git stash push -m TAG`, then `git stash apply SHA` with the sha from "
+        "`git stash list --format='%H %gs'`. To remove that entry, find TAG in `git stash list` "
+        "and run `git stash drop stash@{n}` with the n of that line. Run this command again only "
+        "when each entry that it uses is yours, as when your TAG is at the top of "
+        "`git stash list`. It runs then, and no other stash command of yours stops in this session."
     )
 
 
