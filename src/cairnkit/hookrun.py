@@ -762,10 +762,13 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
             text = forgery.refusal(command, folders, LINK_NAME)
             if not text:
                 key = session_key(payload)
-                fact = beforeshell.message(memory, key, command)
-                # This hook runs before each command, so only a command that names the stash pays.
-                agent_key = _agent_key(agent, payload) if "stash" in command else None
-                stash = agent_key and live.stash_refusal(memory, key, agent_key, command)
+                fact = text = beforeshell.message(memory, key, command)
+                stash = None
+                # The fact is already marked as told, so an error here must not lose its refusal.
+                with contextlib.suppress(Exception, _OverBudget):
+                    # This hook runs before each command, so only a stash command pays.
+                    agent_key = _agent_key(agent, payload) if "stash" in command else None
+                    stash = agent_key and live.stash_refusal(memory, key, agent_key, command)
                 if stash and not fact:
                     stash = f"{STOPPED} {stash}"
                 text = "\n\n".join(part for part in (fact, stash) if part)

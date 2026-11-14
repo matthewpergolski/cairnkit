@@ -13,6 +13,7 @@ import sys
 import pytest
 from conftest import add_worktree, make_fact, write_facts
 
+from cairnkit import live
 from cairnkit.beforeshell import hits
 from cairnkit.cli import main
 from cairnkit.live import takes_shared_stash
@@ -373,6 +374,24 @@ def test_a_fact_refusal_of_a_stash_change_gives_both_reasons_once(repo, mem, mon
     assert_stash_refusal(said)
     assert said.count("did not run") == 1
     assert run(argv, repo, command) == ""
+
+
+def test_a_stash_step_that_fails_keeps_the_fact_refusal(repo, mem, monkeypatch, capsys):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    assert main(["add", FIX]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+
+    def broken(*_args):
+        raise OSError("no room")
+
+    monkeypatch.setattr(live, "stash_refusal", broken)
+    monkeypatch.chdir(repo)
+    stdin = io.StringIO(payload_for("sh report.sh && git stash pop", "s1"))
+    monkeypatch.setattr("sys.stdin", stdin)
+    capsys.readouterr()
+    assert main(["hook", "before-shell", "--agent", "claude"]) == 0
+    said = denial(capsys.readouterr().out.strip())
+    assert said and fact_id() in said
 
 
 def test_a_pi_run_with_no_session_file_is_never_refused(repo, mem, monkeypatch):
