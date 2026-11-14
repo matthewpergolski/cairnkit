@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import re
@@ -33,13 +34,14 @@ def installed(repo, agent: str, event: str) -> list[str]:
     return ["sh", "-c", commands[0]]
 
 
-def run(argv: list[str], repo, command: str, session: str = "s1") -> str:
+def run(argv: list[str], repo, command: str, session: str | None = "s1") -> str:
     payload = {
-        "session_id": session,
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": command},
     }
+    if session is not None:
+        payload["session_id"] = session
     done = subprocess.run(
         argv, cwd=repo, input=json.dumps(payload), capture_output=True, text=True, timeout=30
     )
@@ -213,16 +215,6 @@ def test_a_new_hook_line_never_stops_a_tool_under_an_older_build(repo, mem):
         assert done.returncode == 0, (line, done.stderr)
 
 
-def note(out: str) -> str | None:
-    """The text that a hook adds to the context with no decision, so the command runs."""
-    if not out or out == "{}":
-        return None
-    data = json.loads(out)["hookSpecificOutput"]
-    assert data["hookEventName"] == "PreToolUse"
-    assert "permissionDecision" not in data
-    return data["additionalContext"]
-
-
 def live_in_worktree(repo, monkeypatch, session: str) -> None:
     """A session, or a helper that shares its parent's key, at work in another worktree."""
     tree = add_worktree(repo, "other")
@@ -231,6 +223,12 @@ def live_in_worktree(repo, monkeypatch, session: str) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO(payload))
     assert main(["hook", "prompt", "--agent", "claude"]) == 0
     monkeypatch.chdir(repo)
+
+
+def assert_stash_refusal(said: str | None) -> None:
+    assert said and "stash" in said and ".worktrees/other" in said
+    assert "branch" in said and "git stash push -m" in said and "git stash apply" in said
+    assert "again" in said
 
 
 @pytest.mark.parametrize(
@@ -247,25 +245,54 @@ def live_in_worktree(repo, monkeypatch, session: str) -> None:
         "env -P /bin git stash pop",
     ],
 )
-def test_a_stash_command_warns_once_while_another_checkout_is_live(repo, mem, monkeypatch, command):
+def test_the_first_stash_command_in_a_session_is_refused_and_the_next_runs(
+    repo, mem, monkeypatch, command
+):
     assert main(["hooks", "install", "--agent", "claude"]) == 0
     live_in_worktree(repo, monkeypatch, "other")
     argv = installed(repo, "claude", "PreToolUse")
-    said = note(run(argv, repo, command))
-    assert said and "stash list" in said and ".worktrees/other" in said
-    assert "git stash push -m" in said and "git stash apply stash@{n}" in said
+    assert_stash_refusal(denial(run(argv, repo, command)))
     assert run(argv, repo, command) == ""
+    assert run(argv, repo, "git stash pop") == ""
+    # Another session is refused once too.
+    assert_stash_refusal(denial(run(argv, repo, command, session="s2")))
 
 
-def test_codex_gets_the_stash_warning_as_context_that_does_not_block(repo, mem, monkeypatch):
-    """The Codex hooks docs: PreToolUse `additionalContext` adds model-visible context without
-    blocking (https://learn.chatgpt.com/docs/hooks, read 2026-11-13)."""
+def test_codex_gets_the_stash_refusal_as_a_deny(repo, mem, monkeypatch):
+    """The Codex hooks docs: PreToolUse denies with `permissionDecision: "deny"` and
+    `permissionDecisionReason` (https://learn.chatgpt.com/docs/hooks, read 2026-11-14)."""
     assert main(["hooks", "install", "--agent", "codex"]) == 0
     live_in_worktree(repo, monkeypatch, "other")
     argv = installed(repo, "codex", "PreToolUse")
-    said = note(run(argv, repo, "sudo -u root git stash pop"))
-    assert said and "stash list" in said and ".worktrees/other" in said
+    assert_stash_refusal(denial(run(argv, repo, "sudo -u root git stash pop")))
     assert run(argv, repo, "git stash pop") == "{}"
+
+
+@pytest.mark.parametrize("agent", ["pi", "opencode"])
+def test_a_generated_adapter_gets_the_stash_refusal_as_plain_text(repo, mem, monkeypatch, agent):
+    assert main(["hooks", "install", "--agent", agent]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = [sys.executable, "-m", "cairnkit", "hook", "before-shell", "--agent", agent]
+    assert_stash_refusal(run(argv, repo, "git stash pop"))
+    assert run(argv, repo, "git stash pop") == ""
+
+
+def test_a_stash_command_with_no_session_id_is_never_refused(repo, mem, monkeypatch):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = installed(repo, "claude", "PreToolUse")
+    assert run(argv, repo, "git stash pop", session=None) == ""
+    assert run(argv, repo, "git stash pop", session=None) == ""
+
+
+def test_a_stash_refusal_that_cannot_be_recorded_lets_the_command_run(repo, mem, monkeypatch):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    digest = hashlib.sha256(b"s1").hexdigest()[:24]
+    (mem / ".sessions" / f"stash-{digest}.json").mkdir(parents=True)
+    argv = installed(repo, "claude", "PreToolUse")
+    assert run(argv, repo, "git stash pop") == ""
+    assert run(argv, repo, "git stash pop") == ""
 
 
 @pytest.mark.parametrize(
@@ -320,7 +347,9 @@ def test_a_named_or_reading_stash_step_in_a_subshell_takes_nothing(command):
 def test_a_helper_of_the_same_session_in_another_worktree_counts(repo, mem, monkeypatch):
     assert main(["hooks", "install", "--agent", "claude"]) == 0
     live_in_worktree(repo, monkeypatch, "s1")
-    assert note(run(installed(repo, "claude", "PreToolUse"), repo, "git stash pop"))
+    assert_stash_refusal(
+        denial(run(installed(repo, "claude", "PreToolUse"), repo, "git stash pop"))
+    )
 
 
 @pytest.mark.parametrize(

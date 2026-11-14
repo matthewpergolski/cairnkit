@@ -108,7 +108,7 @@ stops before the home folder and the file system root.
   auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
-  .sessions/{before,asked,stash}-<hash>.json  what a session heard once, written under a lock: facts before a command, stop events, the stash warning (safe to delete)
+  .sessions/{before,asked,stash}-<hash>.json  what a session heard once, written under a lock: facts before a command, stop events, the stash refusal (safe to delete)
   .sessions/live/<session>-<checkout>  a session in a turn in that checkout: holds its path, and the file time is the last event (safe to delete)
   .sessions/helpers/open.json   each helper with no recorded end: why it started, and where (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
@@ -572,15 +572,17 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   "permissionDecisionReason": TEXT}}` for `claude` and `codex`, and TEXT on stdout for `pi` and
   `opencode`. It never prints an allow, because an allow skips the person's own approval. With
   nothing to say, on any error and past 2.5 seconds, it prints nothing (`{}` for `codex`), and the
-  command runs. Other agents get nothing. It always exits 0. For `claude` and `codex`, a command that
-  holds `stash` and has a `git stash` step that can take or lose an entry of other work
-  (`clear`; `pop`, `apply` or `drop` with no entry named; `branch` with no entry; a push or
-  `save` with no message; also in `( )` or `$( )`, or after `sudo` or `env` with their options
-  and the values of those options (`sudo -u root`, `env -u NAME`); not in a
-  `bash -c` script or a git alias) gets
-  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": TEXT}}` and
-  runs, when a marker in `.sessions/live/` from the last 30 minutes names another session, or
-  this session in another checkout. It speaks once in a session (`.sessions/stash-*.json`).
+  command runs. Other agents get nothing. It always exits 0. A command that holds `stash` and
+  has a `git stash` step that can take or lose an entry of other work (`clear`; `pop`, `apply`
+  or `drop` with no entry named; `branch` with no entry; a push or `save` with no message; also
+  in `( )` or `$( )`, or after `sudo` or `env` with their options and the values of those
+  options (`sudo -u root`, `env -u NAME`); not in a `bash -c` script or a git alias) gets the
+  same deny, when a marker in `.sessions/live/` from the last 30 minutes names another session,
+  or this session in another checkout. TEXT names the live checkouts, a WIP commit on a branch,
+  `git stash push -m TAG` and `git stash apply SHA`, and says that the same command runs when the
+  agent runs it again. Only the first such command in a session is refused
+  (`.sessions/stash-*.json`, written before the deny, so a record that fails refuses nothing). A
+  payload with no `session_id` or `conversation_id` is never refused.
 - `after-shell` and `post-tool`: record one shell or tool result for the loop
   breaker and for the events of `stop`. Then they add the same news as
   `prompt`, and the load that `grok` holds. The third identical failure adds the nudge. The output is

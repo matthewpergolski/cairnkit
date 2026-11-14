@@ -44,14 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the search words of four letters or more). The note names a file in the same folder, or a
   tracked file with the same name, that holds them, with the command to name it. It also prints a
   note when git does not track FILE. A note is no refusal: the change is written.
-- The before-shell hook warns on Claude Code and Codex, once in a session, when a `git stash` command can
-  take or lose an entry of other live work: all checkouts of a repo share one stash list. It
-  speaks while another session, or a helper in another checkout, is live (the markers that
-  `## Live work` reads), for `clear`, a `pop`, `apply` or `drop` of the top entry, and a push with
-  no message. The warning names the live checkouts and gives `git stash push -m NAME` and
-  `git stash apply stash@{n}`, or a commit on a branch. It never stops the command, so Claude Code
-  adds it with the tool result. Codex reads PreToolUse `additionalContext` as context for the
-  model, and the call runs (its hooks docs, checked 2026-11-13). A step in `( )` or `$( )`, or after `sudo` or `env` with their
+- The before-shell hook refuses the first `git stash` command in a session that can take or lose
+  an entry of other live work, on Claude Code, Codex, Pi and OpenCode: all checkouts of a repo
+  share one stash list. It acts while another session, or a helper in another checkout, is live
+  (the markers that `## Live work` reads), for `clear`, a `pop`, `apply` or `drop` of the top
+  entry, and a push with no message. The reason names the live checkouts and gives a WIP commit
+  on a branch of its own, or `git stash push -m TAG` and then `git stash apply SHA`, never a bare
+  pop. The same command runs when the agent runs it again, and no later stash command in that
+  session stops. A warning could not stop the command, because Claude Code adds hook context with
+  the tool result, after the command ran. Claude Code and Codex get the PreToolUse deny
+  (`permissionDecision: "deny"`, Codex hooks docs checked 2026-11-14), and Pi and OpenCode get
+  the reason as the block. A payload with no session id is never refused, and a session record
+  that cannot be written refuses nothing. A step in `( )` or `$( )`, or after `sudo` or `env` with their
   options and option values (`sudo -u root git stash`, `sudo -c staff git stash pop`,
   `env -P /bin git stash pop`), counts; a
   `bash -c` script and a git alias do not. A command with no `stash` in it does no more work.
