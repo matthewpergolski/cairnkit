@@ -108,7 +108,7 @@ stops before the home folder and the file system root.
   auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
-  .sessions/{before,asked,stash}-<hash>.json  what a session heard once, written under a lock: facts before a command, stop events, the stash refusal (safe to delete)
+  .sessions/{before,asked,stash}-<hash>.json  what a session heard once, written under a lock: facts before a command, stop events, the stash refusal of each agent (safe to delete)
   .sessions/live/<session>-<checkout>  a session in a turn in that checkout: holds its path, and the file time is the last event (safe to delete)
   .sessions/helpers/open.json   each helper with no recorded end: why it started, and where (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
@@ -579,10 +579,13 @@ nothing and exits 0, except that `pre-commit` still refuses a private memory pat
   options (`sudo -u root`, `env -u NAME`); not in a `bash -c` script or a git alias) gets the
   same deny, when a marker in `.sessions/live/` from the last 30 minutes names another session,
   or this session in another checkout. TEXT names the live checkouts, a WIP commit on a branch,
-  `git stash push -m TAG` and `git stash apply SHA`, and says that the same command runs when the
-  agent runs it again. Only the first such command in a session is refused
-  (`.sessions/stash-*.json`, written before the deny, so a record that fails refuses nothing). A
-  payload with no `session_id` or `conversation_id` is never refused.
+  `git stash push -m TAG`, `git stash apply SHA` and `git stash drop stash@{n}` for the line with
+  TAG, and says to run the command again only when each entry that it uses is the agent's own.
+  Only the first such command of each agent in a session is refused: the record
+  (`.sessions/stash-*.json`) has the session id and the payload's `agent_id`, when there is one.
+  It is written before the deny, so a record that fails refuses nothing. When a fact stops the
+  same call, its deny also gives the stash reason, and the stash record is written. A payload with
+  no `session_id` or `conversation_id`, or with the session id `pi` from `pi`, is never refused.
 - `after-shell` and `post-tool`: record one shell or tool result for the loop
   breaker and for the events of `stop`. Then they add the same news as
   `prompt`, and the load that `grok` holds. The third identical failure adds the nudge. The output is

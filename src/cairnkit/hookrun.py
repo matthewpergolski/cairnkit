@@ -728,15 +728,27 @@ def after_shell(project: Project, flag: str | None, agent: str, payload: dict) -
 # Each tool here reads a deny before the command runs. See adapters.py for the others.
 BEFORE_SHELL_AGENTS = frozenset({"claude", "codex", "pi", "opencode"})
 BEFORE_SHELL_BUDGET = 2.5
+STOPPED = "memory: this call did not run."
+
+
+def _agent_key(agent: str, payload: dict) -> str | None:
+    """One agent of a session: Claude Code gives a helper its parent's session id and an
+    `agent_id`. None with no session id, as "pi", which the Pi adapter sends then."""
+    session = payload.get("session_id") or payload.get("conversation_id")
+    if not session or (agent == "pi" and session == "pi"):
+        return None
+    helper = payload.get("agent_id")
+    return f"{session}\0{helper}" if helper else str(session)
 
 
 def before_shell(project: Project, flag: str | None, agent: str, payload: dict) -> int:
     """Before a shell command: a command that would forge the owner's evidence is refused (see
     forgery.py), and a fact with a longer form of it stops this call once. Exits 0.
 
-    The first `git stash` command in a session that can take an entry of other live work is
-    refused, and the next one runs (`live.stash_refusal`). A context line could not stop it,
-    because Claude Code adds context with the tool result. With no session id it is not refused.
+    The first `git stash` command of each agent in a session that can take an entry of other live
+    work is refused, and the next one runs (`live.stash_refusal`). A context line could not stop
+    it, because Claude Code adds context with the tool result. With no session id it is not
+    refused. When a fact stops the same call, the one refusal gives both reasons.
 
     It never prints an allow, so the person's own approval of the command still applies. On any
     error or past its time it says nothing, and the command runs.
@@ -747,13 +759,16 @@ def before_shell(project: Project, flag: str | None, agent: str, payload: dict) 
         if agent in BEFORE_SHELL_AGENTS and command and has_memory(project, flag):
             memory = Memory.open(project, flag)
             folders = {str(memory.dir), str(memory.dir.resolve())}
-            text = forgery.refusal(command, folders, LINK_NAME) or beforeshell.message(
-                memory, session_key(payload), command
-            )
-            # This hook runs before each command, so only a command that names the stash pays.
-            has_session = payload.get("session_id") or payload.get("conversation_id")
-            if not text and "stash" in command and has_session:
-                text = live.stash_refusal(memory, session_key(payload), command)
+            text = forgery.refusal(command, folders, LINK_NAME)
+            if not text:
+                key = session_key(payload)
+                fact = beforeshell.message(memory, key, command)
+                # This hook runs before each command, so only a command that names the stash pays.
+                agent_key = _agent_key(agent, payload) if "stash" in command else None
+                stash = agent_key and live.stash_refusal(memory, key, agent_key, command)
+                if stash and not fact:
+                    stash = f"{STOPPED} {stash}"
+                text = "\n\n".join(part for part in (fact, stash) if part)
     if not text:
         if agent == "codex":
             print("{}")

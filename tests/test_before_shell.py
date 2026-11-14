@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -34,16 +35,26 @@ def installed(repo, agent: str, event: str) -> list[str]:
     return ["sh", "-c", commands[0]]
 
 
-def run(argv: list[str], repo, command: str, session: str | None = "s1") -> str:
+def payload_for(command: str, session: str | None = "s1", **extra) -> str:
     payload = {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": command},
+        **extra,
     }
     if session is not None:
         payload["session_id"] = session
+    return json.dumps(payload)
+
+
+def run(argv: list[str], repo, command: str, session: str | None = "s1", **extra) -> str:
     done = subprocess.run(
-        argv, cwd=repo, input=json.dumps(payload), capture_output=True, text=True, timeout=30
+        argv,
+        cwd=repo,
+        input=payload_for(command, session, **extra),
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert done.returncode == 0, done.stderr
     return done.stdout.strip()
@@ -112,6 +123,32 @@ def test_a_broken_memory_never_stops_a_command(repo, mem):
     for path in (mem / "facts").glob("*.jsonl"):
         path.write_bytes(b"\xff{not json\n")
     assert run(installed(repo, "claude", "PreToolUse"), repo, "sh report.sh") == ""
+
+
+def test_a_record_write_that_fails_keeps_the_facts_this_session_heard(repo, mem):
+    """A write cut short (here at a file size limit, as by the time budget) leaves the old
+    record, so a fact that stopped a call does not stop the next one."""
+    import resource
+
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    pytest_fact = make_fact("f-20261001-bbbb", "Use `uv run pytest -q`.")
+    write_facts(mem, [make_fact("f-20261001-aaaa", FIX), pytest_fact])
+    argv = [sys.executable, "-m", "cairnkit", "hook", "before-shell", "--agent", "claude"]
+    assert denial(run(argv, repo, "sh report.sh"))
+
+    def small_files():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (30, 30))
+
+    subprocess.run(
+        argv,
+        cwd=repo,
+        input=payload_for("pytest -q"),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        preexec_fn=small_files,
+    )
+    assert run(argv, repo, "sh report.sh") == ""
 
 
 def test_grok_running_the_claude_hook_says_nothing(repo, mem, monkeypatch):
@@ -228,7 +265,9 @@ def live_in_worktree(repo, monkeypatch, session: str) -> None:
 def assert_stash_refusal(said: str | None) -> None:
     assert said and "stash" in said and ".worktrees/other" in said
     assert "branch" in said and "git stash push -m" in said and "git stash apply" in said
-    assert "again" in said
+    # A drop by sha fails ("not a stash reference"), so the cleanup names the entry by its index.
+    assert "git stash drop stash@{n}" in said
+    assert "again only when" in said and "is yours" in said
 
 
 @pytest.mark.parametrize(
@@ -285,14 +324,130 @@ def test_a_stash_command_with_no_session_id_is_never_refused(repo, mem, monkeypa
     assert run(argv, repo, "git stash pop", session=None) == ""
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes to a read-only folder")
 def test_a_stash_refusal_that_cannot_be_recorded_lets_the_command_run(repo, mem, monkeypatch):
     assert main(["hooks", "install", "--agent", "claude"]) == 0
     live_in_worktree(repo, monkeypatch, "other")
-    digest = hashlib.sha256(b"s1").hexdigest()[:24]
-    (mem / ".sessions" / f"stash-{digest}.json").mkdir(parents=True)
+    sessions = mem / ".sessions"
+    sessions.chmod(0o555)
+    try:
+        argv = installed(repo, "claude", "PreToolUse")
+        for _ in range(3):
+            assert run(argv, repo, "git stash pop") == ""
+    finally:
+        sessions.chmod(0o755)
+
+
+def test_parallel_hooks_of_one_session_refuse_a_stash_command_once(repo, mem, monkeypatch):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
     argv = installed(repo, "claude", "PreToolUse")
+    runs = [
+        subprocess.Popen(argv, cwd=repo, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        for _ in range(6)
+    ]
+    outs = [proc.communicate(payload_for("git stash pop"), timeout=60)[0] for proc in runs]
+    assert sum(bool(denial(out.strip())) for out in outs) == 1
+
+
+def test_each_helper_of_a_session_is_refused_once_on_its_own(repo, mem, monkeypatch):
+    """Claude Code gives a subagent its parent's session_id and adds `agent_id`."""
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = installed(repo, "claude", "PreToolUse")
+    assert_stash_refusal(denial(run(argv, repo, "git stash pop", agent_id="a1")))
+    assert_stash_refusal(denial(run(argv, repo, "git stash pop")))
+    assert run(argv, repo, "git stash pop", agent_id="a1") == ""
     assert run(argv, repo, "git stash pop") == ""
-    assert run(argv, repo, "git stash pop") == ""
+    assert_stash_refusal(denial(run(argv, repo, "git stash pop", agent_id="a2")))
+
+
+def test_a_fact_refusal_of_a_stash_change_gives_both_reasons_once(repo, mem, monkeypatch):
+    assert main(["hooks", "install", "--agent", "claude"]) == 0
+    assert main(["add", FIX]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = installed(repo, "claude", "PreToolUse")
+    command = "sh report.sh && git stash pop"
+    said = denial(run(argv, repo, command))
+    assert said and fact_id() in said
+    assert_stash_refusal(said)
+    assert said.count("did not run") == 1
+    assert run(argv, repo, command) == ""
+
+
+def test_a_pi_run_with_no_session_file_is_never_refused(repo, mem, monkeypatch):
+    """The generated Pi adapter sends `getSessionFile() ?? "pi"`, so "pi" means no session."""
+    assert main(["hooks", "install", "--agent", "pi"]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    argv = [sys.executable, "-m", "cairnkit", "hook", "before-shell", "--agent", "pi"]
+    assert run(argv, repo, "git stash pop", session="pi") == ""
+    assert run(argv, repo, "git stash pop", session="pi") == ""
+
+
+ADAPTER_DRIVER = """
+const [kind, file, session] = process.argv.slice(2);
+const mod = await import(file);
+const calls = [];
+if (kind === "pi") {
+  const handlers = {};
+  mod.default({ on: (name, handler) => (handlers[name] = handler), sendMessage: () => {} });
+  const ctx = { sessionManager: { getSessionFile: () => (session || undefined) } };
+  for (const _ of [1, 2]) {
+    const out = await handlers.tool_call(
+      { toolName: "bash", input: { command: "git stash pop" } }, ctx);
+    calls.push(out?.block ? out.reason : "");
+  }
+} else {
+  const hooks = await mod.CairnkitMemory({ client: {}, directory: process.cwd() });
+  for (const _ of [1, 2]) {
+    try {
+      await hooks["tool.execute.before"](
+        { tool: "bash", sessionID: session }, { args: { command: "git stash pop" } });
+      calls.push("");
+    } catch (error) {
+      calls.push(error.message);
+    }
+  }
+}
+console.log(JSON.stringify(calls));
+"""
+
+
+@pytest.mark.parametrize(
+    ("agent", "rel", "session", "refused"),
+    [
+        ("pi", ".pi/extensions/cairnkit.ts", "/s/session.jsonl", True),
+        ("pi", ".pi/extensions/cairnkit.ts", "", False),
+        ("opencode", ".opencode/plugins/cairnkit.js", "ses_1", True),
+    ],
+)
+def test_a_generated_adapter_blocks_the_first_stash_command(
+    repo, mem, monkeypatch, tmp_path, agent, rel, session, refused
+):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    assert main(["hooks", "install", "--agent", agent]) == 0
+    live_in_worktree(repo, monkeypatch, "other")
+    driver = tmp_path / "driver.mjs"
+    driver.write_text(ADAPTER_DRIVER)
+    flags = ["--experimental-strip-types", "--no-warnings"]
+    done = subprocess.run(
+        [node, *flags, str(driver), agent, str(repo / rel), session],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if "ERR_UNKNOWN_FILE_EXTENSION" in done.stderr or "bad option" in done.stderr:
+        pytest.skip("this node cannot load TypeScript")
+    assert done.returncode == 0, done.stderr
+    first, second = json.loads(done.stdout)
+    if refused:
+        assert_stash_refusal(first)
+    else:
+        assert first == ""
+    assert second == ""
 
 
 @pytest.mark.parametrize(
