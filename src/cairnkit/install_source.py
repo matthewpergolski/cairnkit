@@ -699,9 +699,10 @@ def is_newer(source: Source, version: str, commit: str | None, found: Latest) ->
         return False
     if source.kind == "git" or not is_git_folder(Path(source.spec)):
         return True
-    # A folder moved back to an older commit is not an update.
-    check = ["-C", source.spec, "merge-base", "--is-ancestor", commit, found.commit]
-    return git(check) is not None
+    # A folder moved back to an older commit is not an update. A rebase or an amend can leave the
+    # installed commit out of the folder's history, and the folder then holds the newer work.
+    check = ["-C", source.spec, "merge-base", "--is-ancestor", found.commit, commit]
+    return git(check) is None
 
 
 def describe(version: str | None, commit: str | None) -> str:

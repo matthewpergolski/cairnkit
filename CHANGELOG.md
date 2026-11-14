@@ -390,6 +390,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `memory update` from a folder installs its commit when a rebase or an amend left the
+  installed commit out of the folder's history. Before, such a folder never read as newer, so a
+  rewritten dev branch could not update. Only a folder moved back to an older commit is skipped.
 - The before-shell hook writes what a session heard once (`.sessions/before-*.json`,
   `stash-*.json`) to a temp file and renames it. Before, it emptied the file and then wrote it, so
   a write that its time budget or a full disk cut short lost the record, and a fact stopped the

@@ -484,6 +484,21 @@ def test_a_folder_moved_back_to_an_older_commit_is_not_newer(machine):
     )
 
 
+def test_a_folder_whose_installed_commit_was_rewritten_is_newer(machine):
+    """A rebase or an amend leaves the installed commit out of the folder's history."""
+    (machine.source / "a.txt").write_text("a\n")
+    git(machine.source, "add", "-A")
+    git(machine.source, "commit", "-qm", "first")
+    installed = head(machine.source)
+    git(machine.source, "commit", "-q", "--amend", "-m", "first, reworded")
+    (machine.source / "b.txt").write_text("b\n")
+    git(machine.source, "add", "-A")
+    git(machine.source, "commit", "-qm", "later")
+    source = install_source.parse(str(machine.source))
+    found = install_source.Latest(head(machine.source), "0.2.0")
+    assert install_source.is_newer(source, "0.2.0", installed, found)
+
+
 def test_check_needs_no_uv_but_update_does(machine, monkeypatch, capsys):
     monkeypatch.setattr("cairnkit.update.shutil.which", lambda name: None)
     assert main(["update", "--check"]) == 0
