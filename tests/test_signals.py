@@ -12,6 +12,7 @@ from cairnkit.cli import main
 from cairnkit.loopbreak import command_from_payload
 from cairnkit.memory import Memory
 from cairnkit.paths import find_project
+from cairnkit.signals import is_correction, removal_words
 
 
 def hook(capsys, monkeypatch, event, payload, agent="claude"):
@@ -529,3 +530,10 @@ def test_a_bad_memory_path_file_does_not_break_an_agent_hook(repo, mem, monkeypa
     (repo / ".memory-path").write_bytes(b"\xff\xfe not text\n")
     monkeypatch.setattr("sys.stdin", io.StringIO('{"session_id": "s"}'))
     assert main(["hook", event, "--agent", "claude"]) == 0
+
+
+def test_a_side_agent_note_is_no_correction_and_asks_no_removal():
+    note = "Here is a note offered by a side agent:\n\n> You deleted it. Remove scratch files."
+    assert not is_correction(note) and not removal_words(note)
+    assert is_correction("You deleted it.")
+    assert removal_words("Remove scratch files.") == {"scratch"}
