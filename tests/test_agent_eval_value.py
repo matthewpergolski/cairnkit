@@ -190,7 +190,7 @@ def test_cli_takes_a_git_setting_for_one_arm_and_refuses_a_bad_one(capsys):
 
 
 def test_cli_refuses_two_arms_on_one_commit(capsys):
-    argv = ["--agent", "pi", "--arm", "dev-copy=HEAD", "--load-only"]
+    argv = ["--agent", "pi", "--dev-ref", "HEAD", "--prod-ref", "HEAD", "--load-only"]
     assert load_cli().main(argv) == 2
     assert "same commit" in capsys.readouterr().err
 
