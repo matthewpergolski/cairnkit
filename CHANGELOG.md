@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-15
+
 ### Added
 
 - `memory export` adds one line at the top that tells the reader what to do with the notes: read
@@ -1109,6 +1111,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `short_term_days`, `memory tidy --days` and `proposals/stale-pending.md`.
 - Moving facts into a rules file through `memory tidy`. A pinned fact already loads each session.
 
+### Upgrade
+
+- Installs on 0.3.1: run `memory update` once the `v0.3.2` tag exists. Each repo's next
+  session start then asks the agent to run `memory init --refresh`, which rewrites the hooks
+  and the rules block in place.
+
 ## [0.3.1] - 2026-10-30
 
 ### Added
@@ -1174,7 +1182,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Baseline before the 0.3.0 work above.
 
-[Unreleased]: https://github.com/matthewpergolski/cairnkit/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/matthewpergolski/cairnkit/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/matthewpergolski/cairnkit/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/matthewpergolski/cairnkit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/matthewpergolski/cairnkit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/matthewpergolski/cairnkit/releases/tag/v0.2.0
