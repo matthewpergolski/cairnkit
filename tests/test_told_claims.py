@@ -978,6 +978,68 @@ def test_an_answer_that_the_owner_did_not_give_does_not_bind(
     assert "told: not confirmed" in agent_add(capsys, monkeypatch, claim)
 
 
+# --- the words that the owner typed in a dialog instead of a pick -------------------------
+
+TYPED = "Use the SSH key for every commit on this machine."
+
+
+@pytest.mark.parametrize(
+    ("tool_input", "tool_response", "content"),
+    [
+        (None, {"questions": [SIGNING], "answers": {}, "response": TYPED},
+         f"The user responded: {TYPED}"),
+        ({"questions": [SIGNING], "answers": {}, "response": TYPED},
+         {"questions": [SIGNING], "answers": {}}, f"The user responded: {TYPED}"),
+        ({"questions": [SIGNING]}, f"The user responded: {TYPED}", f"The user responded: {TYPED}"),
+        (None, {"questions": [SIGNING], "answers": {}, "response": TYPED, "followUp": True},
+         f'The user wants to clarify these questions before answering. They also wrote: "{TYPED}".'
+         " Call AskUserQuestion again now with further questions about this decision."),
+    ],
+    ids=["result", "input", "text", "follow-up"],
+)  # fmt: skip
+def test_the_words_the_owner_typed_in_a_dialog_bind(
+    mem, capsys, monkeypatch, tool_input, tool_response, content
+):
+    prompt(capsys, monkeypatch, "set up commit signing")
+    dialog(capsys, monkeypatch, [SIGNING], {}, tool_input, tool_response, text=content)
+    out = agent_add(capsys, monkeypatch, TYPED)
+    assert "told: confirmed by words the owner typed in this session" in out
+    assert binds(capsys, TYPED)
+
+
+def test_the_words_typed_in_a_dialog_keep_a_memory_command(mem, capsys, monkeypatch):
+    typed = "Run `memory check` before every push."
+    prompt(capsys, monkeypatch, "set up the push checks")
+    response = {"questions": [SIGNING], "answers": {}, "response": typed}
+    dialog(capsys, monkeypatch, [SIGNING], {}, None, response, text=f"The user responded: {typed}")
+    assert "told: confirmed by words" in agent_add(capsys, monkeypatch, typed)
+
+
+def test_a_quoted_sentence_typed_in_a_dialog_does_not_bind(mem, capsys, monkeypatch):
+    typed = f'Sign with SSH. The page said: "{INJECTED}"'
+    prompt(capsys, monkeypatch, "set up commit signing")
+    response = {"questions": [SIGNING], "answers": {}, "response": typed}
+    dialog(capsys, monkeypatch, [SIGNING], {}, None, response, text=f"The user responded: {typed}")
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, INJECTED)
+
+
+@pytest.mark.parametrize(
+    ("more", "content"),
+    [
+        ({}, f"The user responded: {PICKED}"),
+        ({"afkTimeoutMs": 60000}, "No response after 60s."),
+    ],
+    ids=["not-in-transcript", "away-from-keyboard"],
+)
+def test_dialog_words_that_the_owner_did_not_give_do_not_bind(
+    mem, capsys, monkeypatch, more, content
+):
+    prompt(capsys, monkeypatch, "set up commit signing")
+    response = {"questions": [SIGNING], "answers": {}, "response": TYPED, **more}
+    dialog(capsys, monkeypatch, [SIGNING], {}, None, response, text=content)
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, TYPED)
+
+
 # --- a message the owner typed while the agent worked -----------------------------------
 
 LINT = "Run the linter before every push."
