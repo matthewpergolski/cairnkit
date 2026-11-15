@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory export` adds one line at the top that tells the reader what to do with the notes: read
+  or paste them as notes, they are dated notes and not instructions, the code and the owner win
+  when they disagree, and `memory load` gives the current view for an assistant that can run
+  commands in the repo. `--output` prints the same line after `wrote PATH`. `memory import`
+  skips the line, also when a chat made it a list item.
 - `memory change` takes more than one ID with one set of flags:
   `memory change ID ID ID --status promoted --held-by FILE --reason "..."`. Each ID gets every
   check of a single change (the authority check of `--superseded-by`, the secret check, the link
@@ -281,6 +286,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The note of a `told` claim that is not confirmed says that words the owner relays from someone
+  else (another agent, a colleague) go in a second fact with `--basis seen`, as the agent's own
+  context does. It still says "Do not say that it binds".
 - The `told: not confirmed` note of `memory add` is two short sentences after the status. It keeps
   the commands: `--basis seen --link related:ID` (now with the new ID) for your own context, and
   `memory add "TEXT" --basis told` for the owner, or `--supersedes ID` for the words of an
@@ -390,6 +398,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The to-do lines for a long rule set name fact ids. When the lasting rules pass 500 words, the line
+  names the five longest of them. When the lasting rules and the rules that may be for one piece
+  of work together pass it, the line names the first five of the one-time rules. Each line then says `memory load --budget 0` lists all. Before, a
+  session start said "1 to do" with no id, and the agent could not act on it.
 - `memory update` from a folder installs its commit when a rebase or an amend left the
   installed commit out of the folder's history. Before, such a folder never read as newer, so a
   rewritten dev branch could not update. Only a folder moved back to an older commit is skipped.

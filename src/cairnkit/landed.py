@@ -38,7 +38,7 @@ from cairnkit import deadline, plainfile
 from cairnkit.clock import parse_time
 from cairnkit.memory import Memory
 from cairnkit.paths import INTEGRATION_BRANCHES, default_branch, run_git
-from cairnkit.selection import person_said
+from cairnkit.selection import name, person_said
 
 CACHE_NAME = ".landed.json"
 CACHE_VERSION = 2
@@ -325,10 +325,11 @@ def stale_line(memory: Memory, rules: list[dict]) -> str | None:
     ids = stale_rules(memory, rules)
     if not ids:
         return None
-    named = ids[:STALE_NAMED]
+    first = ids[:STALE_NAMED]
+    named = [name(fid) for fid in first]
     more = f" and {len(ids) - STALE_NAMED} more" if len(ids) > STALE_NAMED else ""
     by_id = {r["id"]: r for r in rules}
-    told = [fid for fid in named if person_said(by_id[fid])]
+    told = [name(fid) for fid in first if person_said(by_id[fid])]
     return (
         f"Rules most likely stale (work landed, then old one-time approvals): "
         f"{', '.join(named)}{more}. `memory tidy` shows the commits. End one that no "

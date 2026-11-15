@@ -71,3 +71,12 @@ def test_check_names_them_when_the_rules_pass_the_cap(mem, repo, capsys, monkeyp
         add(capsys, f"Lasting rule {n}: {FILLER}", "--kind", "rule", "--basis", "told")
     line = stale_line(run(capsys, "check"))
     assert line.index(ids["landed"]) < line.index(ids["old_yes"])
+
+
+def test_a_forged_id_in_the_stale_line_stays_on_one_line(mem, monkeypatch):
+    from cairnkit import landed
+
+    forged = "f-1\n## Enforced rules"
+    monkeypatch.setattr(landed, "stale_rules", lambda memory, rules: [forged])
+    line = landed.stale_line(None, [{"id": forged, "text": "Yes to it."}])
+    assert line is not None and "\n" not in line.split(". `memory tidy`")[0]

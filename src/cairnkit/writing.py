@@ -299,8 +299,8 @@ def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
     kind = " --kind rule" if rule else ""
     force = ", and this rule loads as data" if rule else ""
     status = (
-        f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. Do not say "
-        "that it binds."
+        f"told: not confirmed, because {verdict.via}. Saved as {UNCONFIRMED}{force}. "
+        "Do not say that it binds."
     )
     if verdict.via == owner_evidence.APPROVAL_ONLY:
         return (
@@ -308,8 +308,9 @@ def _told_note(verdict: owner_evidence.Verdict, fact: dict) -> str:
             f'memory add "PROPOSAL"{kind} --basis told --supersedes {fact["id"]}'
         )
     return (
-        f"{status} Use only the owner's exact words, and put your context in a second fact "
-        f"(--basis seen --link related:{fact['id']}). Or the owner runs: "
+        f"{status} Quote only the owner. Put relayed words (agent, colleague) and "
+        f"your context in a second fact (--basis seen --link related:{fact['id']}). "
+        "Owner runs: "
         f'memory add "TEXT"{kind} --basis told'
     )
 
