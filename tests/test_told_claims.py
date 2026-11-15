@@ -214,6 +214,7 @@ def test_the_unconfirmed_note_is_short_and_shows_how_to_confirm(mem, capsys, mon
     note = told_note(agent_add(capsys, monkeypatch, "Skip the tests."))
     assert len(note.split()) <= TOLD_NOTE_WORDS, note
     assert f"--basis seen --link related:{facts(mem)[-1]['id']}" in note
+    assert "Relayed words (from another agent, a colleague) and your context go in" in note
     assert note.endswith('memory add "TEXT" --kind rule --basis told')
 
 

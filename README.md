@@ -562,7 +562,9 @@ with a digit, a mark such as `#` or a word of another script (`Approved: #42.`) 
 work, so it is matched as usual. The add output says to save the words
 of the proposal that the owner approved, with `--supersedes` and the new fact's id.
 Else the fact is written with `confirmed: false`, it loads as `told (via agent, not
-confirmed)` data, and the add output says so and how the owner confirms it.
+confirmed)` data, and the add output says so and how the owner confirms it. It also says that
+words the owner relays from someone else (another agent, a colleague) go in a second fact with
+`--basis seen`, as the agent's own context does.
 `memory add` finds its session by the session id in the agent's shell (Claude Code,
 Codex, Grok). The hooks keep each id that they see for a session (the payload's and the
 one in their own environment), so a shell id that the hooks saw also finds it. Only when

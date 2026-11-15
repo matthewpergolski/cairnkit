@@ -286,6 +286,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The note of a `told` claim that is not confirmed says that words the owner relays from someone
+  else (another agent, a colleague) go in a second fact with `--basis seen`, as the agent's own
+  context does. To keep the note short, it no longer says "Do not say that it binds"; the rules
+  block still says it.
 - The `told: not confirmed` note of `memory add` is two short sentences after the status. It keeps
   the commands: `--basis seen --link related:ID` (now with the new ID) for your own context, and
   `memory add "TEXT" --basis told` for the owner, or `--supersedes ID` for the words of an
