@@ -354,3 +354,11 @@ def test_import_records_have_the_import_author_and_no_tracked_file_changes(tmp_p
     assert fact["author"] == "import" and fact["basis"] == "seen"
     assert git(root, "status", "--porcelain") == ""
     assert json.dumps(fact).count("Use one database.") == 1
+
+
+@pytest.mark.parametrize("mark", ["- ", "* ", "1. "])
+def test_a_reader_line_that_a_chat_made_a_list_item_is_no_fact(full, mark):
+    from cairnkit.transfer import PROSE, READER_NOTE, parse_sections
+
+    entries = parse_sections(f"## Other\n{mark}{READER_NOTE}\n[2026-11-01] - Real note here.\n")
+    assert [e.text for e in entries if e.section != PROSE] == ["Real note here."]

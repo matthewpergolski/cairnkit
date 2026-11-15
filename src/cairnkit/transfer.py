@@ -379,6 +379,9 @@ def parse_sections(text: str) -> list[Entry]:
             section, heading_line = heading, (None if line.startswith("#") else line)
             continue
         bullet = _BULLET.match(line)
+        if (bullet[1] if bullet else line).strip() == READER_NOTE:
+            found.append(Entry(PROSE, line))
+            continue
         day, body, marked = _dated(bullet[1].strip() if bullet else line)
         if body and (bullet or marked) and _WORD.search(body):
             body, files = _split_files(body)
