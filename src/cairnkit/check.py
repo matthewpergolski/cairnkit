@@ -53,7 +53,7 @@ from cairnkit.secretscan import (
     real_secrets,
     strings_of,
 )
-from cairnkit.selection import RULE_WORD_LIMIT, clean, clean_path, shell_word
+from cairnkit.selection import RULE_WORD_LIMIT, clean, clean_path, name, shell_word
 from cairnkit.state import effective_status
 from cairnkit.store import Located, fact_files, read_located, repaired_lines
 
@@ -523,7 +523,7 @@ def _rule_ids(rules: list[dict], longest: bool = False) -> str:
     def size(state: dict) -> int:
         return -len(str(state.get("text", "")).split()) if longest else 0
 
-    return listed([state["id"] for state in sorted(rules, key=lambda s: (size(s), s["id"]))])
+    return listed([name(state["id"]) for state in sorted(rules, key=lambda s: (size(s), s["id"]))])
 
 
 def _read_health(project: Project, flag: str | None, compare: bool) -> Health:
