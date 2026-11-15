@@ -393,11 +393,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The option that the owner picked in an agent question (Claude Code's AskUserQuestion) is kept
   from each shape that a tool can send. Before, the hook after a tool read the answers only from
   a dict `answers` at the top of the result, or from plain text. Now it also reads the answers in
-  the tool input, a dict `answers` nested in the result and a list of text blocks. A multi-select
-  answer given as a list counts each picked label. A bad question entry no longer hides the other
-  answers. A dialog that closed while the owner was away from the keyboard (`afkTimeoutMs`) and a
-  question that Claude Code marks as unanswered keep nothing, because the text in `answers` is
-  then the tool's. Claude Code 2.1.325 sends the tool data `{questions, answers, ...}`, which the
+  the tool input, a dict `answers` nested in the result and a list of text blocks. Each picked
+  label of a multi-select counts, read as Claude Code joins them: `, ` between labels, and a
+  label that holds `, ` or `"` in JSON quotes. An answer that holds the text of a label in
+  another shape counts as a pick, never as words that the owner typed, so a label that the agent
+  wrote cannot end a fact. A bad question entry no longer hides the other answers. A dialog that
+  closed while the owner was away from the keyboard (`afkTimeoutMs`, or the result text "the
+  user may be away from keyboard") and a question that Claude Code marks as unanswered keep
+  nothing, because the text in `answers` is then the tool's. An answer counts only when the
+  result of that agent question holds it, matched by the id of its tool use, not when the
+  result of another tool holds the same text. Claude Code 2.1.325 sends the tool data `{questions, answers, ...}`, which the
   hook already read, so the field report of an empty `choices` list has another cause: the turn
   rule in the next item.
 - A pick or a yes of the owner now counts until the next prompt with words that the owner typed.
@@ -408,7 +413,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no choices. Now a prompt with no owner words (after the cleaning of typed words: a
   notification, a side agent's note with no reply, a `memory check` line, a prompt that is only
   a paste) keeps the choices and the approval. It adds no evidence, so the claim must still
-  match a label that the owner picked or the proposal that the owner approved.
+  match a label that the owner picked or the proposal that the owner approved. A prompt that the
+  owner typed ends the turn also when its words name a command of this tool, which the evidence
+  does not keep: "no wait, do not run `memory change` on ID, keep it" ends the yes before it.
+- When an agent ends a fact that a person stated, the newest sentence of the owner decides by
+  the time that the owner gave it. Before, the approval of the turn was read last, so words that
+  the owner typed in a dialog after a yes ("No, keep ID. Do not end it.") did not keep the fact.
 - The words that the owner types in an agent question instead of a pick (Claude Code's
   `response`; the model reads "The user responded: ...") now confirm a `told` claim, as a free
   answer does. They get the same cleaning, and the transcript proof counts them only when a
@@ -418,7 +428,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prompt was kept, but its transcript records the message as a `queued_command` attachment, not
   as a `user` record. The transcript proof read only `user` records, so an exact copy stayed not
   confirmed. Now the proof also reads a `queued_command` attachment with `commandMode` `prompt`
-  and no origin or a human origin. One from a peer agent, a task or a channel, and one with a
+  and the origin `human`, which Claude Code itself needs for a human turn. One with no origin,
+  one from a peer agent, a task or a channel, and one with a
   meta, rewritten, relayed, forwarded or not-typed mark, still proves nothing. The text is cleaned
   as a typed prompt is, so a paste in it does not count.
 - A `told` claim of an agent, and the end of a fact that a person stated, count only the words
