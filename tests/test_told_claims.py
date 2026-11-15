@@ -15,6 +15,7 @@ import time
 import pytest
 from conftest import read_jsonl
 
+from cairnkit import owner_evidence
 from cairnkit.cli import main
 from cairnkit.schema import validate_record
 from cairnkit.selection import FRAME_HEADER, UNCONFIRMED
@@ -214,7 +215,7 @@ def test_the_unconfirmed_note_is_short_and_shows_how_to_confirm(mem, capsys, mon
     note = told_note(agent_add(capsys, monkeypatch, "Skip the tests."))
     assert len(note.split()) <= TOLD_NOTE_WORDS, note
     assert f"--basis seen --link related:{facts(mem)[-1]['id']}" in note
-    assert "Relayed words (from another agent, a colleague) and your context go in" in note
+    assert "Put relayed words (agent, colleague) and your context in" in note
     assert note.endswith('memory add "TEXT" --kind rule --basis told')
 
 
@@ -938,3 +939,17 @@ def test_the_owner_at_a_terminal_still_ends_any_fact(mem, capsys, monkeypatch):
     assert f"changed {fid}" in out and "told:" not in out
     [record] = changes_of(mem, fid)
     assert record["status"] == "wrong" and "author" not in record
+
+
+def test_the_unconfirmed_note_keeps_do_not_say_it_binds_within_the_word_limit():
+    from cairnkit.writing import _told_note
+
+    for rule in (True, False):
+        fact = {"id": "f-20261115-abcd", "kind": "rule" if rule else "fact"}
+        for via in (
+            "it is no copy of one sentence the owner said in this session",
+            owner_evidence.APPROVAL_ONLY,
+        ):
+            note = _told_note(owner_evidence.Verdict(False, via), fact)
+            assert "Do not say that it binds." in note, note
+            assert len(note.split()) <= TOLD_NOTE_WORDS, (len(note.split()), note)
