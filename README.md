@@ -533,7 +533,8 @@ evidence of the session: the last 12 prompts that the owner typed (also a messag
 owner types while the agent works, which Claude Code gives the agent between tool calls), the
 option that the owner picked in an agent question (Claude Code's AskUserQuestion; only the
 label the owner picked counts, not the agent's question or option descriptions; each label of
-a multi-select counts; a dialog that closed while the owner was away from the keyboard, and a
+a multi-select counts; the words that the owner types in the dialog instead of a pick count
+as a free answer; a dialog that closed while the owner was away from the keyboard, and a
 question that Claude Code marks as unanswered, count nothing), and, when the whole prompt is a short yes (`yes`,
 `y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`, or a
 few of them in a row such as `yes, go ahead` or `let's do it`), the question that ends the
@@ -568,10 +569,10 @@ number, a path, a flag, a name). So "Stop skipping the tests" does not confirm "
 the tests", and "Don't merge to main until CI is green" does not confirm "Never merge to
 main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
-and a sentence that opens with `if` state no rule. A claim with a rule and such a question binds only when it is the owner's whole prompt ("ok, make these changes. how?"), with only case, spaces and the marks at its end changed. An approval and an answer count only in their own turn, until the next owner prompt.
-The known limit: the turn ends at each prompt that the prompt hook sees, also a task
-notification when Claude Code runs the prompt hook for it between tool calls. So a pick or a
-yes can stop counting when a background task reports back in the same turn.
+and a sentence that opens with `if` state no rule. A claim with a rule and such a question binds only when it is the owner's whole prompt ("ok, make these changes. how?"), with only case, spaces and the marks at its end changed. An approval and an answer count only in their own turn, until the next prompt with words that
+the owner typed. Claude Code also runs the prompt hook, in the middle of a turn, for a task
+notification, the note of a side agent and a line of this tool. Such a prompt, and a prompt that
+is only a paste, has no owner words, so it does not end the turn, and it adds no evidence.
 A claim whose words are only a reply that says nothing (`yes`, `Owner said: go ahead`,
 `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`), or
 that has no letter and no digit (an emoji such as `👍` or `✅ 👍`), confirms nothing, because it tells a later reader nothing. This list is wider than the

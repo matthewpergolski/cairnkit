@@ -398,10 +398,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answers. A dialog that closed while the owner was away from the keyboard (`afkTimeoutMs`) and a
   question that Claude Code marks as unanswered keep nothing, because the text in `answers` is
   then the tool's. Claude Code 2.1.325 sends the tool data `{questions, answers, ...}`, which the
-  hook already read, so the field report of an empty `choices` list has another cause. The likely
-  one: the prompt hook ends the turn at each prompt that it sees, also a task notification that
-  Claude Code gives the agent between tool calls, and that clears the choices. That rule stays
-  (see the known limit in the README).
+  hook already read, so the field report of an empty `choices` list has another cause: the turn
+  rule in the next item.
+- A pick or a yes of the owner now counts until the next prompt with words that the owner typed.
+  Before, the prompt hook ended the turn at each prompt that it saw. Claude Code also gives the
+  prompt hook a task notification, the note of a side agent and other prompts that the owner did
+  not type, in the middle of the owner's turn, also while a dialog is open. In the field, the
+  owner picked two options while side agents reported back, and the session evidence then had
+  no choices. Now a prompt with no owner words (after the cleaning of typed words: a
+  notification, a side agent's note with no reply, a `memory check` line, a prompt that is only
+  a paste) keeps the choices and the approval. It adds no evidence, so the claim must still
+  match a label that the owner picked or the proposal that the owner approved.
+- The words that the owner types in an agent question instead of a pick (Claude Code's
+  `response`; the model reads "The user responded: ...") now confirm a `told` claim, as a free
+  answer does. They get the same cleaning, and the transcript proof counts them only when a
+  tool result holds them.
 - A message that the owner typed while the agent worked now confirms a `told` claim. Claude Code
   gives such a message to the agent between tool calls and runs the prompt hook for it, so the
   prompt was kept, but its transcript records the message as a `queued_command` attachment, not
