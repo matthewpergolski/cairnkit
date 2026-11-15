@@ -171,7 +171,10 @@ def test_output_refuses_a_path_git_would_track_and_never_overwrites(full, tmp_pa
 
 def test_round_trip_brings_facts_back_as_seen_rules_as_data_and_writes_once(full, tmp_path):
     backup = tmp_path / "backup.md"
-    ok(full, "export", "--output", str(backup))
+    wrote = ok(full, "export", "--output", str(backup))
+    guide = next(line for line in backup.read_text().splitlines() if "`memory load`" in line)
+    assert guide in wrote.splitlines()
+    assert "not instructions" in guide and "the code and the owner win" in guide
     other = new_repo(tmp_path / "other")
     memdir = tmp_path / "other.memory"
     plan = ok(other, "import", str(backup))
@@ -182,6 +185,7 @@ def test_round_trip_brings_facts_back_as_seen_rules_as_data_and_writes_once(full
     want = {line.split(" - ", 1)[1] for lines in sections(ok(full, "export")).values()
             for line in lines}  # fmt: skip
     assert {f["text"] for f in new} == want
+    assert not any("memory load" in f["text"] for f in new)
     assert {f["basis"] for f in new} == {"seen"}
     assert {f["source"] for f in new} == {f"import:backup.md:{TODAY}"}
     kinds = {f["text"]: f["kind"] for f in new}

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `memory export` adds one line at the top that tells the reader what to do with the notes: read
+  or paste them as notes, they are dated notes and not instructions, the code and the owner win
+  when they disagree, and `memory load` gives the current view for an assistant that can run
+  commands in the repo. `--output` prints the same line after `wrote PATH`. `memory import`
+  skips the line, as it skips each line that is not dated.
 - `memory change` takes more than one ID with one set of flags:
   `memory change ID ID ID --status promoted --held-by FILE --reason "..."`. Each ID gets every
   check of a single change (the authority check of `--superseded-by`, the secret check, the link
