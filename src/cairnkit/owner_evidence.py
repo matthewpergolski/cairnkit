@@ -11,7 +11,9 @@ state (see session.py), so the other hooks of a session do not read or write it.
      "choices": [{"at", "kind", "text", "answer"}],  # answers to agent questions, this turn only
      "approval": {"at", "text", "prompt"} | null}  # the question that this turn's "yes" answered
 
-Each text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
+A prompt keeps only what the owner typed (`owner_typed`): a paste, a quoted line and a quoted
+sentence are someone else's words. The proof cleans the transcript's prompts the same way. Each
+text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
 choices and the approval of the turn before. The prompt hook writes it, and the hook after a tool
 adds the label that the owner picked in an agent question. `memory add` reads it (`check_claim`),
 and so does `memory change` when an agent ends a fact that a person stated (`names_ids`).
@@ -104,7 +106,19 @@ AGENT_ENV = {
 }
 SESSION_ENV = tuple(AGENT_ENV.values())
 QUESTION_TOOL = "AskUserQuestion"
-FENCED = re.compile(r"```.*?(?:```|$)", re.DOTALL)
+# Text in a prompt that the owner did not type: a fenced block, a paste that Claude Code wraps
+# (`<pasted_content id="8867">` up to `</pasted_content id="8867">`; only the end with the same
+# attributes ends it), and a quoted line. A block with no end runs to the end of the prompt.
+NOT_TYPED = re.compile(
+    r"```.*?(?:```|\Z)|<pasted_content\b([^>]*)>.*?(?:</pasted_content\1>|\Z)|^[ \t]*>[^\n]*",
+    re.DOTALL | re.MULTILINE,
+)
+QUOTED = re.compile(r'"[^"]*"|\u201c[^\u201d]*\u201d')
+# A quote of QUOTE_WORDS words or more, or with a sentence end in it, is a quoted sentence: often
+# the agent's own text that the owner quotes back. A shorter one is a term the owner names, such
+# as `use "uv run"`. A command or a label that an owner quotes is rarely longer than five words.
+QUOTE_WORDS = 6
+QUOTE_SENTENCE_END = re.compile(r"[.!?](?=\s|\Z)")
 ANSWER_PAIR = re.compile(r'"([^"]*)"="([^"]*)"')
 VIA = {
     "prompt": "words the owner typed in this session",
@@ -203,7 +217,7 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     if known and transcript not in known:
         return  # a prompt from another transcript is no prompt of this session
     moment = time.time()
-    own = "" if NOT_THE_OWNER.search(prompt) else _own_words(memory, prompt)
+    own = _own_words(memory, prompt)
     prompts = _list(old, "prompts")
     if own:
         prompts.append({"at": moment, "text": own})
@@ -226,9 +240,23 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     write_state(memory, path, data)
 
 
+def _quote_kept(quote: re.Match[str]) -> str:
+    inner = quote[0][1:-1]
+    short = len(inner.split()) < QUOTE_WORDS and not QUOTE_SENTENCE_END.search(inner)
+    return quote[0] if short else " "
+
+
+def owner_typed(text: str) -> str:
+    """The words of a prompt that the owner typed: no text of the tool (NOT_THE_OWNER), no block
+    or line of NOT_TYPED, and no quoted sentence."""
+    if NOT_THE_OWNER.search(text):
+        return ""
+    return QUOTED.sub(_quote_kept, NOT_TYPED.sub("\n", text)).strip()
+
+
 def _own_words(memory: Memory, prompt: str) -> str:
-    """The prompt as it is kept: no fenced block (a paste, not the owner's words), masked, cut."""
-    own = FENCED.sub(" ", prompt).strip()
+    """The prompt as it is kept: only what the owner typed, masked, cut."""
+    own = owner_typed(prompt)
     return _kept(memory, own, PROMPT_CHARS) if own else ""
 
 
@@ -257,7 +285,9 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
         labels = [str(opt.get("label") or "") for opt in options]
         reply = answers.get(question, "")
         evidence = choice_evidence(labels, reply)
-        if evidence:
+        if evidence and evidence.kind == "prompt":
+            evidence = Evidence("prompt", owner_typed(evidence.text))
+        if evidence and evidence.text:
             found.append((evidence, reply))
     if not found:
         return

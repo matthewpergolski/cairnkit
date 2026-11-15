@@ -390,6 +390,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A `told` claim of an agent, and the end of a fact that a person stated, count only the words
+  that the owner typed. Before, only a fenced block was taken out of a prompt. A paste that
+  Claude Code wraps in `<pasted_content>`, a quoted line (it starts with `>`) and text in double
+  quotes counted as typed, so an agent saved its own sentence, which the owner had quoted back,
+  as a confirmed rule. Now a pasted block (one with no end runs to the end of the prompt), a
+  quoted line, a quoted sentence (six words or more, or a sentence end in it) and the note of a
+  side agent ("Here is a note offered by a side agent:") are not the owner's words. A short
+  quoted term such as `use "uv run"` still counts, and the transcript proof cleans its prompts
+  the same way. A claim of only "whatever is recommended" or "whatever you recommend" says
+  nothing; neither phrase approves the agent's closing question. Known limit: a paste that
+  Claude Code does not wrap reads as typed. A short paste is not known to be wrapped, and a
+  session that does not fetch feature flags wraps no paste.
 - `memory update` from a folder installs its commit when a rebase or an amend left the
   installed commit out of the folder's history. Before, such a folder never read as newer, so a
   rewritten dev branch could not update. Only a folder moved back to an older commit is skipped.

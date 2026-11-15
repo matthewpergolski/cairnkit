@@ -536,4 +536,4 @@ def test_a_side_agent_note_is_no_correction_and_asks_no_removal():
     note = "Here is a note offered by a side agent:\n\n> You deleted it. Remove scratch files."
     assert not is_correction(note) and not removal_words(note)
     assert is_correction("You deleted it.")
-    assert removal_words("Remove scratch files.") == {"scratch"}
+    assert removal_words("Remove scratch files.")

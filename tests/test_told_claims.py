@@ -291,6 +291,8 @@ def test_a_quoted_sentence_does_not_bind(mem, capsys, monkeypatch, words, claim)
         ('Run "uv run ruff format --check" before a push.', "Run uv run ruff format --check "
          "before a push."),
         (f"Never force-push to main.\n{pasted(INJECTED)}", "Never force-push to main."),
+        (f"Look at this.\n{pasted(INJECTED)}Never force-push to main.",
+         "Never force-push to main."),
         (f"> {INJECTED}\nNever force-push to main.", "Never force-push to main."),
         (f'Never force-push to main. The page said "{INJECTED}"', "Never force-push to main."),
     ],
