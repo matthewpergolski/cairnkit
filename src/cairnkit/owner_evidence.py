@@ -234,28 +234,72 @@ def _own_words(memory: Memory, prompt: str) -> str:
     return _kept(memory, own, PROMPT_CHARS) if own else ""
 
 
-def _answers(response: object) -> dict[str, str]:
-    """{question: answer} from the tool result: a dict with `answers`, or the text form."""
-    if isinstance(response, dict) and isinstance(response.get("answers"), dict):
-        return {str(q): str(a) for q, a in response["answers"].items()}
-    if isinstance(response, str):
-        return dict(ANSWER_PAIR.findall(response))
-    return {}
+def _holder(value: object, depth: int = 3) -> dict | None:
+    """The dict that holds a dict `answers`: the value, or a dict nested in it."""
+    if isinstance(value, dict):
+        if isinstance(value.get("answers"), dict):
+            return value
+        value = list(value.values())
+    for child in value if depth and isinstance(value, list) else []:
+        if (found := _holder(child, depth - 1)) is not None:
+            return found
+    return None
+
+
+def _reply(value: object) -> str:
+    """One answer. Claude Code joins the labels of a multi-select with ", "."""
+    if isinstance(value, list):
+        return ", ".join(item for item in value if isinstance(item, str))
+    return value if isinstance(value, str) else ""
+
+
+def _answers(*sources: object) -> dict[str, str]:
+    """{question: answer} from the tool input and the tool result, the later source first.
+
+    Claude Code (2.1.325) gives the tool's data `{questions, answers, ...}` as the result, and
+    the input holds the answers that the dialog collected. A result can also be text, or a list
+    of text blocks, with `"question"="answer"` pairs: the text that the model reads.
+    """
+    found: dict[str, str] = {}
+    for source in sources:
+        holder = _holder(source)
+        if holder is not None:
+            found.update({str(q): _reply(a) for q, a in holder["answers"].items()})
+        else:
+            for text in _texts(source, ("text",)):
+                found.update(ANSWER_PAIR.findall(text))
+    return {question: reply for question, reply in found.items() if reply.strip()}
 
 
 def note_answer(memory: Memory, key: str, payload: dict) -> None:
-    """Keep what the owner chose in an agent question (Claude Code's AskUserQuestion)."""
+    """Keep what the owner chose in an agent question (Claude Code's AskUserQuestion).
+
+    A dialog that closed while the owner was away (`afkTimeoutMs`) and a question that Claude
+    Code marks as `unanswered` keep nothing: the owner gave no answer, and the text in `answers`
+    is then the tool's.
+    """
     if payload.get("tool_name") != QUESTION_TOOL:
         return
     tool_input = payload.get("tool_input")
     questions = tool_input.get("questions") if isinstance(tool_input, dict) else None
-    answers = _answers(payload.get("tool_response"))
+    result = _holder(payload.get("tool_response")) or {}
+    if result.get("afkTimeoutMs"):
+        return
+    notes = result.get("annotations")
+    notes = notes if isinstance(notes, dict) else {}
+    answers = _answers(tool_input, payload.get("tool_response"))
     found = []
     for item in questions if isinstance(questions, list) else []:
         if not isinstance(item, dict):
             continue
         question = str(item.get("question") or "")
-        options = [opt for opt in item.get("options") or [] if isinstance(opt, dict)]
+        note = notes.get(question)
+        if isinstance(note, dict) and note.get("unanswered"):
+            continue
+        options = item.get("options")
+        options = (
+            [opt for opt in options if isinstance(opt, dict)] if isinstance(options, list) else []
+        )
         labels = [str(opt.get("label") or "") for opt in options]
         reply = answers.get(question, "")
         evidence = choice_evidence(labels, reply)
