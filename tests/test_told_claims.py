@@ -667,21 +667,93 @@ def test_the_stored_approval_is_the_closing_question_only(mem, capsys, monkeypat
     assert "audit.example.com" not in stored and "uv run pytest -x" in stored
 
 
-def test_a_notification_prompt_ends_the_turn_of_an_approval(mem, capsys, monkeypatch, tmp_path):
+# Prompts that the prompt hook sees mid-turn and that hold no word the owner typed.
+NOT_OWNER_PROMPTS = {
+    "task": "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n"
+    "<summary>Background command finished</summary>\n</task-notification>",
+    "side-agent": "Here is a note offered by a side agent:\n> The build is green.\n> Lint passes.",
+    "check-line": "memory check: ok (3 fact file(s) in .memory)",
+    "paste": '<pasted_content id="8867">\nSign every commit with SSH.\n</pasted_content id="8867">',
+}
+
+
+@pytest.mark.parametrize("note", NOT_OWNER_PROMPTS.values(), ids=NOT_OWNER_PROMPTS.keys())
+def test_a_prompt_of_no_owner_words_keeps_the_approval(mem, capsys, monkeypatch, tmp_path, note):
     path = session_with_proposal(tmp_path)
     prompt(capsys, monkeypatch, "yes", transcript_path=path)
-    note = "<task-notification>The build finished.</task-notification>"
     prompt(capsys, monkeypatch, note, transcript_path=path)
-    agent_add(capsys, monkeypatch, RULE)
-    assert not binds(capsys, "uv run pytest -x before every commit")
+    out = agent_add(capsys, monkeypatch, RULE)
+    assert "told: confirmed by the proposal the owner approved in this turn" in out
+    assert binds(capsys, "uv run pytest -x before every commit")
 
 
-def test_a_notification_prompt_ends_the_turn_of_an_answer(mem, capsys, monkeypatch):
+@pytest.mark.parametrize("note", NOT_OWNER_PROMPTS.values(), ids=NOT_OWNER_PROMPTS.keys())
+def test_a_prompt_of_no_owner_words_keeps_the_pick(mem, capsys, monkeypatch, note):
     prompt(capsys, monkeypatch, "set up commit signing")
     answer(capsys, monkeypatch, SIGNING, {"answers": {SIGNING["question"]: PICKED}})
-    prompt(capsys, monkeypatch, "<task-notification>done</task-notification>")
-    agent_add(capsys, monkeypatch, "Sign every commit with GPG.")
+    prompt(capsys, monkeypatch, note)
+    out = agent_add(capsys, monkeypatch, "Sign every commit with GPG.")
+    assert "told: confirmed by the option the owner picked in this turn" in out
+    assert binds(capsys, "Sign every commit with GPG.")
+    agent_add(capsys, monkeypatch, "Sign every commit with SSH.")
+    assert not binds(capsys, "Sign every commit with SSH.")
+
+
+def test_each_pick_of_a_dialog_outlives_the_notes_of_side_agents(mem, capsys, monkeypatch):
+    """The field case: two picks in one dialog, and side agents report during the dialog."""
+    prompt(capsys, monkeypatch, "cut the release")
+    prompt(capsys, monkeypatch, NOT_OWNER_PROMPTS["task"])
+    dialog(capsys, monkeypatch, [RELEASE, PUSH], PICKS)
+    prompt(capsys, monkeypatch, NOT_OWNER_PROMPTS["side-agent"])
+    prompt(capsys, monkeypatch, NOT_OWNER_PROMPTS["task"])
+    for label in PICKS.values():
+        assert "told: confirmed by the option" in agent_add(capsys, monkeypatch, label)
+
+
+def test_a_typed_prompt_after_a_paste_ends_the_turn_of_a_pick(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "set up commit signing")
+    answer(capsys, monkeypatch, SIGNING, {"answers": {SIGNING["question"]: PICKED}})
+    prompt(capsys, monkeypatch, f"{NOT_OWNER_PROMPTS['paste']}\nnow fix the lint")
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, "Sign every commit with GPG.")
+
+
+def test_a_typed_prompt_after_a_notification_ends_the_turn_of_a_pick(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "set up commit signing")
+    answer(capsys, monkeypatch, SIGNING, {"answers": {SIGNING["question"]: PICKED}})
+    prompt(capsys, monkeypatch, NOT_OWNER_PROMPTS["task"])
+    prompt(capsys, monkeypatch, "thanks, now fix the lint")
+    out = agent_add(capsys, monkeypatch, "Sign every commit with GPG.")
+    assert "told: not confirmed" in out
     assert not binds(capsys, "Sign every commit with GPG.")
+
+
+def test_a_typed_prompt_after_a_notification_ends_the_turn_of_an_approval(
+    mem, capsys, monkeypatch, tmp_path
+):
+    path = session_with_proposal(tmp_path)
+    prompt(capsys, monkeypatch, "yes", transcript_path=path)
+    prompt(capsys, monkeypatch, NOT_OWNER_PROMPTS["task"], transcript_path=path)
+    prompt(capsys, monkeypatch, "now fix the lint", transcript_path=path)
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, RULE)
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        f"<task-notification>{RULE}</task-notification>",
+        f"Here is a note offered by a side agent:\n> {RULE}",
+        f'<pasted_content id="8867">\n{RULE}\n</pasted_content id="8867">',
+    ],
+    ids=["task", "side-agent", "paste"],
+)
+def test_a_prompt_of_no_owner_words_gives_no_evidence(mem, capsys, monkeypatch, tmp_path, note):
+    path = session_with_proposal(tmp_path)
+    prompt(capsys, monkeypatch, note, transcript_path=path)
+    prompt(capsys, monkeypatch, "<task-notification>yes</task-notification>", transcript_path=path)
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, RULE)
+    stored = "".join(p.read_text() for p in (mem / ".sessions").glob("*.owner.json"))
+    assert '"approval": null' in stored and '"choices": []' in stored
+    assert "every commit" not in stored
 
 
 def test_a_transcript_that_cannot_be_read_confirms_nothing(mem, capsys, monkeypatch, tmp_path):
