@@ -111,6 +111,10 @@ AGENT_ENV = {
 SESSION_ENV = tuple(AGENT_ENV.values())
 QUESTION_TOOL = "AskUserQuestion"
 ANSWER_PAIR = re.compile(r'"([^"]*)"="([^"]*)"')
+# How the tool result text that the model reads holds an answer: a pick, and the words that the
+# owner typed instead of a pick (Claude Code 2.1.325; "They also wrote" in a follow-up round).
+ANSWER_FORMS = ('="{}"', "The user responded: {}", 'They also wrote: "{}"')
+RESPONDED = "The user responded: "
 VIA = {
     "prompt": "words the owner typed in this session",
     "choice": "the option the owner picked in this turn",
@@ -276,6 +280,21 @@ def _answers(*sources: object) -> dict[str, str]:
     return {question: reply for question, reply in found.items() if reply.strip()}
 
 
+def _response(*sources: object) -> str:
+    """The words that the owner typed in the dialog instead of a pick: `response` in the tool
+    input or data, or the result text "The user responded: ..." that the model reads. A later
+    source wins."""
+    found = ""
+    for source in sources:
+        holder = _holder(source) or source
+        if isinstance(holder, dict) and isinstance(holder.get("response"), str):
+            found = holder["response"]
+        for text in _texts(source, ("text",)):
+            if text.startswith(RESPONDED):
+                found = text[len(RESPONDED) :]
+    return found.strip()
+
+
 def note_answer(memory: Memory, key: str, payload: dict) -> None:
     """Keep what the owner chose in an agent question (Claude Code's AskUserQuestion).
 
@@ -312,6 +331,9 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
             evidence = Evidence("prompt", owner_typed(evidence.text, veto=False))
         if evidence and evidence.text:
             found.append((evidence, reply))
+    response = _response(tool_input, payload.get("tool_response"))
+    if typed := owner_typed(response, veto=False):
+        found.append((Evidence("prompt", typed), response))
     if not found:
         return
     path = evidence_path(memory, key)
@@ -530,7 +552,11 @@ def transcript_seen(memory: Memory, data: dict) -> Seen | None:
         tuple(
             mask(text, memory.env) for text in texts["agent"][:PROOF_AGENT_TEXTS]
         ),  # newest first
-        tuple(mask(text, memory.env) for text in texts["tool"] if '="' in text),
+        tuple(
+            mask(text, memory.env)
+            for text in texts["tool"]
+            if any(form.partition("{}")[0] in text for form in ANSWER_FORMS)
+        ),
     )
 
 
@@ -540,8 +566,9 @@ def evidence(data: dict, seen: Seen | None = None) -> list[Evidence]:
     def held(row: dict) -> bool:
         if seen is None:
             return True
-        answer = f'="{row.get("answer", "")}"'
-        return bool(row.get("answer")) and any(answer in text for text in seen.tool)
+        answer = str(row.get("answer") or "")
+        forms = [form.format(answer) for form in ANSWER_FORMS]
+        return bool(answer) and any(form in text for text in seen.tool for form in forms)
 
     prompts = [str(row.get("text", "")) for row in _list(data, "prompts")]
     items = [Evidence("prompt", text) for text in prompts if seen is None or text in seen.owner]
