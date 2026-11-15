@@ -402,6 +402,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names the five longest of them. When the lasting rules and the rules that may be for one piece
   of work together pass it, the line names the first five of the one-time rules. Each line then says `memory load --budget 0` lists all. Before, a
   session start said "1 to do" with no id, and the agent could not act on it.
+- A `told` claim of an agent, and the end of a fact that a person stated, count only the words
+  that the owner typed. Before, only a fenced block was taken out of a prompt. A paste that
+  Claude Code wraps in `<pasted_content>`, a quoted line (it starts with `>`) and text in double
+  quotes counted as typed, so an agent saved its own sentence, which the owner had quoted back,
+  as a confirmed rule. Now a pasted block in the shape that Claude Code gives it (one with no
+  end runs to the end of the prompt), a quoted line (`> ` or only `>`), the note of a side
+  agent, and a quoted sentence are not the owner's words. A quoted sentence has a sentence end
+  and six words or more in quote marks (`"`, `“”`, `‘’`, `«»` or `„“`), and the sentence
+  or line that holds it does not count either, so no part of it binds. The reply that the owner
+  types below a side agent's note, and the words after a paste at the start of a prompt, still
+  count, also for the prompt signals (a correction, a removal request, a statement). A quoted
+  command such as `run "uv run pytest -q tests"` and a short quoted sentence such as `reply
+  "Done."` count as typed. A free answer to an agent question is cleaned the same way, with no
+  check for text of the tool. The transcript proof cleans its prompts the same way. A claim of
+  only "whatever is recommended" or "whatever you recommend" says nothing; neither phrase
+  approves the agent's closing question. Known limits: a short quoted sentence of the agent
+  counts, and a paste that Claude Code does not wrap reads as typed. A short paste is not
+  known to be wrapped, and a session that does not fetch feature flags wraps no paste.
 - `memory update` from a folder installs its commit when a rebase or an amend left the
   installed commit out of the folder's history. Before, such a folder never read as newer, so a
   rewritten dev branch could not update. Only a folder moved back to an older commit is skipped.

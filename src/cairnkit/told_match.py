@@ -103,12 +103,13 @@ APPROVALS = frozenset(
 )
 # A claim of only these words tells a later reader nothing, so it confirms nothing. The list is
 # wider than APPROVALS: a word here that is no yes costs one refused empty claim, but a word in
-# APPROVALS makes the closing question of the agent bind. `go with your rec` is no approval: the
-# closing question is often not the recommendation.
+# APPROVALS makes the closing question of the agent bind. `go with your rec` and `whatever is
+# recommended` are no approval: the closing question is often not the recommendation.
 SAYS_NOTHING = APPROVALS | {
     "ok", "okay", "k", "sure", "yeah", "yup", "lgtm", "ship it", "go for it", "please do",
     "do", "proceed", "agreed", "correct", "right", "fine", "great", "perfect", "cool", "done",
     "thanks", "thank you", "ty", "go with your rec", "go with your recommendation",
+    "whatever is recommended", "whatever you recommend",
 }  # fmt: skip
 
 

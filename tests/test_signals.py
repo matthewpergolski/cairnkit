@@ -12,6 +12,7 @@ from cairnkit.cli import main
 from cairnkit.loopbreak import command_from_payload
 from cairnkit.memory import Memory
 from cairnkit.paths import find_project
+from cairnkit.signals import is_correction, is_statement, removal_words
 
 
 def hook(capsys, monkeypatch, event, payload, agent="claude"):
@@ -529,3 +530,28 @@ def test_a_bad_memory_path_file_does_not_break_an_agent_hook(repo, mem, monkeypa
     (repo / ".memory-path").write_bytes(b"\xff\xfe not text\n")
     monkeypatch.setattr("sys.stdin", io.StringIO('{"session_id": "s"}'))
     assert main(["hook", event, "--agent", "claude"]) == 0
+
+
+def test_a_side_agent_note_is_no_correction_and_asks_no_removal():
+    note = "Here is a note offered by a side agent:\n\n> You deleted it. Remove scratch files."
+    assert not is_correction(note) and not removal_words(note)
+    assert is_correction("You deleted it.")
+    assert removal_words("Remove scratch files.")
+
+
+SIDE_NOTE = "Here is a note offered by a side agent:\n\n> Note \u00b7 12:00\n>\n> {}\n\n"
+PASTE = (
+    '<pasted_content id="8867">\nYou deleted it. Remove scratch files.\n'
+    '</pasted_content id="8867">\n'
+)
+
+
+@pytest.mark.parametrize(
+    "before",
+    [SIDE_NOTE.format("We decided to ship. The tests are fine."), PASTE, "\n\n" + PASTE],
+)
+def test_the_owners_words_after_a_side_agent_note_or_a_paste_count(before):
+    assert is_correction(before + "No, you deleted the cache.")
+    assert removal_words(before + "Remove build files.") == {"build"}
+    assert is_statement(before + "We decided to ship on Friday.")
+    assert not is_correction(before) and not removal_words(before) and not is_statement(before)

@@ -11,7 +11,10 @@ state (see session.py), so the other hooks of a session do not read or write it.
      "choices": [{"at", "kind", "text", "answer"}],  # answers to agent questions, this turn only
      "approval": {"at", "text", "prompt"} | null}  # the question that this turn's "yes" answered
 
-Each text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
+A prompt keeps only what the owner typed (`signals.owner_typed`): a paste, a quoted line, a
+side agent's note and a quoted sentence are someone else's words. A free answer to an agent
+question is cleaned the same way. The proof cleans the transcript's prompts the same way. Each
+text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
 choices and the approval of the turn before. The prompt hook writes it, and the hook after a tool
 adds the label that the owner picked in an agent question. `memory add` reads it (`check_claim`),
 and so does `memory change` when an agent ends a fact that a person stated (`names_ids`).
@@ -66,7 +69,7 @@ from cairnkit.memory import Memory
 from cairnkit.ranking import ID
 from cairnkit.secretscan import mask
 from cairnkit.session import state_path, write_state
-from cairnkit.signals import NOT_THE_OWNER
+from cairnkit.signals import owner_typed
 from cairnkit.told_match import (
     NOT,
     Evidence,
@@ -104,7 +107,6 @@ AGENT_ENV = {
 }
 SESSION_ENV = tuple(AGENT_ENV.values())
 QUESTION_TOOL = "AskUserQuestion"
-FENCED = re.compile(r"```.*?(?:```|$)", re.DOTALL)
 ANSWER_PAIR = re.compile(r'"([^"]*)"="([^"]*)"')
 VIA = {
     "prompt": "words the owner typed in this session",
@@ -203,7 +205,7 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     if known and transcript not in known:
         return  # a prompt from another transcript is no prompt of this session
     moment = time.time()
-    own = "" if NOT_THE_OWNER.search(prompt) else _own_words(memory, prompt)
+    own = _own_words(memory, prompt)
     prompts = _list(old, "prompts")
     if own:
         prompts.append({"at": moment, "text": own})
@@ -227,8 +229,8 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
 
 
 def _own_words(memory: Memory, prompt: str) -> str:
-    """The prompt as it is kept: no fenced block (a paste, not the owner's words), masked, cut."""
-    own = FENCED.sub(" ", prompt).strip()
+    """The prompt as it is kept: only what the owner typed, masked, cut."""
+    own = owner_typed(prompt)
     return _kept(memory, own, PROMPT_CHARS) if own else ""
 
 
@@ -257,7 +259,9 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
         labels = [str(opt.get("label") or "") for opt in options]
         reply = answers.get(question, "")
         evidence = choice_evidence(labels, reply)
-        if evidence:
+        if evidence and evidence.kind == "prompt":
+            evidence = Evidence("prompt", owner_typed(evidence.text, veto=False))
+        if evidence and evidence.text:
             found.append((evidence, reply))
     if not found:
         return

@@ -529,8 +529,7 @@ marker means an agent, and two markers name both tools. A person who restates a
 rule from their own shell lifts it.
 
 **An agent's `told` claim needs the owner's words.** The prompt hook keeps the owner's
-evidence of the session: the last 12 prompts that the owner typed (a fenced paste and a
-notification do not count), the option that the owner picked in an agent question
+evidence of the session: the last 12 prompts that the owner typed, the option that the owner picked in an agent question
 (Claude Code's AskUserQuestion; only the label the owner picked counts, not the agent's
 question or option descriptions), and, when the whole prompt is a short yes (`yes`,
 `y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`, or a
@@ -540,7 +539,20 @@ closing question counts, so the claim must be in it. A message that ends in no q
 a tool step after it, gives no approval. `ok thanks`, `correct`, `yes, and also ...`, `I'll
 do it` (the owner takes the task), `go with your rec` (the closing question is often not the
 recommendation) and a prompt with a digit or a word of another script (`yes 2`) approve
-nothing. A `told` claim binds only when it is a near-verbatim
+nothing. Only the words that the owner typed count, for a `told` claim and for the end of a
+fact that a person stated. A fenced block, a paste that Claude Code wraps in
+`<pasted_content id="...">`, a quoted line (a line that starts with `> ` or is only `>`), a
+notification, the note of a side agent, and a quoted sentence are not the owner's words. A
+quoted sentence has a sentence end and six words or more in quote marks (`"`, `“”`,
+`‘’`, `«»` or `„“`). It is often the agent's own text that the owner quotes back, so
+the sentence or line that holds it does not count either. The owner's words around these
+still count: the reply that the owner types below a side agent's note, and the words after a
+paste at the start of a prompt. A quoted command (`run "uv run pytest -q tests"`) and a
+short quoted sentence (`reply "Done."`) count as typed. A straight single quote and a
+backtick are no quote marks. A free answer to an agent question is cleaned the same way. The
+known limits: a short quoted sentence of the agent counts, and a paste that Claude Code does
+not wrap reads as typed. A short paste is not known to be wrapped, and a session that does not
+fetch feature flags wraps no paste. A `told` claim binds only when it is a near-verbatim
 copy of one sentence of this evidence. Each sentence of the claim (or a run of them)
 must match one sentence of the owner, word for word and in the same order. Only
 articles, `please`, pronouns, punctuation, case, word endings (`commits`, `committing`)
