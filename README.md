@@ -996,7 +996,7 @@ also prints, tells the other assistant what to do with it:
 > they and the code or the owner disagree, the code and the owner win. If you can run commands
 > in the repo, `memory load` gives the current view.
 
-An import reads no line of the export that is not dated, so this line never becomes a fact.
+An import skips this line, also when a chat made it a list item, so it never becomes a fact.
 
 An export is no backup. It holds the text, the kind and the date of each fact. An import of it
 does not bring back pins, links, areas, tags or summaries. A branch note comes back as a fact that
