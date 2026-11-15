@@ -33,6 +33,7 @@ its end changed.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from functools import cache
@@ -350,14 +351,55 @@ def sentences(text: str) -> list[str]:
     return [part.strip() for part in _SENTENCE_END.split(text.strip()) if part.strip()]
 
 
-def choice_evidence(labels: list[str], answer: str) -> Evidence | None:
-    """What the owner chose in an agent question: the labels of the chosen options.
+def join_labels(labels: list[str]) -> str:
+    """The labels of a multi-select as Claude Code (2.1.325) joins them: with ", ", and a label
+    that holds ", " or a double quote in JSON quotes."""
+    return ", ".join(
+        json.dumps(x, ensure_ascii=False) if ", " in x or '"' in x else x for x in labels
+    )
 
-    The question and the descriptions of the options are the agent's words, so they do not
-    count. An answer that is no option is the owner's own words.
+
+def split_labels(answer: str) -> list[str] | None:
+    """The parts of an answer that `join_labels` made, read as Claude Code reads them, or None
+    when the answer has another shape."""
+    parts, rest = [], answer
+    while True:
+        if rest.startswith('"'):
+            try:
+                part, end = json.JSONDecoder().raw_decode(rest)
+            except ValueError:
+                return None
+            if not isinstance(part, str):
+                return None
+            rest = rest[end:]
+        else:
+            part, comma, tail = rest.partition(", ")
+            if '"' in part:
+                return None
+            rest = comma + tail
+        parts.append(part)
+        if not rest:
+            return parts
+        if not rest.startswith(", ") or rest == ", ":
+            return None
+        rest = rest[2:]
+
+
+def choice_evidence(labels: list[str], answer: str) -> Evidence | None:
+    """What the owner chose in an agent question.
+
+    The question, the descriptions and the labels are the agent's words. An answer that is one
+    label, or labels joined as `join_labels` joins them, is a pick of those labels. An answer that
+    holds the text of a label in another shape is a choice too, never words that the owner typed,
+    so no label can end a fact. Only an answer with no label in it is the owner's own words.
     """
-    picks = {answer.strip(), *(part.strip() for part in answer.split(","))}
-    chosen = [label.strip() for label in labels if label.strip() and label.strip() in picks]
-    if not chosen:
-        return Evidence("prompt", answer) if answer.strip() else None
-    return Evidence("choice", "\n".join(chosen))
+    labels = [label.strip() for label in labels if label.strip()]
+    reply = answer.strip()
+    if not reply:
+        return None
+    parts = [reply] if reply in labels else split_labels(reply) or []
+    if parts and all(part in labels for part in parts):
+        return Evidence("choice", "\n".join(parts))
+    if any(label in reply for label in labels):
+        return Evidence("choice", reply)
+    return Evidence("prompt", reply)
