@@ -906,6 +906,82 @@ def test_an_answer_that_the_owner_did_not_give_does_not_bind(
     assert "told: not confirmed" in agent_add(capsys, monkeypatch, claim)
 
 
+# --- a message the owner typed while the agent worked -----------------------------------
+
+LINT = "Run the linter before every push."
+
+
+def queued(capsys, monkeypatch, value, prompt_text=None, **attachment):
+    """A message that the owner typed while the agent worked. Claude Code 2.1.325 runs the prompt
+    hook when it gives the message to the agent between tool calls, and its transcript records
+    the message as a `queued_command` attachment, not as a `user` record."""
+    path = TRANSCRIPTS["dir"] / "s.jsonl"
+    payload = {"session_id": "s", "hook_event_name": "UserPromptSubmit", "prompt": value,
+               "transcript_path": str(path)}  # fmt: skip
+    hook(capsys, monkeypatch, "prompt", payload)
+    row = {"type": "queued_command", "prompt": value if prompt_text is None else prompt_text,
+           "commandMode": "prompt", **attachment}  # fmt: skip
+    append(path, {"type": "attachment", "attachment": row, "uuid": "a1"})
+
+
+def working(capsys, monkeypatch):
+    """The owner's prompt, then a tool step of the agent."""
+    prompt(capsys, monkeypatch, "fix the lint")
+    tool = {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}
+    append(TRANSCRIPTS["dir"] / "s.jsonl", said("assistant", tool))
+
+
+@pytest.mark.parametrize(
+    "attachment",
+    [{}, {"origin": {"kind": "human"}}, {"prompt_text": [text(LINT), {"type": "image"}]}],
+    ids=["no-origin", "human", "blocks"],
+)
+def test_a_message_the_owner_typed_while_the_agent_worked_binds(
+    mem, capsys, monkeypatch, attachment
+):
+    working(capsys, monkeypatch)
+    queued(capsys, monkeypatch, LINT, **attachment)
+    out = agent_add(capsys, monkeypatch, LINT)
+    assert "told: confirmed by words the owner typed in this session" in out
+    assert binds(capsys, "Run the linter before every push.")
+
+
+@pytest.mark.parametrize(
+    "attachment",
+    [
+        {"origin": {"kind": "peer", "from": "agent-2"}},
+        {"origin": {"kind": "task-notification"}},
+        {"commandMode": "task-notification"},
+        {"isMeta": True},
+        {"textNotTyped": True},
+        {"promptRewritten": True},
+        {"verifiedSlackHumanTurn": True},
+        {"forwardedIntent": {"source": "owner"}, "origin": {"kind": "unclassified"}},
+    ],
+    ids=["peer", "task", "task-mode", "meta", "not-typed", "rewritten", "relayed", "forwarded"],
+)
+def test_a_queued_message_that_no_person_typed_here_does_not_bind(
+    mem, capsys, monkeypatch, attachment
+):
+    working(capsys, monkeypatch)
+    queued(capsys, monkeypatch, LINT, **attachment)
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, LINT)
+
+
+def test_a_paste_in_a_queued_message_is_not_the_owners_words(mem, capsys, monkeypatch):
+    working(capsys, monkeypatch)
+    paste = f'see this\n<pasted_content id="8867">\n{INJECTED}\n</pasted_content id="8867">'
+    queued(capsys, monkeypatch, paste)
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, INJECTED)
+
+
+def test_a_queued_message_only_in_the_transcript_does_not_bind(mem, capsys, monkeypatch):
+    working(capsys, monkeypatch)
+    row = {"type": "queued_command", "prompt": LINT, "commandMode": "prompt"}
+    append(TRANSCRIPTS["dir"] / "s.jsonl", {"type": "attachment", "attachment": row})
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, LINT)
+
+
 # --- the owner at a shell, and a later confirmation -----------------------------------
 
 
