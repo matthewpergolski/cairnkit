@@ -61,7 +61,8 @@ QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"", re.DOTALL)
 # A harness turn opens with a tag. A stop follow-up comes back as a prompt on some tools.
 # Text that the tools put in a prompt: a notification, or a line of this tool. An owner who writes
 # "run memory check" later in a prompt is still the owner.
-NOT_THE_OWNER = re.compile(r"^\s*(?:<|memory check\b)|`memory |\bDoes a trap belong\b")
+TOOL_PROMPT = re.compile(r"^\s*(?:<|memory check\b)")
+NOT_THE_OWNER = re.compile(rf"{TOOL_PROMPT.pattern}|`memory |\bDoes a trap belong\b")
 # Text in a prompt that the owner did not type: a fenced block, a paste in the shape that Claude
 # Code gives it (read in its binary, 2.1.325; an open tag with no end runs to the end of the
 # prompt), a quoted line, and the line that Claude Code puts before a side agent's note. Claude
@@ -300,6 +301,14 @@ def owner_typed(text: str, veto: bool = True) -> str:
     if veto and NOT_THE_OWNER.search(typed):
         return ""
     return _without_quoted_sentences(typed).strip()
+
+
+def starts_a_turn(text: str) -> bool:
+    """True when the owner typed words in the prompt, also words that the veto of `owner_typed`
+    drops, such as a command of this tool. A prompt that a tool wrote (TOOL_PROMPT) or one with
+    no typed words (a paste, a side agent's note with no reply) does not start a turn."""
+    rest = NOT_TYPED.sub("\n", text)
+    return not TOOL_PROMPT.match(rest) and bool(_without_quoted_sentences(rest).strip())
 
 
 def is_correction(prompt: str) -> bool:

@@ -14,10 +14,12 @@ state (see session.py), so the other hooks of a session do not read or write it.
 A prompt keeps only what the owner typed (`signals.owner_typed`): a paste, a quoted line, a
 side agent's note and a quoted sentence are someone else's words. A free answer to an agent
 question is cleaned the same way. The proof cleans the transcript's prompts the same way. Each
-text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
-choices and the approval of the turn before. The prompt hook writes it, and the hook after a tool
-adds the label that the owner picked in an agent question. `memory add` reads it (`check_claim`),
-and so does `memory change` when an agent ends a fact that a person stated (`names_ids`).
+text is masked as a whole, then cut. A prompt with words that the owner typed starts a turn, so
+it clears the choices and the approval of the turn before, also when its words are kept as no
+evidence because they name a command of this tool; a prompt with none leaves them. The
+prompt hook writes it, and the hook after a tool adds the label that the owner picked in an agent
+question. `memory add` reads it (`check_claim`), and so does `memory change` when an agent ends a
+fact that a person stated (`names_ids`).
 
 The approval. When the owner's whole prompt is a short yes (see `is_approval`), the prompt hook
 reads the agent's last message from the transcript that the payload names. Only the sentence that
@@ -28,15 +30,17 @@ A tool step after the message, or a message that ends in no question, gives no a
 The transcript proves the evidence. Any process of the same user can pipe a payload into
 `memory hook prompt`, so for a tool whose transcript cairnkit reads (READERS), `check_claim`
 counts a prompt only when the transcript holds it as an owner prompt, an approval only when it
-holds the "yes" and the question, and an answer only when it holds the answer in a tool result.
-It reads the transcript when the claim is checked, not in the prompt hook, because the tool may
-write the prompt to the transcript after the hook runs. The first prompt of a session fixes its
-transcript path, and a prompt that names another path is not kept. Only a session start of the
-same session (a resume, a compaction, a clear or a fork) adds a new path, because the tool may
-write a resumed session to a new file. The proof reads the newest path and the one before it.
-A transcript that cannot be read proves nothing. For another tool there is no transcript to
-read, so its evidence counts as kept: that is a known limit. A forger can still write a fake
-transcript, or the evidence file itself; the before-shell hook (forgery.py) refuses
+holds the "yes" and the question, and an answer only when the result of an agent question
+holds it. A message that the owner typed while the agent worked is an owner prompt too: Claude
+Code runs the prompt hook for it between tool calls, and records it as a queued attachment
+(`_typed_queued`). It reads the transcript when the claim is checked, not in the prompt hook,
+because the tool may write the prompt to the transcript after the hook runs. The first prompt of
+a session fixes its transcript path, and a prompt that names another path is not kept. Only a
+session start of the same session (a resume, a compaction, a clear or a fork) adds a new path,
+because the tool may write a resumed session to a new file. The proof reads the newest path and
+the one before it. A transcript that cannot be read proves nothing. For another tool there is no
+transcript to read, so its evidence counts as kept: that is a known limit. A forger can still
+write a fake transcript, or the evidence file itself; the before-shell hook (forgery.py) refuses
 those commands in the agent's shell.
 
 How `memory add` finds its session (`_session_file`). Claude Code, Codex and Grok put a session id
@@ -69,7 +73,7 @@ from cairnkit.memory import Memory
 from cairnkit.ranking import ID
 from cairnkit.secretscan import mask
 from cairnkit.session import state_path, write_state
-from cairnkit.signals import owner_typed
+from cairnkit.signals import owner_typed, starts_a_turn
 from cairnkit.told_match import (
     NOT,
     Evidence,
@@ -77,6 +81,7 @@ from cairnkit.told_match import (
     choice_evidence,
     final_question,
     is_approval,
+    join_labels,
     only_approval,
     sentences,
     states_a_rule,
@@ -108,6 +113,12 @@ AGENT_ENV = {
 SESSION_ENV = tuple(AGENT_ENV.values())
 QUESTION_TOOL = "AskUserQuestion"
 ANSWER_PAIR = re.compile(r'"([^"]*)"="([^"]*)"')
+# How the tool result text that the model reads holds an answer: a pick, and the words that the
+# owner typed instead of a pick (Claude Code 2.1.325; "They also wrote" in a follow-up round).
+ANSWER_FORMS = ('="{}"', "The user responded: {}", 'They also wrote: "{}"')
+RESPONDED = "The user responded: "
+# The result text of a dialog that closed while the owner was away (Claude Code 2.1.325).
+AWAY = ("the user may be away from keyboard", "Before going idle the user had selected: ")
 VIA = {
     "prompt": "words the owner typed in this session",
     "choice": "the option the owner picked in this turn",
@@ -194,8 +205,11 @@ def note_start(memory: Memory, key: str, agent: str, payload: dict) -> None:
 def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     """Keep an owner prompt. For a short yes, keep the agent's question that it answered.
 
-    Each prompt starts a turn, so it ends the choices and the approval of the turn before, also a
-    prompt that is not the owner's words (a notification), which keeps nothing of its own.
+    A prompt with words that the owner typed starts a turn (`starts_a_turn`), so it ends the
+    choices and the approval of the turn before, also when it names a command of this tool and
+    so keeps nothing of its own. A prompt with none (a task notification, a side agent's note, a
+    `memory check` line, a paste) keeps nothing and leaves the turn open: Claude Code gives such
+    prompts to the agent in the middle of the owner's turn, also while a dialog is open.
     """
     prompt = str(payload.get("prompt") or "")
     path = evidence_path(memory, key)
@@ -206,6 +220,7 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
         return  # a prompt from another transcript is no prompt of this session
     moment = time.time()
     own = _own_words(memory, prompt)
+    turn = starts_a_turn(prompt)
     prompts = _list(old, "prompts")
     if own:
         prompts.append({"at": moment, "text": own})
@@ -222,8 +237,8 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
         "ids": _ids(old, key, agent),
         "transcripts": known or ([transcript] if transcript else []),
         "prompts": prompts[-PROMPTS_KEPT:],
-        "choices": [],
-        "approval": approval,
+        "choices": [] if turn else _list(old, "choices"),
+        "approval": approval if turn else old.get("approval"),
     }
     write_state(memory, path, data)
 
@@ -234,28 +249,88 @@ def _own_words(memory: Memory, prompt: str) -> str:
     return _kept(memory, own, PROMPT_CHARS) if own else ""
 
 
-def _answers(response: object) -> dict[str, str]:
-    """{question: answer} from the tool result: a dict with `answers`, or the text form."""
-    if isinstance(response, dict) and isinstance(response.get("answers"), dict):
-        return {str(q): str(a) for q, a in response["answers"].items()}
-    if isinstance(response, str):
-        return dict(ANSWER_PAIR.findall(response))
-    return {}
+def _holder(value: object, depth: int = 3) -> dict | None:
+    """The dict that holds a dict `answers`: the value, or a dict nested in it."""
+    if isinstance(value, dict):
+        if isinstance(value.get("answers"), dict):
+            return value
+        value = list(value.values())
+    for child in value if depth and isinstance(value, list) else []:
+        if (found := _holder(child, depth - 1)) is not None:
+            return found
+    return None
+
+
+def _reply(value: object) -> str:
+    """One answer. A list of labels is joined as Claude Code joins a multi-select."""
+    if isinstance(value, list):
+        return join_labels([item for item in value if isinstance(item, str)])
+    return value if isinstance(value, str) else ""
+
+
+def _answers(*sources: object) -> dict[str, str]:
+    """{question: answer} from the tool input and the tool result. A later source wins.
+
+    Claude Code (2.1.325) gives the tool's data `{questions, answers, ...}` as the result, and
+    the input holds the answers that the dialog collected. A result can also be text, or a list
+    of text blocks, with `"question"="answer"` pairs: the text that the model reads.
+    """
+    found: dict[str, str] = {}
+    for source in sources:
+        holder = _holder(source)
+        if holder is not None:
+            found.update({str(q): _reply(a) for q, a in holder["answers"].items()})
+        else:
+            for text in _texts(source, ("text",)):
+                found.update(ANSWER_PAIR.findall(text))
+    return {question: reply for question, reply in found.items() if reply.strip()}
+
+
+def _response(*sources: object) -> str:
+    """The words that the owner typed in the dialog instead of a pick: `response` in the tool
+    input or data, or the result text "The user responded: ..." that the model reads. A later
+    source wins."""
+    found = ""
+    for source in sources:
+        holder = _holder(source) or source
+        if isinstance(holder, dict) and isinstance(holder.get("response"), str):
+            found = holder["response"]
+        for text in _texts(source, ("text",)):
+            if text.startswith(RESPONDED):
+                found = text[len(RESPONDED) :]
+    return found.strip()
 
 
 def note_answer(memory: Memory, key: str, payload: dict) -> None:
-    """Keep what the owner chose in an agent question (Claude Code's AskUserQuestion)."""
+    """Keep what the owner chose in an agent question (Claude Code's AskUserQuestion).
+
+    A dialog that closed while the owner was away (`afkTimeoutMs`, or a result text of AWAY)
+    and a question that Claude Code marks as `unanswered` keep nothing: the owner gave no answer,
+    and the text in `answers` is then the tool's.
+    """
     if payload.get("tool_name") != QUESTION_TOOL:
         return
     tool_input = payload.get("tool_input")
     questions = tool_input.get("questions") if isinstance(tool_input, dict) else None
-    answers = _answers(payload.get("tool_response"))
+    result = _holder(payload.get("tool_response")) or {}
+    texts = _texts(payload.get("tool_response"), ("text",))
+    if result.get("afkTimeoutMs") or any(mark in text for text in texts for mark in AWAY):
+        return
+    notes = result.get("annotations")
+    notes = notes if isinstance(notes, dict) else {}
+    answers = _answers(tool_input, payload.get("tool_response"))
     found = []
     for item in questions if isinstance(questions, list) else []:
         if not isinstance(item, dict):
             continue
         question = str(item.get("question") or "")
-        options = [opt for opt in item.get("options") or [] if isinstance(opt, dict)]
+        note = notes.get(question)
+        if isinstance(note, dict) and note.get("unanswered"):
+            continue
+        options = item.get("options")
+        options = (
+            [opt for opt in options if isinstance(opt, dict)] if isinstance(options, list) else []
+        )
         labels = [str(opt.get("label") or "") for opt in options]
         reply = answers.get(question, "")
         evidence = choice_evidence(labels, reply)
@@ -263,6 +338,9 @@ def note_answer(memory: Memory, key: str, payload: dict) -> None:
             evidence = Evidence("prompt", owner_typed(evidence.text, veto=False))
         if evidence and evidence.text:
             found.append((evidence, reply))
+    response = _response(tool_input, payload.get("tool_response"))
+    if typed := owner_typed(response, veto=False):
+        found.append((Evidence("prompt", typed), response))
     if not found:
         return
     path = evidence_path(memory, key)
@@ -333,32 +411,84 @@ def _last_reply(turns, prompt: str) -> str | None:
     return "\n".join(found).strip() or None
 
 
-def _results(content: object) -> list[str]:
-    """The text of each tool result block."""
+def _results(content: object, ids: set[str]) -> list[str]:
+    """The text of each tool result block of a tool use in `ids`."""
     found = []
     for block in content if isinstance(content, list) else []:
-        if isinstance(block, dict) and block.get("type") == "tool_result":
+        if (
+            isinstance(block, dict)
+            and block.get("type") == "tool_result"
+            and block.get("tool_use_id") in ids
+        ):
             inner = block.get("content")
             found += [inner] if isinstance(inner, str) else _texts(inner, ("text",))
     return found
 
 
+# Marks of a queued message that no person typed in this session (Claude Code 2.1.325).
+NOT_TYPED_QUEUED = (
+    "isMeta",
+    "textNotTyped",
+    "promptRewritten",
+    "verifiedSlackHumanTurn",
+    "fromConnector",
+    "forwardedIntent",
+)
+
+
+def _typed_queued(attachment: object) -> bool:
+    """A message that the owner typed while the agent worked. Claude Code gives it to the agent
+    between tool calls and records it as `{"type": "queued_command", "prompt": text or blocks,
+    "commandMode": "prompt", "origin": {"kind": "human"}}`. Claude Code itself counts a queued
+    message as a human turn only with that origin. Another origin, or none, is another sender: a
+    peer agent, a task or a channel."""
+    if not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
+        return False
+    origin = attachment.get("origin")
+    human = isinstance(origin, dict) and origin.get("kind") == "human"
+    return (
+        human
+        and attachment.get("commandMode") == "prompt"
+        and not any(attachment.get(name) for name in NOT_TYPED_QUEUED)
+    )
+
+
+def _content(record: dict) -> object:
+    message = record.get("message")
+    return message.get("content") if isinstance(message, dict) else None
+
+
 def _claude_turns(lines: list[str]):
     """Claude Code: `type: assistant` records hold text, tool_use or thinking blocks. A
     `type: user` record is a prompt, or a tool result. An `isMeta` record is text that the tool
-    added. A thinking block is no step."""
-    for record in _records(lines):
-        kind, message = record.get("type"), record.get("message")
-        content = message.get("content") if isinstance(message, dict) else None
+    added. A thinking block is no step. A message that the owner typed during a turn is a
+    `type: attachment` record (`_typed_queued`). A tool step gives the text of a result only
+    for an agent question (QUESTION_TOOL), matched by the id of its tool use."""
+    records = [(record, _content(record)) for record in _records(lines)]
+    asked = {
+        str(block.get("id"))
+        for record, content in records
+        if record.get("type") == "assistant" and isinstance(content, list)
+        for block in content
+        if isinstance(block, dict) and block.get("name") == QUESTION_TOOL
+    }
+    for record, content in records:
+        kind = record.get("type")
         if kind == "assistant" and _texts(content, ("tool_use", "server_tool_use")) != []:
             yield "tool", []
         elif kind == "assistant" and _texts(content, ("text",)):
             yield "agent", _texts(content, ("text",))
         elif kind == "user" and not record.get("isMeta"):
-            if _results(content) or not _texts(content, ("text",)):
-                yield "tool", _results(content)
+            blocks = content if isinstance(content, list) else []
+            results = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks)
+            if results or not _texts(content, ("text",)):
+                yield "tool", _results(content, asked)
             else:
                 yield "owner", _texts(content, ("text",))
+        elif kind == "attachment" and not record.get("isMeta"):
+            attachment = record.get("attachment")
+            if _typed_queued(attachment):
+                yield "owner", _texts(attachment.get("prompt"), ("text",))
 
 
 def _codex_turns(lines: list[str]):
@@ -427,7 +557,7 @@ class Seen:
 
     owner: frozenset[str]  # owner prompts
     agent: tuple[str, ...]  # agent messages
-    tool: tuple[str, ...]  # tool results
+    tool: tuple[str, ...]  # the results of agent questions
 
 
 def transcript_seen(memory: Memory, data: dict) -> Seen | None:
@@ -449,23 +579,37 @@ def transcript_seen(memory: Memory, data: dict) -> Seen | None:
         tuple(
             mask(text, memory.env) for text in texts["agent"][:PROOF_AGENT_TEXTS]
         ),  # newest first
-        tuple(mask(text, memory.env) for text in texts["tool"] if '="' in text),
+        tuple(
+            mask(text, memory.env)
+            for text in texts["tool"]
+            if any(form.partition("{}")[0] in text for form in ANSWER_FORMS)
+        ),
     )
 
 
 def evidence(data: dict, seen: Seen | None = None) -> list[Evidence]:
-    """The evidence of the session. With `seen`, only what the transcript holds."""
+    """The evidence of the session, oldest first by the time that the owner gave it. With
+    `seen`, only what the transcript holds."""
 
     def held(row: dict) -> bool:
         if seen is None:
             return True
-        answer = f'="{row.get("answer", "")}"'
-        return bool(row.get("answer")) and any(answer in text for text in seen.tool)
+        answer = str(row.get("answer") or "")
+        forms = [form.format(answer) for form in ANSWER_FORMS]
+        return bool(answer) and any(form in text for text in seen.tool for form in forms)
 
-    prompts = [str(row.get("text", "")) for row in _list(data, "prompts")]
-    items = [Evidence("prompt", text) for text in prompts if seen is None or text in seen.owner]
-    items += [
-        Evidence("choice" if row.get("kind") == "choice" else "prompt", str(row.get("text", "")))
+    rows = [
+        (row, Evidence("prompt", str(row.get("text", ""))))
+        for row in _list(data, "prompts")
+        if seen is None or str(row.get("text", "")) in seen.owner
+    ]
+    rows += [
+        (
+            row,
+            Evidence(
+                "choice" if row.get("kind") == "choice" else "prompt", str(row.get("text", ""))
+            ),
+        )
         for row in _list(data, "choices")
         if held(row)
     ]
@@ -477,8 +621,9 @@ def evidence(data: dict, seen: Seen | None = None) -> list[Evidence]:
             and any(str(approval.get("text")) in text for text in seen.agent)
         )
     ):
-        items.append(Evidence("approval", str(approval.get("text", ""))))
-    return items
+        rows.append((approval, Evidence("approval", str(approval.get("text", "")))))
+    rows.sort(key=lambda pair: at if isinstance(at := pair[0].get("at"), (int, float)) else 0.0)
+    return [item for _, item in rows]
 
 
 def _session_evidence(memory: Memory) -> list[Evidence] | Verdict:
@@ -542,7 +687,7 @@ def names_ids(memory: Memory, ids: list[str]) -> Verdict:
     kinds = []
     for fact_id in ids:
         newest = None  # the kind of the evidence of the newest sentence, or "keep"
-        for item in items:  # oldest first; the approval of this turn is last
+        for item in items:  # oldest first
             if item.kind not in ("prompt", "approval"):
                 continue
             ended_here = False
