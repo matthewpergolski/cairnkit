@@ -400,6 +400,19 @@ def choice_evidence(labels: list[str], answer: str) -> Evidence | None:
     parts = [reply] if reply in labels else split_labels(reply) or []
     if parts and all(part in labels for part in parts):
         return Evidence("choice", "\n".join(parts))
-    if any(label in reply for label in labels):
+    if any(_holds_label(reply, label) for label in labels):
         return Evidence("choice", reply)
     return Evidence("prompt", reply)
+
+
+FACT_ID = re.compile(r"\bf-\d{8}-[0-9a-f]{4,}\b")
+
+
+def _holds_label(reply: str, label: str) -> bool:
+    """A long label, or one that names a fact, as a whole phrase of the reply.
+
+    A short label such as "No" inside free text ("No, use staging") stays the owner's words.
+    """
+    if len(label.split()) < 3 and not FACT_ID.search(label):
+        return False
+    return re.search(rf"(?<!\w){re.escape(label)}(?!\w)", reply, re.IGNORECASE) is not None

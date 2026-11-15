@@ -1659,3 +1659,17 @@ def test_the_owner_at_a_terminal_still_ends_any_fact(mem, capsys, monkeypatch):
     assert f"changed {fid}" in out and "told:" not in out
     [record] = changes_of(mem, fid)
     assert record["status"] == "wrong" and "author" not in record
+
+
+def test_a_prompt_kept_as_a_plain_string_is_the_owners_words():
+    """Claude Code can keep a typed prompt as a string, not as a list of text blocks."""
+    from cairnkit import owner_evidence
+
+    lines = [
+        json.dumps({"type": "user", "message": {"role": "user", "content": "end f-1 please"}}),
+        json.dumps({"type": "user", "message": {"content": [{"type": "text", "text": "end f-2"}]}}),
+    ]
+    assert list(owner_evidence._claude_turns(lines)) == [
+        ("owner", ["end f-1 please"]),
+        ("owner", ["end f-2"]),
+    ]

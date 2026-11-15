@@ -360,3 +360,14 @@ def test_a_multi_select_answer_counts_each_chosen_label():
     assert best_match("Run ruff check before a push.", [found]) is not None
     assert best_match("Run mypy before a push.", [found]) is not None
     assert best_match("Build the docs before a push.", [found]) is None
+
+
+def test_a_free_answer_that_holds_a_short_label_stays_the_owners_words():
+    for reply in ("No, use the staging server instead", "Not now", "Yesterday it broke"):
+        assert choice_evidence(["Yes", "No"], reply).kind == "prompt", reply
+
+
+def test_a_free_answer_that_holds_a_long_label_or_an_id_is_a_choice():
+    labels = ["Drop the cache folder now", "End f-20261031-a25d"]
+    assert choice_evidence(labels, "drop the cache folder now; then rest").kind == "choice"
+    assert choice_evidence(labels, "ok: End f-20261031-a25d, thanks").kind == "choice"

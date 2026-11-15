@@ -479,7 +479,9 @@ def _claude_turns(lines: list[str]):
         elif kind == "assistant" and _texts(content, ("text",)):
             yield "agent", _texts(content, ("text",))
         elif kind == "user" and not record.get("isMeta"):
-            if _texts(content, ("tool_result",)) != [] or not _texts(content, ("text",)):
+            blocks = content if isinstance(content, list) else []
+            results = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks)
+            if results or not _texts(content, ("text",)):
                 yield "tool", _results(content, asked)
             else:
                 yield "owner", _texts(content, ("text",))
