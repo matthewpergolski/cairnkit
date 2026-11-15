@@ -29,14 +29,16 @@ The transcript proves the evidence. Any process of the same user can pipe a payl
 `memory hook prompt`, so for a tool whose transcript cairnkit reads (READERS), `check_claim`
 counts a prompt only when the transcript holds it as an owner prompt, an approval only when it
 holds the "yes" and the question, and an answer only when it holds the answer in a tool result.
-It reads the transcript when the claim is checked, not in the prompt hook, because the tool may
-write the prompt to the transcript after the hook runs. The first prompt of a session fixes its
-transcript path, and a prompt that names another path is not kept. Only a session start of the
-same session (a resume, a compaction, a clear or a fork) adds a new path, because the tool may
-write a resumed session to a new file. The proof reads the newest path and the one before it.
-A transcript that cannot be read proves nothing. For another tool there is no transcript to
-read, so its evidence counts as kept: that is a known limit. A forger can still write a fake
-transcript, or the evidence file itself; the before-shell hook (forgery.py) refuses
+A message that the owner typed while the agent worked is an owner prompt too: Claude Code runs
+the prompt hook for it between tool calls, and records it as a queued attachment
+(`_typed_queued`). It reads the transcript when the claim is checked, not in the prompt hook,
+because the tool may write the prompt to the transcript after the hook runs. The first prompt of
+a session fixes its transcript path, and a prompt that names another path is not kept. Only a
+session start of the same session (a resume, a compaction, a clear or a fork) adds a new path,
+because the tool may write a resumed session to a new file. The proof reads the newest path and
+the one before it. A transcript that cannot be read proves nothing. For another tool there is no
+transcript to read, so its evidence counts as kept: that is a known limit. A forger can still
+write a fake transcript, or the evidence file itself; the before-shell hook (forgery.py) refuses
 those commands in the agent's shell.
 
 How `memory add` finds its session (`_session_file`). Claude Code, Codex and Grok put a session id
@@ -254,7 +256,7 @@ def _reply(value: object) -> str:
 
 
 def _answers(*sources: object) -> dict[str, str]:
-    """{question: answer} from the tool input and the tool result, the later source first.
+    """{question: answer} from the tool input and the tool result. A later source wins.
 
     Claude Code (2.1.325) gives the tool's data `{questions, answers, ...}` as the result, and
     the input holds the answers that the dialog collected. A result can also be text, or a list
@@ -387,10 +389,38 @@ def _results(content: object) -> list[str]:
     return found
 
 
+# Marks of a queued message that no person typed in this session (Claude Code 2.1.325).
+NOT_TYPED_QUEUED = (
+    "isMeta",
+    "textNotTyped",
+    "promptRewritten",
+    "verifiedSlackHumanTurn",
+    "fromConnector",
+    "forwardedIntent",
+)
+
+
+def _typed_queued(attachment: object) -> bool:
+    """A message that the owner typed while the agent worked. Claude Code gives it to the agent
+    between tool calls and records it as `{"type": "queued_command", "prompt": text or blocks,
+    "commandMode": "prompt", "origin": none or {"kind": "human"}}`. Another origin is another
+    sender: a peer agent, a task or a channel."""
+    if not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
+        return False
+    origin = attachment.get("origin")
+    human = origin is None or (isinstance(origin, dict) and origin.get("kind") == "human")
+    return (
+        human
+        and attachment.get("commandMode") == "prompt"
+        and not any(attachment.get(name) for name in NOT_TYPED_QUEUED)
+    )
+
+
 def _claude_turns(lines: list[str]):
     """Claude Code: `type: assistant` records hold text, tool_use or thinking blocks. A
     `type: user` record is a prompt, or a tool result. An `isMeta` record is text that the tool
-    added. A thinking block is no step."""
+    added. A thinking block is no step. A message that the owner typed during a turn is a
+    `type: attachment` record (`_typed_queued`)."""
     for record in _records(lines):
         kind, message = record.get("type"), record.get("message")
         content = message.get("content") if isinstance(message, dict) else None
@@ -403,6 +433,10 @@ def _claude_turns(lines: list[str]):
                 yield "tool", _results(content)
             else:
                 yield "owner", _texts(content, ("text",))
+        elif kind == "attachment" and not record.get("isMeta"):
+            attachment = record.get("attachment")
+            if _typed_queued(attachment):
+                yield "owner", _texts(attachment.get("prompt"), ("text",))
 
 
 def _codex_turns(lines: list[str]):
