@@ -73,9 +73,14 @@ def _tail(text: str, lines: int = 15) -> str:
 
 
 def run_update(
-    flag: str | None, check: bool = False, dry_run: bool = False, channel: str | None = None
+    flag: str | None,
+    check: bool = False,
+    dry_run: bool = False,
+    channel: str | None = None,
+    *,
+    plain: bool = False,
 ) -> int:
-    bar = Progress()
+    bar = Progress(anim=False if plain else None)
     try:
         return _update(bar, flag, check, dry_run, channel)
     except SourceError as exc:
@@ -184,18 +189,23 @@ def _checked_update(
     if not newer:
         bar.say("No commit is recorded yet. Installing again to record it.")
 
+    notes: list[str] = []
     with tempfile.TemporaryDirectory(prefix="memory-update-") as tmp:
         folder, found = _fetch(bar, source, found, Path(tmp))
         wheel = _build(bar, uv, folder, Path(tmp))
         _install(bar, uv, source, wheel, found.release)
         new = _verify(bar, source, found)
         _keep_channel(want)
+        notes = src.release_notes(folder / "CHANGELOG.md", old, new)
         src.write_record(source, found.commit, new, found.release)
         src.save_check(source, new, found.commit, found, False)
     arrow = "→" if bar.live else "->"
     short = f" ({found.commit[:7]})" if found.commit else ""
     bar.finish(f"memory updated: {old} {arrow} {new}{short}.")
-    _say_changes(bar, source, commit, found.commit)
+    if notes:
+        bar.drip(notes)
+    else:
+        _say_changes(bar, source, commit, found.commit)
     bar.say(AFTER)
     if source.kind == "git" and "--channel" not in _run([src.entrypoint(), "update", "--help"])[1]:
         bar.say(

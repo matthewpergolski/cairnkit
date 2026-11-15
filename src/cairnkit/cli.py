@@ -189,6 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("stable", "dev"),
         help="stable: the highest release tag. dev: the newest commit of the dev branch",
     )
+    p.add_argument("--plain", action="store_true", help="plain step lines, no cairn and no pause")
 
     sub.add_parser(
         "status", parents=[common], help="say the version, the source, and what needs an update"
@@ -470,7 +471,7 @@ def run(args) -> int:
     from cairnkit.writing import Refused, add_fact, change_fact, fail, keep_fact, purge_fact
 
     if args.command == "update":
-        return run_update(args.source, args.check, args.dry_run, args.channel)
+        return run_update(args.source, args.check, args.dry_run, args.channel, plain=args.plain)
     project = find_project()
     if args.command == "docs":
         if args.check and (args.dry_run or args.force):
