@@ -14,10 +14,11 @@ state (see session.py), so the other hooks of a session do not read or write it.
 A prompt keeps only what the owner typed (`signals.owner_typed`): a paste, a quoted line, a
 side agent's note and a quoted sentence are someone else's words. A free answer to an agent
 question is cleaned the same way. The proof cleans the transcript's prompts the same way. Each
-text is masked as a whole, then cut. A new owner prompt starts a turn, so it clears the
-choices and the approval of the turn before. The prompt hook writes it, and the hook after a tool
-adds the label that the owner picked in an agent question. `memory add` reads it (`check_claim`),
-and so does `memory change` when an agent ends a fact that a person stated (`names_ids`).
+text is masked as a whole, then cut. A prompt with words that the owner typed starts a turn, so
+it clears the choices and the approval of the turn before; a prompt with none leaves them. The
+prompt hook writes it, and the hook after a tool adds the label that the owner picked in an agent
+question. `memory add` reads it (`check_claim`), and so does `memory change` when an agent ends a
+fact that a person stated (`names_ids`).
 
 The approval. When the owner's whole prompt is a short yes (see `is_approval`), the prompt hook
 reads the agent's last message from the transcript that the payload names. Only the sentence that
@@ -196,8 +197,10 @@ def note_start(memory: Memory, key: str, agent: str, payload: dict) -> None:
 def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
     """Keep an owner prompt. For a short yes, keep the agent's question that it answered.
 
-    Each prompt starts a turn, so it ends the choices and the approval of the turn before, also a
-    prompt that is not the owner's words (a notification), which keeps nothing of its own.
+    A prompt with words that the owner typed starts a turn, so it ends the choices and the
+    approval of the turn before. A prompt with none (a task notification, a side agent's note, a
+    line of this tool, a paste) keeps nothing of its own and leaves the turn open: Claude Code
+    gives such prompts to the agent in the middle of the owner's turn, also while a dialog is open.
     """
     prompt = str(payload.get("prompt") or "")
     path = evidence_path(memory, key)
@@ -224,8 +227,8 @@ def note_prompt(memory: Memory, key: str, agent: str, payload: dict) -> None:
         "ids": _ids(old, key, agent),
         "transcripts": known or ([transcript] if transcript else []),
         "prompts": prompts[-PROMPTS_KEPT:],
-        "choices": [],
-        "approval": approval,
+        "choices": [] if own else _list(old, "choices"),
+        "approval": approval if own else old.get("approval"),
     }
     write_state(memory, path, data)
 
