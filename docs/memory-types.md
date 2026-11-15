@@ -112,8 +112,9 @@ A rule with no `enforced_by` is **advisory**: it is prose only.
   write the rule.
 - `memory load` shows "Enforced rules (a check fails if broken)", then
   "Advisory rules". Both come first and do not use the word budget: only
-  short-term and other long-term facts share it. `memory check` prints a
-  note when the active rules hold more than 500 words. A rule that an agent
+  short-term and other long-term facts share it. `memory check` and the
+  load print a note when the active rules hold more than 500 words. The note
+  names the ids of the five longest rules. A rule that an agent
   wrote with no person behind it (basis not `told`) prints inside the data
   frame instead, under "Rules an agent wrote". A rule that reads as the
   owner's yes to one piece of work ("Yes to migration 0018") and that no

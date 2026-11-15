@@ -516,6 +516,16 @@ def _hook_lines(state: githook.HookState, health: Health) -> None:
         health.todo.append(state.line)
 
 
+ALL_RULES = "`memory load --budget 0` lists all."
+
+
+def _rule_ids(rules: list[dict], longest: bool = False) -> str:
+    def size(state: dict) -> int:
+        return -len(str(state.get("text", "")).split()) if longest else 0
+
+    return listed([state["id"] for state in sorted(rules, key=lambda s: (size(s), s["id"]))])
+
+
 def _read_health(project: Project, flag: str | None, compare: bool) -> Health:
     memdir, source = resolve_memory_dir(project, flag)
     health = Health(memdir, source, linked=ensure_all_linked(project, flag))
@@ -568,13 +578,15 @@ def _read_health(project: Project, flag: str | None, compare: bool) -> Health:
         health.todo.append(
             f"note: {len(lasting)} active rule(s) hold {words} words; every session loads up to "
             f"{RULE_WORD_LIMIT} words of them. Above {RULE_WORD_CAP} words, merge rules or end "
-            "the ones that do not apply."
+            f"the ones that do not apply. The longest: {_rule_ids(lasting, longest=True)}. "
+            f"{ALL_RULES}"
         )
     if one_time and words + more > RULE_WORD_CAP:
         health.todo.append(
             f"note: {len(one_time)} rule(s) that may be for one piece of work hold {more} more "
-            f"words. They count toward the {RULE_WORD_LIMIT} words of rules that a session "
-            "loads, and the load holds them back first. End each one whose work is done."
+            f"words: {_rule_ids(one_time)}. They count toward the {RULE_WORD_LIMIT} words of "
+            "rules that a session loads, and the load holds them back first. End each one whose "
+            f"work is done. {ALL_RULES}"
         )
     if words + more > RULE_WORD_CAP:
         health.info += list(filter(None, [landed.stale_line(memory, rules)]))

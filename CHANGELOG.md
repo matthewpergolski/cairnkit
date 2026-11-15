@@ -390,6 +390,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The to-do lines for a long rule set name fact ids. When the active rules pass 500 words, the line
+  names the five longest rules. When the rules that may be for one piece of work pass it, the line
+  names the first five of them. Each line then says `memory load --budget 0` lists all. Before, a
+  session start said "1 to do" with no id, and the agent could not act on it.
 - `memory update` from a folder installs its commit when a rebase or an amend left the
   installed commit out of the folder's history. Before, such a folder never read as newer, so a
   rewritten dev branch could not update. Only a folder moved back to an older commit is skipped.

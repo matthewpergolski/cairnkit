@@ -150,3 +150,30 @@ def test_a_cut_hook_load_keeps_the_approvals():
     ]
     out = _cut("\n".join(lines), 200)
     assert "Yes to the parser rewrite." in out and "x" * 300 not in out
+
+
+def todo_line(capsys, words: str) -> str:
+    capsys.readouterr()
+    assert main(["load"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("memory check:") and " to do " in line for line in lines)
+    return next(line for line in lines if words in line)
+
+
+def test_the_load_names_the_one_time_rules_that_are_over_the_cap(mem, capsys):
+    """The field case: a load said "1 to do", and the agent could not tell which facts."""
+    write_facts(mem, approvals(80))
+    line = todo_line(capsys, "may be for one piece of work")
+    named = ", ".join(f"f-20261003-{i:04x}" for i in range(1, 6))
+    assert f"hold 560 more words: {named} and 75 more." in line
+    assert "f-20261003-0006" not in line
+    assert "`memory load --budget 0` lists all" in line
+
+
+def test_the_load_names_the_longest_lasting_rules_when_they_are_over_the_cap(mem, capsys):
+    longest = make_fact("f-20261001-00ff", f"{LONG_RULE} {LONG_RULE}", kind="rule")
+    write_facts(mem, [*rules(20), longest])
+    line = todo_line(capsys, "active rule(s) hold")
+    assert "The longest: f-20261001-00ff, f-20261001-0001, f-20261001-0002," in line
+    assert "f-20261001-0004 and 16 more." in line
+    assert "`memory load --budget 0` lists all" in line

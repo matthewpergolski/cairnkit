@@ -631,7 +631,9 @@ reopened and its history stays. The write never fails because of it.
    under `## Rules that may be for one piece of work`, below the other rules. It counts toward the
    limit of 1000 words, and the load holds such rules back first, so the lasting rules stay.
    The note on the word budget counts only the lasting rules, and `memory check` gives the
-   words of these rules on a line of their own. The hook cut keeps them, as it keeps every rule.
+   words of these rules on a line of their own. Each of these two lines names the first five
+   ids (the longest lasting rules, or the one-time rules), so an agent can act on it from the
+   load. The hook cut keeps them, as it keeps every rule.
 2. Pinned facts. They always load, and they use the budget.
 3. Short-term facts for this branch, in a quarter of the budget.
 4. Long-term facts, best rank first, until the budget is used.
