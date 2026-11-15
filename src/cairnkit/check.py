@@ -2,24 +2,66 @@
 
 from __future__ import annotations
 
+import glob
+import hashlib
 import json
+import os
+import re
 from collections import Counter
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from pathlib import Path
 
-from cairnkit import instruction_files, presets, skills
+from cairnkit import (
+    enforcement,
+    githook,
+    instruction_files,
+    landed,
+    migrate_refs,
+    native,
+    plainfile,
+    presets,
+    refresh,
+)
 from cairnkit.clock import now
+from cairnkit.config import config_problems, secrets_in_config
+from cairnkit.ignore import keep_out_of_git
 from cairnkit.init import ensure_all_linked
-from cairnkit.memory import Memory
-from cairnkit.paths import LINK_NAME, Project, merged_checker, resolve_memory_dir
+from cairnkit.memory import Memory, MemoryMissing, MemoryTracked, listed
+from cairnkit.migrate_refs import OLD_SUFFIX
+from cairnkit.paths import (
+    ENV_DIR,
+    LINK_NAME,
+    PATH_FILE,
+    Project,
+    beside_line,
+    lost_memory,
+    lost_note,
+    merged_checker,
+    owner_line,
+    resolve_memory_dir,
+    run_git,
+    tracked_pointers,
+)
+from cairnkit.reading import note_files
 from cairnkit.schema import validate_record
-from cairnkit.secretscan import find_secrets
+from cairnkit.secretscan import (
+    find_in_record,
+    find_secrets,
+    mask,
+    only_plain_words,
+    real_secrets,
+    strings_of,
+)
+from cairnkit.selection import RULE_WORD_LIMIT, clean, clean_path, name, shell_word
 from cairnkit.state import effective_status
-from cairnkit.store import fact_files, read_located
+from cairnkit.store import Located, fact_files, read_located, repaired_lines
 
 
 def _repair_cmd(memdir) -> str:
     """The command that links a checkout to memdir. Never bare init when memory exists."""
     if memdir.is_dir():
-        return f"`memory init --path {memdir}`"
+        return f"`memory init --path {shell_word(memdir)}`"
     return "`memory init`"
 
 
@@ -30,61 +72,235 @@ def check_links(project: Project, memdir) -> list[str]:
         link = checkout / LINK_NAME
         if link.is_symlink():
             if not link.exists():
-                errors.append(f"{link}: broken link; run {repair} to relink it")
+                errors.append(f"{clean_path(link)}: broken link; run {repair} to relink it")
             elif link.resolve() != memdir.resolve():
                 errors.append(
-                    f"{link}: points to {link.resolve()}, not {memdir}; run {repair} to relink it"
+                    f"{clean_path(link)}: points to {clean_path(link.resolve())}, "
+                    f"not {clean_path(memdir)}; "
+                    f"run {repair} to relink it"
                 )
         elif link.is_dir():
             errors.append(
-                f"{link}: a real folder, not a link; move its files to {memdir / 'notes'}/, "
+                f"{clean_path(link)}: a real folder, not a link; move its files to "
+                f"{clean_path(memdir / 'notes')}/, "
                 f"remove the folder, then run {repair}"
             )
         elif link.exists():
-            errors.append(f"{link}: a file, not a link; move it away, then run {repair}")
+            errors.append(
+                f"{clean_path(link)}: a file, not a link; move it away, then run {repair}"
+            )
         else:
-            errors.append(f"{link}: missing; run {repair} from {checkout}")
+            errors.append(f"{clean_path(link)}: missing; run {repair} from {clean_path(checkout)}")
     return errors
 
 
+REPAIR = "; run `memory repair`"
+MAX_OLD_FILES = 500
+MAX_OLD_BYTES = 256 * 1024
+# What a list item adds to a line. A worklist row holds the line without it.
+LINE_MARKS = re.compile(r"^[\s>*#-]+")
+
+
+@dataclass
+class RecordIndex:
+    """What a check of one record needs to know about the others."""
+
+    fact_ids: Counter
+    known: set
+    kinds: dict
+
+    @classmethod
+    def of(cls, located: list[Located]) -> RecordIndex:
+        facts = [i.record for i in located if i.record.get("type") == "fact"]
+        tombstones = {i.record.get("id") for i in located if i.record.get("type") == "tombstone"}
+        ids = Counter(f.get("id") for f in facts)
+        return cls(ids, set(ids) | tombstones, {f.get("id"): f.get("kind") for f in facts})
+
+
+def record_problems(item: Located, index: RecordIndex) -> list[str]:
+    """What is wrong with one record, apart from a secret. `memory repair` can settle these."""
+    rec = item.record
+    problems = list(validate_record(rec))
+    kind = rec.get("type")
+    if kind == "fact" and index.fact_ids[rec.get("id")] > 1:
+        problems.append(f"duplicate id {rec.get('id')}")
+    if kind == "change" and rec.get("id") not in index.known:
+        problems.append(f"change names an unknown fact {rec.get('id')}")
+    target = rec.get("superseded_by")
+    if target and target not in index.known:
+        problems.append(f"superseded_by {target} is not a known fact")
+    for link in (rec.get("links") or []) + (rec.get("add_links") or []):
+        if isinstance(link, dict) and link.get("id") not in index.known:
+            problems.append(f"link to unknown fact {link.get('id')}")
+    if kind == "change" and rec.get("enforced_by") and index.kinds.get(rec.get("id")) != "rule":
+        problems.append("enforced_by is only for kind 'rule'")
+    return problems
+
+
+def writer_differs(item: Located) -> str | None:
+    writer = item.record.get("writer")
+    if writer and writer != item.path.stem and item.record.get("type") != "tombstone":
+        return f"writer {writer!r} differs from the file name"
+    return None
+
+
 def check_records(memory: Memory) -> tuple[list[str], list[str]]:
-    located, errors = read_located(fact_files(memory.dir))
-    warnings: list[str] = []
-    ids = Counter(item.record.get("id") for item in located if item.record.get("type") == "fact")
-    known = {i for i in ids if i} | {
-        item.record.get("id") for item in located if item.record.get("type") == "tombstone"
-    }
-    kinds = {
-        item.record.get("id"): item.record.get("kind")
-        for item in located
-        if item.record.get("type") == "fact"
-    }
+    located, bad = read_located(fact_files(memory.dir))
+    errors = [line if ": cannot read: " in line else line + REPAIR for line in bad]
+    config_errors, warnings = config_problems(memory.dir)
+    errors += [line + REPAIR for line in config_errors]
+    errors += [line + REPAIR for line in secrets_in_config(memory.dir, memory.env)]
+    warnings = [line + REPAIR for line in warnings]
+    done = repaired_lines(memory.dir, located)
+    index = RecordIndex.of(located)
     for item in located:
         rec, where = item.record, f"{item.path.name}:{item.line}"
-        problems = list(validate_record(rec))
-        raw = json.dumps(rec, ensure_ascii=False)
-        problems += [f"looks like a secret ({name})" for name in find_secrets(raw)]
-        kind = rec.get("type")
-        if kind == "fact" and ids[rec.get("id")] > 1:
-            problems.append(f"duplicate id {rec.get('id')}")
-        if kind == "change" and rec.get("id") not in known:
-            problems.append(f"change names an unknown fact {rec.get('id')}")
-        target = rec.get("superseded_by")
-        if target and target not in known:
-            problems.append(f"superseded_by {target} is not a known fact")
-        for link in rec.get("links", []) + rec.get("add_links", []):
-            if isinstance(link, dict) and link.get("id") not in known:
-                problems.append(f"link to unknown fact {link.get('id')}")
-        if kind == "change" and rec.get("enforced_by") and kinds.get(rec.get("id")) != "rule":
-            problems.append("enforced_by is only for kind 'rule'")
-        held = rec.get("held_by")
-        if held and not (memory.project.root / held).exists():
-            problems.append(f"held_by {held} does not exist")
-        writer = rec.get("writer")
-        if writer and writer != item.path.stem and kind != "tombstone":
-            warnings.append(f"{where}: writer {writer!r} differs from the file name")
+        settled = (item.path.name, item.sha) in done
+        problems = [] if settled else [p + REPAIR for p in record_problems(item, index)]
+        rec_id = rec.get("id")
+        found = find_in_record(rec, memory.env)
+        # A fact has its own line below, once. These records reach no reader or state.
+        if found and rec_id and rec_id not in memory.masked and not find_secrets(rec_id):
+            problems.append(
+                f"{rec_id} looks like a secret ({', '.join(found)}). It stays on disk until "
+                f"purged. Run `memory purge {rec_id} --reason secret --yes`."
+            )
+        differs = writer_differs(item)
+        if differs and not settled:
+            warnings.append(f"{where}: {differs}{REPAIR}")
         errors += [f"{where}: {problem}" for problem in problems]
-    return errors, warnings
+    errors += [
+        memory.secret_problem(fact_id)
+        for fact_id in sorted(memory.masked)
+        if not memory.only_plain(fact_id)
+    ]
+    errors += [memory.secret_line_problem(line) for line in memory.secret_lines]
+    for state in sorted(memory.states.values(), key=lambda s: s["id"]):
+        held = state.get("held_by")
+        if state.get("status") == "promoted" and held and not _path_known(memory.project, held):
+            errors.append(
+                f"{state['id']}: held_by {held} does not exist; run "
+                f'`memory change {state["id"]} --status active --reason "..."` to load the '
+                f"fact again, or `memory change {state['id']} --status promoted --held-by "
+                f'PATH --reason "..."` to name the file that holds it now'
+            )
+    # A problem can quote a stored value: `kind 'ghp_...' is not one of ...`.
+    return [mask(line, memory.env) for line in errors], [
+        mask(line, memory.env) for line in warnings
+    ]
+
+
+def _path_known(project: Project, path: str) -> bool:
+    """True when the path exists in any checkout, or in the history of any branch."""
+    if any(os.path.exists(checkout / path) for checkout in (project.root, *project.checkouts)):
+        return True
+    found = run_git(project.root, "log", "--all", "-1", "--format=%h", "--", path, timeout=2.0)
+    return found is None or bool(found)  # git cannot say: a slow git is not a problem to report
+
+
+def _old_copy_files(project: Project) -> list[Path]:
+    """The files that a migration moved aside. Each one is text that no read can mask."""
+    root = project.main_root
+    found: list[Path] = []
+    for folder in sorted(root.parent.glob(f"{glob.escape(root.name)}{OLD_SUFFIX}*")):
+        for dirpath, _, names in os.walk(folder):
+            found += [Path(dirpath) / name for name in sorted(names)]
+    return [path for path in found[:MAX_OLD_FILES] if _small(path)]
+
+
+def _small(path: Path) -> bool:
+    try:
+        return path.stat().st_size <= MAX_OLD_BYTES
+    except OSError:
+        return False
+
+
+def history_note(memory: Memory) -> str | None:
+    """Git history can hold what was committed. The tool cannot mask it and does not rewrite it."""
+    root = memory.project.root
+    log = run_git(root, "log", "--all", "-p", "--format=commit %h", "--", LINK_NAME, timeout=2.0)
+    commit = None
+    for line in (log or "").splitlines():
+        if line.startswith("commit "):
+            commit = line.split()[1]
+        elif line.startswith("+") and not line.startswith("+++"):
+            found = real_secrets(line[1:], memory.env)
+            if found:
+                return (
+                    f"note: git history still holds a value that looks secret in {LINK_NAME}/ "
+                    f"(commit {commit}: {', '.join(found)}). This tool does not rewrite history. "
+                    "If the value is real, change it where it is used."
+                )
+    return None
+
+
+@dataclass
+class NoteCatch:
+    """One distinct line that looks secret. The first place is the one that the agent can edit."""
+
+    key: str
+    names: list[str]
+    plain: bool
+    places: list[str] = field(default_factory=list)
+    paths: list[Path] = field(default_factory=list)
+
+    @property
+    def problem(self) -> str:
+        same = f" The same line is in {', '.join(self.places[1:])}." if self.places[1:] else ""
+        return (
+            f"{self.places[0]}: looks like a secret ({', '.join(self.names)}). This may be a false "
+            "catch, and then the line can stay. If the value is real, change it where it is used, "
+            f"then replace the value in this file.{same}"
+        )
+
+    def written_since(self, moment: float) -> bool:
+        return any(path.stat().st_mtime >= moment for path in self.paths if path.exists())
+
+
+def _lines_of(path: Path) -> Iterator[tuple[int, str]]:
+    """The text of a file by line. A worklist row gives its strings, not its JSON punctuation."""
+    try:
+        lines = plainfile.read_text(path, encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return
+    for number, line in enumerate(lines, start=1):
+        try:
+            row = json.loads(line) if path.suffix == ".jsonl" else None
+        except ValueError:
+            row = None
+        if isinstance(row, dict):
+            yield from ((number, text) for text in strings_of(row))
+        else:
+            yield number, line
+
+
+def note_catches(memory: Memory) -> list[NoteCatch]:
+    """Each distinct line that looks secret, at the note first and then at its copies.
+
+    A worklist row can join a note line and the line under it, so a row matches by what it holds.
+    """
+    folder, parent = memory.dir, memory.project.main_root.parent
+    sources = [
+        *((path, folder) for path in note_files(folder / "notes")),
+        *((path, folder) for path in note_files(folder / "branches")),
+        *((path, parent) for path in _old_copy_files(memory.project)),
+        *((path, folder) for path in sorted((folder / "proposals").glob("*.*"))),
+    ]
+    catches: list[NoteCatch] = []
+    for path, base in sources:
+        for number, line in _lines_of(path):
+            found = find_secrets(line, memory.env)
+            if not found:
+                continue
+            key = LINE_MARKS.sub("", " ".join(line.split()))
+            in_row = path.suffix == ".jsonl"
+            same = next((c for c in catches if c.key == key or (in_row and c.key in key)), None)
+            if not same:
+                same = NoteCatch(key, found, only_plain_words(line, memory.env))
+                catches.append(same)
+            same.places.append(f"{path.relative_to(base).as_posix()}:{number}")
+            same.paths.append(path)
+    return catches
 
 
 DUPLICATES_DOC = (
@@ -113,15 +329,34 @@ def duplicate_rules(memory: Memory) -> list[str]:
     return warnings
 
 
+def false_enforcement(memory: Memory, state: githook.HookState) -> list[str]:
+    """Warnings for active rules that name a check that is not there."""
+    moment, is_merged = now(), merged_checker(memory.project.root)
+    # The hidden-hook warning already explains a git hook that does not run, and it must not
+    # fail --strict.
+    hidden = state.dead or state.line.startswith("warning:")
+    return [
+        f"rule {state['id']}: enforced_by {state['enforced_by']}: no such check here. Add the "
+        f"check, or run `memory change {state['id']} --no-enforced-by --reason WHY`"
+        for state in sorted(memory.states.values(), key=lambda s: s.get("learned_at", ""))
+        if state.get("kind") == "rule"
+        and effective_status(state, moment, is_merged)[0] == "active"
+        and enforcement.is_false(memory.project, state)
+        and not (hidden and state["enforced_by"].startswith("githook:"))
+    ]
+
+
 def advisory_rules(memory: Memory) -> list[str]:
     """Active rules that no check enforces: they are prose only."""
     moment, is_merged = now(), merged_checker(memory.project.root)
     lines = []
     for state in sorted(memory.states.values(), key=lambda s: s.get("learned_at", "")):
-        if state.get("kind") != "rule" or state.get("enforced_by"):
+        if state.get("kind") != "rule":
+            continue
+        if state.get("enforced_by") and not enforcement.is_false(memory.project, state):
             continue
         if effective_status(state, moment, is_merged)[0] == "active":
-            lines.append(f"- [{state['id']}] {state.get('text', '')}")
+            lines.append(clean(f"- [{state['id']}] {state.get('text', '')}"))
     return lines
 
 
@@ -130,17 +365,13 @@ def advisory_rules(memory: Memory) -> list[str]:
 RULE_WORD_CAP = 500
 
 
-def rule_words(memory: Memory) -> tuple[int, int]:
-    """Return (count, words) of the active rules."""
+def active_rules(memory: Memory) -> list[dict]:
     moment, is_merged = now(), merged_checker(memory.project.root)
-    count = words = 0
-    for state in memory.states.values():
-        if state.get("kind") != "rule":
-            continue
-        if effective_status(state, moment, is_merged)[0] == "active":
-            count += 1
-            words += len(str(state.get("text", "")).split())
-    return count, words
+    return [
+        state
+        for state in memory.states.values()
+        if state.get("kind") == "rule" and effective_status(state, moment, is_merged)[0] == "active"
+    ]
 
 
 def preset_note(project: Project, memdir) -> str:
@@ -164,52 +395,248 @@ def print_advisory(memory: Memory) -> None:
         print("To enforce one: add a check, then `memory change ID --enforced-by TYPE:VALUE`.")
 
 
+def _bad_path_file(project: Project) -> list[str]:
+    """A path file that is not text is ignored, so the memory can be a different one."""
+    try:
+        plainfile.read_text(project.home / PATH_FILE)
+    except OSError:
+        return []
+    except UnicodeDecodeError:
+        return [f"{PATH_FILE} is not text, so it is ignored. Fix it: memory init --path FOLDER"]
+    return []
+
+
+@dataclass
+class Health:
+    """The one answer about a memory. Status, check, load and stop read it.
+
+    `errors` fail `memory check`. `warnings` fail `--strict`. `todo` is work outside the facts. It
+    fails no check, because it must not stop a commit, and an `ok` beside it would be false.
+    """
+
+    memdir: Path | None = None
+    source: str = ""
+    memory: Memory | None = None
+    missing: str | None = None
+    gone: bool = False
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    todo: list[str] = field(default_factory=list)
+    # Files in the memory folder that no load reads. `todo` explains each one, a load names them.
+    stray: list[str] = field(default_factory=list)
+    info: list[str] = field(default_factory=list)
+    linked: list[str] = field(default_factory=list)
+    # The warnings that come from a line in a note. A stop must know which file holds each one.
+    note_catches: list[NoteCatch] = field(default_factory=list)
+    # Note lines with one plain word behind a secret label. Most are no secret.
+    plain_words: list[NoteCatch] = field(default_factory=list)
+
+    def shown_info(self) -> list[str]:
+        """The notes for a person or an agent who reads the check. A plain-word line shows once:
+        in a real project the same false catch came back on each check, and a line that never
+        ends teaches an agent to skip it."""
+        fresh = _untold(self.memdir, self.plain_words) if self.memdir else self.plain_words
+        return [*plain_word_note(fresh), *self.info]
+
+    def answer(self, strict: bool = False) -> str:
+        if self.missing:
+            return f"memory: not loaded: {self.missing}"
+        errors = len(self.errors) + (len(self.warnings) if strict else 0)
+        warnings = 0 if strict else len(self.warnings)
+        counts = [
+            f"{count} {label}"
+            for count, label in (
+                (errors, "error(s)"),
+                (warnings, "warning(s)"),
+                (len(self.todo), "to do"),
+            )
+            if count
+        ]
+        if counts:
+            shown = clean_path(self.memdir)
+            return f"memory check: {', '.join(counts)} in {shown} (from {self.source})"
+        files = len(fact_files(self.memdir))
+        return f"memory check: ok ({files} fact file(s) in {clean_path(self.memdir)})"
+
+    @property
+    def is_ok(self) -> bool:
+        return not (self.missing or self.errors or self.warnings or self.todo)
+
+    def details(self, strict: bool = False) -> list[str]:
+        return [
+            *(f"warning: {line}" for line in ([] if strict else self.warnings)),
+            *(f"error: {line}" for line in (self.warnings if strict else []) + self.errors),
+        ]
+
+    def exit_code(self, strict: bool = False) -> int:
+        if self.missing:
+            return 1 if self.gone else 0
+        return 1 if self.errors or (strict and self.warnings) else 0
+
+
+PLAIN_TOLD = ".plain-words-told"
+
+
+def _untold(memdir: Path, catches: list[NoteCatch]) -> list[NoteCatch]:
+    """The catches that no check has shown yet. Marks them as shown. On any error, all of them."""
+    path = memdir / PLAIN_TOLD
+    keys = {hashlib.sha256(catch.key.encode()).hexdigest()[:16]: catch for catch in catches}
+    try:
+        told = set(json.loads(plainfile.read_text(path, encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        told = set()
+    fresh = [catch for key, catch in keys.items() if key not in told]
+    if fresh:
+        try:
+            temp = plainfile.inside(memdir, path.with_name(f"{PLAIN_TOLD}.{os.getpid()}.tmp"))
+            plainfile.write_text(temp, json.dumps(sorted(told | set(keys))), encoding="utf-8")
+            os.replace(temp, path)
+        except OSError:
+            return catches
+    return fresh
+
+
+def plain_word_note(catches: list[NoteCatch]) -> list[str]:
+    if not catches:
+        return []
+    places = [f"{catch.places[0]} ({', '.join(catch.names)})" for catch in catches]
+    return [
+        f"note: {len(catches)} note line(s) hold one plain word that a secret label or a `.env` "
+        f"file names: {listed(places)}. Most often this is no secret. If one is real, change it "
+        "where it is used, then replace the value in the note."
+    ]
+
+
+def _hook_lines(state: githook.HookState, health: Health) -> None:
+    if state.dead:
+        health.errors.append(state.line)
+    elif state.line.startswith("git hooks: on"):
+        health.info.append(state.line)
+    elif state.line:
+        health.todo.append(state.line)
+
+
+ALL_RULES = "`memory load --budget 0` lists all."
+
+
+def _rule_ids(rules: list[dict], longest: bool = False) -> str:
+    def size(state: dict) -> int:
+        return -len(str(state.get("text", "")).split()) if longest else 0
+
+    return listed([name(state["id"]) for state in sorted(rules, key=lambda s: (size(s), s["id"]))])
+
+
+def _read_health(project: Project, flag: str | None, compare: bool) -> Health:
+    memdir, source = resolve_memory_dir(project, flag)
+    health = Health(memdir, source, linked=ensure_all_linked(project, flag))
+    health.warnings += _bad_path_file(project)
+    health.todo += [
+        f"memory: git tracks {clean_path(path)}, so the tool does not use it to find the memory. "
+        f"A file that git tracks comes with the repo, not from you. "
+        f"`git log -- {path.name}` shows who added it."
+        for path in tracked_pointers(project)
+    ]
+    has_facts = (memdir / "facts").is_dir()
+    if not has_facts and source not in ("flag", ENV_DIR):
+        lost = lost_memory(project)
+        if lost:
+            health.missing, health.gone = lost_note(lost), bool(lost.gone)
+            return health
+    if not memdir.is_dir() and not any((c / LINK_NAME).is_symlink() for c in project.checkouts):
+        health.missing = (
+            f"no memory folder at {clean_path(memdir)} (from {source}); run `memory init`"
+        )
+        return health
+    health.errors += check_links(project, memdir)
+    if not has_facts:
+        health.errors.append(f"{clean_path(memdir)}: no facts/ folder; run `memory init`")
+        return health
+    health.errors += keep_out_of_git(project, memdir)
+    memory = health.memory = Memory.open(project, flag)
+    record_errors, warnings = check_records(memory)
+    health.errors += record_errors
+    hooks = githook.hook_state(project)
+    health.warnings += warnings + duplicate_rules(memory) + false_enforcement(memory, hooks)
+    catches = note_catches(memory)
+    health.note_catches = [catch for catch in catches if not catch.plain]
+    health.warnings += [catch.problem for catch in health.note_catches]
+    health.plain_words = [catch for catch in catches if catch.plain]
+    # The load tells the agent that a plain word can stay, so --strict must not fail on it.
+    health.info += [
+        f"note: {memory.secret_problem(fact_id)}"
+        for fact_id in sorted(memory.masked)
+        if memory.only_plain(fact_id)
+    ]
+    health.info += list(filter(None, (history_note(memory), native.secret_note(memory))))
+    health.info += list(filter(None, (owner_line(project, memdir), beside_line(project, memdir))))
+    rules = active_rules(memory)
+    one_time = [state for state in rules if landed.one_time(state)]
+    lasting = [state for state in rules if state not in one_time]
+    words = sum(len(str(state.get("text", "")).split()) for state in lasting)
+    more = sum(len(str(state.get("text", "")).split()) for state in one_time)
+    if words > RULE_WORD_CAP:
+        health.todo.append(
+            f"note: {len(lasting)} active rule(s) hold {words} words; every session loads up to "
+            f"{RULE_WORD_LIMIT} words of them. Above {RULE_WORD_CAP} words, merge rules or end "
+            f"the ones that do not apply. The longest: {_rule_ids(lasting, longest=True)}. "
+            f"{ALL_RULES}"
+        )
+    if one_time and words + more > RULE_WORD_CAP:
+        health.todo.append(
+            f"note: {len(one_time)} rule(s) that may be for one piece of work hold {more} more "
+            f"words: {_rule_ids(one_time)}. They count toward the {RULE_WORD_LIMIT} words of "
+            "rules that a session loads, and the load holds them back first. End each one whose "
+            f"work is done. {ALL_RULES}"
+        )
+    if words + more > RULE_WORD_CAP:
+        health.info += list(filter(None, [landed.stale_line(memory, rules)]))
+    health.todo += migrate_refs.check_notes(memdir)
+    health.stray = migrate_refs.stray_files(memdir)
+    _hook_lines(hooks, health)
+    # For a hook that it can fix, repo_line says only what the hook state already said.
+    repo = (
+        refresh.gone_python_line(project)
+        if hooks.fixable
+        else refresh.repo_line(project, flag, compare)
+    )
+    if repo:
+        health.todo.append(repo)
+    note = preset_note(project, memdir)
+    if note:
+        health.info.append(note)
+    return health
+
+
+def read_health(project: Project, flag: str | None = None, compare: bool = False) -> Health:
+    """Compute the answer once. A command never fails on the way to saying what is wrong.
+
+    `compare` reads the repo files to find out if another build of this version writes them
+    differently. A hook that runs on each turn leaves it off.
+    """
+    try:
+        return _read_health(project, flag, compare)
+    except MemoryTracked as exc:
+        return Health(missing=str(exc), gone=True)
+    except MemoryMissing as exc:
+        return Health(missing=str(exc))
+    except Exception as exc:
+        return Health(missing=f"unexpected error: {exc}", gone=True)
+
+
 def run_check(
     project: Project,
     flag: str | None,
     strict: bool = False,
     advisory: bool = False,
-    hint: bool = True,
 ) -> int:
-    memdir, source = resolve_memory_dir(project, flag)
-    for linked in ensure_all_linked(project, flag):
-        print(linked)
-    link_exists = any((c / LINK_NAME).is_symlink() for c in project.checkouts)
-    if not memdir.is_dir() and not link_exists:
-        print(f"memory check: skipped: no memory folder at {memdir}")
-        return 0
-    errors = check_links(project, memdir)
-    warnings: list[str] = []
-    if (memdir / "facts").is_dir():
-        memory = Memory.open(project, flag)
-        record_errors, warnings = check_records(memory)
-        errors += record_errors
-        warnings += duplicate_rules(memory)
-        count, words = rule_words(memory)
-        if words > RULE_WORD_CAP:
-            print(
-                f"note: {count} active rule(s) hold {words} words; every session loads them "
-                f"all. Above {RULE_WORD_CAP} words, merge rules or end the ones that do not apply."
-            )
-        if advisory:
-            print_advisory(memory)
-        note = preset_note(project, memdir)
-        if note:
-            print(note)
-        line = skills.session_line(memory.dir) if hint else None
-        if line:
-            print(f"note: {line}")
-    else:
-        errors.append(f"{memdir}: no facts/ folder; run `memory init`")
-    if strict:
-        errors += warnings
-        warnings = []
-    for line in warnings:
-        print(f"warning: {line}")
-    for line in errors:
-        print(f"error: {line}")
-    if errors:
-        print(f"memory check: {len(errors)} error(s) in {memdir} (from {source})")
-        return 1
-    print(f"memory check: ok ({len(fact_files(memdir))} fact file(s) in {memdir})")
-    return 0
+    health = read_health(project, flag)
+    for line in health.linked:
+        print(line)
+    if advisory and health.memory:
+        print_advisory(health.memory)
+    for line in health.details(strict):
+        print(line)
+    print(health.answer(strict))
+    for line in health.todo + health.shown_info():
+        print(line)
+    return health.exit_code(strict)

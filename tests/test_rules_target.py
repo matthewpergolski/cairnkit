@@ -32,14 +32,12 @@ def test_shared_mode_is_refused(repo, capsys):
 
 
 def test_local_write_leaves_hand_written_tracked_files_alone(repo):
-    from cairnkit.harness_local import AGENTS_POINTER
-
     (repo / "CLAUDE.md").write_text(HAND)
     (repo / "AGENTS.md").write_text("# Agents\n\nBe kind.\n")
     assert main(["init", "--write-instructions"]) == 0
     assert (repo / "CLAUDE.md").read_text() == HAND
     agents = (repo / "AGENTS.md").read_text()
-    assert agents.startswith("# Agents\n\nBe kind.\n") and AGENTS_POINTER in agents
+    assert agents == "# Agents\n\nBe kind.\n"
     assert START not in agents
     assert blocks(repo)["CLAUDE.local.md"] == 1
 
@@ -55,13 +53,10 @@ def test_migrate_moves_block_from_claude_md(repo, capsys):
 
 
 def test_migrate_moves_block_from_agents_md(repo):
-    from cairnkit.harness_local import AGENTS_POINTER
-
     (repo / "AGENTS.md").write_text(HAND + f"{START}\nold\n{END}\n\nAfter.\n")
     assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
     assert text.startswith(HAND) and "After.\n" in text
-    assert text.rstrip().endswith(AGENTS_POINTER)
     assert START not in text
     assert START in (repo / "CLAUDE.local.md").read_text()
 
@@ -183,55 +178,13 @@ def held_by(mem):
     return read_jsonl(mem / "facts" / "tidy.jsonl")[-1]["held_by"]
 
 
-def test_tidy_uses_claude_local_md(repo, mem, capsys, monkeypatch):
-    from cairnkit.harness_local import AGENTS_POINTER
-
-    (repo / "CLAUDE.md").write_text(HAND)
-    (repo / "AGENTS.md").write_text("# Agents\n")
-    assert main(["init", "--write-instructions"]) == 0
-    promote(mem, capsys, monkeypatch)
-    assert (repo / "CLAUDE.md").read_text() == HAND
-    agents = (repo / "AGENTS.md").read_text()
-    assert agents.startswith("# Agents\n") and AGENTS_POINTER in agents
-    assert "Never clear the dev database blind." in (repo / "CLAUDE.local.md").read_text()
-    assert held_by(mem) == "CLAUDE.local.md"
-
-
-def test_tidy_keeps_a_rules_file_the_config_sets(repo, mem, capsys, monkeypatch):
-    (mem / "config.toml").write_text('rules_file = "docs/RULES.md"\n')
-    (repo / "CLAUDE.md").write_text(HAND)
-    promote(mem, capsys, monkeypatch)
-    assert "Never clear" in (repo / "docs" / "RULES.md").read_text()
-    assert (repo / "CLAUDE.md").read_text() == HAND
-    assert held_by(mem) == "docs/RULES.md"
-
-
-def test_tidy_refuses_a_tracked_rules_file(repo, mem, capsys, monkeypatch):
-    from conftest import git
-
-    (mem / "config.toml").write_text('rules_file = "CLAUDE.md"\n')
-    (repo / "CLAUDE.md").write_text(HAND)
-    git(repo, "add", "CLAUDE.md")
-    git(repo, "commit", "-q", "-m", "track")
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-20T12:00:00+00:00")
-    rule_fact(mem)
-    _, out = run(["tidy"], capsys)
-    import re
-
-    [pid] = re.findall(r"\bp-[0-9a-f]{6}\b", out)
-    code, out = run(["tidy", "--apply", pid], capsys)
-    assert code == 1
-    assert "tracked" in out
-    assert (repo / "CLAUDE.md").read_text() == HAND
-
-
 def test_a_new_memory_does_not_pin_the_rules_file(repo):
     from cairnkit.config import load_config
 
     assert main(["init"]) == 0
     text = (repo.parent / "proj.memory" / "config.toml").read_text()
     assert not any(x.startswith("rules_file") for x in text.splitlines())
-    assert load_config(repo.parent / "proj.memory")["rules_file"] is None
+    assert "rules_file" not in load_config(repo.parent / "proj.memory")
 
 
 def test_the_help_names_the_new_files(capsys):
@@ -304,14 +257,12 @@ def local_text(repo):
 
 
 def test_local_mode_imports_agents_md_when_it_is_the_only_shared_file(repo, capsys):
-    from cairnkit.harness_local import AGENTS_POINTER
-
     (repo / "AGENTS.md").write_text(HAND)
     code, out = run(["init", "--write-instructions"], capsys)
     assert code == 0
     assert local_text(repo).startswith(IMPORT + START)
     agents = (repo / "AGENTS.md").read_text()
-    assert agents.startswith(HAND.rstrip()) and AGENTS_POINTER in agents
+    assert agents.startswith(HAND.rstrip())
     [note] = [x for x in out.splitlines() if "@AGENTS.md" in x]
     assert "CLAUDE.local.md" in note
     first = local_text(repo)
@@ -351,11 +302,9 @@ def test_no_import_when_claude_reads_a_claude_md_anyway(repo, home):
 
 
 def test_no_import_without_an_agents_md(repo):
-    # --write-instructions creates AGENTS.md with the Codex pointer, so the
-    # local file still needs @AGENTS.md for Claude Code to load both.
     assert main(["init", "--write-instructions"]) == 0
-    assert (repo / "AGENTS.md").is_file()
-    assert local_text(repo).startswith(IMPORT + START)
+    assert not (repo / "AGENTS.md").exists()
+    assert local_text(repo).startswith(START)
 
 
 def test_no_import_when_claude_local_md_is_agents_md(repo):
@@ -376,18 +325,15 @@ def test_dry_run_says_it_would_add_the_import_and_adds_nothing(repo, capsys):
 def test_harness_local_copies_are_written_and_excluded(repo):
     from conftest import git
 
-    from cairnkit.harness_local import AGENTS_POINTER
-
     assert main(["init", "--write-instructions"]) == 0
     for target in harness_local.TARGETS:
         path = repo / target.rel
         assert path.is_file()
         assert START in path.read_text()
         git(repo, "check-ignore", "-q", target.rel)
-    assert AGENTS_POINTER in (repo / "AGENTS.md").read_text()
     assert not (repo / "AGENTS.override.md").exists()
     # Tracked pointer file is new; harness copies stay ignored.
-    assert "AGENTS.md" in git(repo, "status", "--porcelain")
+    assert git(repo, "status", "--porcelain") == ""
     assert ".cursor/rules" not in git(repo, "status", "--porcelain")
     assert ".pi/" not in git(repo, "status", "--porcelain")
 

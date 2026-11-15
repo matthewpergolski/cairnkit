@@ -1,31 +1,799 @@
-"""Find text that looks like a secret. A fact must never hold one."""
+"""Find text that looks like a secret. A fact must never hold one.
+
+The two errors do not cost the same. A false refusal costs the agent one rewording. A stored
+secret prints in each session load, reaches the model provider, and needs `memory purge`. So a
+value behind a secret label is refused unless its shape clearly says that it is no value: a
+real path, a code reference, a placeholder or a template.
+"""
 
 from __future__ import annotations
 
 import re
+import unicodedata
+from collections.abc import Callable, Iterator
+from enum import Enum
+from functools import lru_cache, partial
+from typing import NamedTuple, Protocol
 
-PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("AWS access key", re.compile(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b")),
-    ("GitHub token", re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})")),
-    ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
-    ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
-    ("API secret key", re.compile(r"\b(sk|rk)-[A-Za-z0-9_-]{20,}")),
-    (
+
+class Label(Enum):
+    NONE = "none"
+    # `INVITE_CODE`: a word can be an ordinary value, so only a value that is no word counts.
+    WEAK = "weak"
+    STRONG = "strong"
+
+
+# A name part that ends in one of these means a secret. The plural forms stay out, because
+# `max_tokens=4096` and `secrets: inherit` hold no secret.
+SECRET_ENDINGS = (
+    "password",
+    "passwd",
+    "passphrase",
+    "passcode",
+    "pwd",
+    "secret",
+    "token",
+    "credential",
+    "apikey",
+    "secretkey",
+    "accesskey",
+    "privatekey",
+    "signingkey",
+    "encryptionkey",
+    "sshkey",
+)
+# The last part says what the name holds: `PASSWORD_FILE` holds a path, `token_ttl` a number.
+FIELD_PARTS = frozenset(
+    [
+        "age",
+        "algo",
+        "algorithm",
+        "audience",
+        "count",
+        "dir",
+        "disabled",
+        "domain",
+        "enabled",
+        "endpoint",
+        "env",
+        "expires",
+        "expiry",
+        "expiration",
+        "field",
+        "file",
+        "header",
+        "host",
+        "hosts",
+        "id",
+        "issuer",
+        "label",
+        "len",
+        "length",
+        "lifetime",
+        "limit",
+        "max",
+        "min",
+        "mode",
+        "name",
+        "path",
+        "policy",
+        "port",
+        "prefix",
+        "provider",
+        "ref",
+        "region",
+        "required",
+        "scope",
+        "size",
+        "timeout",
+        "ttl",
+        "type",
+        "uri",
+        "url",
+        "user",
+        "username",
+        "var",
+    ]
+)
+# Keys of data, not of a lock.
+DATA_KEYS = frozenset(
+    [
+        "cache",
+        "composite",
+        "dict",
+        "foreign",
+        "group",
+        "hash",
+        "idempotency",
+        "index",
+        "item",
+        "join",
+        "lookup",
+        "map",
+        "object",
+        "order",
+        "package",
+        "partition",
+        "primary",
+        "public",
+        "range",
+        "routing",
+        "shard",
+        "sort",
+        "unique",
+    ]
+)
+ORDINARY_CODES = frozenset(
+    [
+        "exit",
+        "status",
+        "error",
+        "return",
+        "reason",
+        "response",
+        "http",
+        "zip",
+        "postal",
+        "country",
+        "lang",
+        "language",
+        "public",
+    ]
+)
+
+WORD = re.compile(r"[a-z]{1,15}\d{0,2}")
+NUMBER = re.compile(r"\d{1,4}")
+PATH_PIECE = re.compile(r"(?:[a-z]{1,20}|[A-Z][a-z]{0,19}|[A-Z]{1,20})\d{0,5}|\d{1,5}")
+KEY_FILE = re.compile(r"[\w.-]+\.(?:pem|key|crt|cer|p12|pfx|gpg|age|enc|txt|json|ya?ml|toml|env)")
+IDENTIFIER = r"[A-Za-z_]+\d{0,2}"
+# After a name of letters, `(` or `[` is code. `hunter2(abc` has a digit, so it is no call.
+CALL = re.compile(rf"[A-Za-z_][A-Za-z_.]*[(\[].*|{IDENTIFIER}(?:\.{IDENTIFIER})*(?:\(\)?|\[)")
+CODE_ROOTS = frozenset(
+    [
+        "settings",
+        "config",
+        "conf",
+        "cfg",
+        "env",
+        "ENV",
+        "process",
+        "os",
+        "sys",
+        "self",
+        "this",
+        "app",
+        "args",
+        "opts",
+        "options",
+        "params",
+        "ctx",
+        "context",
+        "request",
+        "req",
+        "secrets",
+        "vault",
+        "vars",
+        "var",
+        "import",
+        "Rails",
+    ]
+)
+PLACEHOLDER = re.compile(
+    r"(?i)(?:pass|password|passwd|pwd|passphrase|secret|token|key|changeme|change[_-]me|example"
+    r"|placeholder|dummy|sample|default|test|testing|foo|bar|baz|foobar|value|val"
+    r"|none|null|nil|true|false|undefined|empty|blank|unset|yes|no|n/a"
+    r"|required|optional|missing|invalid|expired|revoked|rotated|hidden|redacted|masked|hashed"
+    r"|await|new|from|via|see|stored|unused"
+    r"|(?:str|string|bytes|int|bool|any|object)(?:\|\w+)?"
+    r"|x{3,}|\*+|\.{2,}|_+|-+|your[_-]\S*|my[_-]\S*|some[_-]\S*|\S*[_-]here)"
+)
+# An environment variable or a template field in place of the value.
+TEMPLATE = re.compile(r"\$\w+|\$\{[^}]*\}|<[^>]*>|\{[^}]*\}|%\w*%?")
+URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+")
+# These names mean "secret" by themselves. `SORT_KEY` or `?code=` can name something ordinary.
+SECRET_NAME = re.compile(r"(?i)secret|token|password|passwd|pwd|api[_-]?key|auth")
+
+# What English says after "the password is" that holds a digit.
+ALGORITHM = re.compile(
+    r"(?i)(?:sha|md|hs|rs|es|ps|aes|rsa|base|utf|oauth|pbkdf|argon|bcrypt|scrypt|blake|crc)"
+    r"\d*(?:id)?(?:[-_]\w+)?"
+)
+AMOUNT = re.compile(
+    r"(?i)~?\d+[-_]?(?:bits?|bytes?|chars?|characters?|digits?|letters?|words?|long"
+    r"|[hmsd]|secs?|seconds?|mins?|minutes?|hours?|days?|weeks?|months?|years?)"
+)
+VERSION = re.compile(r"v?\d+(?:\.\d+)+")
+MADE_UP = re.compile(r"[a-z][A-Z]|\w[@#%^&*!]\w?")
+
+MIN_VALUE = 4
+MIN_PROSE_DIGITS = 6
+MIN_WEAK_VALUE = 6
+MIN_URL_VALUE = 6
+# No digit, no capital inside it and no symbol. This reads as a word, and it can be a password.
+PLAIN_VALUE = re.compile(r"[A-Za-z][a-z]*")
+POSSESSIVE = re.compile(r"'[a-z]{1,2}\b")
+NEXT_WORD = re.compile(r"\s+[A-Za-z]")
+
+# A lookahead, so that `login: password=abc` still finds the second label.
+VALUE = r"""(?="(?P<dq>[^"\n]*)"|'(?P<sq>[^'\n]*)'|`(?P<bq>[^`\s]*)`|(?P<bare>[^\s'"`]+))"""
+
+
+def name_parts(name: str) -> list[str]:
+    """`dbPassword2`, `DB_PASSWORD2` and `db-password` all give ["db", "password"]."""
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    parts = re.split(r"[^A-Za-z0-9]+", spaced)
+    return [part.lower().rstrip("0123456789") for part in parts if part]
+
+
+def label_of(name: str) -> Label:
+    """How much this name says that its value is a secret."""
+    parts = name_parts(name)
+    if not parts or (len(parts) > 1 and parts[-1] in FIELD_PARTS) or parts[0] == "no":
+        return Label.NONE
+    if any(part.endswith(SECRET_ENDINGS) for part in parts):
+        return Label.STRONG
+    if len(parts) == 1:
+        return Label.NONE
+    if parts[-1] in ("pass", "auth", "cookie"):
+        return Label.STRONG
+    if parts[-1] == "key":
+        return Label.NONE if parts[-2] in DATA_KEYS else Label.STRONG
+    if parts[-1] == "code" and name.isupper() and parts[0] not in ORDINARY_CODES:
+        return Label.WEAK
+    return Label.NONE
+
+
+def _is_word(part: str) -> bool:
+    if not WORD.fullmatch(part):
+        return False
+    return len(part) <= 3 or any(vowel in part for vowel in "aeiouy")
+
+
+def is_words(value: str) -> bool:
+    """Kebab-case English: `tokens-must-be-rotated-every-30-days`."""
+    parts = value.rstrip(".,;:)").split("-")
+    words = sum(_is_word(part) for part in parts)
+    numbers = sum(bool(NUMBER.fullmatch(part)) for part in parts)
+    return len(parts) >= 3 and words + numbers == len(parts) and words > numbers
+
+
+def _is_path(value: str) -> bool:
+    body = re.sub(r"^(?:~|\.{1,2})?/", "", value, count=1)
+    if body == value and "/" not in value:
+        return bool(KEY_FILE.fullmatch(value))
+    parts = body.rstrip("/").split("/")
+    if len(parts) == 1 and body != value:
+        return parts[0].isalpha() and parts[0].islower()
+    return all(
+        PATH_PIECE.fullmatch(piece)
+        for part in parts
+        for piece in re.split(r"[._-]", part.lstrip("."))
+    )
+
+
+def _is_reference(value: str) -> bool:
+    """Code that names where a value is: `settings.API_KEY`, `os.environ[`, `getpass()`."""
+    if CALL.fullmatch(value):
+        return True
+    parts = value.split(".")
+    if not all(re.fullmatch(IDENTIFIER, part) for part in parts):
+        return False
+    if len(parts) == 1:
+        return "_" in value and label_of(value) is Label.STRONG
+    last = parts[-1]
+    return parts[0] in CODE_ROOTS or last.isupper() or label_of(last) is Label.STRONG
+
+
+def _stands_in(value: str) -> bool:
+    return (
+        value[:1] in ("$", "<", "{")
+        or any(mark in value for mark in ("${", "{{"))
+        or bool(TEMPLATE.fullmatch(value) or PLACEHOLDER.fullmatch(value))
+    )
+
+
+def is_not_a_value(value: str) -> bool:
+    """The text names where a value is, or stands in for one."""
+    return (
+        _stands_in(value)
+        or value[:1] == "("
+        or "](" in value
+        or bool(URL.fullmatch(value))
+        or _is_reference(value)
+        or _is_path(value)
+    )
+
+
+def _unwrapped(text: str) -> str:
+    """The value without the quote and punctuation that the prose around it adds."""
+    ends = "`'\"*.,;:!?"
+    text = text.lstrip("`'\"*").rstrip(ends)
+    for closing, opening in ((")", "("), ("}", "{"), ("]", "[")):
+        if text.endswith(closing) and opening not in text:
+            text = text.rstrip(closing + ends)
+    return text
+
+
+def _value(match: re.Match[str]) -> tuple[str, bool]:
+    """The value of a match, and whether it was in quotes."""
+    bare = match["bare"]
+    if bare is None:
+        return next(match[g] for g in ("dq", "sq", "bq") if match[g] is not None), True
+    return _unwrapped(bare), False
+
+
+def looks_made_up(value: str) -> bool:
+    """English does not hold this word: it has a digit, a capital inside it, or a symbol."""
+    if ALGORITHM.fullmatch(value) or AMOUNT.fullmatch(value) or VERSION.fullmatch(value):
+        return False
+    if value.isdigit():
+        return len(value) >= MIN_PROSE_DIGITS
+    has_digit = any(char.isdigit() for char in value) and any(char.isalpha() for char in value)
+    return has_digit or bool(MADE_UP.search(value))
+
+
+def _reads_as_prose(match: re.Match[str], value: str) -> bool:
+    """`**A bad secret:** Dahl's name`: a plain word that the sentence goes on from."""
+    if match["bare"] is None or not PLAIN_VALUE.fullmatch(value):
+        return False
+    after = match.end("bare")
+    return bool(
+        POSSESSIVE.match(match.string, after)
+        or (match["stars"] and NEXT_WORD.match(match.string, after))
+    )
+
+
+def _assigned_name(match: re.Match[str]) -> bool:
+    label = label_of(match["name"])
+    if label is Label.NONE:
+        return True
+    value, _ = _value(match)
+    if value.lower() == match["name"].lower() or is_not_a_value(value):
+        return True
+    if _reads_as_prose(match, value):
+        return True
+    if label is Label.WEAK:
+        words = re.split(r"[_-]", value)
+        return len(value) < MIN_WEAK_VALUE or _is_word(value) or all(map(_is_word, words))
+    return len(value) < MIN_VALUE
+
+
+def _spoken(match: re.Match[str]) -> bool:
+    """In prose, only a quote or a word that no English holds says that this is a value."""
+    if "name" in match.groupdict() and label_of(match["name"]) is not Label.STRONG:
+        return True
+    value, quoted = _value(match)
+    if len(value) < MIN_VALUE or is_not_a_value(value):
+        return True
+    return not (quoted or looks_made_up(value))
+
+
+def _url_parameter(match: re.Match[str]) -> bool:
+    value = _unwrapped(match["value"])
+    if len(value) < MIN_URL_VALUE or _stands_in(value):
+        return True
+    return not SECRET_NAME.search(match["name"]) and _is_word(value)
+
+
+def _url_password(match: re.Match[str]) -> bool:
+    value = match["value"]
+    return bool(PLACEHOLDER.fullmatch(value) or TEMPLATE.fullmatch(value))
+
+
+class Shape(NamedTuple):
+    name: str
+    pattern: re.Pattern[str]
+    harmless: Callable[[re.Match[str]], bool] = lambda match: False
+    # The name beside the value says secret, and no shape of the value does.
+    labelled: bool = False
+
+
+SHAPES: list[Shape] = [
+    # The body is the secret, and a text can end before the END line.
+    Shape(
+        "private key",
+        re.compile(
+            r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
+        ),
+    ),
+    Shape("AWS access key", re.compile(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b")),
+    Shape(
+        "GitHub token",
+        re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})"),
+    ),
+    Shape(
+        "service token",
+        re.compile(
+            r"\b(?:whsec_[A-Za-z0-9+/=_-]{10,}|npm_[A-Za-z0-9]{20,}|gl(?:pat|rt)-[A-Za-z0-9_-]{10,}"
+            r"|sb_secret_[A-Za-z0-9_-]{10,}|pypi-[A-Za-z0-9_-]{30,}|hf_[A-Za-z0-9]{30,}"
+            r"|dop_v1_[a-f0-9]{30,}|shp(?:at|ss)_[a-f0-9]{20,})"
+        ),
+    ),
+    Shape(
+        "basic auth header",
+        re.compile(
+            r"(?i)\bauthorization['\"]?\s*[:=]\s*['\"]?basic\s+(?P<value>[A-Za-z0-9+/]{8,}={0,2})"
+        ),
+        lambda match: match["value"].isalpha() and match["value"].islower(),
+    ),
+    Shape("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
+    Shape("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    Shape(
+        "API secret key",
+        re.compile(r"\b(sk|rk)-[A-Za-z0-9_-]{20,}"),
+        lambda match: is_words(match[0]),
+    ),
+    Shape("payment key", re.compile(r"\b(sk|rk)_(live|test)_[A-Za-z0-9]{16,}")),
+    Shape(
+        "bearer token",
+        re.compile(r"\bBearer\s+(?P<value>[A-Za-z0-9._~+/-]{16,})"),
+        lambda match: is_words(match["value"]),
+    ),
+    Shape(
+        "secret in URL",
+        re.compile(
+            r"(?i)[?&](?P<name>k|key|token|secret|code|sig|signature|api[_-]?key|access[_-]?token"
+            r"|auth)=(?P<value>[^\s&#]{6,})"
+        ),
+        _url_parameter,
+        labelled=True,
+    ),
+    Shape(
         "JSON web token",
         re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     ),
-    ("password in URL", re.compile(r"[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
-    (
+    Shape(
+        "password in URL",
+        re.compile(r"[a-z][a-z0-9+.-]*://[^\s/:@]+:(?P<value>[^\s/@]+)@"),
+        _url_password,
+    ),
+    Shape(
         "assigned secret",
         re.compile(
-            r"(?i)\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)"
-            r"\s*[:=]\s*['\"]?[^\s'\"]{6,}"
+            r"(?<![\w.])(?P<name>[A-Za-z][\w.-]*)['\"`]?\s*(?::=|=>|==|=|:)\s*(?P<stars>\**)\s*"
+            + VALUE
         ),
+        _assigned_name,
+        labelled=True,
+    ),
+    Shape(
+        "secret after a flag",
+        re.compile(r"(?<!\S)--(?P<name>[A-Za-z][\w-]*)\s+" + VALUE),
+        _spoken,
+        labelled=True,
+    ),
+    Shape(
+        "secret in prose",
+        re.compile(
+            r"(?i)(?<![A-Za-z])(?:pass(?:word|phrase|code|wd)|pwd|secret|token"
+            r"|(?:api|access|secret|private|ssh|deploy)[ _-]?key)(?![A-Za-z_-])['\"`]?"
+            r"(?:\s+(?:for|on|of|in|at|to)\s+[\w.-]+)?"
+            r"\s+(?:(?:is|was)(?:\s+(?:now|still|currently|set\s+to))?"
+            r"|(?:set|changed|reset|rotated|updated)\s+to)\s+" + VALUE
+        ),
+        _spoken,
+        labelled=True,
     ),
 ]
 
 
-def find_secrets(text: str) -> list[str]:
-    """Return the names of the secret patterns found in text."""
-    return [name for name, pattern in PATTERNS if pattern.search(text)]
+class KnownValues(Protocol):
+    """Real values from the checkout. `find` names them, and it never returns a value."""
+
+    def find(self, text: str) -> list[str]: ...
+
+    def mask(self, text: str) -> str: ...
+
+    def only_plain(self, names: list[str]) -> bool: ...
+
+    def names(self) -> frozenset[str]: ...
+
+
+# A terminal code is removed as a whole, so its letters cannot stay between two halves.
+_TERMINAL_CODE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_ASCII_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
+# Letters and symbols that show as an empty place: Hangul fillers, the blank braille cell, the
+# Khmer vowels that have no shape.
+_BLANK_SHAPES = frozenset("\u115f\u1160\u17b4\u17b5\u2800\u3164\uffa0")
+# Control and format characters, and the marks that join the letter before them, which take in
+# zero-width marks, bidi controls, the soft hyphen and all variation selectors.
+_UNSEEN_KINDS = frozenset({"Cc", "Cf", "Mn", "Me", "Co", "Cn", "Zl", "Zp"})
+
+
+_ORDINARY_SPACE = frozenset(" \t\n\r\x0b\x0c")
+
+
+@lru_cache(maxsize=4096)
+def _unseen(char: str) -> bool:
+    return char not in _ORDINARY_SPACE and (
+        char in _BLANK_SHAPES or unicodedata.category(char) in _UNSEEN_KINDS
+    )
+
+
+def without_unseen(text: str) -> str:
+    """The text without each character that shows as nothing or that a load removes. A scan reads
+    this too, so no such character can split a token. A list of them missed many."""
+    text = _TERMINAL_CODE.sub("", text)
+    if text.isascii():
+        return _ASCII_CONTROL.sub("", text)
+    return "".join(char for char in text if not _unseen(char))
+
+
+HIDDEN = "hidden text"
+ENV_VALUE = "env value"
+_CLOSED_NAMES = frozenset([*(s.name for s in SHAPES), HIDDEN, ENV_VALUE])
+_MASK_NAMES = "|".join(re.escape(name) for name in _CLOSED_NAMES)
+# A snippet can cut a mask, so the end of a text can end one too. This finds the form of a mask.
+# Only `_is_mask` says that it holds a name and no value.
+MASK = re.compile(rf"(\[secret: (?:(?:{_MASK_NAMES}|[A-Z][A-Z0-9_]{{0,39}})\]|[A-Za-z_ ]*$))")
+_MASK_HEAD = len("[secret: ")
+PLAIN_WORD = re.compile(r"[(\[]?[A-Za-z][a-z]{0,20}(?:['-][a-z]{1,20})*[.,;:!?)\]]?|\d{1,4}[.,;:]?")
+# A search snippet can cut a mask at either end, and it marks the cut with dots.
+_CUT_MASK = re.compile(r"\[secret:\s*[A-Za-z_ ]*(?:\.{3}|…|$)|^(?:\.{3}|…)[A-Za-z_: ]*\]")
+
+
+def mask_token(name: str) -> str:
+    return f"[secret: {name}]"
+
+
+def _is_mask(match: re.Match[str], known: KnownValues | None) -> bool:
+    """The match holds the name that a mask writes: a shape name, HIDDEN, ENV_VALUE or the name
+    of a `.env` variable, or the start of one where a snippet cut it. `[secret: AKIA...]` has the
+    form of a mask, and it holds a value."""
+    whole = match[0]
+    cut = not whole.endswith("]")
+    token = whole[_MASK_HEAD:] if cut else whole[_MASK_HEAD:-1]
+
+    def named(names: frozenset[str]) -> bool:
+        return any(name.startswith(token) for name in names) if cut else token in names
+
+    if named(_CLOSED_NAMES):
+        return True
+    return known is not None and named(known.names()) and not _found(token, known)
+
+
+def _without_masks(text: str, known: KnownValues | None) -> str:
+    """`<...>` stands in for a value in each shape, and a mask holds no value."""
+    if "[secret: " not in text:
+        return text
+    return MASK.sub(lambda match: "<secret>" if _is_mask(match, known) else match[0], text)
+
+
+def holds_mask(text: str) -> bool:
+    """The text holds what a read prints in place of a value, whole or cut."""
+    return bool(MASK.search(text) or _CUT_MASK.search(text))
+
+
+# Fields that a tool writes from a closed set, or reads as a name. A known value is no catch here:
+# a mask on a branch named `release` would end its notes. `find_in_closed_fields` looks for shapes.
+UNSCANNED_FIELDS = frozenset(
+    [
+        "type",
+        "id",
+        "kind",
+        "basis",
+        "status",
+        "scope",
+        "writer",
+        "at",
+        "learned_at",
+        "happened_at",
+        "expires_at",
+        "purged_at",
+        "cid",
+        "rel",
+        "until_branch_merged",
+        "branch_tip",
+        "held_by",
+        "enforced_by",
+    ]
+)
+
+
+# Each shape needs one of these. Each memory open scans each fact, and most facts hold none.
+# tests/test_secret_shapes.py proves that this finds all that the shapes find.
+CLUE = re.compile(
+    r"-----BEGIN|\b(?:AKIA|ASIA|xox|AIza|eyJ)|\bgh[pousr]_|github_pat_|\b[sr]k[-_]|\bBearer\b|[?&]\w+="
+    r"|://|\b(?:whsec_|npm_|gl(?:pat|rt)-|pypi-|hf_|dop_v1_|shp(?:at|ss)_)"
+    r"|(?i:pass|pwd|secret|token|credential|key|auth|cookie)|[A-Z]_CODE\b"
+)
+
+
+def match_shapes(text: str) -> tuple[str, ...]:
+    return tuple(
+        shape.name
+        for shape in SHAPES
+        if any(not shape.harmless(match) for match in shape.pattern.finditer(text))
+    )
+
+
+# A session start opens the memory more than once, and each fact has the same text each time.
+@lru_cache(maxsize=50_000)
+def _shapes_in(text: str) -> tuple[str, ...]:
+    return match_shapes(text) if CLUE.search(text) else ()
+
+
+def find_secrets(text: str, known: KnownValues | None = None) -> list[str]:
+    """Return the names of the secret shapes and known values found in text.
+
+    A mark that shows as nothing, inside a token, breaks its shape. A load removes such marks, so
+    the text without them is read too.
+    """
+    text = _without_masks(text, known)
+    found = _found(text, known)
+    seen = without_unseen(text)
+    return found or (_found(seen, known) if seen != text else [])
+
+
+def _found(text: str, known: KnownValues | None) -> list[str]:
+    found = list(_shapes_in(text))
+    return found + known.find(text) if known else found
+
+
+def _value_span(match: re.Match[str]) -> tuple[int, int]:
+    for group in ("value", "dq", "sq", "bq", "bare"):
+        if group in match.re.groupindex and match[group] is not None:
+            return match.span(group)
+    return match.span()
+
+
+def _mask_shape(shape: Shape, text: str) -> str:
+    spans = [_value_span(m) for m in shape.pattern.finditer(text) if not shape.harmless(m)]
+    for start, end in sorted(set(spans), reverse=True):
+        text = text[:start] + mask_token(shape.name) + text[end:]
+    return text
+
+
+def _outside_masks(
+    text: str, change: Callable[[str], str], known: KnownValues | None = None
+) -> str:
+    out: list[str] = []
+    at = 0
+    for match in MASK.finditer(text):
+        if _is_mask(match, known):
+            out += [change(text[at : match.start()]), match[0]]
+            at = match.end()
+    return "".join([*out, change(text[at:])])
+
+
+def _join_split_words(text: str, known: KnownValues | None) -> str:
+    """Each word whose marks split a secret, without them. A mark can split a token so that only
+    its head has the shape. The other words keep their marks: a virama or a joiner is part of a
+    word in Hindi or in an emoji."""
+    words = re.split(r"(\s+)", text)
+    for index, word in enumerate(words):
+        seen = without_unseen(word)
+        if seen != word and _found(seen, known):
+            words[index] = seen
+    return "".join(words)
+
+
+def _without_unseen_in_ascii(text: str) -> str:
+    """The text without each run of unseen characters that stands between two visible ASCII
+    characters, such as a mark that splits `pass\u200bword`. A virama, an accent or an emoji
+    joiner stands next to a letter that is not ASCII, or next to a space, so it stays."""
+    out: list[str] = []
+    run: list[str] = []
+    for char in _TERMINAL_CODE.sub("", text):
+        if _unseen(char):
+            run.append(char)
+            continue
+        if run and not (out and "!" <= out[-1] <= "~" and "!" <= char <= "~"):
+            out += run
+        run = []
+        out.append(char)
+    return "".join(out + run)
+
+
+def mask(text: str, known: KnownValues | None = None) -> str:
+    """The text with each value that looks secret replaced. A second mask changes nothing."""
+    if not find_secrets(text, known):
+        return text
+    text = _join_split_words(text, known)
+    if not _found(text, known):
+        text = _without_unseen_in_ascii(text)
+    if not _found(text, known):
+        text = without_unseen(text)
+    if known:
+        text = _outside_masks(text, known.mask, known)
+    for shape in SHAPES:
+        text = _outside_masks(text, partial(_mask_shape, shape), known)
+    return mask_token(HIDDEN) if find_secrets(text, known) else text
+
+
+def mask_record(value: object, known: KnownValues | None = None) -> object:
+    """A copy with each free text field masked. It keeps the same fields that `strings_of` scans."""
+    if isinstance(value, str):
+        return mask(value, known)
+    if isinstance(value, list):
+        return [mask_record(item, known) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: item if key in UNSCANNED_FIELDS else mask_record(item, known)
+            for key, item in value.items()
+        }
+    return value
+
+
+def find_in_closed_fields(record: dict) -> list[str]:
+    """A secret where only a tool writes. Known values stay out: a writer can be named `release`."""
+    return sorted(
+        {
+            name
+            for key in UNSCANNED_FIELDS
+            if isinstance(record.get(key), str)
+            for name in find_secrets(record[key])
+        }
+    )
+
+
+def mask_closed_fields(record: dict) -> dict:
+    return {
+        key: mask(value) if key in UNSCANNED_FIELDS and isinstance(value, str) else value
+        for key, value in record.items()
+    }
+
+
+def real_secrets(text: str, known: KnownValues | None = None) -> list[str]:
+    """What must leave a file that no fact state masks: a plain word from `.env` can be chance."""
+    return [name for name in find_secrets(text, known) if not (known and known.only_plain([name]))]
+
+
+def only_plain_words(text: str, known: KnownValues | None = None) -> bool:
+    """Each catch here is one plain word that only its label or a `.env` file makes secret.
+
+    A fact refuses this word, because a fact loads in each session. A note is the owner's prose,
+    so `--strict` must not fail on a word that prose can hold by chance.
+    """
+    text = _without_masks(text, known)
+    for shape in SHAPES:
+        for match in shape.pattern.finditer(text):
+            if shape.harmless(match):
+                continue
+            start, end = _value_span(match)
+            if not (shape.labelled and PLAIN_VALUE.fullmatch(_unwrapped(text[start:end]))):
+                return False
+    return not known or all(known.only_plain([name]) for name in known.find(text))
+
+
+TEXT_IN_LINE = re.compile(r'"(?:text|summary)"\s*:\s*"(.*)', re.DOTALL)
+
+
+def readable(text: str, known: KnownValues | None = None) -> str:
+    """Only masks and plain words, for a damaged line: a cut token matches no shape."""
+    inner = TEXT_IN_LINE.search(text)
+    words: list[str] = []
+    for index, part in enumerate(MASK.split(mask(inner[1] if inner else text, known))):
+        if index % 2:
+            words.append(part)
+            continue
+        for word in part.split():
+            word = word if PLAIN_WORD.fullmatch(word) else "[hidden]"
+            if word != "[hidden]" or words[-1:] != ["[hidden]"]:
+                words.append(word)
+    return " ".join(words)
+
+
+REAL_WORDS = 3
+
+
+def has_real_text(masked: str) -> bool:
+    """The text says something beyond the value that the mask replaced."""
+    return len(re.findall(r"[A-Za-z]{2,}", MASK.sub(" ", masked))) >= REAL_WORDS
+
+
+def strings_of(value: object) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from strings_of(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key not in UNSCANNED_FIELDS:
+                yield from strings_of(item)
+
+
+def find_in_record(record: dict, known: KnownValues | None = None) -> list[str]:
+    """Return the names found in any field of a record that holds free text."""
+    return sorted({name for text in strings_of(record) for name in find_secrets(text, known)})

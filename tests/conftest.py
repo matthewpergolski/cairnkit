@@ -60,6 +60,7 @@ def clean_env(monkeypatch):
         "MEMORY_WRITER",
         "MEMORY_NOW",
         "CLAUDECODE",
+        "CLAUDE_CODE_SESSION_ID",
         "CODEX_CI",
         "CODEX_SANDBOX",
         "CODEX_THREAD_ID",
@@ -81,6 +82,14 @@ def clean_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_hooks_on_init(monkeypatch):
+    """Only a test of setup connects hooks, so tests do not read the machine's agent tools."""
+    from cairnkit import hooks_cmd
+
+    monkeypatch.setattr(hooks_cmd, "INSTALL_ON_INIT", False)
+
+
+@pytest.fixture(autouse=True)
 def no_real_machine(tmp_path_factory, monkeypatch):
     """An empty home, no network and no real install, so the skills check says nothing.
 
@@ -88,8 +97,9 @@ def no_real_machine(tmp_path_factory, monkeypatch):
     runners often set XDG_CONFIG_HOME to the real ~/.config; without this pin,
     OpenCode detection escapes HOME and tests share / pollute the runner.
     """
-    from cairnkit import skills
+    from cairnkit import install_source, skills
 
+    monkeypatch.setattr(install_source, "_direct_url", lambda: None)
     machine = tmp_path_factory.mktemp("machine")  # outside the test's own tmp folder
     (machine / "home").mkdir()
     monkeypatch.setenv("HOME", str(machine / "home"))
@@ -192,3 +202,27 @@ def write_facts(mem: Path, records: list[dict], name: str = "main.jsonl") -> Non
     with path.open("a") as fh:
         for rec in records:
             fh.write(json.dumps(rec) + "\n")
+
+
+def owner_said(monkeypatch, text: str, session: str = "s") -> None:
+    """The owner types `text` in a session, and the agent's shell joins that session. Then an
+    agent's `told` claim with these words binds. The synthetic transcript holds the prompt, as
+    Claude Code's does, so the claim check can prove it."""
+    import io
+    import json
+    import tempfile
+
+    from cairnkit.cli import main
+
+    transcript = Path(tempfile.gettempdir()) / f"cairnkit-test-{uuid.uuid4().hex}.jsonl"
+    payload = {
+        "session_id": session,
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": text,
+        "transcript_path": str(transcript),
+    }
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert main(["hook", "prompt", "--agent", "claude"]) == 0
+    record = {"type": "user", "message": {"role": "user", "content": text}}
+    transcript.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)

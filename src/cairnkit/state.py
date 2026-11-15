@@ -28,8 +28,9 @@ def fold(records: list[dict]) -> dict[str, dict]:
         kind = rec.get("type")
         if kind == "fact" and rec.get("id") not in facts:
             state = dict(rec)
-            state["links"] = list(rec.get("links", []))
-            state["scope"] = rec.get("scope", "long")
+            state["links"] = list(rec.get("links") or [])
+            state["scope"] = rec.get("scope") or "long"
+            state["status"] = rec.get("status") or "active"
             state["history"] = []
             facts[rec["id"]] = state
         elif kind == "change":
@@ -53,14 +54,16 @@ def fold(records: list[dict]) -> dict[str, dict]:
         state = facts.get(change.get("id"))
         if state is None or state["status"] == "purged":
             continue
-        for name in ("status", "scope", "superseded_by", "held_by", "enforced_by"):
+        for name in ("status", "scope", "superseded_by", "held_by", "enforced_by", "branch_tip"):
             if name in change:
                 state[name] = change[name]
         if "enforced_by" in change and change["enforced_by"] is None:
             del state["enforced_by"]
         if "reason" in change and "status" in change:
             state["reason"] = change["reason"]
-        state["links"].extend(change.get("add_links", []))
+        state["links"].extend(change.get("add_links") or [])
+        gone = change.get("remove_links") or []
+        state["links"] = [link for link in state["links"] if link not in gone]
         state["history"].append(change)
     return facts
 
@@ -68,7 +71,7 @@ def fold(records: list[dict]) -> dict[str, dict]:
 def effective_status(
     state: dict,
     now: str | datetime | None = None,
-    is_merged: Callable[[str], bool] | None = None,
+    is_merged: Callable[[str, str | None], bool] | None = None,
 ) -> tuple[str, str | None]:
     """Return (status, reason). A short-term fact past its end reads as expired.
 
@@ -86,6 +89,6 @@ def effective_status(
         except ValueError:
             pass
     branch = state.get("until_branch_merged")
-    if branch and is_merged is not None and is_merged(branch):
-        return "expired", f"short-term fact ended when branch {branch} was merged"
+    if branch and is_merged is not None and is_merged(branch, state.get("branch_tip")):
+        return "expired", f"short-term fact ended when branch {branch} was merged or deleted"
     return "active", None

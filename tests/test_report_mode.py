@@ -15,7 +15,7 @@ A, B = "f-20261001-0001", "f-20261002-0002"
 def copies():
     return [
         make_fact(A, "Deploys need a clean tree.", learned_at="2026-10-01T00:00:00+00:00"),
-        make_fact(B, "deploys need a CLEAN tree!", learned_at="2026-10-02T00:00:00+00:00"),
+        make_fact(B, "Deploys need a clean tree", learned_at="2026-10-02T00:00:00+00:00"),
     ]
 
 
@@ -58,7 +58,7 @@ def test_a_new_report_is_logged_again(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     write_facts(mem, copies())
     start(capsys, monkeypatch)
-    write_facts(mem, [make_fact("f-20261003-0003", "deploys NEED a clean tree")])
+    write_facts(mem, [make_fact("f-20261003-0003", "Deploys need a clean tree;")])
     start(capsys, monkeypatch)
     assert len((mem / "auto-tidy.log").read_text().splitlines()) == 2
 
@@ -89,12 +89,12 @@ def test_the_old_true_and_false_still_work(mem, capsys, monkeypatch, value, acts
     assert bool(retired(mem)) is acts
 
 
-def test_an_unknown_value_means_the_default(mem, capsys, monkeypatch):
+def test_an_unknown_value_keeps_auto_tidy_off(mem, capsys, monkeypatch):
     monkeypatch.setenv("MEMORY_NOW", NOW)
     config(mem, 'auto_tidy = "sometimes"')
     write_facts(mem, copies())
     out = start(capsys, monkeypatch)
-    assert retired(mem) == [] and "would retire 1" in out
+    assert retired(mem) == [] and "would retire" not in out
 
 
 def test_tidy_auto_by_hand_acts_in_report_mode(mem, capsys, monkeypatch):

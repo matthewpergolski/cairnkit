@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from cairnkit.schema import MAX_TEXT
+from cairnkit.similar import repeat_key
 
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(\S.*)$")
 DATED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\b")
@@ -47,13 +48,17 @@ class Candidate:
     too_long: bool = False
     worktree: str | None = None  # the worktree whose own old notes hold this line
     origin: str | None = None  # the file that holds it, when it is not in the main notes
+    repeat_of: str | None = None  # the earlier candidate or the fact that says the same
 
     @property
     def tier(self) -> str:
         """`likely` for a decision, trap, lesson, event or brief line; `maybe` for the rest.
 
-        A line found only in a worktree's own old notes is `worktree-only`.
+        A line found only in a worktree's own old notes is `worktree-only`. A line that says
+        what another one says is `repeat`.
         """
+        if self.repeat_of:
+            return "repeat"
         if self.worktree:
             return "worktree-only"
         return (
@@ -163,3 +168,20 @@ def scan_text(file: str, text: str) -> tuple[list[Candidate], Counts]:
             counts.other += 1
             open_item = False
     return found, counts
+
+
+def mark_repeats(found: list[Candidate], facts: dict[str, str]) -> int:
+    """Set `repeat_of` by the test that `memory add` uses. Return how many are repeats.
+
+    Ids are `c0001` and up, in list order, as in the worklist. A date at the start of a line
+    is left out. A stored fact is a better origin than another candidate.
+    """
+    stored = {repeat_key(text): fid for fid, text in facts.items()}
+    first: dict[str, str] = {}
+    count = 0
+    for number, cand in enumerate(found, start=1):
+        key = repeat_key(DATED_RE.sub("", cand.text))
+        cand.repeat_of = stored.get(key) or first.get(key)
+        first.setdefault(key, f"c{number:04d}")
+        count += cand.repeat_of is not None
+    return count

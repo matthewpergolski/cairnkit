@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.memory import Memory, MemoryMissing
 from cairnkit.paths import Project
+from cairnkit.selection import clean_path
 from cairnkit.writing import fail
 
 STATE_DIR = Path("docs") / "state"
+_SCALAR = r'(?:[A-Za-z0-9_./-]+|"(?:[^"\\]|\\.)*")'
+# What render_page writes, line by line. A page with this front matter is the tool's own.
+_ATLAS_FRONT_MATTER = re.compile(
+    rf"---\nid: \S+\ntitle: {_SCALAR}\nkind: \S+\nstatus: \S+\n"
+    rf"summary: {_SCALAR}\nparent: {_SCALAR}\n"
+    r'(?:sourceRevision: "[^"\n]+"\n)?'
+    r"sources:\n(?:  \[\]\n|(?:  - .+\n)+)"
+    r"diagramLinks:(?: \{\}\n|\n(?:  .+\n)+)"
+    r"---\n\n"
+)
 
 
 @dataclass(frozen=True)
@@ -48,7 +61,14 @@ class Stale:
             raise ValueError("Stale.changed must be non-empty, unique, and sorted")
 
 
-AtlasFreshness = Absent | Current | Stale
+@dataclass(frozen=True)
+class Unknown:
+    """The code could not be listed, so nothing says whether the atlas is current."""
+
+    reason: str
+
+
+AtlasFreshness = Absent | Current | Stale | Unknown
 
 
 def _yaml_scalar(value: object) -> str:
@@ -93,7 +113,7 @@ def build_atlas(project: Project) -> list[Page]:
     from cairnkit.docs_pages_cairnkit import build_cairnkit_pages
     from cairnkit.docs_pages_generic import build_generic_pages
 
-    inv = inventory(project.root)
+    inv = inventory(project.root)  # raises ListingFailed
     if inv.kind is ProjectKind.CAIRNKIT:
         return build_cairnkit_pages(project.root, inv)
     return build_generic_pages(project.root, inv)
@@ -107,76 +127,103 @@ def write_atlas(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
         if dry_run:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_page(page), encoding="utf-8")
+        plainfile.write_text(path, render_page(page), encoding="utf-8")
     return written
 
 
-def _prune_orphan_markdown(root: Path, pages: list[Page], *, dry_run: bool) -> list[Path]:
+def _prune_old_pages(
+    root: Path, atlas: dict[Path, str], written: list[Path], *, dry_run: bool
+) -> list[Path]:
+    """Remove each atlas page that has no source now. All else in the folder stays."""
     state = root / STATE_DIR
-    if not state.is_dir():
-        return []
-    keep = {root / STATE_DIR / page.state_path for page in pages}
-    removed: list[Path] = []
-    for path in sorted(state.rglob("*.md"), reverse=True):
-        if path in keep:
-            continue
-        removed.append(path)
-        if not dry_run:
-            path.unlink(missing_ok=True)
-    if not dry_run:
-        for folder in sorted((p for p in state.rglob("*") if p.is_dir()), reverse=True):
-            try:
-                next(folder.iterdir())
-            except StopIteration:
-                folder.rmdir()
-            except OSError:
-                pass
+    removed = sorted((path for path in atlas if path not in written), reverse=True)
+    for path in [] if dry_run else removed:
+        path.unlink(missing_ok=True)
+        for folder in path.parents:
+            if folder == state or any(folder.iterdir()):
+                break
+            folder.rmdir()
     return removed
 
 
 _SOURCE_REVISION_LINE = re.compile(r"^sourceRevision:[^\n]*\n", re.MULTILINE)
-_UNREADABLE = object()
 
 
 def _strip_source_revision(text: str) -> str:
     return _SOURCE_REVISION_LINE.sub("", text)
 
 
-def _state_markdown(root: Path) -> dict[str, object] | None:
+def _atlas_pages(root: Path) -> dict[Path, str]:
+    """The pages under docs/state that render_page wrote, with no `sourceRevision` line. A page
+    that is a link, is under one, or is not a regular file (a pipe there would hang a read) is
+    not the tool's own."""
+    from cairnkit.docs_inventory import read_file
+
     state = root / STATE_DIR
-    if not state.is_dir():
-        return None
-    paths = sorted(state.rglob("*.md"))
-    if not paths:
-        return None
-    found: dict[str, object] = {}
-    for path in paths:
-        rel = path.relative_to(root).as_posix()
-        try:
-            found[rel] = _strip_source_revision(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError):
-            found[rel] = _UNREADABLE
-    return found or None
+    found: dict[Path, str] = {}
+    if plainfile.through_link(root, state) or not state.is_dir():
+        return found
+    for path in sorted(state.rglob("*.md")):
+        text = read_file(root, path.relative_to(root).as_posix())
+        if text is not None and _ATLAS_FRONT_MATTER.match(text):
+            found[path] = _strip_source_revision(text)
+    return found
+
+
+def _not_ours(root: Path, path: Path, atlas: dict[Path, str]) -> bool:
+    """Something else holds this atlas path, such as a hand-written page or a link. It stays."""
+    return path not in atlas and (os.path.lexists(path) or plainfile.through_link(root, path))
 
 
 def atlas_freshness(project: Project) -> AtlasFreshness:
-    disk = _state_markdown(project.root)
-    if disk is None:
+    """How the atlas on disk compares with the code. No file in the project makes it raise."""
+    from cairnkit.docs_inventory import ListingFailed
+
+    root = project.root
+    disk = _atlas_pages(root)
+    if not disk:
         return Absent()
+    try:
+        pages = build_atlas(project)
+    except ListingFailed as exc:
+        return Unknown(str(exc))
     fresh = {
-        (STATE_DIR / page.state_path).as_posix(): _strip_source_revision(render_page(page))
-        for page in build_atlas(project)
+        root / STATE_DIR / page.state_path: _strip_source_revision(render_page(page))
+        for page in pages
     }
     changed = tuple(
-        sorted(rel for rel in set(fresh) | set(disk) if fresh.get(rel) != disk.get(rel))
+        sorted(
+            path.relative_to(root).as_posix()
+            for path in {*fresh, *disk}
+            if fresh.get(path) != disk.get(path) and not _not_ours(root, path, disk)
+        )
     )
     if not changed:
         return Current()
     return Stale(changed)
 
 
+def status_line(project: Project) -> str | None:
+    """One line for `memory status` when the atlas differs from the code. Never raises."""
+    try:
+        result = atlas_freshness(project)
+    except Exception:
+        return None
+    if not isinstance(result, Stale):
+        return None
+    return (
+        f"Docs atlas: {len(result.changed)} page(s) in {STATE_DIR.as_posix()} differ from the "
+        "code. `memory docs --force` uses no model and no network. It rewrites only the atlas "
+        "pages, removes an atlas page that has no source now, and keeps all other Markdown. "
+        "The folder may be tracked, so nothing runs it by itself, and no session hears this. "
+        "`memory docs --check` fails while they differ, for a project that wants CI to own it."
+    )
+
+
 def run_docs_check(project: Project) -> int:
     result = atlas_freshness(project)
+    if isinstance(result, Unknown):
+        return fail(result.reason)
     if isinstance(result, Stale):
         for path in result.changed:
             print(path)
@@ -190,30 +237,51 @@ def run_docs(project: Project, path: str | None, dry_run: bool, force: bool) -> 
     except MemoryMissing as exc:
         return fail(str(exc))
 
-    out = project.root / STATE_DIR
-    existing = sorted(out.rglob("*.md")) if out.is_dir() else []
-    if existing and not force and not dry_run:
+    from cairnkit.docs_inventory import ListingFailed
+
+    root = project.root
+    if plainfile.through_link(root, root / STATE_DIR):
         return fail(
-            f"{STATE_DIR.as_posix()} already exists ({len(existing)} Markdown file(s)). "
-            "Re-run with --force to overwrite, or remove it first.\nNothing changed."
+            f"{STATE_DIR.as_posix()} is a link or is under one, so a page could land outside "
+            "the repo. Make it a plain folder.\nNothing changed."
+        )
+    atlas = _atlas_pages(root)
+    if atlas and not force and not dry_run:
+        return fail(
+            f"{STATE_DIR.as_posix()} already exists ({len(atlas)} atlas page(s)). "
+            "Re-run with --force to rewrite them, or remove them first.\nNothing changed."
         )
 
-    pages = build_atlas(project)
-    paths = write_atlas(project.root, pages, dry_run=dry_run)
-    removed = _prune_orphan_markdown(project.root, pages, dry_run=dry_run) if force else []
-    rels = [p.relative_to(project.root).as_posix() for p in paths]
+    try:
+        pages = build_atlas(project)
+    except ListingFailed as exc:
+        return fail(str(exc))
+    kept = [
+        path for page in pages if _not_ours(root, path := root / STATE_DIR / page.state_path, atlas)
+    ]
+    mine = [page for page in pages if root / STATE_DIR / page.state_path not in kept]
+    paths = write_atlas(root, mine, dry_run=dry_run)
+    removed = _prune_old_pages(root, atlas, paths, dry_run=dry_run) if force else []
+    rels = [clean_path(p.relative_to(root).as_posix()) for p in paths]
     if dry_run:
         print(f"Would write {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
         for path in removed:
-            print(f"  remove {path.relative_to(project.root).as_posix()}")
+            print(f"  remove {clean_path(path.relative_to(root).as_posix())}")
     else:
         print(f"Wrote {len(rels)} page(s) under {STATE_DIR.as_posix()}:")
         for rel in rels:
             print(f"  {rel}")
         for path in removed:
-            print(f"  removed {path.relative_to(project.root).as_posix()}")
+            print(f"  removed {clean_path(path.relative_to(root).as_posix())}")
+    for path in kept:
+        why = (
+            "it is a link or is under one"
+            if plainfile.through_link(root, path)
+            else "it is not an atlas page"
+        )
+        print(f"  keep {clean_path(path.relative_to(root).as_posix())}: {why}")
     print(
         "Browse with Nessa Docs: https://github.com/nessalabs/nessa-docs "
         "(open this project folder in the app)."

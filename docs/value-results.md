@@ -1,0 +1,812 @@
+# Value results
+
+This file is the record of the value measure: does memory help a later session? Each run has one
+entry. The method, the scenarios and the pass line are in
+[evals/agents/README.md](../evals/agents/README.md). Raw results stay local in
+`evals/agents/results/`, which git ignores.
+
+A pass counts only with `pass` and `fail`. An `inconclusive` run does not count.
+
+## 2026-11-03: the open question of the owner in a busy memory, on Haiku and Sonnet
+
+In a real project with about 50 active facts, the session start showed 16 and held back all that
+the owner said in two days, his two open questions too. `8cfd208` puts the five newest facts with
+basis told right after the pinned facts. The other pickups start with an empty memory, so they
+cannot show this. The new scenario `pickup-busy-memory` runs only by name, so the reading rule of
+the six scenarios does not apply to it. It seeds 52 older facts in 17 areas (7 pinned, 28 told, 30
+looked up with `memory show`) and a status note of 33 lines. The owner states a decision and an open
+question in session A. Session B must name the question.
+
+- Commits: `dev` is `8cfd208` (the kit at `4ce22d6`, which changes no code under `src/`).
+  `before` is `af8309e`, with no told-first ranking. `prod` is 0.3.1 (`d523c01`).
+- Model: `claude-haiku-5-5` (two runs of 3 repeats), then `claude-sonnet-5-5` (one run of 3
+  repeats). Claude Code 2.1.317.
+- Sessions: 72. Reported cost: 1.20 USD (Haiku 0.065 and 0.074, Sonnet 1.058). The cap was 0.10
+  USD for each Haiku session and 0.20 USD for each Sonnet session.
+- Local results: `evals/agents/results/20261103T212837Z-claude` (Haiku, first wording),
+  `20261103T213515Z-claude` (Haiku) and `20261103T214102Z-claude` (Sonnet), in the worktree of
+  the change.
+
+### Before the run: a free probe
+
+With two facts that have basis told added as session A would add them, the start hook of `dev` held
+the question (6,798 characters). The hooks of `before` (6,399) and `prod` (6,858, 16 fact ids)
+did not. Each load was under `HOOK_TEXT_LIMIT` (9,000), so the control holds in all arms.
+
+### Results
+
+`In load` is the start load of session B. Each load of each run was under the hook limit.
+
+| Run | dev | before | prod | none |
+|---|---|---|---|---|
+| Haiku, "A decision:" | 0 of 3, in load 0 | 0 of 3, in load 0 | 0 of 3, in load 0 | 0 of 3 |
+| Haiku, "I decided" | 3 of 3, in load 3 | 0 of 3, in load 0 | 0 of 3, in load 0 | 0 of 3 |
+| Sonnet, "I decided" | 2 of 3, in load 0 | 0 of 3, in load 0 | 2 of 3, in load 1 | 2 of 3 |
+
+| Arm (Sonnet) | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 6 | 8 | 6 | 0 | 1140 |
+| before | 6 | 6 | 6 | 0 | 1077 |
+| prod | 6 | 9 | 4 | 0 | 1154 |
+| none | 6 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **With the first wording, no stop blocked and the run tested capture, not the load.** "A
+  decision:" and "an open question that waits on me" match no pattern of the statement check.
+  Only 1 of 9 memory sessions A wrote a fact, by itself, with basis `guess`. So the scenario now
+  says "I decided", and a test checks that the statement check reads it.
+- **On Haiku, the told-first ranking is the difference.** In `dev` and `before`, the stop blocked
+  once in each session A, and Haiku wrote both facts with `--basis told`, as the stop text says. In
+  `dev` the question was in each start load of session B, and each session B named it. In `before`
+  the same two facts were in memory, but not in the load, and no session B ran `memory search`. It
+  named the old reminder question from the status note. In `prod`, session A wrote nothing: 0.3.1
+  has no stop for a statement.
+- **On Sonnet, session A wrote both facts before the stop, with basis `guess`, in all 6 sessions of
+  `dev` and `before`.** It ran `memory add "TEXT"`, the form of the rules line at session start,
+  and twice wrote "(told)" in the text. The note "saved with basis guess" came after the add, and
+  Sonnet did not change the basis. The stop did not block, because any write after the statement
+  counts. So the told-first ranking did not apply, and the question was in no load. The 2 passes
+  in `dev` came from `memory search` in session B. In `before`, no session B searched.
+- **The `prod` passes on Sonnet came from other paths.** In 1 run Sonnet used `--short`, and a short
+  fact has its own budget, so it was in the load. In 1 run session B searched.
+- **The 2 passes in `none` on Sonnet came from Claude Code's own memory.** Session A wrote
+  `MEMORY.md` and two notes under `~/.claude/projects/<project>/memory/`, and session B read them.
+  This channel is open in all arms (see the limits of the value measure).
+
+### Product gaps (not changed here)
+
+- The rules line of each session start (`RULES_SHORT` in `src/cairnkit/discover.py`) teaches
+  `memory add "TEXT"` with no `--basis told`. Only the stop text names it. An agent that writes
+  before the stop gets basis `guess`, and the told-first ranking skips its fact.
+- The stop check for a statement (`OWNER_SAID` in `src/cairnkit/session.py`) passes after any write.
+  A fact with basis `guess` after the owner's words answers it.
+- The statement check does not read "A decision: ..." or "an open question that waits on me" as a
+  statement.
+
+### Limits
+
+- 3 repeats in each cell, one scenario, one author of the seed text and the prompts.
+- The seed follows the shape of one real project. Its texts are shorter (median 25 words), and no
+  fact has a summary.
+- The prompt of session A was changed after the first run, to a form that the stop check reads.
+  The first run shows what a plainer form does.
+- The kit runs with the real home folder, so Claude Code's own memory stays on in all arms.
+
+### Decisions
+
+- Keep `pickup-busy-memory` opt-in. The result depends on the capture path and the model, and the
+  reading rule names six scenarios.
+- The told-first ranking works when the fact has basis told: Haiku 3 of 3 against 0 of 3. On
+  Sonnet it did not act, because no fact had basis told. The owner decides whether the rules line
+  names `--basis told`, and whether the stop asks again after a write with basis `guess`.
+
+## 2026-11-02: the task of a helper that a Ctrl+C killed, on Haiku
+
+This change records why each Claude Code helper started, from the moment that it starts. Before, a
+Ctrl+C while a helper worked left nothing of its aim, because no stop runs in a killed process. In a real
+project, the next session found an empty worktree and had to guess. The new scenario
+`pickup-interrupted-helper` runs only by name, so the reading rule of the six scenarios does not
+apply to it.
+
+- Commits: `dev` is `c6ea65c`. `base` is `aa0d548`. No `prod` arm.
+- Model: `claude-haiku-5-5` for session A and session B, 5 repeats. A first run of 3 repeats at
+  `760b31e` found two faults of the setup and one of the change (see below).
+- Sessions: 30. Reported cost: 0.07 USD (the first run: 0.06 USD). The cap was 0.20 USD for each
+  session.
+- Local results: `evals/agents/results/20261102T214208Z-claude` (and `20261102T213639Z-claude`),
+  in the worktree of the change.
+
+### Before the run: probes of real Claude Code 2.1.316
+
+- A payload probe with two parallel helpers: `PreToolUse` on `Agent` has `tool_use_id` and
+  `tool_input` with `description`, `prompt`, `subagent_type` and `isolation`. `SubagentStart` has
+  `agent_id`, `agent_type` and `cwd`, which is `.claude/worktrees/agent-<agent_id>`. In `-p` mode
+  both helpers ran in the background: `PostToolUse` came at once with `"status": "async_launched"`
+  and `agentId`. `SubagentStop` came at each end.
+- A kill probe: `claude -p` started a helper whose first step sleeps. A SIGINT to the process group
+  ended the task with `"status": "killed"`. No `SubagentStop`, `PostToolUse` or `Stop` ran. The
+  record stayed. Claude Code removed the worktree of the killed helper, because it held no change.
+  With the first build, a gone worktree ended the record, so session B said UNKNOWN. With the fix,
+  session B stated the task from the load.
+
+### Results
+
+| Scenario | dev | base | none |
+|---|---|---|---|
+| `pickup-interrupted-helper` | 5 of 5 | 0 of 5 | 2 of 5 |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 10 | 0 | 0 | 0 | 210 |
+| base | 10 | 0 | 0 | 0 | 161 |
+| none | 10 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The helper was in its slow first step in all 15 runs, and the SIGINT came then.** No run is
+  `inconclusive`. No edit and no commit of the task was on disk.
+- **In `dev`, the load of session B held the helper line in 5 of 5 runs**, with the task and "no
+  uncommitted change and no commit there". Each session B stated the task and said that no end was
+  recorded. Here the empty worktree stayed, as in the real project. In the kill probe, Claude Code
+  removed it.
+- **In `base`, session B said UNKNOWN in 5 of 5 runs.** Its load said only that a session worked in
+  this checkout a minute ago. Once it searched `~/.claude/projects` and found nothing; once it said
+  that the folder was outside the folders it may read.
+- **The 2 passes in `none` came from Claude Code's own transcript of the helper**, under
+  `~/.claude/projects/<project>/<session>/subagents/`. Session B found it with `ls` and `cat`. The
+  same happened in 1 `base` run of the first run. So an agent can find the task without memory,
+  but it did so in 2 of 5 runs here, and in the real project it did not.
+- **The 40-word cut lost the value in 1 of 3 `dev` runs of the first run.** Haiku's brief put
+  `45` at word 41, after a preamble and a first step. The cut is now 60 words.
+- **The first run had 3 `inconclusive` runs of 3 in `none`.** In the 2 that I read, the helper ran
+  `sh build.sh; echo ...`, which needs an approval that a headless run never gives, and it stopped.
+  The prompt now asks for the exact command.
+
+### Limits
+
+- One run of 5 repeats, on Haiku only, with one kind of helper prompt.
+- The kit runs with the real home folder, so session B can read Claude Code's transcripts and also
+  saw two real sessions of this machine in its agent list.
+- Foreground helpers of one type join their calls in the order sent. Only a test covers that. The
+  real probe with two parallel calls ran them in the background, where the launch result names
+  each helper.
+- Other agent tools did not run. Only Claude Code gets the new hooks.
+
+### Decisions
+
+- Keep the change: 5 of 5 against 0 of 5 and 2 of 5, for about 50 hook words in the session that
+  starts after the kill.
+
+## 2026-11-02: first real OpenCode run, on a free model
+
+This run checks whether the kit can drive OpenCode for real. It is no comparison.
+
+- Commits: `dev` is `2106353`. No `prod` arm.
+- Tool: OpenCode 1.18.32. Model: `opencode/deepseek-v4.1-flash-free`, 1 repeat, `pickup-purpose` and
+  `lesson-carry`. No cost. The ChatGPT login on this machine refuses the kit default
+  `openai/gpt-5.4-mini`.
+- Local results: `evals/agents/results/20261102T171441Z-opencode`.
+
+| Scenario | dev | none |
+|---|---|---|
+| `pickup-purpose` | 0 of 1 | 0 of 1 |
+| `lesson-carry` | 1 of 1 | 1 inconclusive |
+
+`dev`: 4 sessions, 0 memory commands, 0 facts, 2 blocked stops, 157 hook words per session.
+
+### What the transcripts show
+
+- The load, the hooks and the stop check fire in OpenCode.
+- After each block, session A gave no further turn and wrote no fact. The plugin sends the stop text
+  as a turn (`noReply: false`). One-shot `opencode run` seems to exit at the first idle, before that
+  turn runs. This is inferred and not tested.
+- The `lesson-carry` pass in `dev` had no fact in the load, so it shows nothing about memory.
+- The older OpenCode rows with 0 sessions are fake-provider runs in record schema 1. They are not
+  failed real runs.
+
+### Next
+
+1. Drive one session through `opencode serve`, and see if the stop text gets a turn while the
+   process stays alive, as in the TUI.
+2. If it does, give the kit a live mode for OpenCode: send the prompt and wait for idle twice.
+3. If one-shot `opencode run` matters, keep the stop text for the next `--continue` run of that
+   session, as for Grok.
+
+## 2026-11-02: work of a helper in its own worktree, on Haiku
+
+This change makes the capture check at the stop also read the worktree of each Claude Code helper
+of this session that ran with `isolation: "worktree"`. Before, a helper's commit in
+`.claude/worktrees/agent-*` did not block the stop of its parent. In the first real use by the
+owner, 5 helpers left no fact. The new scenario `pickup-helper-worktree` runs only by name, so the
+reading rule of the six scenarios does not apply to it.
+
+- Commits: `dev` is `d82bf1a`. `base` is `f382781`. No `prod` arm.
+- Model: `claude-haiku-5-5` for session A and session B, 3 repeats. Sonnet did not run, because
+  the Haiku result is clear.
+- Sessions: 18. Reported cost: 0.07 USD. The cap was 0.15 USD for each session.
+- Local results: `evals/agents/results/20261102T162722Z-claude`, in the worktree of the change.
+
+### Before the run: a probe of real Claude Code
+
+One `claude -p` session on Haiku, with a probe hook beside the memory hooks, in a throwaway repo:
+
+- The hooks of the helper ran, with the worktree as the process folder and as `cwd` in the payload.
+  They had the `session_id` of the parent and an `agent_id`.
+- The `after-shell` hook of the helper wrote a live marker for the worktree. The worktree had its
+  `memory-bank` link, from the `post-checkout` git hook.
+- The stop of the parent did not block with `f382781`, before this change. The main checkout
+  shows the worktree only as an untracked folder, and that is no work.
+- In one run the helper ran in the background. The parent stopped before the helper worked, and
+  stopped again after the task notice. So the check must keep the helper's checkout past one stop.
+
+### Results
+
+| Scenario | dev | base | none |
+|---|---|---|---|
+| `pickup-helper-worktree` | 3 of 3 | 0 of 3 | 0 of 3 |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 6 | 5 | 5 | 3 | 223 |
+| base | 6 | 0 | 0 | 0 | 144 |
+| none | 6 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The helper ran in a worktree in all 9 runs.** Each session A called the Agent tool with
+  `isolation: "worktree"`, and each left 1 commit on a `worktree-agent-*` branch that main does
+  not hold. So no run is `inconclusive`.
+- **The block fired once in each `dev` session A, and never in `base`.** Its reason was "The work
+  changed in this session, and no fact records it." The stop after it was silent. Session A then
+  wrote 1 or 2 facts with the Halvorsen restart as the purpose and the review as the next step.
+- **The fact carried.** The load of session B held `Halvorsen` in 3 of 3 `dev` runs. Each session B
+  stated the purpose. In `base` and `none`, session B read the commit and the diff, and said that
+  the purpose is not known.
+- **The prompt states no decision or reason in the form that the statement check catches.** So in
+  `base`, no stop asked for a fact. That is the gap of the first real use.
+
+### Limits
+
+- One run of 3 repeats, on Haiku only.
+- Some facts also restate git: the branch name and the commit hash.
+- A helper of this session that runs one tool in a checkout where another session works makes that
+  work count for this session too. No test or run shows how often that happens.
+- OpenCode did not run. Its `task` child has its own session key, and its hooks run in the project
+  folder, so this path does not apply there. The `openai` login of this machine is a ChatGPT
+  account, and it refused `gpt-5.4-mini`, `gpt-5.5` and `gpt-6.1-sol` in OpenCode.
+
+### Decisions
+
+- Keep the change: 3 of 3 against 0 of 3, with one block for each session that used a helper.
+- A run on Sonnet, and a run of the six scenarios to check that the cost table does not move, are
+  owner calls.
+
+## 2026-11-02: dev against 0.3.1 on Sonnet
+
+This is the run on a larger model that the reading rule asks for before a keep or cut. It has all
+the changes of this day together: the capture check at the stop with the shorter block, the deny
+before a shell command, and the live work list. The branch-note gate is off, as it is by default.
+
+- Commits: `dev` is `e0132a6`. `prod` is `d523c01` (0.3.1).
+- Model: `claude-sonnet-5-5` for session A and session B, 3 repeats.
+- Sessions: 117. Reported cost: 4.72 USD. The cap was 0.25 USD for each session.
+- Local results: `evals/agents/results/20261102T100848Z-claude`.
+
+### Results
+
+| Scenario | dev | prod | none |
+|---|---|---|---|
+| `pickup-decision` | 3 of 3 | 0 of 3 | 0 of 3 |
+| `pickup-purpose` | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-findings` | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-dirty-worktree` | 3 of 3 | 0 of 3 | 0 of 3 |
+| `lesson-carry` | 3 of 3 | 0 of 3 | 0 of 3 |
+| `promise-at-file` | 3 of 3 | 1 of 3 | 1 of 3 |
+| **Total** | **18 of 18** | **7 of 18** | **1 of 18** |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 36 | 23 | 23 | 21 | 179 |
+| prod | 36 | 21 | 9 | 9 | 182 |
+| none | 36 | 0 | 0 | 0 | 0 |
+
+### Against the pass line
+
+- Against `none`: 17 more passes, better in all 6 scenarios.
+- Against `prod`: 11 more passes, better in 4 scenarios (`pickup-decision`, `pickup-dirty-worktree`,
+  `lesson-carry`, `promise-at-file`) and worse in none. The pass line is met.
+- Against the cost line: words are 179 against 182, so no worse. Blocks are 21 against 9, so worse.
+  The reading rule says "no worse cost table". So the blocks are the open part of the cost.
+
+### What the transcripts show
+
+- **`lesson-carry` passes through two paths.** In run 0, session B read the fix in its load and ran
+  `REPORT_LOCALE=C sh report.sh` first. In runs 1 and 2, session B ran the plain command first, the
+  hook stopped that call once, and the next call used the stored form. So 2 of the 3 passes come
+  from the deny before a shell command. On Haiku, the capture arms of the full run below passed it 0 of 6, with the fix in the load each
+  time.
+- **The deny fired nowhere else.** Only those 2 session B transcripts hold its text, in 36 `dev`
+  sessions.
+- **`pickup-decision` passes on Sonnet and fails on Haiku with the same note.** Session A wrote the
+  approval in all 3 runs. On Haiku, session B often named #412 from the queue file first (see the
+  shorter capture block below). So that gap is on the read side, in the model, not in the capture.
+- **`prod` does not carry the needed fact in 4 scenarios.** Its session A wrote 9 facts in 18 runs.
+  In `pickup-decision`, `pickup-dirty-worktree`, `lesson-carry` and `promise-at-file`, the load of
+  its session B held the needed fact in 0 of 3 runs. `dev` held it in 3 of 3 in each scenario.
+
+### Limits
+
+- One run of 3 repeats. `none` passed `promise-at-file` once, so a scenario can pass by chance.
+- I did not count filler facts in this run.
+- The person who ran it also merged the changes.
+
+### Decisions
+
+- Keep the changes of this day on `dev`. They meet the pass line on Haiku and on Sonnet, and the word
+  cost is no higher than in 0.3.1.
+- The blocks (21 against 9) are an owner call: accept them, or test a line at the prompt that asks
+  for the fact in the same turn.
+
+## 2026-11-02: a shorter capture block, on Haiku
+
+This change tries to bring the hook cost to that of 0.3.1 (183 words and 9 blocks per 36 sessions)
+without fewer passes. Two runs, each with `dev` against `base` and `none`. No `prod` arm: its
+numbers come from the full run below.
+
+- Commits: `dev` is `e5f5463` in run 1 (guide of 95 words) and `0771de4` in run 2 (guide of 87
+  words). `base` is `d9b1820` in both runs.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 108 for each run. Reported cost: 0.34 USD for each run.
+- Local results: `evals/agents/results/20261102T082457Z-claude` (run 1) and
+  `20261102T085430Z-claude` (run 2), in the worktree of the change.
+
+### Where the words went before the change
+
+I split each hook output of the full run below by part. The parts add up to the runner's count
+exactly. Words per session in `dev` (`d20185c`), 231 in total:
+
+| Part | Words per session |
+|---|---|
+| The guide at the stop: 157 words, on each of 23 blocks | 100 |
+| The load at session start | 79 |
+| The rules block at session start: 40 words | 40 |
+| Reason lines at the stop | 8 |
+| Event lines at the stop | 4 |
+
+Blocks, 23: 17 in session A and 6 in session B. Each session A block came after the owner stated
+something (14, of which 6 also had changed work) or after a fix with a setting in front (3). Each
+gave a fact. In session B, 3 blocks in `lesson-carry` asked "What fixed it?" for the fix that the
+session had in its load, and gave no fact. 3 blocks in `promise-at-file` were for changed work.
+Session A wrote with no block in 1 of 18 runs.
+
+### The change
+
+- The guide has 87 words. It keeps the five moments that gave passes: an owner decision or
+  approval, a promise or a limit, a review finding, the purpose and next step of started work, and
+  a failure and its fix. It says that a commit, a branch or the diff is no fact. `--supersedes ID`
+  stays in the rules block, which each session reads.
+- A stop that names only an event gives the `memory add` line, not the guide. The line for a fix
+  with a setting in front says that a doc read only after a failure is no record.
+- A fix with a setting in front is no event when an active fact names that setting and the command.
+- Owner text and changed work together give one reason line.
+- Tested and not changed: "no work block when this session already wrote a fact". Any fact in the
+  session already ends the work check, and no session in the run wrote before its block.
+
+### Results
+
+| Scenario | dev run 1 | base run 1 | dev run 2 | base run 2 | none, both runs |
+|---|---|---|---|---|---|
+| `pickup-decision` | 1 of 3 | 1 of 3 | 0 of 3 | 2 of 3 | 0 of 6 |
+| `pickup-purpose` | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 | 0 of 6 |
+| `pickup-findings` | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 | 0 of 6 |
+| `pickup-dirty-worktree` | 2 of 2 | 2 of 2 | 2 of 2 | 2 of 2 | 0 of 6 |
+| `lesson-carry` | 0 of 1 | 0 of 2 | 0 of 3 | 1 of 3 | 0 of 6 |
+| `promise-at-file` | 3 of 3 | 2 of 2 | 3 of 3 | 3 of 3 | 0 of 5 |
+| **Total** | **12 of 15** | **11 of 15** | **11 of 17** | **14 of 17** | **0 of 35** |
+
+| Arm | Sessions | Facts written | Filler facts | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev, run 1 | 36 | 27 | 5 | 19 | 181 |
+| base, run 1 | 36 | 32 | 7 | 22 | 234 |
+| dev, run 2 | 36 | 30 | 2 | 21 | 184 |
+| base, run 2 | 36 | 35 | 11 | 22 | 234 |
+| prod (0.3.1), full run below | 36 | 9 | not counted | 9 | 183 |
+
+Words per session in `dev` of run 2: load 88, guide 44, rules block 40, reason lines 7, event lines
+and the add line 5. In `base`: guide 96, load 87, rules block 40, reason and event lines 11.
+
+A fact is filler here when git (log, branch, diff, status) or the files show all that it says, or
+another fact of the same run says the rest, so that losing it loses no reason, owner word, promise
+or limit, open step, or failure and fix. One reader counted both arms with this rule. Examples:
+`Branch tune-retry-window (from main) holds commit 'change retry window' ...` (`base`, run 2, twice)
+and `relay/send.py sleeps BACKOFF_SECONDS after the final failed attempt too` (`base`, both runs).
+`dev` wrote no fact of the first kind in either run.
+
+### Against the cost line
+
+- Words: 181 and 184 against 183 for 0.3.1. That is the same cost, not a lower one. Against `base`,
+  it is 50 to 53 words less per session (22 percent). In run 1, 2 of 3 `lesson-carry` session As read
+  the script first and did not fail, so they had no block. With a block there, run 1 would also be
+  near 184.
+- Blocks: 19 and 21 against 9 for 0.3.1, and 22 for `base`. This line is not met. The block for an
+  owner statement in session A gave the fact for each pass in `pickup-decision`, `pickup-purpose`,
+  `pickup-findings` and `promise-at-file`, and session A wrote with no block in 1 of 18 runs before.
+  So about 15 blocks are the floor for these passes while the stop is the only place that asks.
+
+### Against the pass line
+
+- Run 1: `dev` 12, `base` 11. Run 2: `dev` 11, `base` 14. Together 23 against 25, which reads as no
+  proof either way.
+- The gap of run 2 is in `pickup-decision` and `lesson-carry`, and it is on the read side. In all 6
+  `pickup-decision` runs of run 2, session A wrote the approval in both arms. Each session B read it,
+  listed #412 from the queue file, and then named the note. `base` itself went from 1 of 3 to 2 of 3
+  between the two runs with the same code. Session B hears the same hook text in both arms, because
+  the change touches only the stop.
+- `lesson-carry`: in all 4 runs of `dev` where session B loaded the fix, it ran the plain command
+  first and failed. The stop did not ask "What fixed it?" again, so it did not block.
+
+### What the transcripts show
+
+- **The shorter guide still gets the facts.** Every session A block in `dev` gave a fact in both
+  runs, as in `base`. The facts state the reason: "Halvorsen gateway restarts for 40 seconds each
+  night", "finance reads those lines at month end".
+- **The new facts that are weak are of one other kind.** `dev` wrote 5 facts in 2 runs that a test
+  run was blocked by the tool's permission prompt, so a change was read but not run. They hold a next
+  step, so the rule above does not count them as filler. `base` wrote 3 of these.
+- **Session B of `promise-at-file` still blocks for changed work in both arms.** Its facts give the
+  reason for the new backoff ("survive a 10-minute partner outage"), which git does not hold, since
+  the change is not committed.
+
+### Limits
+
+- One reader counted the filler, and the same person wrote the change.
+- Two runs of 3 repeats, on one small model. The spread between two runs of `base` with the same
+  code is 3 passes.
+- The word count of a run moves with how many session As hit a failure, since each event block adds
+  about 60 words.
+
+### Decisions
+
+- Keep the change: it costs 22 percent fewer words than `base` and the same as 0.3.1, with no
+  capture lost in the transcripts.
+- The owner decides how to come nearer to 9 blocks. One way is a line at the prompt when the owner
+  states something, so that the agent can write in the same turn with no block. This needs the prompt
+  hook, and it is not tested.
+
+## 2026-11-02: a stored fact stops the short command once, on Haiku
+
+This is a small run of 3 scenarios for one change. It is no comparison with `prod`, and it does not
+replace a run of the whole suite.
+
+- Commit: `6b89226` for `dev`, and no memory for `none`. The change: before a shell command runs,
+  a fact that holds the same command behind a setting or a wrapper stops that call once
+  (`PreToolUse` deny), with the fact as the reason.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 36. The session results report 0.10 USD in total.
+- Local results: `evals/agents/results/20261102T081417Z-claude` in the worktree of the change.
+
+| Scenario | dev | none |
+|---|---|---|
+| `lesson-carry` | 3 of 3 | 0 of 2, 1 inconclusive |
+| `promise-at-file` | 3 of 3 | 0 of 3 |
+| `pickup-purpose` | 3 of 3 | 0 of 3 |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 18 | 19 | 19 | 10 | 226 |
+| none | 18 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The deny changes the first run.** In each `lesson-carry` session B, the agent ran
+  `sh report.sh; echo "exit=$?"` first, as in all 6 runs of the last full run. The hook stopped
+  that call. The agent then ran `REPORT_LOCALE=C sh report.sh`, which passed, and its answer named
+  the memory hook. The script log shows `pass` as the first run of session B in 3 of 3.
+- **It fired only where it should.** The hook ran before 51 shell calls in `dev`. It denied 3, one in
+  each `lesson-carry` session B, and each was right. The other denials in the transcripts come from
+  the tool list of the eval, which refuses a command with `echo` in a chain.
+- **One block fewer.** A session B of `lesson-carry` no longer fails first, so its stop has no event
+  to ask about. Session B had 0 blocked stops and 190 to 228 hook words, against 1 block and 291 to
+  332 words in each of the 6 runs of the last full run. The deny text is about 35 words with the
+  fact line.
+- **Claude Code shows the reason as a hook error.** The tool result reads `PreToolUse:Bash hook
+  error:` and then the reason. Haiku acted on it in 3 of 3.
+- **The other two scenarios saw no deny.** No stored fact there holds a command, so the result is the
+  same as without the change, which the 3 of 3 in each shows.
+
+### False fires on real data
+
+Read-only, before the run: the active facts of two real memories (61 facts) and 19617 shell
+commands from the real Claude Code transcripts on this machine. The match fired 0 times, also over
+all 227 facts that are not purged and over the commands of other projects. A first build split a
+command at a `|` inside quotes, and fired 8 times on a grep pattern that held `manage.py`, each one
+wrong. The steps now split outside quotes only. A wider match, a fact that names the file that the
+command runs, fired 33 times in 12934 commands of the same projects. I read 25 of them, and none was right.
+No real fact holds a longer form of a command yet, so this measures false fires and not recall.
+
+### Limits
+
+- One scenario has a fact that the hook can match, and its author also wrote the hook.
+- Cursor and Grok Build have no such hook. Codex, Pi and OpenCode have it, with no real run.
+
+## 2026-11-02: the live work list on Claude Code
+
+This is a small run of 1 scenario for one change, in two runs. It is no comparison with `prod`.
+
+- Commits: `51fab40` for `dev` (the list and the capture check), `d20185c` for `base` (only the
+  capture check), and `f16ae08` for `list-only`. `f16ae08` is `dev` with the capture check turned off
+  for this test. It is on no branch.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 24. I did not total the cost.
+- Local results: `evals/agents/results/20261102T064719Z-claude` and `20261102T065146Z-claude`.
+
+| Arm | `pickup-dirty-worktree` | Facts from session A | Blocked stops | Hook words per session | Hook words, session B |
+|---|---|---|---|---|---|
+| `dev` | 3 of 3 | 3 | 3 | 250 | 179 to 196 |
+| `base` | 3 of 3 | 3 | 3 | 195 | 120 to 134 |
+| `list-only` | 3 of 3 | 0 | 0 | 142 | 142 |
+| `none` | 0 of 3 | 0 | 0 | 0 | 0 |
+
+The baseline below gave 0 of 3 with neither the list nor the capture check, at 89 hook words.
+
+### What the transcripts show
+
+- **The first run alone proved nothing about the list.** Each session A in `dev` got the capture
+  block and wrote a fact, so session B had two signals. Hence `base` and `list-only`.
+- **Each signal is enough here.** In `list-only`, no fact existed, and each session B cited the list:
+  "live work this session didn't start, and you didn't name it". In `base`, each session B cited the
+  fact.
+- **Session B did not obey the words "commit, discard or remove" for that worktree in 9 of 9 runs
+  with a signal.** It removed the clean worktree, left the dirty one, and said so. In `none`, it
+  committed the running work in 3 of 3 runs.
+- **Session B did not finish the tidy-up in any arm with a signal.** The tool held its `rm` of the
+  log for a permission, so the control passed through the removed clean worktree.
+
+### Cost
+
+The list adds 52 words when one checkout is dirty (141 against 89, measured on one throwaway repo),
+and 0 words in a clean project. The order line is about 40 of these words.
+
+### Limits
+
+- One author wrote the scenario and the line, and the line says "a general tidy-up" because of it.
+  The list is not tested on a task that is not a tidy-up.
+- The owner's general words lost to the line here. That is the aim for running work, but an owner who
+  wants their own old edits committed must now name them.
+- No session in this scenario was at work during session B, so the marker part had no real test. Only
+  unit tests with hook payloads cover it.
+- A commit that takes the files of another session in the same checkout has no scenario.
+
+### Decisions
+
+- Keep the list. It carries the running work with no fact, where the capture check depends on session
+  A being told.
+- No warning at pre-commit, for now. In 9 runs with a signal, no commit reached that worktree, so the
+  moment did not occur. A git hook also cannot tell its own session from another on
+  each tool, and no record says which session changed which file when a shell made the change. A
+  warning that cannot tell would fire on the session's own files, as the trap line in the field
+  feedback did.
+## 2026-11-02: full run with the capture check and the gate, on Haiku
+
+- Commit: `d20185c` for `dev` (capture check, gate off) and `gate` (capture check, gate on),
+  `d523c01` (0.3.1) for `prod`, and no memory for `none`.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 156. The session results report 0.46 USD in total.
+- Local results: `evals/agents/results/20261102T062630Z-claude`.
+- The scenarios changed after the baseline. `pickup-decision` now has an answer in local files, and
+  `promise-at-file` also reads a backoff list. Both changes apply to each arm. The second came from
+  `dev` runs that kept the limit and scored inconclusive.
+
+| Scenario | dev | gate | prod | none |
+|---|---|---|---|---|
+| `pickup-decision` | 1 of 3 | 2 of 3 | 0 of 3 | 0 of 3 |
+| `pickup-purpose` | 3 of 3 | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-findings` | 3 of 3 | 3 of 3 | 3 of 3 | 0 of 3 |
+| `pickup-dirty-worktree` | 3 of 3 | 2 of 2, 1 inconclusive | 1 of 3 | 0 of 3 |
+| `lesson-carry` | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| `promise-at-file` | 3 of 3 | 3 of 3 | 0 of 3 | 0 of 3 |
+| **Total** | **13 of 18** | **13 of 17** | **7 of 18** | **0 of 18** |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 36 | 33 | 33 | 23 | 231 |
+| gate | 36 | 24 | 24 | 18 | 201 |
+| prod | 36 | 29 | 9 | 9 | 183 |
+| none | 36 | 0 | 0 | 0 | 0 |
+
+### Against the pass line
+
+- `dev` beats `none` by 13 passes in 5 scenarios, and is worse in none. It clears the line.
+- `dev` beats `prod` by 6 passes in 3 scenarios (`pickup-decision`, `pickup-dirty-worktree`,
+  `promise-at-file`), and is worse in none. It clears the line on Haiku, by the smallest margin that
+  can. One changed run moves it.
+- `gate` against `dev` is 13 of 17 against 13 of 18. That gives no proof either way. It costs fewer
+  blocks (18 against 23) and fewer words (201 against 231). No scenario tests its push refusal.
+- The reading rule also asks for no worse cost table. `dev` does not meet this: 231 hook words and
+  23 blocks against 183 and 9 for `prod`. The guide is the largest part, at 157 words.
+- The keep or cut decision needs a run on a larger model.
+
+### What the transcripts show
+
+- **Capture now works.** Facts written rose from 9 in `prod` to 33 in `dev`. The fact in session A now
+  changes the file in session B: every `dev` and `gate` run of `promise-at-file` kept the limit at 5.
+  Every `prod` and `none` run broke it, with values from 21 to 300.
+- **A loaded fact does not make the agent act on it.** In all 6 `lesson-carry` runs of `dev` and `gate`,
+  session A stored the fix and session B had it in its load. Session B still ran the plain command
+  first and failed. This is now the largest open gap, and it is on the read side.
+- **Two fails of `pickup-decision` read as fair answers.** Each session B listed #412 from the queue
+  file, and then said that a stored note says the owner approved it. The check fails any answer that
+  reports #412 as waiting. I did not change it, because that would help the build under test.
+- **The word match undercounts.** The table of where text was left shows `memory 1 of 3` for
+  `pickup-dirty-worktree` in `dev`, but all 3 runs wrote a fact about the running work in other words.
+- **Some facts are weak.** I read the first 230 characters of each `dev` fact. About 9 of 33 restate
+  what git or the diff shows, for example `Branch tune-retry-window holds one commit`. This count is
+  one reader's judgement.
+
+### Limits
+
+- One author wrote the scenarios, and these results also led to the changes that they measure.
+- `claude -p` runs one prompt in a session, so this does not measure a long session. Blocks per turn
+  there come only from tests, not from real use.
+- This is one tool and one small model.
+
+## 2026-11-02: the capture check on Claude Code
+
+This is a small run of 3 scenarios for one change. It is no comparison with `prod`, and it does not
+replace a run of the whole suite.
+
+- Commit: `7e83f11` for `dev`, and no memory for `none`. The guide changed after two earlier runs of
+  the same size, at `a9481bc` and `9b6bcf7`.
+- Model: `claude-haiku-5-5`, 2 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 24 for each run. The 3 runs report 0.20 USD in total.
+- Local results: `evals/agents/results/20261102T051625Z-claude`.
+
+| Scenario | dev | none | Reading |
+|---|---|---|---|
+| `pickup-purpose` | 2 of 2 | 0 of 2 | The block gave the reason as a fact, and session B answered from it |
+| `promise-at-file` | 0 of 0, 2 inconclusive | 0 of 2 | Both session As wrote the promise. Both session Bs replaced the backoff number with a list, so the check cannot read the file. Their facts say 5 attempts. `a9481bc` gave 2 of 2 |
+| `lesson-carry` | 0 of 1, 1 inconclusive | 0 of 2 | One session A wrote the fix. Session B loaded it and still ran the command that its prompt names, and failed first. The other session A read the script first, so it had no failure |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 12 | 13 | 11 | 8 | 229 |
+| none | 12 | 0 | 0 | 0 | 0 |
+
+### What the transcripts show
+
+- **The check gets the facts.** Session A of each `pickup-purpose` and `promise-at-file` run wrote the
+  reason or the promise in all 12 runs of `dev`. The baseline `dev` wrote 0.
+- **Lesson-carry needed its own signal.** Session A failed once and passed with a setting, and it
+  changed no file. No check fired at `a9481bc`. The new event for a command that passes behind a
+  prefix fires.
+- **The first guide let a decline through.** An agent said that a doc holds the fix, and the guide
+  said that a doc is enough. The next session failed the same way. The guide now says that a doc
+  that the next agent reads only after it fails is no record.
+- **A plain `memory add` gave each fact twice.** It prints a note about its basis, and agents wrote
+  the fact again with `--basis told`. The guide now names the flag. Memory commands fell from 19 to
+  13, and 3 runs are too few to be sure of this.
+- **Capture is not the limit in `lesson-carry`.** Session B had the fact and failed first, because
+  its prompt names the command. The block then costs it one more turn, because the event does not
+  look at the stored facts.
+
+### Limits
+
+- The hook words per session are above the 182 of 0.3.1 in the baseline, on other scenarios. The
+  guide has 157 words.
+- Some facts are weak. Example: `Commit has no body by owner request.` A later full run must count these.
+
+## 2026-11-02: baseline on Claude Code
+
+- Commit: `9e9b04c` for `dev`, `d523c01` (0.3.1) for `prod`, and no memory for `none`.
+- Model: `claude-haiku-5-5`, 3 repeats. A result on Haiku is not a result on a larger model.
+- Sessions: 117. The session results report 0.36 USD in total.
+- Local results: `evals/agents/results/20261102T041124Z-claude`.
+
+| Scenario | dev | prod | none | Reading |
+|---|---|---|---|---|
+| `pickup-decision` | 3 inconclusive | 3 inconclusive | 3 inconclusive | The scenario failed: session B needs `gh`, and the tool denied it |
+| `pickup-purpose` | 0 of 3 | 3 of 3 | 0 of 3 | Blocked stop gave a fact |
+| `pickup-findings` | 0 of 3 | 3 of 3 | 0 of 3 | Blocked stop gave a fact |
+| `pickup-dirty-worktree` | 0 of 3 | 0 of 3 | 0 of 3 | Session A only replied, so no arm wrote. Session B committed the running work |
+| `lesson-carry` | 0 of 3 | 0 of 3 | 0 of 3 | Session A changed no file, so no arm wrote |
+| `promise-at-file` | 0 of 2, 1 inconclusive | 0 of 3 | 0 of 3 | Session A replied "Noted", so no arm wrote |
+| **Total** | **0 of 14** | **6 of 15** | **0 of 15** | |
+
+| Arm | Sessions | Memory commands | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|---|
+| dev | 36 | 9 | 0 | 0 | 90 |
+| prod | 36 | 29 | 9 | 9 | 182 |
+| none | 36 | 0 | 0 | 0 | 0 |
+
+Against the pass line, `prod` beats `none` by 6 passes, but in only 2 scenarios, so it does not
+clear the line. `dev` is not better than `none`.
+
+### What the transcripts show
+
+- **The blocked stop of 0.3.1 caused the facts.** In `pickup-purpose`, the stop said that the work
+  changed and no fact was written. The agent wrote the reason, which only the conversation held.
+  Session B read it and answered from it. In `dev` the same model wrote nothing.
+- **`dev` lost this when it moved the reminder to the next prompt.** A session that ends has no next
+  prompt, so the reminder never arrives at the end of a session. This is a regression.
+- **Neither build catches what only the conversation holds.** When session A changes no file, 0.3.1
+  does not fire. The agent replies "Noted", and the promise or the decision is gone.
+- **A fact from a block can be good.** The sampled facts state the real reason. This run does not
+  measure how often a block gives filler.
+
+### Decisions
+
+- Bring back one blocking write check at stop, and add the case where only the conversation changed.
+  Test it as a new arm before it stays.
+- Fix `pickup-decision`, so that session B can answer from local files. Done: the prompts now say
+  that GitHub is not reachable and name the queue file. So an earlier `inconclusive` of this
+  scenario does not compare with a later `pass` or `fail`.
+- `pickup-dirty-worktree` and `lesson-carry` need no fix. A scripted session with the real tool
+  passes each of them when session A writes the fact, and these two failed because no arm wrote.
+
+### Limits
+
+- One author wrote the scenarios, and two of them match one word.
+- `claude -p` runs one prompt in a session, so a reminder at the next prompt cannot arrive in most
+  of these sessions. In a long interactive session it can arrive, but not after the last turn.
+- This is one tool and one small model.
+- The column "Memory commands" also counted the check that the pre-commit hook runs for each commit
+  (`python -c 'import cairnkit'`). The kit no longer counts it, so this column does not compare with
+  a later run.
+
+## 2026-11-02: the branch-note gate, two scenarios
+
+This is a first look at one arm. It is not a keep or cut decision: it covers 2 of the 6 scenarios,
+and the reading rule needs at least 3.
+
+- Commit: `6135ec2` for `dev` (gate off) and `gate` (gate on), `d523c01` for `prod`, and no memory
+  for `none`. The switch is the only difference between `dev` and `gate`.
+- Model: `claude-haiku-5-5`, 2 repeats.
+- Sessions: 32. The session results report 0.086 USD in total, of which `gate` is 0.021 USD.
+
+```sh
+uv run python evals/agents/run.py --agent claude --dev-ref HEAD \
+  --arm gate=HEAD --arm-git gate:cairnkit.branchnotegate=true \
+  --scenario pickup-purpose --scenario pickup-findings --repeats 2
+```
+
+| Scenario | dev | prod | gate | none |
+|---|---|---|---|---|
+| `pickup-purpose` | 0 of 2 | 2 of 2 | 2 of 2 | 0 of 2 |
+| `pickup-findings` | 0 of 2 | 2 of 2 | 2 of 2 | 0 of 2 |
+
+| Arm | Sessions | Facts written | Blocked stops | Hook words per session |
+|---|---|---|---|---|
+| dev | 8 | 0 | 0 | 89 |
+| prod | 8 | 4 | 4 | 216 |
+| gate | 8 | 4 | 0 | 124 |
+| none | 8 | 0 | 0 | 0 |
+
+The extra words of `gate` have two causes. Session A hears the refusal, which is 34 words. Session B
+reads the note in its load, which is 32 to 39 words.
+
+### What the transcripts show
+
+- Each `gate` run refused one commit, and the agent ran one `memory add` and committed again. The
+  agent replaced each placeholder.
+- All four notes state the real text: the Halvorsen restart, or the open audit finding. The prompts of
+  these two scenarios state that text, and the refusal asks for what the branch is for, the next step
+  and any open finding. So these scenarios suit this gate. This run does not show how often a note
+  is filler in other work.
+
+### What this run does not test
+
+- No scenario pushes, so a real model has not met the push refusal. Real git runs in throwaway repos
+  and the tests prove that path.
+- The gate cannot help a scenario with no commit on a branch: `pickup-decision`, `lesson-carry`,
+  `pickup-dirty-worktree` and `promise-at-file` have none in session A.
+- It ran on one tool and one small model. The hook of another tool was not run with a real model.
+
+### What one commit and push run costs an agent
+
+Measured with real git in a throwaway repo, for two commits and two pushes.
+
+| | Tool calls | Words the gate prints |
+|---|---|---|
+| Gate off | 4 | 0 |
+| Gate on | 8: two refused calls and two `memory add` | 74, and git adds 7 for its refused push |

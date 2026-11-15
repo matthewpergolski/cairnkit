@@ -1,0 +1,612 @@
+"""Events that a session should hear about. The tool names them. The agent decides.
+
+Nothing here writes a fact, so no text from the tool can load as memory. The state lives in the
+session file (see session.py). Each event is reported once.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from bisect import bisect_left
+from pathlib import PurePosixPath
+
+from cairnkit import landed, loopbreak
+from cairnkit.beforeshell import added_in_front, take_once
+from cairnkit.clock import now, parse_time
+from cairnkit.load import active_states, changed_paths
+from cairnkit.memory import Memory
+from cairnkit.paths import current_branch, run_git, writer_name
+from cairnkit.secretscan import find_secrets
+from cairnkit.selection import (
+    DATA_LABEL,
+    FRAME_FOOTER,
+    FRAME_HEADER,
+    areas_for_paths,
+    clean,
+    load_text,
+    names_a_changed_file,
+    score_parts,
+)
+from cairnkit.session import (
+    OWN_COMMIT,
+    REFLOG_LIMIT,
+    agent_writes,
+    load_state,
+    loop_nudge,
+    save_state,
+    tracked_files_gone,
+)
+from cairnkit.similar import analyze
+
+FIX_MIN_FAILS = 2
+MAX_LINES = 5
+HINT_LINES = 2
+REVERT = re.compile(r"(?i)^revert(?:s|ed)?\s|^revert(?:\([^)]*\))?!?:")
+REFLOG_TIME = re.compile(r"@\{(\d+)\}")
+COMMAND_WIDTH = 200
+ASK_TRAP = "Does a trap belong in memory?"
+# An agent declined once because a doc held the fix, and the next session failed the same way.
+DOC_IS_NO_RECORD = "A doc that the next agent reads only after it fails is no record."
+PATH_WORD = re.compile(r"[\w./-]*[/.][\w./-]*\w")
+GONE_NAMES = 3
+PROMPT_WIDTH = 120
+# A correction opens a prompt. Deep in a long paste, these words belong to the paste.
+PROMPT_HEAD = 300
+NAMED_LIMIT = 200
+# A session can run for days. Only the newest failures can pair with a pass, and the state that
+# each hook reads and writes stays small.
+FAILS_LIMIT = 20
+QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"", re.DOTALL)
+# A harness turn opens with a tag. A stop follow-up comes back as a prompt on some tools.
+# Text that the tools put in a prompt: a notification, or a line of this tool. An owner who writes
+# "run memory check" later in a prompt is still the owner.
+TOOL_PROMPT = re.compile(r"^\s*(?:<|memory check\b)")
+NOT_THE_OWNER = re.compile(rf"{TOOL_PROMPT.pattern}|`memory |\bDoes a trap belong\b")
+# Text in a prompt that the owner did not type: a fenced block, a paste in the shape that Claude
+# Code gives it (read in its binary, 2.1.325; an open tag with no end runs to the end of the
+# prompt), a quoted line, and the line that Claude Code puts before a side agent's note. Claude
+# Code quotes each line of the note, and the owner types a reply below it.
+NOT_TYPED = re.compile(
+    r"```.*?(?:```|\Z)"
+    r'|<pasted_content id="([0-9a-f]{4})">\n.*?(?:\n</pasted_content id="\1">|\Z)'
+    r"|^[ \t]*>(?:[ \t][^\n]*)?$"
+    r"|\A\s*Here is a note offered by a side agent:[^\n]*",
+    re.DOTALL | re.MULTILINE,
+)
+# Each pattern stops at the next opening mark, so an unmatched mark costs one scan. A straight
+# single quote and a backtick are no quote marks: an apostrophe, and a code span. An apostrophe
+# in a word does not end a quote in \u2018 \u2019.
+QUOTE_PAIR = re.compile(
+    '"[^"]*"'
+    "|\u201c[^\u201c\u201d]*\u201d"
+    "|\u2018(?:[^\u2018\u2019]|\u2019(?=\\w))*\u2019"
+    "|\u00ab[^\u00ab\u00bb]*\u00bb"
+    "|\u201e[^\u201e\u201c\u201d]*[\u201c\u201d]"
+    "|\u201d[^\u201c\u201d]*\u201c"
+)
+# A quote with a sentence end and QUOTE_WORDS words or more is a quoted sentence: often the agent's
+# text that the owner quotes back. A command, a label or a short sentence that the owner quotes
+# stays typed.
+QUOTE_WORDS = 6
+QUOTE_SENTENCE_END = re.compile(r"[.!?](?=\s|\Z)")
+# The end of a sentence or a line, after the marks that close a quote.
+SENTENCE_STOP = re.compile('[.!?]["\u201c\u201d\u2019\u00bb]*(?=\\s|\\Z)|\n')
+# `clean`, `clear` and `drop` also mean a tidy-up with no loss, so they must name a file.
+REMOVAL = re.compile(
+    r"\b(?:remove|delete|rm|get rid of|wipe|purge|prune|erase|trash|discard)\b"
+    r"|\b(?:clean(?:\s+up)?|clear(?:\s+out)?|drop)\b(?=.*\b(?:files?|folders?|director(?:y|ies))\b)",
+    re.IGNORECASE,
+)
+NEGATED = re.compile(
+    r"\b(?:not|never|don't|dont|without|avoid|keep)\b(?:\s+\w+)?\s*$", re.IGNORECASE
+)
+CLAUSE_END = re.compile(r"(?<=[.!?:])\s+|[,;\n]|\s+(?:and|then)\s+", re.IGNORECASE)
+# Words of a request that name no file, after `analyze`.
+NOT_A_NAME = frozenset(
+    {"all", "any", "dir", "directory", "each", "every", "file", "folder", "of", "out", "some"}
+    | {"that", "them", "these", "this", "those", "unused", "up", "my", "our", "in", "from", "it"}
+)
+NOT_CLAUSE = r"(?<!\bif )(?<!\bwhen )(?<!\bonce )(?<!\bafter )(?<!\bbefore )(?<!\bwhether )"
+CORRECTION = re.compile(
+    "|".join(
+        (
+            rf"{NOT_CLAUSE}\byou (?:just )?(?:deleted|removed|broke|overwrote|wiped|dropped|forgot"
+            r"|missed|ignored|lost|skipped)\b",
+            r"\byou (?:should not|shouldn't) have\b",
+            r"\bwhy did you\b",
+            r"\b(?:i|we) (?:told|asked) you\b",
+            r"\bi said to\b",
+            r"\bi (?:did not|didn't|never) (?:ask|say|tell|want)\b",
+            r"\b(?:that|this|it)(?:'s| is| was| isn't| is not)"
+            r" (?:wrong|incorrect|not right|not what i)\b",
+            r"\b(?:that|this|it) (?:is not|isn't) (?:right|correct|what i)\b",
+            r"\bnot what i (?:asked|meant|wanted|said)\b",
+            r"^\W*wrong (?:\w+)\b",
+            r"\bwrong (?:file|branch|repo|folder|directory),",
+            r"\bundo (?:that|this|it)\b",
+            r"\bput (?:it|that|them|this) back\b",
+            r"\bstop (?:doing|adding|deleting|removing|changing|ignoring)\b",
+            r"\b(?:do not|don't) do that again\b",
+            r"\bmy \S+(?: \S+)? (?:is|are) (?:gone|missing)\b",
+            r"^\W*no[,.!:]\s+(?!thanks|problem|worries|need|rush|hurry|go ahead"
+            r"|(?:that|it)(?:'s| is) (?:fine|ok|okay|good))",
+            r"^\W*nope\b",
+        )
+    ),
+    re.IGNORECASE,
+)
+# A statement can follow the work that a prompt asks for, but a long paste holds no owner's words.
+STATEMENT_HEAD = 600
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+NOT_STATED = re.compile(r"\s*(?:if|when|whether|unless|once)\b", re.IGNORECASE)
+# A word such as `promise`, `approved` or `deadline` alone also names code, so these need more.
+STATEMENT = re.compile(
+    "|".join(
+        (
+            # A decision.
+            r"\b(?:i|we|team)(?:'ve| have)? (?:decided|chose|picked|agreed|settled on)\b",
+            r"\bthe decision is\b",
+            r"\blet'?s go with\b",
+            r"\bwe(?:'re| are) not going to\b",
+            r"\brejected (?:it|this|that|the)\b",
+            # An approval.
+            r"\bi approve\b",
+            r"\bmy approval\b",
+            r"\bsigned off\b",
+            r"\b(?:is|are|was|were) approved\b",
+            r"\bapproved (?:it|this|that|the)\b",
+            r"^\W*approved\b",
+            # A promise.
+            r"\b(?:i|we)(?:'ve| have)? (?:promised|guaranteed)\b",
+            r"\bwe committed to (?:a|an|\d)",
+            r"\bpromise (?:that|to)\b",
+            r"\b(?:i|we) told (?:the|our|them)\b",
+            # A limit.
+            r"^\W*(?:please )?(?:always|never) (?!mind\b|the\b|a\b|an\b)\w+",
+            r"\bfrom now on\b|\bgoing forward\b|\bin (?:the )?future\b",
+            r"\bmust (?:not|never)\b",
+            r"\bwe (?:cannot|can't|may not)\b",
+            r"\bdeadline (?:for|is)\b",
+            r"\bhard limit\b|\bforbids?\b|\bnot allowed\b|\b(?:does|do) not allow\b",
+            # What the owner wants known. Each of these opens its sentence.
+            r"^\W*(?:an? )?heads[- ]up\b",
+            r"^\W*(?:fyi|just so you know|for context|note that|remember that|keep in mind)\b",
+            # A preference.
+            r"\bi(?:'d| would)? (?:prefer|rather)\b",
+            r"\bmy preference\b",
+            r"\bi (?:don't|do not) like\b",
+            # A reason. A reason for an edit, such as `because it is noisy`, is in the diff.
+            r"\bthe reason (?:for|is|it|we|why)\b",
+            r"\bbecause (?:our|their|we|the \w+'s)\b",
+            # A review.
+            r"\b(?:colleague|teammate|reviewer) (?:reviewed|found|said)\b",
+            r"\breview found\b",
+        )
+    ),
+    re.IGNORECASE,
+)
+
+
+def _quoted(command: str) -> str:
+    """A command in a code span that it cannot close."""
+    flat = clean(command).replace("`", "'")
+    cut = "..." if len(flat) > COMMAND_WIDTH else ""
+    return f"`{flat[:COMMAND_WIDTH]}{cut}`"
+
+
+def _loop_token(command: str) -> str:
+    return f"loop:{command}"
+
+
+def note_command(memory: Memory, key: str, command: str, ok: bool) -> None:
+    """Count a failure. A pass after repeated failures is a fix worth a fact.
+
+    So is one failure that passes with something in front of the same command, such as a setting
+    or a wrapper. That is how to run it, which no file change shows. A flag after the command
+    often only narrows a test run, so it does not count.
+    """
+    state = load_state(memory, key)
+    if state is None:
+        return
+    fails = state.setdefault("fails", {})
+    if not ok:
+        fails[command] = fails.pop(command, 0) + 1  # to the end, as the newest
+        for old in list(fails)[:-FAILS_LIMIT]:
+            del fails[old]
+    else:
+        if fails.get(command, 0) >= FIX_MIN_FAILS:
+            state.setdefault("fixed", []).append([command, fails[command]])
+        fails.pop(command, None)
+        state["told"] = [t for t in state.get("told", []) if t != _loop_token(command)]
+        for failed in [failed for failed in fails if added_in_front(failed, command)]:
+            state.setdefault("fixed", []).append([failed, fails.pop(failed), command])
+    save_state(memory, key, state)
+
+
+def note_nudge(memory: Memory, key: str, command: str) -> None:
+    """The loop nudge reached the agent with the tool result. Stop does not repeat it."""
+    state = load_state(memory, key)
+    if state is not None:
+        state.setdefault("told", []).append(_loop_token(command))
+        save_state(memory, key, state)
+
+
+def stop_nudge(memory: Memory, key: str) -> str | None:
+    """The loop nudge for a stop, once for each run of failures."""
+    text = loop_nudge(memory)
+    state = load_state(memory, key)
+    if text is None or state is None:
+        return text
+    token = _loop_token(loopbreak.current_command(memory))
+    if token in state.get("told", []):
+        return None
+    state.setdefault("told", []).append(token)
+    save_state(memory, key, state)
+    return text
+
+
+def _reverts(root, state: dict) -> list[str]:
+    """Reverts that this checkout committed after the session started. The reflog knows."""
+    started = state.get("started_at")
+    if not started:
+        return []
+    since = parse_time(started).timestamp()
+    log = run_git(
+        root,
+        "log",
+        "-g",
+        "-n",
+        REFLOG_LIMIT,
+        "--date=unix",
+        "--format=%gd%x00%h%x00%gs%x00%s",
+        "HEAD",
+        timeout=2.0,
+    )
+    found = []
+    for line in (log or "").splitlines():
+        parts = line.split("\0", 3)
+        moment = REFLOG_TIME.search(parts[0])
+        if len(parts) != 4 or not moment or int(moment.group(1)) < since:
+            continue
+        if OWN_COMMIT.match(parts[2]) and REVERT.match(parts[3]):
+            found.append(clean(f"{parts[1]} {parts[3]}"))
+    return found
+
+
+def _without_quoted_sentences(text: str) -> str:
+    """The text with each quoted sentence gone, and with the rest of the sentence or line that
+    holds it, so that no stub of it reads as the owner's words."""
+    stops = [stop.end() for stop in SENTENCE_STOP.finditer(text)]
+    kept, at = [], 0
+    for quote in QUOTE_PAIR.finditer(text):
+        inner = quote[0][1:-1]
+        if len(inner.split()) < QUOTE_WORDS or not QUOTE_SENTENCE_END.search(inner):
+            continue
+        before = bisect_left(stops, quote.start() + 1) - 1
+        start = max(at, stops[before] if before >= 0 else 0)
+        end = quote.end()
+        if not inner.rstrip().endswith((".", "!", "?")):
+            after = bisect_left(stops, end + 1)
+            end = stops[after] if after < len(stops) else len(text)
+        kept += [text[at:start], " "]
+        at = max(at, end)
+    return "".join([*kept, text[at:]])
+
+
+def owner_typed(text: str, veto: bool = True) -> str:
+    """The words that the owner typed: no block or line of NOT_TYPED, and no quoted sentence.
+    With `veto`, a prompt that the tools wrote (NOT_THE_OWNER) gives nothing."""
+    typed = NOT_TYPED.sub("\n", text)
+    if veto and NOT_THE_OWNER.search(typed):
+        return ""
+    return _without_quoted_sentences(typed).strip()
+
+
+def starts_a_turn(text: str) -> bool:
+    """True when the owner typed words in the prompt, also words that the veto of `owner_typed`
+    drops, such as a command of this tool. A prompt that a tool wrote (TOOL_PROMPT) or one with
+    no typed words (a paste, a side agent's note with no reply) does not start a turn."""
+    rest = NOT_TYPED.sub("\n", text)
+    return not TOOL_PROMPT.match(rest) and bool(_without_quoted_sentences(rest).strip())
+
+
+def is_correction(prompt: str) -> bool:
+    """True when the owner's words say that the agent got something wrong. English only."""
+    own = owner_typed(prompt)
+    return bool(CORRECTION.search(QUOTED.sub(" ", own[:PROMPT_HEAD])))
+
+
+def is_statement(prompt: str) -> bool:
+    """True when the owner states what only the conversation holds. English only.
+
+    It reads each sentence by itself. A question or a condition states nothing.
+    """
+    own = owner_typed(prompt)
+    for sentence in SENTENCE_END.split(QUOTED.sub(" ", own[:STATEMENT_HEAD]).strip()):
+        if sentence.rstrip().endswith("?") or NOT_STATED.match(sentence):
+            continue
+        if STATEMENT.search(sentence):
+            return True
+    return False
+
+
+def _file_stem(path: str) -> str:
+    return PurePosixPath(path).stem
+
+
+def removal_words(prompt: str) -> set[str]:
+    """The words of what the owner asked to remove: `remove scratch files` gives `scratch`.
+
+    A false word would hide a real loss, and a missed word costs one question. So this reads one
+    clause, and it skips a question, a refusal and a correction. A path gives only its file name:
+    its folder and its extension would match every file that shares them.
+    """
+    own = owner_typed(prompt)
+    if not own or is_correction(prompt):
+        return set()
+    found: set[str] = set()
+    for clause in CLAUSE_END.split(own[:PROMPT_HEAD]):
+        ask = REMOVAL.search(clause)
+        if ask and not clause.rstrip().endswith("?") and not NEGATED.search(clause[: ask.start()]):
+            target = PATH_WORD.sub(lambda match: _file_stem(match[0]), clause[ask.end() :])
+            found |= analyze(target) - NOT_A_NAME
+    return found
+
+
+def _newest(old: list[str], new: list[str]) -> list[str]:
+    """`old` then `new`, each once, with only the newest NAMED_LIMIT kept."""
+    kept = [word for word in old if word not in new] + list(dict.fromkeys(new))
+    return kept[-NAMED_LIMIT:]
+
+
+def note_prompt(memory: Memory, key: str, prompt: str) -> None:
+    """Keep what a stop needs from a prompt: a correction, and the names of files the owner used."""
+    state = load_state(memory, key)
+    if state is None or not prompt.strip():
+        return
+    # A helper's report or a notification also arrives as a prompt. Its names are not the owner's.
+    own = owner_typed(prompt)
+    if own:
+        words = [word.strip("`'\",:;!?()*_").rstrip(".") for word in own.split()]
+        named = [word for word in words if "." in word or "/" in word]
+        state["named"] = _newest(state.get("named", []), named)
+        state["asked"] = _newest(state.get("asked", []), sorted(removal_words(prompt)))
+        state["prompts"] = state.get("prompts", 0) + 1
+    if is_statement(prompt):
+        state["said"] = agent_writes(memory)
+    if is_correction(prompt):
+        flat = clean(own)
+        text = "" if find_secrets(flat, memory.env) else flat[:PROMPT_WIDTH]
+        state["correction"] = {"writes": agent_writes(memory), "text": text}
+    save_state(memory, key, state)
+
+
+def _correction_line(memory: Memory, state: dict) -> str | None:
+    """The newest correction, once. A fact written after it is the answer to the question."""
+    found = state.pop("correction", None)
+    if not found or agent_writes(memory) > found.get("writes", 0):
+        return None
+    words = _quoted(found["text"]) if found["text"] else "(text held back: it looks like a secret)"
+    return f"The owner corrected you: {words}. {ASK_TRAP}"
+
+
+def _named_in_a_fact(memory: Memory, state: dict, path: str) -> bool:
+    name = os.path.basename(path)
+    started = state.get("started_at", "")
+    return any(
+        name in str(record.get("text", ""))
+        for record in memory.records
+        if record.get("type") == "fact" and str(record.get("learned_at", "")) >= started
+    )
+
+
+def _gone_line(memory: Memory, state: dict) -> str | None:
+    """Files that were here when the session started and that it deleted. Each is named once.
+
+    This reads the disk and git and no hook payload, so each agent gets it, whatever deleted the
+    file. A commit that came in from elsewhere does not count.
+    """
+    root = memory.project.root
+    gone = [path for path in state.get("others", []) if not os.path.lexists(root / path)]
+    if state.get("start_head"):
+        gone += tracked_files_gone(root, memory.dir, state["start_head"])
+    told, named = state.setdefault("told", []), set(state.get("named", []))
+    asked = set(state.get("asked", []))
+    fresh = []
+    for path in gone:
+        token = f"gone:{path}"
+        if token in told:
+            continue
+        told.append(token)
+        known = (
+            path in named or os.path.basename(path) in named or asked & analyze(_file_stem(path))
+        )
+        if not known and not _named_in_a_fact(memory, state, path):
+            fresh.append(path)
+    if not fresh:
+        return None
+    shown = ", ".join(_quoted(path) for path in fresh[:GONE_NAMES])
+    more = f" and {len(fresh) - GONE_NAMES} more" if len(fresh) > GONE_NAMES else ""
+    verb = "was" if len(fresh) == 1 else "were"
+    return f"{shown}{more} {verb} here when this session started and not now. {ASK_TRAP}"
+
+
+def _fix_is_stored(memory: Memory, failed: str, passed: str) -> bool:
+    """True when an active fact names what went in front of the command, and the command.
+
+    A session that loaded the fix can still run the plain command first. Its question costs a turn
+    and gets no new fact.
+    """
+    found = added_in_front(failed, passed)
+    if not found:
+        return False
+    fix, name = found[0], found[1].split()[-1]
+    for fact in active_states(memory):
+        text = f"{fact.get('text', '')} {fact.get('summary', '')}"
+        if fix in text and name in text:
+            return True
+    return False
+
+
+def session_events(memory: Memory, key: str) -> list[str]:
+    """New events that a later session may need. Each one is returned once in the session.
+
+    What was asked is in a file of its own (`take_once`), so a hook that saves the session state
+    from an older read cannot ask it again. A session from an older tool kept it in `told`.
+    """
+    state = load_state(memory, key)
+    if state is None:
+        return []
+    told = state.setdefault("told", [])
+    found = {}
+    for command, count, *by in state.get("fixed", []):
+        shown = _quoted(loopbreak.without_secret(command, memory.env))
+        line = f"{shown} failed {count} times, then passed. What fixed it?"
+        if by:
+            if _fix_is_stored(memory, command, by[0]):
+                continue
+            passed = _quoted(loopbreak.without_secret(by[0], memory.env))
+            line = f"{shown} failed, then {passed} passed. What fixed it? {DOC_IS_NO_RECORD}"
+        found.setdefault(f"fixed:{command}", line)
+    for line in _reverts(memory.project.root, state):
+        found[f"revert:{line}"] = f"A revert: {line}. Why did the first attempt not hold?"
+    new = [token for token in found if token not in told]
+    lines = [found[token] for token in take_once(memory, key, "asked", new)] if new else []
+    lines += [line for line in (_correction_line(memory, state), _gone_line(memory, state)) if line]
+    save_state(memory, key, state)
+    return lines
+
+
+def _since(record: dict) -> str | None:
+    return record.get("learned_at") if record.get("type") == "fact" else record.get("at")
+
+
+def _for_this_branch(memory: Memory):
+    """The same test as the load: a short note belongs to one branch."""
+    root = memory.project.root
+    branch, writer = current_branch(root), writer_name(root)
+
+    def check(state: dict) -> bool:
+        if state.get("scope") != "short":
+            return True
+        owner = state.get("until_branch_merged")
+        return owner == branch if owner else state.get("writer") == writer
+
+    return check
+
+
+def _capped(lines: list[str], ids: list[str], limit: int = MAX_LINES) -> list[str]:
+    """Show the first lines. Name the rest, so that nothing is lost."""
+    if len(lines) <= limit:
+        return lines
+    rest = ids[limit:]
+    more = clean(f"- and {len(rest)} more: {', '.join(rest)}. Read one with `memory show ID`.")
+    return [*lines[:limit], more]
+
+
+def _changed_elsewhere(memory: Memory, state: dict) -> list[str]:
+    """Facts that another branch or auto-tidy wrote or ended after this session loaded.
+
+    Times have one-second steps, so a record in the same second counts. `heard` stops a repeat.
+    A fact from a branch that this session used is its own, also after a switch.
+    """
+    heard = state.setdefault("heard", [])
+    writers = {*state.get("writers", []), writer_name(memory.project.root)}
+    state["writers"] = sorted(writers)
+    visible = _for_this_branch(memory)
+    since = parse_time(state["loaded_at"])
+    lines, ids = [], []
+    for record in memory.records:
+        when = _since(record)
+        if not when or record.get("writer") in writers:
+            continue
+        try:
+            if parse_time(when) < since:
+                continue
+        except ValueError:
+            continue
+        fact = memory.states.get(record.get("id"))
+        if not fact or not visible(fact):
+            continue
+        label = "new" if record.get("type") == "fact" else record.get("status")
+        token = f"{label}:{fact['id']}"
+        if label and token not in heard:
+            heard.append(token)
+            lines.append(clean(f"- {label} [{fact['id']}] {load_text(fact)}"))
+            ids.append(fact["id"])
+    return _capped(lines, ids)
+
+
+def _now_relevant(memory: Memory, state: dict) -> tuple[list[str], list[str]]:
+    """Facts that match the files changed since the load and did not show. Traps first.
+
+    A one-time approval whose work landed is history, not help for this change, so it is left
+    out. Every other fact shows, also when its file changed on the main branch. At most
+    HINT_LINES show.
+    """
+    root = memory.project.root
+    areas = areas_for_paths(changed_paths(root, current_branch(root)), memory.config["areas"])
+    known = set(state.get("areas", []))
+    if not areas - known:
+        return [], sorted(known | areas)
+    moment = now()
+    new = areas - known
+    shown = set(state.get("shown", []))
+    visible = _for_this_branch(memory)
+    rows = []
+    for fact in active_states(memory):
+        if fact["id"] in shown or fact.get("kind") == "rule" or not visible(fact):
+            continue
+        parts = score_parts(fact, moment, new, set())
+        if parts["area"] or parts["mention"]:
+            rows.append((-(parts["trap"] + parts["area"] + parts["recency"]), fact["id"], fact))
+    done = landed.find(memory, git=False) if rows else {}
+    rows = [row for row in rows if row[1] not in done]
+    rows.sort(key=lambda row: row[:2])
+    facts = [row[2] for row in rows]
+    state["shown"] = sorted(shown | {fact["id"] for fact in facts})
+    lines = [clean(f"- [{fact['id']}] {load_text(fact)}") for fact in facts]
+    return _capped(lines, [fact["id"] for fact in facts], HINT_LINES), sorted(known | areas)
+
+
+def news(memory: Memory, key: str) -> str | None:
+    """What changed in the memory or in the work since this session last heard. Once each."""
+    state = load_state(memory, key)
+    if state is None or not state.get("loaded_at"):
+        return None
+    parts = []
+    stored = []
+    elsewhere = _changed_elsewhere(memory, state)
+    if elsewhere:
+        stored += ["Memory changed on another branch:", *elsewhere]
+    relevant, areas = _now_relevant(memory, state)
+    state["areas"] = areas
+    if relevant:
+        stored += ["These stored facts match the files you changed:", *relevant]
+    if stored:
+        parts.append("\n".join([FRAME_HEADER, *stored, FRAME_FOOTER]))
+    save_state(memory, key, state)
+    return "\n\n".join(parts) or None
+
+
+def _names_a_file(fact: dict, paths: list[str]) -> bool:
+    """True when the fact or its source names one of the files. An area alone is too broad."""
+    if names_a_changed_file(fact, paths):
+        return True
+    text = f"{load_text(fact)} {fact.get('source', '')}"
+    names = {name for path in paths for name in (path, os.path.basename(path))}
+    return any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", text) for name in names)
+
+
+def traps_for(memory: Memory, paths: list[str], limit: int = 3) -> list[str]:
+    """Stored traps that name a file about to be committed. A warning, never a refusal."""
+    visible = _for_this_branch(memory)
+    found = []
+    for fact in active_states(memory):
+        if fact.get("kind") == "trap" and visible(fact) and _names_a_file(fact, paths):
+            found.append(
+                f"memory: a stored trap matches this commit ({DATA_LABEL}): "
+                f"{clean(load_text(fact))}"
+            )
+    return found[:limit]

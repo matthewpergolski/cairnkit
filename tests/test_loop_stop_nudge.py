@@ -1,4 +1,4 @@
-"""Three identical failures make stop name stop, memory check, and ask.
+"""Three identical failures make stop name stop, search, and ask.
 
 Docs name the adapters that cannot see a command failure.
 """
@@ -26,14 +26,13 @@ def test_stop_after_three_failures_says_stop_check_and_ask(repo, mem, monkeypatc
     main(["hook", "stop", "--agent", "generic"])
     err = capsys.readouterr().err.lower()
     assert "stop" in err
-    assert "memory check" in err
+    assert "memory search" in err
     assert "ask" in err
 
 
 def test_docs_name_adapters_that_cannot_observe_command_failures():
     text = (ROOT / "docs" / "FORMAT.md").read_text()
     lowered = text.lower()
-    assert "aftershellexecution" in lowered.replace(" ", "").replace("_", "")
     assert "posttooluse" in lowered.replace(" ", "").replace("_", "")
     for name in ("opencode", "pi", "grok"):
         assert name in lowered

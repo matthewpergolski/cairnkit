@@ -4,10 +4,10 @@ the repo."""
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-from cairnkit import __version__
 from cairnkit.clock import parse_time
 from cairnkit.schema import BASES, KINDS, STATUSES
 
@@ -30,11 +30,25 @@ def _time(value: str) -> str:
     return value
 
 
+class _Version(argparse.Action):
+    """Print the version. It imports the install code only when someone asks."""
+
+    def __init__(self, option_strings, dest, **kwargs):
+        text = "show the version; a dev build also names its channel and commit"
+        super().__init__(option_strings, dest, nargs=0, help=text, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from cairnkit.install_source import version_text
+
+        print(f"{parser.prog} {version_text()}")
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Two commands run this: cairnkit, and its short name memory.
     prog = "cairnkit" if Path(sys.argv[0]).name == "cairnkit" else "memory"
     parser = argparse.ArgumentParser(prog=prog, description=__doc__, epilog=_DISCOVER_EPILOG)
-    parser.add_argument("--version", action="version", version=f"{prog} {__version__}")
+    parser.add_argument("--version", action=_Version)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--path", help="memory folder (else MEMORY_DIR, .memory-path, default)")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -44,10 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dry-run", action="store_true", help="show the steps; change nothing")
     p.add_argument(
-        "--gitignore",
-        action="store_true",
-        help="also add the ignore lines to .gitignore (default: only .git/info/exclude)",
+        "--no-hooks", action="store_true", help="do not connect the agent tools and git hooks"
     )
+    p.add_argument("--verbose", action="store_true", help="print each step")
     p.add_argument(
         "--refresh",
         action="store_true",
@@ -59,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         const="local",
         choices=("local", "shared"),
         help="add the agent rules block to CLAUDE.local.md (ignored by git), plus untracked "
-        "harness copies; moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. "
+        "harness copies. It changes no tracked file. "
         "shared is refused",
     )
     p.add_argument(
@@ -86,10 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
         "never deleted), run `memory init`, copy the old files into notes/, and write a "
         "worklist of candidate facts (proposals/migrate-candidates.jsonl). It writes no "
         "fact and calls no model. Without --yes it shows the plan and changes nothing: run "
-        "`memory migrate`, read the plan, then run `memory migrate --yes`. Add "
-        "--fix-references to also rewrite old paths in docs and add hooks. What needs "
-        "judgment goes to proposals/migrate-followups.md, a task for an agent. A rerun "
-        "finishes a run that stopped.",
+        "`memory migrate`, read the plan, then run `memory migrate --yes`. "
+        "It edits no project doc. Lines that name the old layout, and what needs "
+        "judgment, go to proposals/migrate-followups.md, a task for an agent. A rerun "
+        "finishes a run that stopped. After that it reads the task again, and removes it "
+        "when nothing is left.",
     )
     p.add_argument(
         "--from",
@@ -119,13 +133,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--untrack",
         action="store_true",
         help="when git tracks the old folder, remove it from the index (never commits)",
-    )
-    p.add_argument(
-        "--fix-references",
-        action="store_true",
-        help="also rewrite old paths (memory-bank/X to memory-bank/notes/X) in top-level and "
-        "docs *.md files, and add the memory hooks where a hook runs the old checker. Working "
-        "tree only; never commits. Needs --yes to act",
     )
 
     p = sub.add_parser("preset", help="list, show or add rule presets")
@@ -160,7 +167,8 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument(
         "--tool",
         choices=("claude", "codex", "cursor", "opencode", "pi", "grok", "all"),
-        help="one tool (default: every tool that is found)",
+        help="add or update one tool, or all that are found (default: update only the "
+        "tools that already have pstack)",
     )
     h.add_argument(
         "--adopt",
@@ -176,6 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--check", action="store_true", help="only say if an update exists")
     mode.add_argument("--dry-run", action="store_true", help="check, then list the steps")
     p.add_argument("--source", metavar="PATH|URL", help="the folder or git URL to install from")
+    p.add_argument(
+        "--channel",
+        choices=("stable", "dev"),
+        help="stable: the highest release tag. dev: the newest commit of the dev branch",
+    )
     p.add_argument("--plain", action="store_true", help="plain step lines, no cairn and no pause")
 
     sub.add_parser(
@@ -189,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
         const="local",
         choices=("local", "shared"),
         help="write the block to CLAUDE.local.md (ignored) and untracked harness copies; "
-        "moves any cairnkit block out of tracked CLAUDE.md / AGENTS.md. shared is refused",
+        "It changes no tracked file. shared is refused",
     )
     p.add_argument(
         "--instructions-file",
@@ -203,10 +216,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional load line, up to 200 characters. A longer fact without it is clipped",
     )
     p.add_argument("--kind", choices=KINDS, default="fact")
-    p.add_argument("--area", required=True, help="one area of the work, for example deploy")
-    p.add_argument("--basis", choices=BASES, required=True, help="seen, told or guess")
-    p.add_argument("--source", required=True, help="commit:<hash>, file:<path>, session:<date>")
+    p.add_argument(
+        "--area", default="general", help="one area of the work, for example deploy or a module"
+    )
+    p.add_argument(
+        "--basis",
+        choices=BASES,
+        help="seen (you observed it), told (a person said it) or guess (default: guess)",
+    )
+    p.add_argument(
+        "--source",
+        help="commit:<hash>, file:<path>, pr:<n>, person:<role> (default: session:<today>)",
+    )
     p.add_argument("--tag", action="append", help="a search word (repeat for more)")
+    p.add_argument(
+        "--files",
+        nargs="+",
+        action="extend",
+        metavar="PATH",
+        help="repo paths the fact is about, kept beside the text and outside its limit",
+    )
     p.add_argument("--happened-at", type=_time, help="when it became true (default: today)")
     p.add_argument("--link", action="append", help="<rel>:<id>, rel related|depends_on|...")
     p.add_argument("--pinned", action="store_true", help="show this fact on every load")
@@ -215,7 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--supersedes", metavar="ID", help="this fact replaces ID")
     p.add_argument("--reason", help="why ID is replaced (with --supersedes)")
-    p.add_argument("--short", action="store_true", help="short-term working note")
+    p.add_argument(
+        "--short",
+        action="store_true",
+        help="short-term working note. It ends when its branch is merged, or when you end it",
+    )
     p.add_argument("--expires", type=_time, help="end date of a short-term fact")
     p.add_argument(
         "--until-merged",
@@ -225,13 +258,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="short-term until BRANCH (default: this branch) is merged",
     )
 
-    p = sub.add_parser("change", parents=[common], help="change the status or links of a fact")
-    p.add_argument("id")
+    p = sub.add_parser(
+        "change", parents=[common], help="change the status or links of one or more facts"
+    )
+    p.add_argument("ids", nargs="+", metavar="ID", help="one or more facts; all change, or none")
     p.add_argument("--status", choices=STATUSES)
     p.add_argument("--reason", help="why (required with --status)")
     p.add_argument("--superseded-by", metavar="ID")
     p.add_argument("--held-by", metavar="PATH", help="tracked file that now holds the rule")
     p.add_argument("--link", action="append", help="<rel>:<id> to add")
+    p.add_argument("--unlink", action="append", help="<rel>:<id> to remove")
     group = p.add_mutually_exclusive_group()
     group.add_argument("--enforced-by", metavar="TYPE:VALUE", help="rules only: the check")
     group.add_argument("--no-enforced-by", action="store_true", help="the rule is advisory again")
@@ -247,6 +283,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reason", required=True, help="for example: secret")
     p.add_argument("--yes", action="store_true", help="confirm; there is no undo")
 
+    sub.add_parser(
+        "repair",
+        parents=[common],
+        help="settle bad lines and a bad config that `memory check` names; deletes no fact",
+    )
+
     p = sub.add_parser("check", parents=[common], help="check facts, links and secrets")
     p.add_argument("--strict", action="store_true", help="warnings are errors too")
     p.add_argument("--advisory", action="store_true", help="also list rules that no check enforces")
@@ -259,15 +301,15 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument(
         "--no-git-hook",
         action="store_true",
-        help="skip the git pre-commit, post-checkout, pre-push, post-merge and post-commit hooks",
+        help="skip the git pre-commit, post-checkout, pre-push and post-merge hooks",
     )
     h.add_argument(
         "--commit-msg-guard",
         nargs="?",
         const="local",
-        choices=("local", "shared"),
-        help="also install a commit-msg hook that rejects AI attribution lines: local "
-        "(.git/hooks) or shared (tracked .githooks/, for clones)",
+        choices=("local",),
+        help="install a commit-msg hook that rejects AI attribution lines (.git/hooks). "
+        "It installs by itself when the memory holds a rule against them",
     )
     h = hooks_sub.add_parser("uninstall", parents=[common], help="remove the hooks")
     h.add_argument("--dry-run", action="store_true")
@@ -282,39 +324,20 @@ def build_parser() -> argparse.ArgumentParser:
             "pre-commit",
             "post-checkout",
             "pre-push",
+            "pre-push-note",
             "post-merge",
             "post-commit",
+            "before-shell",
             "after-shell",
             "post-tool",
+            "prompt",
+            "pre-compact",
+            "subagent-start",
+            "helper-call",
+            "subagent-stop",
         ),
     )
     p.add_argument("--agent", default="generic", choices=AGENTS)
-
-    p = sub.add_parser(
-        "candidates",
-        parents=[common],
-        help="list, accept or dismiss pending auto-proposed fact candidates",
-    )
-    p.add_argument(
-        "--accept", dest="accept_id", metavar="ID", help="write this candidate as a fact"
-    )
-    p.add_argument("--dismiss", dest="dismiss_id", metavar="ID", help="drop this candidate")
-    p.add_argument("--area", help="override the stored area")
-    p.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
-    p.add_argument("--kind", choices=KINDS, help="override the stored kind")
-    p.add_argument("--source", help="override the stored source")
-    p.add_argument("--reason", help="why a candidate was dismissed")
-    cand_sub = p.add_subparsers(dest="candidates_command", metavar="ACTION", required=False)
-    cand_sub.add_parser("list", help="show pending auto-candidates")
-    h = cand_sub.add_parser("accept", help="write a pending candidate as a real fact")
-    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
-    h.add_argument("--area", help="override the stored area")
-    h.add_argument("--basis", choices=BASES, default=None, help="override the stored basis")
-    h.add_argument("--kind", choices=KINDS, help="override the stored kind")
-    h.add_argument("--source", help="override the stored source")
-    h = cand_sub.add_parser("reject", help="dismiss a pending candidate")
-    h.add_argument("id", help="candidate id (c-YYYYMMDD-xxxx)")
-    h.add_argument("--reason", help="why it was dismissed")
 
     p = sub.add_parser("load", parents=[common], help="print the facts for this session")
     p.add_argument("--area", help="only this area (and pinned facts)")
@@ -326,14 +349,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("show", parents=[common], help="print one fact and its history")
     p.add_argument("id")
 
-    p = sub.add_parser("tidy", parents=[common], help="propose clean-up changes for review")
-    p.add_argument("--days", type=int, default=90, help="a long fact older than this is stale")
+    p = sub.add_parser("tidy", parents=[common], help="list clean-up changes that need a decision")
     p.add_argument("--apply", nargs="+", metavar="ID", help="write the approved proposals")
     p.add_argument(
         "--auto",
         action="store_true",
-        help="retire the clear mechanical cases now (exact duplicates, ended short-term "
-        "facts), log each one, delete nothing. The session-start hook does this too, "
+        help="retire the clear mechanical cases now (repeats of the same text, ended short-term "
+        "facts, short-term facts whose source file is gone), log each one, delete nothing. "
+        "The session-start hook does this too, "
         "and so do the personal pre-push and post-merge git hooks",
     )
     p.add_argument("--dry-run", action="store_true", help="with --auto: show, change nothing")
@@ -346,6 +369,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("search", parents=[common], help="find facts, then note lines, by words")
     p.add_argument(
         "query",
+        nargs="+",
         help="words or a question; a fact with any of the words is found (--strict: all). "
         "With no whole-word match, a word of 4+ letters may start a longer one "
         "(deploy finds deployment)",
@@ -359,6 +383,41 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=20)
 
     p = sub.add_parser(
+        "export",
+        parents=[common],
+        help="print this project's facts as dated lines, to paste into another assistant",
+        description="Print the active facts as `[YYYY-MM-DD] - text` lines under headings. "
+        "This is no backup: an import of it loses pins, links, areas and tags, and a branch note "
+        "comes back as a fact that does not end. For a backup, copy the memory folder.",
+    )
+    p.add_argument(
+        "--output",
+        metavar="PATH",
+        help="write to PATH (mode 600); a path that git does not ignore is refused",
+    )
+    p.add_argument("--force", action="store_true", help="with --output: replace a file")
+    p.add_argument("--all", action="store_true", help="also ended facts, with their status")
+
+    p = sub.add_parser(
+        "import",
+        parents=[common],
+        help="add facts from an export, another assistant's answer, or Claude Code's notes",
+        description="Read dated lines under headings (an export, or an answer to "
+        "`memory import --prompt`), Claude Code memory notes, or the rule-like list items of an "
+        "AGENTS.md or CLAUDE.md. Personal entries, secrets and text this memory has are skipped. "
+        "Each fact gets basis seen; a rule loads as data until the owner states it with "
+        "`memory add --basis told`. Without --yes it shows the plan and changes nothing.",
+    )
+    p.add_argument("file", nargs="?", metavar="FILE|-", help="a file or folder; - reads stdin")
+    p.add_argument(
+        "--prompt", action="store_true", help="print the prompt to paste into another assistant"
+    )
+    p.add_argument(
+        "--native", action="store_true", help="read Claude Code's own memory of this project"
+    )
+    p.add_argument("--yes", action="store_true", help="write the facts; without it, only plan")
+
+    p = sub.add_parser(
         "docs",
         parents=[common],
         help="write a Nessa Docs atlas (docs/state) for this project",
@@ -367,12 +426,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--force",
         action="store_true",
-        help="overwrite an existing docs/state atlas",
+        help="rewrite the atlas pages in docs/state; other Markdown there stays",
     )
     p.add_argument(
         "--check",
         action="store_true",
-        help="compare docs/state with a fresh atlas and write nothing",
+        help=(
+            "compare docs/state with a fresh atlas and write nothing. The atlas maps the tracked "
+            "files and the untracked files that git does not ignore, so a global ignore of one "
+            "machine can change it: run it in CI on a clean checkout"
+        ),
     )
     return parser
 
@@ -385,11 +448,10 @@ def _open(project, args):
 
 def run(args) -> int:
     # Imported here, not at the top: building the parser (--help, --version) needs none of this.
-    from cairnkit import autotidy, followups
+    from cairnkit import autotidy, followups, hooks_cmd
     from cairnkit import presets as presets_module
     from cairnkit import skills as skills_module
     from cairnkit.autotidy import run_auto
-    from cairnkit.candidates_cmd import run_candidates
     from cairnkit.check import run_check
     from cairnkit.docs_cmd import run_docs, run_docs_check
     from cairnkit.hookrun import run_hook
@@ -400,15 +462,16 @@ def run(args) -> int:
     from cairnkit.load import run_load
     from cairnkit.memory import MemoryMissing
     from cairnkit.migrate import run_migrate
-    from cairnkit.paths import find_project, resolve_memory_dir
+    from cairnkit.paths import copy_line_once, find_project, resolve_memory_dir
     from cairnkit.reading import run_search, run_show
     from cairnkit.refresh import run_refresh
+    from cairnkit.repair import run_repair
     from cairnkit.tidy import run_tidy
     from cairnkit.update import run_status, run_update
     from cairnkit.writing import Refused, add_fact, change_fact, fail, keep_fact, purge_fact
 
     if args.command == "update":
-        return run_update(args.source, args.check, args.dry_run, plain=args.plain)
+        return run_update(args.source, args.check, args.dry_run, args.channel, plain=args.plain)
     project = find_project()
     if args.command == "docs":
         if args.check and (args.dry_run or args.force):
@@ -432,7 +495,10 @@ def run(args) -> int:
             return presets_module.run_list()
         if args.preset_command == "show":
             return presets_module.run_show(args.name, project if args.detect else None)
-        return presets_module.run_add(project, args.path, args.names, args.dry_run, args.file)
+        code = presets_module.run_add(project, args.path, args.names, args.dry_run, args.file)
+        if code == 0 and not args.dry_run and hooks_cmd.githook_connected(project):
+            hooks_cmd.sync_guard_only(project, args.path)
+        return code
     if args.command == "init" and args.refresh:
         return run_refresh(project, args.path, args.dry_run)
     if args.command in ("init", "migrate"):
@@ -459,9 +525,18 @@ def run(args) -> int:
                 not args.yes,
                 chosen,
                 args.untrack,
-                args.fix_references,
             )
-        code = run_init(project, args.path, args.dry_run, args.gitignore, chosen)
+        code = run_init(project, args.path, args.dry_run, chosen, verbose=args.verbose)
+        if code == 0 and hooks_cmd.INSTALL_ON_INIT and not args.no_hooks:
+            code = run_install(
+                project,
+                "auto",
+                args.dry_run,
+                True,
+                None,
+                args.path,
+                quiet=not args.verbose and not args.dry_run,
+            )
         if code == 0 and args.write_instructions:
             code = write_instructions(
                 project, args.write_instructions, args.instructions_file, args.dry_run
@@ -492,23 +567,40 @@ def run(args) -> int:
         return run_hook(project, args.path, args.event, args.agent)
     if args.command == "load":
         return run_load(project, args.path, args.area, max(args.budget, 0), args.explain)
+    if args.command == "import" and args.prompt:
+        from cairnkit.transfer import prompt_text
+
+        print(prompt_text(project.main_root.name), end="")
+        return 0
+    if args.command == "import" and not (args.file or args.native):
+        return fail("name a FILE, - for stdin, or --native; --prompt prints the prompt")
     try:
         memory = _open(project, args)
-        if args.command == "candidates":
-            return run_candidates(memory, args)
+        if args.command in ("export", "import"):
+            from cairnkit import transfer
+
+            if args.command == "export":
+                if args.force and not args.output:
+                    return fail("--force goes with --output")
+                return transfer.run_export(memory, args.output, args.all, args.force)
+            return transfer.run_import(memory, args.file, args.native, args.yes)
         if args.command == "add":
             new = add_fact(memory, args)
-            if new:
-                print(f"added {new}")
+            line = copy_line_once(project, memory.dir)
+            if line:
+                print(line, file=sys.stderr)
+            if new and args.kind == "rule" and hooks_cmd.githook_connected(project):
+                hooks_cmd.sync_guard_only(project, args.path)
         elif args.command == "change":
             change_fact(memory, args)
-            print(f"changed {args.id}")
         elif args.command in ("keep", "promote"):
             keep_fact(memory, args.id, args.reason)
             print(f"kept {args.id} as long-term")
         elif args.command == "purge":
             dropped = purge_fact(memory, args.id, args.reason, args.yes)
             print(f"purged {args.id}: removed {dropped} line(s), wrote a tombstone")
+        elif args.command == "repair":
+            return run_repair(memory)
         elif args.command == "show":
             return run_show(memory, args.id)
         elif args.command == "tidy":
@@ -523,12 +615,29 @@ def run(args) -> int:
                 return 0
             if args.auto:
                 return run_auto(memory, args.dry_run)
-            return run_tidy(memory, args.days, args.apply)
+            return run_tidy(memory, args.apply)
         elif args.command == "search":
-            return run_search(memory, args.query, args.all, args.limit, args.strict)
+            return run_search(memory, " ".join(args.query), args.all, args.limit, args.strict)
     except (MemoryMissing, Refused) as exc:
         return fail(str(exc))
     return 0
+
+
+def _not_text(args: argparse.Namespace) -> str | None:
+    """The first argument that is not valid UTF-8. A path may hold any bytes."""
+    for key, value in vars(args).items():
+        for item in value if isinstance(value, list) else [value]:
+            if key != "path" and isinstance(item, str):
+                try:
+                    item.encode("utf-8")
+                except UnicodeEncodeError:
+                    return key
+    return None
+
+
+def _quiet_stdout() -> None:
+    """The reader of stdout is gone. Without this, Python fails its last flush with exit 120."""
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -537,7 +646,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
-    return run(args)
+    from cairnkit import deadline
+    from cairnkit.store import LockBusy
+
+    # A load and a hook never block a session, whatever went wrong.
+    never_blocks = args.command in ("load", "hook")
+    bad = None if never_blocks else _not_text(args)
+    if bad:
+        print(f"error: {bad} is not valid UTF-8. Nothing was written.", file=sys.stderr)
+        return 1
+    # The budget starts before the first git call, because a slow git is what it must outlast.
+    name = args.event if args.command == "hook" else args.command
+    try:
+        with deadline.within(deadline.COMMAND_BUDGET.get(name)):
+            code = run(args)
+    except LockBusy as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except BrokenPipeError:
+        _quiet_stdout()
+        return 0 if never_blocks else 141  # as a process that SIGPIPE ended
+    except OSError as exc:
+        if never_blocks:
+            print(f"memory: not loaded: {exc}")
+            return 0
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    try:
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _quiet_stdout()
+    return code
 
 
 if __name__ == "__main__":

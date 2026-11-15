@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 from conftest import add_worktree, read_jsonl
@@ -13,7 +13,7 @@ BASE = ["--area", "deploy", "--basis", "seen", "--source", "commit:abc1234"]
 def add(capsys, text, *extra):
     capsys.readouterr()
     assert main(["add", text, *BASE, *extra]) == 0
-    return capsys.readouterr().out.strip().splitlines()[-1].split()[-1]
+    return capsys.readouterr().out.split("added ")[1].split()[0]
 
 
 def test_add_writes_one_fact_line(mem, capsys):
@@ -91,22 +91,12 @@ def test_change_rules(repo, mem, capsys):
     assert recs[-1]["add_links"] == [{"rel": "related", "id": fid}]
 
 
-def test_short_term_fact_gets_expiry(mem, capsys, monkeypatch):
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-01T12:00:00-05:00")
+def test_short_term_fact_ends_with_its_branch_not_by_the_clock(mem, capsys):
     add(capsys, "Working note.", "--short")
     [rec] = read_jsonl(mem / "facts" / "main.jsonl")
     assert rec["scope"] == "short"
-    learned = datetime.fromisoformat(rec["learned_at"])
-    assert datetime.fromisoformat(rec["expires_at"]) - learned == timedelta(days=14)
-
-
-def test_short_term_days_comes_from_config(mem, capsys, monkeypatch):
-    cfg = mem / "config.toml"
-    cfg.write_text(cfg.read_text().replace("short_term_days = 14", "short_term_days = 3"))
-    monkeypatch.setenv("MEMORY_NOW", "2026-10-01T12:00:00-05:00")
-    add(capsys, "Working note.", "--short")
-    [rec] = read_jsonl(mem / "facts" / "main.jsonl")
-    assert rec["expires_at"].startswith("2026-10-04")
+    assert rec["until_branch_merged"] == "main"
+    assert "expires_at" not in rec
 
 
 def test_until_merged_uses_current_branch(repo, mem, capsys, monkeypatch):
@@ -132,3 +122,42 @@ def test_promote_is_a_hidden_alias_of_keep(mem, capsys):
     capsys.readouterr()
     main([])
     assert "promote" not in capsys.readouterr().out
+
+
+def test_change_removes_a_link_that_was_wrong(mem, capsys):
+    """An agent linked a lesson to the wrong fact and had no way to take the link back."""
+    from cairnkit.memory import Memory
+    from cairnkit.paths import find_project
+
+    first = add(capsys, "The report script exits 3 without a locale.")
+    second = add(capsys, "Set REPORT_LOCALE=C when you run the report script.", "--kind", "lesson")
+    third = add(capsys, "The deploy needs a clean tree.")
+    assert main(["change", second, "--link", f"related:{third}"]) == 0
+    assert (
+        main(["change", second, "--unlink", f"related:{third}", "--link", f"related:{first}"]) == 0
+    )
+    links = Memory.open(find_project()).states[second]["links"]
+    assert links == [{"rel": "related", "id": first}]
+    capsys.readouterr()
+    assert main(["change", second, "--unlink", f"related:{third}"]) != 0
+    assert "has no link related:" in capsys.readouterr().err
+    assert main(["check"]) == 0
+
+
+# What the check of 0.3.1 asks of a change. It knows no remove_links, and it drops the record.
+OLDER_BUILD_FIELDS = ("status", "add_links", "scope", "enforced_by")
+
+
+def test_an_unlink_alone_is_a_change_that_an_older_build_accepts(mem, capsys):
+    from cairnkit.memory import Memory
+    from cairnkit.paths import find_project
+
+    first = add(capsys, "The report script exits 3 without a locale.")
+    second = add(capsys, "Set REPORT_LOCALE=C for the report script.", "--kind", "lesson")
+    assert main(["change", second, "--link", f"related:{first}"]) == 0
+    assert main(["change", second, "--unlink", f"related:{first}"]) == 0
+    change = read_jsonl(mem / "facts" / "main.jsonl")[-1]
+    assert change["remove_links"] == [{"rel": "related", "id": first}]
+    assert any(name in change for name in OLDER_BUILD_FIELDS)
+    assert Memory.open(find_project()).states[second]["links"] == []
+    assert main(["check"]) == 0

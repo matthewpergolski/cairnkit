@@ -4,11 +4,41 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
-from cairnkit.ignore import append_lines, exclude, is_tracked, missing_lines
-from cairnkit.paths import LINK_NAME, PATH_FILE, Project, resolve_memory_dir
+from cairnkit import plainfile
+from cairnkit.ignore import exclude, is_tracked, keep_out_of_git
+from cairnkit.paths import (
+    COPY,
+    ENV_DIR,
+    GIT_FOLDER_REFUSAL,
+    LINK_NAME,
+    OURS,
+    PATH_FILE,
+    UNCLAIMED,
+    Identity,
+    Project,
+    beside_line,
+    default_memory_dir,
+    holds_memory,
+    inside_git_folder,
+    linked_memory,
+    lost_memory,
+    lost_note,
+    owner_line,
+    owner_state,
+    pointer_tracked,
+    project_key,
+    read_identity,
+    record_file,
+    recorded_repo,
+    resolve_memory_dir,
+    root_commits,
+    write_identity,
+)
 from cairnkit.presets import NONE, apply
+from cairnkit.selection import clean_path
 
 IGNORE_LINES = [LINK_NAME, PATH_FILE]
 
@@ -29,15 +59,10 @@ Do not edit fact files by hand. Run `memory --help`.
 CONFIG = """\
 # Settings for this project's memory.
 
-# Days until a short-term fact expires, when it has no expires_at.
-short_term_days = 14
 
-# The untracked rules file. `memory tidy` proposes durable facts for it.
-# Unset, it is CLAUDE.local.md. Must stay out of git.
-# rules_file = "CLAUDE.local.md"
-
-# What the session-start hook does with facts that are clearly redundant (exact
-# repeats, ended short-term facts). The same step runs after a git push or
+# What the session-start hook does with facts that are clearly redundant (repeats
+# of the same text, ended short-term facts, short-term facts whose source file
+# is gone). The same step runs after a git push or
 # merge. Those hooks are personal. A push does not count as a session start.
 # "auto" (the default) only reports for the
 # first 3 session starts and 7 days, then turns itself on, unless a retire was
@@ -77,39 +102,22 @@ def plan_link(
         files = _real_files(link)
         if files:
             shown = ", ".join(files[:10]) + (" ..." if len(files) > 10 else "")
-            return "refuse", f"{link} is a real folder with files: {shown}"
+            return "refuse", f"{clean_path(link)} is a real folder with files: {clean_path(shown)}"
         return "replace-empty", None
     if link.exists():
-        return "refuse", f"{link} is a file, not a link"
+        return "refuse", f"{clean_path(link)} is a file, not a link"
     return "create", None
-
-
-def _ignore_targets(project: Project, write_gitignore: bool) -> list[Path]:
-    targets = []
-    if write_gitignore:
-        targets.append(project.root / ".gitignore")
-    if project.common_dir is not None:
-        targets.append(project.common_dir / "info" / "exclude")
-    return targets
-
-
-def _missing_ignore_lines(path: Path) -> list[str]:
-    return missing_lines(path, IGNORE_LINES)
-
-
-def _append_ignore(path: Path, lines: list[str]) -> None:
-    append_lines(path, lines)
 
 
 def _write_skeleton(memdir: Path) -> list[str]:
     made = []
     for sub in ("facts", "notes", "branches"):
         if not (memdir / sub).is_dir():
-            (memdir / sub).mkdir(parents=True)
+            plainfile.inside(memdir, memdir / sub).mkdir(parents=True)
             made.append(f"{sub}/")
     for rel, text in (("README.md", README), ("config.toml", CONFIG), ("notes/status.md", STATUS)):
-        if not (memdir / rel).exists():
-            (memdir / rel).write_text(text)
+        if not os.path.lexists(memdir / rel):
+            plainfile.write_text(plainfile.inside(memdir, memdir / rel), text)
             made.append(rel)
     return made
 
@@ -121,13 +129,49 @@ def is_linked(checkout: Path, memdir: Path) -> bool:
 
 
 def can_link(project: Project, checkout: Path, memdir: Path) -> bool:
-    """True when ensure_linked would create a link in this checkout."""
+    """True when ensure_linked would create or repair a link in this checkout."""
     link = checkout / LINK_NAME
+    dangling = link.is_symlink() and not link.exists()
     return (
-        (memdir / "facts").is_dir()
-        and not os.path.lexists(link)
+        holds_memory(memdir)
+        and (dangling or not os.path.lexists(link))
         and not is_tracked(project, LINK_NAME, checkout)
     )
+
+
+def remember(project: Project, memdir: Path, source: str, chosen: bool = False) -> None:
+    """Note where the memory is and who owns it, so a later move can be traced. Never raises.
+
+    The memory folder gets an id and an owner. The repo records the id, the absolute path and
+    its own git folder there, because a relative link says nothing once the repo has moved, and
+    because a copied repo brings the record of the first repo along. That record stays until
+    `memory init` runs in the copy (`chosen`). Only that takes a memory whose owner is gone, so
+    a load moves no ownership. A new place also gets a look for work trees that hold it. The
+    usual call reads two small files, and it runs no git.
+    """
+    if source in ("flag", ENV_DIR) or not holds_memory(memdir):
+        return
+    try:
+        identity = read_identity(memdir)
+        if identity is None:
+            identity = Identity(uuid.uuid4().hex, root_commits(project), project_key(project))
+            write_identity(memdir, identity)
+        state, _ = owner_state(project, memdir)
+        if state == COPY and not chosen:
+            return
+        takes = state == OURS or (state == UNCLAIMED and chosen)
+        if takes and identity.owner != project_key(project):
+            write_identity(memdir, identity._replace(owner=project_key(project)))
+        path = record_file(project)
+        if path is None:
+            return
+        repo = recorded_repo(project) if state == UNCLAIMED and not chosen else project_key(project)
+        text = f"{identity.id}\n{memdir.resolve()}\n{repo}\n"
+        if not path.is_file() or plainfile.read_text(path) != text:
+            keep_out_of_git(project, memdir)
+            plainfile.write_text(path, text)
+    except (OSError, UnicodeDecodeError):
+        return
 
 
 def ensure_linked(
@@ -136,12 +180,11 @@ def ensure_linked(
     flag: str | None = None,
     memdir: Path | None = None,
 ) -> str | None:
-    """Link checkout to the project's memory when the link is plainly missing.
+    """Link checkout to the project's memory when the link is missing or dangles.
 
     Memory is resolved from the main checkout, so a worktree needs no
-    .memory-path of its own. Acts only on a missing path that git does not
-    track in this checkout, and only when the memory folder exists. Returns a
-    notice, or None.
+    .memory-path of its own. Acts only on a path that git does not track in this
+    checkout, and only when the memory folder exists. Returns a notice, or None.
     """
     if memdir is None:
         memdir, _ = resolve_memory_dir(project, flag)
@@ -153,16 +196,22 @@ def ensure_linked(
         exclude(project, IGNORE_LINES)  # first: a link git does not ignore is worse than none
     except OSError:
         return None
+    repaired = link.is_symlink()
     try:
+        if repaired:
+            link.unlink()
         link.symlink_to(target, target_is_directory=True)
     except OSError:
         return None
-    return f"memory: linked {link} -> {target}"
+    return (
+        f"memory: {'relinked' if repaired else 'linked'} {clean_path(link)} -> {clean_path(target)}"
+    )
 
 
 def ensure_all_linked(project: Project, flag: str | None = None) -> list[str]:
     """Ensure every checkout is linked. Return the notice lines that were printed."""
-    memdir, _ = resolve_memory_dir(project, flag)
+    memdir, source = resolve_memory_dir(project, flag)
+    remember(project, memdir, source)
     return [
         line
         for checkout in project.checkouts
@@ -171,60 +220,148 @@ def ensure_all_linked(project: Project, flag: str | None = None) -> list[str]:
 
 
 def link_here(project: Project, flag: str | None = None) -> str | None:
-    """Link this checkout when its memory link is plainly missing. Return a line, or None."""
-    return ensure_linked(project, project.root, flag)
+    """Link this checkout when its memory link is missing or dangles. Return a line, or None."""
+    memdir, source = resolve_memory_dir(project, flag)
+    remember(project, memdir, source)
+    return ensure_linked(project, project.root, flag, memdir)
+
+
+def real_folder_warning(project: Project, memdir: Path) -> str | None:
+    """Name a real file or folder where the link belongs. Git puts one there on an old branch."""
+    link = project.root / LINK_NAME
+    if link.is_symlink() or not os.path.lexists(link):
+        return None
+    what = "real folder" if link.is_dir() else "real file"
+    cause = (
+        "because this branch tracks it (a branch from before the memory moved out of git)"
+        if is_tracked(project, LINK_NAME)
+        else "not a link"
+    )
+    return (
+        f"warning: {clean_path(link)} is a {what}, {cause}. It is not your memory, and what it "
+        f"says can be old, such as a status. Trust this load. The memory is at "
+        f"{clean_path(memdir)}."
+    )
+
+
+def _empty_path_refusal(project: Project, memdir: Path) -> str | None:
+    """A --path to an empty folder must not leave the memory that the link reaches."""
+    linked = linked_memory(project)
+    if linked is None or linked == memdir.resolve():
+        return None
+    return (
+        f"{LINK_NAME} points to the memory at {clean_path(linked)}, and "
+        f"{clean_path(memdir)} holds no "
+        "memory. "
+        "To move the memory: move the folder, then run `memory init --path NEW_PLACE`."
+    )
+
+
+def _own_memory_note(project: Project, memdir: Path, source: str) -> tuple[Path, str, str | None]:
+    """The memory that init must use, its source, and a note when it had to leave another's.
+
+    A stated path stays, and a repo that was copied has stated nothing, even when the copy
+    brought a path file along. A link that nobody stated counts as nothing stated too.
+    """
+    if not holds_memory(memdir) or source in ("flag", ENV_DIR):
+        return memdir, source, None
+    state, _ = owner_state(project, memdir)
+    if state in (OURS, UNCLAIMED) or (state != COPY and source == PATH_FILE):
+        return memdir, source, None
+    own = default_memory_dir(project)
+    return (
+        own,
+        "default",
+        f"{clean_path(memdir)} belongs to another project, so this project now has its own memory "
+        f"at {clean_path(own)}. What was added here before this stays in {clean_path(memdir)}.",
+    )
 
 
 def run_init(
     project: Project,
     path_flag: str | None,
     dry_run: bool = False,
-    write_gitignore: bool = False,
     presets: list[str] | None = None,
     moved: frozenset[Path] = frozenset(),
+    verbose: bool = True,
 ) -> int:
     """Add the rules of the presets. With presets None, add no rule facts.
 
     The rules about memory itself ship inside the tool (`memory instructions`).
     """
     cwd = Path.cwd().absolute()
+    if inside_git_folder(cwd):
+        print(GIT_FOLDER_REFUSAL.format(cwd=cwd), file=sys.stderr)
+        return 1
     if not project.is_git and project.root != cwd:
         memdir, _ = resolve_memory_dir(project, None)
         print(
-            f"error: {cwd} is inside the project at {project.root}, which already has a memory "
-            f"({memdir}).\nNothing changed. The memory commands work from this subfolder. "
-            "To change the project, run `memory init` in its root folder.",
+            f"error: {clean_path(cwd)} is inside the project at {clean_path(project.root)}, "
+            "which already "
+            f"has a memory ({clean_path(memdir)}).\nNothing changed. The memory commands work from "
+            "this subfolder. To change the project, run `memory init` in its root folder.",
             file=sys.stderr,
         )
         return 1
     memdir, source = resolve_memory_dir(project, path_flag)
+    memdir, source, left_note = _own_memory_note(project, memdir, source)
+    if not holds_memory(memdir) and not moved and not left_note:
+        lost = None if source in ("flag", ENV_DIR) else lost_memory(project)
+        refusal = _empty_path_refusal(project, memdir) if source in ("flag", ENV_DIR) else None
+        if lost and lost.gone:
+            refusal = lost_note(lost)
+        if refusal:
+            print(f"error: {clean_path(refusal)}\nNothing changed.", file=sys.stderr)
+            return 1
     say = print
     if dry_run:
         say("Dry run: nothing will change.")
-    say(f"Memory folder: {memdir} (from {source})")
+    say(f"Memory folder: {clean_path(memdir)} (from {source})")
 
     plans = [(c, *plan_link(c, memdir, moved)) for c in project.checkouts]
     problems = [p for _, _, p in plans if p]
     if problems:
         for problem in problems:
-            print(f"error: {problem}", file=sys.stderr)
+            print(f"error: {clean_path(problem)}", file=sys.stderr)
         print(
             "Nothing changed. Move these files into the memory folder first (migrate),\n"
             "then remove the real folder and run `memory init` again.",
             file=sys.stderr,
         )
         return 1
+    if not dry_run:
+        leaks = keep_out_of_git(project, memdir)
+        if leaks:
+            for leak in leaks:
+                print(f"error: {clean_path(leak)}", file=sys.stderr)
+            print("Nothing changed.", file=sys.stderr)
+            return 1
 
     steps: list[str] = []
+    if left_note and (project.home / PATH_FILE).is_file():
+        steps.append(f"remove {project.home / PATH_FILE}, which the copy brought along")
+        if not dry_run:
+            (project.home / PATH_FILE).unlink()
     if not memdir.is_dir():
         steps.append(f"create {memdir}")
     if path_flag:
-        rel = os.path.relpath(memdir, project.main_root)
-        current = project.main_root / PATH_FILE
-        if not current.is_file() or current.read_text().splitlines()[:1] != [rel]:
+        rel = os.path.relpath(memdir, project.home)
+        current = project.home / PATH_FILE
+        tracked = project.is_git and current.is_file() and pointer_tracked(current)
+        if tracked is None:
+            say(
+                f"note: git gave no answer about {clean_path(current)}, so the tool did not "
+                "write it. The link and this repo's record name the memory."
+            )
+        elif tracked:
+            say(
+                f"note: git tracks {clean_path(current)}, so the tool does not write it or read "
+                "it. The link and this repo's record name the memory."
+            )
+        elif not current.is_file() or plainfile.read_text(current).splitlines()[:1] != [rel]:
             steps.append(f"write {current}: {rel}")
             if not dry_run:
-                current.write_text(rel + "\n")
+                plainfile.write_text(current, rel + "\n")
     if not dry_run:
         memdir.mkdir(parents=True, exist_ok=True)
         steps += [f"add {memdir / m}" for m in _write_skeleton(memdir)]
@@ -250,19 +387,22 @@ def run_init(
             link.rmdir()
         link.symlink_to(target, target_is_directory=True)
 
-    for ignore_file in _ignore_targets(project, write_gitignore):
-        missing = _missing_ignore_lines(ignore_file)
-        if missing:
-            steps.append(f"add {', '.join(missing)} to {ignore_file}")
-            if not dry_run:
-                _append_ignore(ignore_file, missing)
+    steps += exclude(project, IGNORE_LINES, dry_run)
 
-    for step in steps:
-        say(("would " if dry_run else "") + step)
+    if not dry_run:
+        remember(project, *resolve_memory_dir(project), chosen=True)
+
+    if verbose or dry_run:
+        for step in steps:
+            say(("would " if dry_run else "") + clean_path(step))
     for line in rule_lines:
         say(line)
-    if not steps:
-        say("Already set up. Nothing to do.")
     if not dry_run:
-        say("Run `memory hooks install` to connect your agent and git.")
+        state = "ready" if steps else "already set up"
+        say(
+            f"Memory {state}: {clean_path(memdir)} (linked as {LINK_NAME}; nothing in git changes)."
+        )
+    for note in (left_note, beside_line(project, memdir), owner_line(project, memdir)):
+        if note:
+            say(clean_path(note))
     return 0

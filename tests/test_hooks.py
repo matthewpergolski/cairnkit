@@ -1,10 +1,12 @@
 import io
 import json
+import shutil
 import subprocess
 
 import pytest
 from conftest import add_worktree, git, make_fact, write_facts
 
+from cairnkit import githook
 from cairnkit.cli import main
 
 
@@ -69,21 +71,15 @@ def test_stop_is_quiet_when_nothing_changed(mem, capsys, monkeypatch):
     assert code == 0 and "block" not in out
 
 
-def test_stop_reminds_once_after_work_with_no_new_facts(repo, mem, capsys, monkeypatch):
+def test_stop_blocks_once_after_work_with_no_new_facts(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "new.py").write_text("x = 1\n")
     code, out, _ = run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
     assert code == 0
-    data = json.loads(out)
-    assert data["decision"] == "block" and "memory add" in data["reason"]
-    # The agent was continued once; it must not loop.
-    _, out, _ = run_hook(
-        capsys, monkeypatch, "stop", "claude", {"session_id": "s1", "stop_hook_active": True}
-    )
-    assert "block" not in out
-    # The same work does not cause a second reminder.
+    assert "memory add" in json.loads(out)["reason"]
+    (repo / "new.py").write_text("x = 2\n")
     _, out, _ = run_hook(capsys, monkeypatch, "stop", "claude", {"session_id": "s1"})
-    assert "block" not in out
+    assert out == ""
 
 
 def test_stop_is_quiet_when_a_fact_was_written(repo, mem, capsys, monkeypatch):
@@ -108,7 +104,7 @@ def test_stop_formats_for_codex_cursor_and_generic(repo, mem, capsys, monkeypatc
     start(capsys, monkeypatch, "generic", sid="default")  # generic hooks send no payload
     _, out, _ = run_hook(capsys, monkeypatch, "stop", "codex", {"session_id": "codex"})
     assert json.loads(out) == {}
-    (repo / "new.py").write_text("x = 1\n")
+    (repo / "README.md").unlink()
     _, out, _ = run_hook(capsys, monkeypatch, "stop", "codex", {"session_id": "codex"})
     assert json.loads(out)["decision"] == "block"
     _, out, _ = run_hook(
@@ -163,7 +159,7 @@ def test_install_claude_merges_and_is_idempotent(repo, mem, capsys):
 def test_install_codex_and_cursor_formats(repo, mem, capsys):
     assert install(capsys, "--agent", "codex")[0] == 0
     codex = json.loads((repo / ".codex" / "hooks.json").read_text())
-    assert codex["hooks"]["SessionStart"][0]["matcher"] == "startup|resume"
+    assert codex["hooks"]["SessionStart"][0]["matcher"] == "startup|resume|clear|compact"
     assert len(our_commands(codex["hooks"]["Stop"])) == 1
     assert install(capsys, "--agent", "cursor")[0] == 0
     cursor = json.loads((repo / ".cursor" / "hooks.json").read_text())
@@ -208,8 +204,11 @@ def test_generic_prints_commands_and_writes_no_agent_file(repo, mem, capsys):
         assert not (repo / folder).exists()
 
 
-def test_auto_detects_agent_folders(repo, mem, capsys, monkeypatch):
-    monkeypatch.setenv("PATH", "/nonexistent")
+def test_auto_detects_agent_folders(repo, mem, capsys, monkeypatch, tmp_path):
+    only_git = tmp_path / "only-git"
+    only_git.mkdir()
+    (only_git / "git").symlink_to(shutil.which("git"))
+    monkeypatch.setenv("PATH", str(only_git))
     (repo / ".claude").mkdir()
     code, _ = install(capsys)
     assert code == 0
@@ -274,12 +273,13 @@ def test_pre_commit_keeps_a_foreign_hook(repo, mem, capsys):
     assert hook.read_text() == "#!/bin/sh\necho team-check\nexit 0\n"
 
 
-def test_hooks_path_inside_repo_is_left_alone(repo, mem, capsys):
+def test_hooks_path_inside_repo_is_left_alone(repo, mem, capsys, monkeypatch):
+    monkeypatch.setattr(githook, "git_runs_config_hooks", lambda: False)
     (repo / ".githooks").mkdir()
     git(repo, "config", "core.hooksPath", ".githooks")
     code, out = install(capsys, "--agent", "generic")
     assert code == 0
-    assert "by hand" in out
+    assert "does not run here" in out
     assert not (repo / ".githooks" / "pre-commit").exists()
 
 

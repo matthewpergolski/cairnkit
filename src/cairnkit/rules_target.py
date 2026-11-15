@@ -15,7 +15,7 @@ from __future__ import annotations
 import errno
 from pathlib import Path
 
-from cairnkit import markers
+from cairnkit import markers, plainfile
 from cairnkit.harness_local import TARGETS as HARNESS_TARGETS
 from cairnkit.instructions import PAIRS
 
@@ -30,7 +30,7 @@ IMPORT = "@AGENTS.md"
 
 def _text(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8", errors="replace")
+        return plainfile.read_text(path, encoding="utf-8", errors="replace")
     except OSError:
         return ""
 
@@ -87,7 +87,9 @@ def needs_import(root: Path, rel: str) -> bool:
 
 def add_import(path: Path) -> None:
     """Put the import and a blank line at the top, before any text that is already there."""
-    path.write_text(f"{IMPORT}\n\n" + path.read_text(encoding="utf-8"), encoding="utf-8")
+    plainfile.write_text(
+        path, f"{IMPORT}\n\n" + plainfile.read_text(path, encoding="utf-8"), encoding="utf-8"
+    )
 
 
 def present(root: Path) -> list[str]:

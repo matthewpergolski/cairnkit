@@ -5,30 +5,43 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from cairnkit import ranking, usage
+from cairnkit import plainfile, ranking, usage
 from cairnkit.clock import now
 from cairnkit.memory import Memory
-from cairnkit.paths import LINK_NAME, merged_checker
+from cairnkit.paths import merged_checker
+from cairnkit.secretscan import mask, readable
 from cairnkit.selection import FRAME_FOOTER, FRAME_HEADER, clean, render
 from cairnkit.state import effective_status
 
 
 def run_show(memory: Memory, fact_id: str) -> int:
+    for line in memory.secret_lines:
+        if line.ref == fact_id:
+            print(FRAME_HEADER)
+            print(clean(f"{line.file}:{line.line}: {readable(line.text, memory.env)}"))
+            print(FRAME_FOOTER)
+            print(memory.secret_line_problem(line))
+            return 0
     state = memory.states.get(fact_id)
     if state is None:
-        print(f"error: no fact with id {fact_id}")
+        print(f"error: no fact with id {clean(mask(fact_id, memory.env))}")
         return 1
     if state["status"] == "purged":
-        print(f"{fact_id}: purged on {state.get('purged_at')} ({state.get('reason')}).")
+        print(FRAME_HEADER)
+        print(clean(f"{fact_id}: purged on {state.get('purged_at')} ({state.get('reason')})."))
         print("The content was removed for good.")
+        print(FRAME_FOOTER)
         return 0
     status, reason = effective_status(state, now(), merged_checker(memory.project.root))
     print(FRAME_HEADER)
     print(render(state))
+    if state.get("summary"):
+        print(f"  text: {clean(state.get('text'))}")
     fields = (
         "kind",
         "area",
         "tags",
+        "files",
         "scope",
         "source",
         "author",
@@ -36,16 +49,20 @@ def run_show(memory: Memory, fact_id: str) -> int:
         "writer",
         "expires_at",
         "until_branch_merged",
+        "branch_tip",
         "pinned",
         "enforced_by",
     )
     for name in fields:
         if name in state:
-            print(f"  {name}: {clean(state[name])}")
+            value = state[name]
+            if name == "files" and isinstance(value, list):
+                value = ", ".join(map(str, value))
+            print(f"  {name}: {clean(value)}")
     for link in state.get("links", []):
         print(f"  link: {clean(link['rel'])} {clean(link['id'])}")
     print("History:")
-    print(f"  {state.get('learned_at')}  created (active) by {state.get('writer')}")
+    print(f"  {clean(state.get('learned_at'))}  created (active) by {clean(state.get('writer'))}")
     for change in state["history"]:
         parts = []
         if "status" in change:
@@ -59,13 +76,21 @@ def run_show(memory: Memory, fact_id: str) -> int:
         if "enforced_by" in change:
             value = change["enforced_by"]
             parts.append(f"enforced by {value}" if value else "advisory")
+        if "branch_tip" in change:
+            parts.append(f"branch tip {clean(change['branch_tip'])}")
         for link in change.get("add_links", []):
             parts.append(f"link {link['rel']} {link['id']}")
-        why = f": {clean(change['reason'])}" if change.get("reason") else ""
-        print(f"  {change.get('at')}  {', '.join(parts)}{why} ({clean(change.get('writer'))})")
+        for link in change.get("remove_links", []):
+            parts.append(f"unlink {link['rel']} {link['id']}")
+        why = f": {change['reason']}" if change.get("reason") else ""
+        who = ", ".join(str(change[k]) for k in ("writer", "author") if change.get(k))
+        line = f"{change.get('at')}  {', '.join(parts)}{why} ({who})"
+        print("  " + clean(mask(line, memory.env)))
     computed = " (computed at read time)" if status != state["status"] else ""
     print(f"Now: {status}{computed}" + (f": {clean(reason)}" if reason else ""))
     print(FRAME_FOOTER)
+    if fact_id in memory.masked:
+        print(memory.secret_problem(fact_id))
     if status == "active":
         usage.record(memory, [fact_id], now())
     return 0
@@ -93,7 +118,7 @@ def note_files(folder: Path) -> list[Path]:
 def note_hits(
     memory: Memory, terms: list[str], strict: bool = False, prefix: bool = False
 ) -> list[str]:
-    """Lines of notes/ as `memory-bank/notes/PATH:LINE: text`, best first.
+    """Lines of notes/ as `<memory>/notes/PATH:LINE: text`, best first.
 
     A line counts when it holds any term (BM25 over the lines). With `strict`, it must
     hold every term, as a substring, and the lines come in file order. With `prefix`, a term
@@ -102,9 +127,9 @@ def note_hits(
     folder = memory.dir / "notes"
     lines = []  # (path, number, cleaned line)
     for path in note_files(folder):
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(path, encoding="utf-8", errors="replace")
         for number, raw in enumerate(text.splitlines(), start=1):
-            line = clean(raw)
+            line = clean(mask(raw, memory.env))
             if line.strip():
                 lines.append((path.relative_to(folder).as_posix(), number, line))
     if strict:
@@ -119,10 +144,11 @@ def note_hits(
             if s > 0
         ]
         picked.sort(key=lambda p: (-p[3], p[0], p[1]))
-    return [
-        f"- {LINK_NAME}/notes/{rel}:{n}: {_snippet(line, terms, strict, prefix)}"
-        for rel, n, line, _ in picked
-    ]
+    shown = []
+    for rel, n, line, _ in picked:
+        text = _snippet(line, terms, strict, prefix)
+        shown.append(clean(f"- {memory.where}/notes/{rel}:{n}: {text}"))
+    return shown
 
 
 def _snippet(line: str, terms: list[str], strict: bool, prefix: bool = False) -> str:

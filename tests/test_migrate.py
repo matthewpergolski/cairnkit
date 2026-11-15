@@ -166,7 +166,7 @@ def test_writes_candidates_and_no_facts(repo, capsys):
     assert first["type"] == "candidate"
     assert first["line"] == 3 and first["suggested_kind"] == "decision"
     assert first["tier"] == "likely"
-    assert summary["tiers"] == {"likely": 7, "maybe": 0, "worktree-only": 0}
+    assert summary["tiers"] == {"likely": 7, "maybe": 0, "worktree-only": 0, "repeat": 0}
     assert summary["hints"] == {"superseded": 1}
     assert first["source"] == "file:memory-bank/notes/decisions.md:3"
     assert "7 candidate" in out
@@ -176,10 +176,12 @@ def test_writes_candidates_and_no_facts(repo, capsys):
     )
 
 
-def test_runs_check_and_reports_ok(repo, capsys):
+def test_runs_check_and_reports_what_is_open(repo, capsys):
     old_repo(repo)
     assert run_migrate() == 0
-    assert "memory check: ok" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "memory check: ok" not in out
+    assert "to do in" in out
 
 
 def test_preset_rules_are_added_as_init_does(repo):
@@ -209,14 +211,13 @@ def test_rerun_after_a_partial_run_finishes_the_job(repo):
     assert (repo / "memory-bank").resolve() == mem.resolve()
 
 
-def test_rerun_never_overwrites_a_note_that_was_edited(repo, capsys):
+def test_rerun_never_overwrites_a_note_that_was_edited(repo):
     old_repo(repo)
     assert run_migrate() == 0
     note = sibling(repo, ".memory") / "notes" / "decisions.md"
     note.write_text("edited\n")
     assert run_migrate() == 0
     assert note.read_text() == "edited\n"
-    assert "differs" in capsys.readouterr().out
 
 
 def test_tracked_old_folder_is_refused_without_untrack(repo, capsys):
@@ -249,22 +250,6 @@ def test_untrack_does_nothing_for_an_ignored_folder(repo):
     staged_before = git(repo, "diff", "--cached", "--name-status")
     assert run_migrate("--untrack") == 0
     assert git(repo, "diff", "--cached", "--name-status") == staged_before
-
-
-def test_rules_files_and_tracked_files_stay_without_the_fix_flag(repo, capsys):
-    old_repo(repo)
-    (repo / "CLAUDE.md").write_text("Notes: `memory-bank/status.md`. Run tools/check_memory.py.\n")
-    (repo / "AGENTS.md").write_text("agents\n")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "rules")
-    assert run_migrate() == 0
-    out = capsys.readouterr().out
-    assert (repo / "CLAUDE.md").read_text().startswith("Notes: `memory-bank/status.md`")
-    assert (repo / "AGENTS.md").read_text() == "agents\n"
-    assert git(repo, "status", "--porcelain") == ""
-    assert "1 path(s) in 1 file(s) name the old layout" in out
-    followups = sibling(repo, ".memory") / "proposals" / "migrate-followups.md"
-    assert "CLAUDE.md:1" in followups.read_text()
 
 
 def test_other_checkout_with_its_own_old_folder_is_moved_aside(repo, capsys):
@@ -461,3 +446,19 @@ def test_a_line_inside_a_multi_line_comment_is_not_a_home(repo, capsys):
     rows = read_worklist(repo)
     assert rows[0]["in_instruction_files"] == 0
     assert "Never deploy on Friday." in [c["text"] for c in rows[1:]]
+
+
+def _old_notes(repo):
+    old = repo / "memory-bank"
+    old.mkdir()
+    (old / "status.md").write_text("Status.\n")
+    (repo / "CONTRIBUTING.md").write_text("Read memory-bank/status.md first.\n")
+
+
+def test_migrate_edits_no_project_doc_and_gives_the_agent_a_task(repo, capsys):
+    _old_notes(repo)
+    assert main(["migrate", "--yes"]) == 0
+    assert (repo / "CONTRIBUTING.md").read_text() == "Read memory-bank/status.md first.\n"
+    task = (repo.parent / "proj.memory" / "proposals" / "migrate-followups.md").read_text()
+    assert "CONTRIBUTING.md:1" in task
+    assert "memory-bank/notes/status.md" in task

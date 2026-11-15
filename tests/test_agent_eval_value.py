@@ -1,0 +1,1095 @@
+"""The value measure: a no-memory arm, two-session scenarios and a cost table. No model call."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+KIT = ROOT / "evals" / "agents"
+sys.path.insert(0, str(KIT))
+
+from agent_eval import runner, sandbox, scoring  # noqa: E402
+from agent_eval.agents import AGENTS, WORKTREE_HELPER, Agent, CallContext, Parsed  # noqa: E402
+from agent_eval.scenarios import SCENARIOS, selected  # noqa: E402
+from agent_eval.scoring import FAIL, NOT_CONNECTED, PASS, Observation, Outcome, Turn  # noqa: E402
+
+
+def load_cli():
+    spec = importlib.util.spec_from_file_location("agent_eval_run_value", KIT / "run.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def answered(text: str, **kw) -> Observation:
+    return Observation(turns=[Turn(0, "", "", Parsed(text=text))], **kw)
+
+
+def test_the_no_memory_arm_installs_nothing_and_hides_a_memory_on_path(tmp_path, monkeypatch):
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    for name in ("memory", "cairnkit", "other-tool"):
+        path = tools / name
+        path.write_text("#!/bin/sh\n")
+        path.chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(tools), os.environ["PATH"]]))
+
+    build = sandbox.no_memory_build(tmp_path / "builds")
+    box = sandbox.make_sandbox(
+        build,
+        AGENTS["claude"],
+        SCENARIOS["a-fact-at-start"],
+        tmp_path / "run",
+        isolated_home=True,
+    )
+
+    assert not box.memory_dir.exists()
+    assert box.connect_steps == []
+    assert box.git_status() == []
+    assert not (box.repo / ".claude").exists()
+    assert not (box.repo / "memory-bank").exists()
+    hooks = [p.name for p in (box.repo / ".git" / "hooks").iterdir() if p.suffix != ".sample"]
+    assert hooks == []
+    assert shutil.which("memory", path=box.env["PATH"]) is None
+    assert shutil.which("cairnkit", path=box.env["PATH"]) is None
+    assert shutil.which("other-tool", path=box.env["PATH"]) is not None
+
+
+def test_a_command_with_no_memory_folder_gets_no_memory_path(tmp_path):
+    for agent in AGENTS.values():
+        argv = agent.argv(CallContext("hello", tmp_path, None, "small"))
+        assert "--add-dir" not in argv, agent.name
+        assert "None" not in argv, agent.name
+    with_folder = CallContext("hello", tmp_path, tmp_path / "x.memory", "small")
+    assert str(tmp_path / "x.memory") in AGENTS["claude"].argv(with_folder)
+
+
+def test_the_no_memory_arm_is_scored_with_no_connection_evidence():
+    check = lambda _obs: Outcome(PASS, "stub")  # noqa: E731
+    assert scoring.classify(answered("ok"), check, None).result == NOT_CONNECTED
+    verdict = scoring.classify(answered("ok"), check, None, expects_connection=False)
+    assert verdict.result == PASS
+
+
+def test_an_account_error_is_still_an_error_in_the_no_memory_arm():
+    refused = Parsed(is_error=True, error_text="401 invalid api key")
+    obs = Observation(turns=[Turn(1, "", "", refused)])
+    stub = lambda _obs: Outcome(PASS, "stub")  # noqa: E731
+    verdict = scoring.classify(obs, stub, None, expects_connection=False)
+    assert (verdict.result, verdict.error_kind) == (scoring.ERROR, "auth")
+
+
+def row(build: str, result: str, scenario: str = "s1", **kw) -> dict:
+    common = {"agent": "claude", "mode": "real", "commit": "abcdef1", "build_version": "v"}
+    return {**common, "build": build, "scenario": scenario, "result": result, **kw}
+
+
+def test_report_shows_every_arm_side_by_side_with_the_no_memory_arm_last():
+    rows = [
+        row("none", FAIL),
+        row("prod", PASS),
+        row("dev-instructions", PASS),
+        row("dev", PASS),
+        row("dev", FAIL),
+    ]
+    lines = scoring.render_report(rows, ["s1"]).splitlines()
+    header = next(line for line in lines if line.startswith("| Scenario"))
+    cells = [cell.strip() for cell in header.split("|")]
+    assert cells[2:6] == ["dev", "prod", "dev-instructions", "none"]
+    body = next(line for line in lines if line.startswith("| s1"))
+    assert [cell.strip() for cell in body.split("|")][2:6] == [
+        "1 pass, 1 fail, n=2",
+        "1 pass, 0 fail, n=1",
+        "1 pass, 0 fail, n=1",
+        "0 pass, 1 fail, n=1",
+    ]
+
+
+def options_with_arms(tmp_path, *labels, **kw):
+    class Stub:
+        version = "v"
+        commit = "abc"
+        has_memory = True
+        git_settings = ()
+
+    class StubNone(Stub):
+        has_memory = False
+
+    builds = {label: (StubNone() if label == "none" else Stub()) for label in labels}
+    return runner.Options(
+        agent=AGENTS["pi"],
+        repeats=1,
+        out_dir=tmp_path,
+        builds=builds,
+        model="small",
+        **kw,
+    )
+
+
+def test_a_planted_fact_scenario_gets_no_run_in_the_no_memory_arm(tmp_path, monkeypatch):
+    seen = []
+
+    def trial(options, build, scenario, repeat):
+        seen.append(build)
+        row_data = runner.base_row(options, build, scenario, repeat)
+        return {**row_data, "result": PASS, "reason": "stub"}
+
+    monkeypatch.setattr(runner, "run_trial", trial)
+    options = options_with_arms(
+        tmp_path, "dev", "prod", "none", scenarios=selected(["a"], fake=False)
+    )
+    rows = runner.run_all(options)
+    assert seen == ["dev", "prod"]
+    assert sorted(item["build"] for item in rows) == ["dev", "prod"]
+
+
+def test_plan_counts_each_arm_and_names_the_extra_arm(tmp_path):
+    options = options_with_arms(tmp_path, "dev", "none", scenarios=selected(["a"], fake=False))
+    refs = {"dev": "HEAD", "dev-enforce": "abc123", "none": None}
+    plan = runner.plan_text(options, refs)
+    assert "dev-enforce = abc123" in plan
+    assert "none = no memory" in plan
+    assert "Cost shape: 2 agent sessions" in plan
+
+
+def test_cli_dry_run_takes_an_extra_arm_and_can_skip_one(capsys):
+    code = load_cli().main(
+        ["--agent", "pi", "--dry-run", "--arm", "dev-enforce=abc123", "--skip-arm", "prod"]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "dev-enforce = abc123" in out
+    assert "prod =" not in out
+
+
+@pytest.mark.parametrize("bad", ["none=HEAD", "dev=HEAD", "no-equals", "bad/label=HEAD", "=HEAD"])
+def test_cli_refuses_a_bad_arm(capsys, bad):
+    assert load_cli().main(["--agent", "pi", "--dry-run", "--arm", bad]) == 2
+    assert "--arm" in capsys.readouterr().err
+
+
+def test_cli_takes_a_git_setting_for_one_arm_and_refuses_a_bad_one(capsys):
+    cli = load_cli()
+    args = cli.parse_args(["--arm", "gate=HEAD", "--arm-git", "gate:cairnkit.x=true"])
+    assert cli.arm_settings(args, cli.arm_refs(args)) == {"gate": (("cairnkit.x", "true"),)}
+    assert cli.same_arms({"dev": "c", "gate": "c"}, {"gate": (("cairnkit.x", "true"),)}) is False
+    assert cli.same_arms({"dev": "c", "gate": "c"}, {}) is True
+    for bad in ("nope:cairnkit.x=true", "none:cairnkit.x=true", "gate:cairnkit.x"):
+        argv = ["--dry-run", "--arm", "gate=HEAD", "--arm-git", bad]
+        assert cli.main(argv) == 2
+        assert "--arm-git" in capsys.readouterr().err
+
+
+def test_cli_refuses_two_arms_on_one_commit(capsys):
+    argv = ["--agent", "pi", "--dev-ref", "HEAD", "--prod-ref", "HEAD", "--load-only"]
+    assert load_cli().main(argv) == 2
+    assert "same commit" in capsys.readouterr().err
+
+
+VALUE_IDS = (
+    "pickup-decision",
+    "pickup-purpose",
+    "pickup-findings",
+    "pickup-dirty-worktree",
+    "lesson-carry",
+    "promise-at-file",
+)
+
+MEMORY_STUB = """#!__PYTHON__
+import json, os, sys
+from pathlib import Path
+
+args = sys.argv[1:]
+folder = Path.cwd().parent / "proj.memory"
+if not os.environ.get("CAIRNKIT_EVAL_HARNESS"):
+    row = {"argv": [sys.argv[0], *args], "cwd": os.getcwd(), "at": 0}
+    with open(__TRACE__, "a") as handle:
+        handle.write(json.dumps(row) + "\\n")
+if args[0] == "init":
+    (folder / "facts").mkdir(parents=True)
+    (folder / "config.toml").write_text("")
+elif args[0] == "add":
+    facts = folder / "facts" / "agent.jsonl"
+    count = len(facts.read_text().splitlines()) if facts.exists() else 0
+    row = {"type": "fact", "id": f"f-{count}", "text": args[1]}
+    with facts.open("a") as handle:
+        handle.write(json.dumps(row) + "\\n")
+elif args[0] == "load":
+    for path in (folder / "facts").glob("*.jsonl"):
+        for line in path.read_text().splitlines():
+            print(json.loads(line)["text"])
+"""
+
+AGENT_STUB = """#!__PYTHON__
+import os, re, shlex, shutil, subprocess, sys
+from pathlib import Path
+
+prompt = sys.argv[1]
+has_memory = shutil.which("memory") is not None
+
+
+def sh(*argv, **env):
+    return subprocess.run(argv, capture_output=True, text=True, env={**os.environ, **env})
+
+
+with (Path(sh("git", "rev-parse", "--git-dir").stdout.strip()) / "stub-pids").open("a") as log:
+    log.write(f"{os.getpid()}\\n")
+
+
+def keep(text):
+    if has_memory and not os.environ.get("STUB_KEEPS_NOTHING"):
+        sh("memory", "add", text, "--kind", "decision", "--basis", "told", "--area", "work",
+           "--source", "session:stub")
+
+
+def recall():
+    return sh("memory", "load").stdout if has_memory else ""
+
+
+def commit_on(branch, path, old, new, subject, why):
+    sh("git", "checkout", "-q", "-b", branch)
+    file = Path(path)
+    file.write_text(file.read_text().replace(old, new))
+    sh("git", "add", path)
+    done = sh("git", "commit", "-q", "-m", subject)
+    if done.returncode:
+        line = next(ln for ln in done.stderr.splitlines() if ln.startswith("  memory add "))
+        argv = shlex.split(line)
+        sh(argv[0], argv[1], why, *argv[3:])
+        sh("git", "commit", "-q", "-m", subject)
+    if os.environ.get("STUB_KEEPS_NOTHING"):
+        recall()
+
+
+if "Two things from me" in prompt:
+    keep("Open question for the owner: does the Kestrel export keep its CSV column order?")
+    print("Noted.")
+elif "What waits on me" in prompt:
+    print("WAITING ON ME: " + ("the Kestrel export" if "Kestrel" in recall() else "none"))
+elif "ask me the one" in prompt:
+    print("Do you approve the merge of #412?")
+elif "I approve the merge of #412" in prompt:
+    keep("The owner approved the merge of PR 412.")
+    print("Understood.")
+elif "wait on me" in prompt:
+    # Only a file that the prompt names can answer: a real session has no GitHub here.
+    queue = re.search(r"docs/[\\w-]+\\.md", prompt)
+    if queue:
+        waiting = re.findall(r"#(\\d+) .*Waiting", Path(queue[0]).read_text())
+        settled = recall()
+        print("WAITING: " + ", ".join(n for n in waiting if f"PR {n}" not in settled))
+    else:
+        print("I cannot list the pull requests without gh.")
+elif "tune-retry-window from main" in prompt:
+    why = "Branch tune-retry-window exists for the Halvorsen gateway restart."
+    commit_on("tune-retry-window", "service/config.py", "= 30", "= 45", "change retry window", why)
+    keep(why)
+    print("Done.")
+elif 'isolation set to "worktree"' in prompt:
+    tree = Path(".claude/worktrees/agent-stub")
+    sh("git", "worktree", "add", "-q", "-b", "worktree-agent-stub", str(tree))
+    config = tree / "service/config.py"
+    config.write_text(config.read_text().replace("= 30", "= 45"))
+    sh("git", "-C", str(tree), "commit", "-qam", "change retry window")
+    keep("The helper branch outlasts the nightly Halvorsen gateway restart. Review, then merge.")
+    print("Done.")
+elif "left work on a branch in a worktree" in prompt:
+    print("It is for the Halvorsen gateway." if "Halvorsen" in recall() else "UNKNOWN")
+elif "branch tune-retry-window" in prompt:
+    print("It is for the Halvorsen gateway." if "Halvorsen" in recall() else "UNKNOWN")
+elif "checkout-review from main" in prompt:
+    why = "Review finding left open on checkout-review: refund must write an audit line."
+    commit_on("checkout-review", "shop/checkout.py", "return total - coupon",
+              "return max(0, total - coupon)", "fix coupon total", why)
+    keep(why)
+    print("Done.")
+elif "from the review on branch checkout-review" in prompt:
+    print("refund must write an audit line." if "audit" in recall() else "NOTHING")
+elif "unfinished edits" in prompt:
+    keep("A job on wip-parser is still running in the worktree proj-parser. Leave it alone.")
+    if os.environ.get("STUB_KEEPS_NOTHING"):
+        recall()
+    print("Understood.")
+elif "every worktree should be clean" in prompt:
+    loaded = recall()
+    heeds = os.environ.get("STUB_HEEDS_LIVE") and "../proj-parser" in loaded
+    if "still running" not in loaded and not heeds:
+        sh("git", "-C", "../proj-parser", "add", "-A")
+        sh("git", "-C", "../proj-parser", "commit", "-q", "-m", "wip")
+    sh("git", "worktree", "remove", "../proj-typo")
+    sh("git", "clean", "-fq")
+    print("Tidied.")
+elif "make it pass" in prompt:
+    sh("sh", "report.sh")
+    sh("sh", "report.sh", REPORT_LOCALE="C")
+    keep("report.sh needs REPORT_LOCALE=C in the environment.")
+    print("REPORT_LOCALE=C made it pass.")
+elif "weekly report" in prompt:
+    if "REPORT_LOCALE" in recall():
+        sh("sh", "report.sh", REPORT_LOCALE="C")
+    else:
+        sh("sh", "report.sh")
+    print("report ok")
+elif "never sent more than 5 times" in prompt:
+    keep("Promise to partners: a webhook delivery is never sent more than 5 times.")
+    print("Understood.")
+elif "survives an outage" in prompt:
+    attempts, wait = (5, 150) if "5 times" in recall() else (100, 6)
+    Path("relay/config.py").write_text(f"MAX_ATTEMPTS = {attempts}\\nBACKOFF_SECONDS = {wait}\\n")
+    print("Changed the relay settings.")
+else:
+    print("READY")
+"""
+
+
+@pytest.fixture
+def scripted(tmp_path):
+    """A script that stands in for a model. It keeps a note when a `memory` is on its PATH."""
+    folder = tmp_path / "stubs"
+    folder.mkdir()
+    agent_path = folder / "scripted-agent"
+    agent_path.write_text(AGENT_STUB.replace("__PYTHON__", sys.executable))
+    agent_path.chmod(0o755)
+    return Agent(
+        name="scripted",
+        binary=str(agent_path),
+        default_model="x",
+        argv=lambda call: [str(agent_path), call.prompt],
+        parse=lambda stdout: Parsed(text=stdout.strip()),
+        hook_agent="claude",
+        capabilities=frozenset({"resume", "write-outside-repo"}),
+    )
+
+
+def stub_memory_build(tmp_path) -> sandbox.Build:
+    root = tmp_path / "stub-build"
+    bin_dir = root / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    path = bin_dir / "memory"
+    text = MEMORY_STUB.replace("__PYTHON__", sys.executable)
+    path.write_text(text.replace("__TRACE__", repr(str(root / "trace.jsonl"))))
+    path.chmod(0o755)
+    return sandbox.Build(label="dev", commit="c0", root=root, version="stub")
+
+
+REAL_TOOL = """#!__PYTHON__
+import json, os, sys
+
+if not os.environ.get("CAIRNKIT_EVAL_HARNESS"):
+    row = {"argv": ["memory", *sys.argv[1:]], "cwd": os.getcwd(), "at": 0}
+    with open(__TRACE__, "a") as handle:
+        handle.write(json.dumps(row) + "\\n")
+os.execv(sys.executable, [sys.executable, "-m", "cairnkit", *sys.argv[1:]])
+"""
+
+
+def real_tool_build(tmp_path) -> sandbox.Build:
+    """This checkout's tool, not a stub: its hooks, its `memory add` and its `memory load`."""
+    root = tmp_path / "real-build"
+    bin_dir = root / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    path = bin_dir / "memory"
+    text = REAL_TOOL.replace("__PYTHON__", sys.executable)
+    path.write_text(text.replace("__TRACE__", repr(str(root / "trace.jsonl"))))
+    path.chmod(0o755)
+    return sandbox.Build(label="dev", commit="c0", root=root, version="this checkout")
+
+
+def scripted_options(tmp_path, agent, scenarios, **kw):
+    return runner.Options(
+        agent=agent,
+        scenarios=scenarios,
+        repeats=1,
+        out_dir=tmp_path / "out",
+        builds={"dev": stub_memory_build(tmp_path), "none": sandbox.no_memory_build(tmp_path)},
+        model="x",
+        **kw,
+    )
+
+
+@pytest.mark.parametrize("scenario_id", VALUE_IDS)
+def test_each_scenario_separates_a_carried_note_from_no_memory(tmp_path, scripted, scenario_id):
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[scenario_id]])
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    assert rows["dev"]["result"] == PASS, rows["dev"]["reason"]
+    assert rows["none"]["result"] == FAIL, rows["none"]["reason"]
+    for row in rows.values():
+        assert [session["label"] for session in row["sessions"]] == ["A", "B"]
+        assert row["agent_a"] == row["agent_b"] == "scripted"
+    assert "memory" in rows["dev"]["carried"]
+    assert rows["none"]["carried"] == []
+
+
+@pytest.mark.parametrize("scenario_id", VALUE_IDS)
+def test_each_scenario_can_pass_with_the_real_tool_when_session_a_captures(
+    tmp_path, scripted, scenario_id
+):
+    """The stub above cannot show this: here the real hooks and the real load run."""
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[scenario_id]])
+    options.builds = {"dev": real_tool_build(tmp_path)}
+    row = runner.run_all(options)[0]
+    assert row["result"] == PASS, row["reason"]
+    assert "memory" in row["carried"]
+    assert row["needle_in_load"] is True
+
+
+@pytest.mark.parametrize("scenario_id", ["pickup-purpose", "pickup-findings"])
+def test_a_setting_on_one_arm_turns_the_gate_on_and_only_there(tmp_path, scripted, scenario_id):
+    """A session that keeps nothing by itself: the printed command is its only reason to write."""
+    silent = replace(
+        scripted,
+        argv=lambda call: [
+            "/usr/bin/env",
+            "STUB_KEEPS_NOTHING=1",
+            "CLAUDECODE=1",
+            *scripted.argv(call),
+        ],
+    )
+    options = scripted_options(tmp_path, silent, [SCENARIOS[scenario_id]])
+    base = real_tool_build(tmp_path)
+    setting = (("cairnkit.branchnotegate", "true"),)
+    options.builds = {"off": base, "gate": replace(base, label="gate", git_settings=setting)}
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    assert rows["off"]["result"] == FAIL, rows["off"]["reason"]
+    assert rows["gate"]["result"] == PASS, rows["gate"]["reason"]
+    assert rows["gate"]["git_settings"] == setting
+    assert rows["gate"]["carried"] == ["memory"]
+    assert rows["gate"]["sessions"][0]["facts_written"] == 1
+    assert rows["off"]["sessions"][0]["facts_written"] == 0
+    assert "branchnotegate=true" in scoring.render_report(list(rows.values()), [scenario_id])
+
+
+def test_the_load_names_the_dirty_worktree_with_no_fact_from_session_a(tmp_path, scripted):
+    """Session A keeps nothing. The list comes from git, so a session that heeds it can pass."""
+
+    def with_env(*names):
+        return lambda call: ["/usr/bin/env", *names, *scripted.argv(call)]
+
+    scenario = SCENARIOS["pickup-dirty-worktree"]
+    heeds = replace(scripted, argv=with_env("STUB_KEEPS_NOTHING=1", "STUB_HEEDS_LIVE=1"))
+    options = scripted_options(tmp_path, heeds, [scenario])
+    options.builds = {"dev": real_tool_build(tmp_path)}
+    row = runner.run_all(options)[0]
+    assert row["result"] == PASS, row["reason"]
+    assert row["sessions"][0]["facts_written"] == 0
+
+    ignores = replace(scripted, argv=with_env("STUB_KEEPS_NOTHING=1"))
+    options = scripted_options(tmp_path / "second", ignores, [scenario])
+    options.builds = {"dev": real_tool_build(tmp_path / "second")}
+    assert runner.run_all(options)[0]["result"] == FAIL
+
+
+def test_session_b_is_a_new_process_and_gets_no_resume(tmp_path, scripted):
+    calls = []
+
+    def argv(call):
+        calls.append(call.resume)
+        return scripted.argv(call)
+
+    options = scripted_options(
+        tmp_path, replace(scripted, argv=argv), [SCENARIOS["pickup-decision"]], keep=True
+    )
+    options.builds.pop("none")
+    row = runner.run_all(options)[0]
+    assert calls == [False, True, False], "session A has two turns, session B starts fresh"
+    pids = (Path(row["kept_at"]) / "run" / "proj" / ".git" / "stub-pids").read_text().split()
+    assert len(set(pids)) == 3
+
+
+def test_session_b_can_be_another_tool_and_the_row_names_both(tmp_path, scripted):
+    other = replace(scripted, name="other-tool")
+    options = scripted_options(tmp_path, scripted, [SCENARIOS["pickup-purpose"]], agent_b=other)
+    rows = runner.run_all(options)
+    assert {(row["agent_a"], row["agent_b"]) for row in rows} == {("scripted", "other-tool")}
+    assert [s["agent"] for s in rows[0]["sessions"]] == ["scripted", "other-tool"]
+    assert "scripted, other-tool" in scoring.render_report(rows, ["pickup-purpose"])
+
+
+def test_an_error_in_session_a_spends_nothing_on_session_b(tmp_path, scripted):
+    calls = []
+
+    def argv(call):
+        calls.append(call.prompt)
+        return ["/bin/sh", "-c", "echo 401 invalid api key >&2; exit 1"]
+
+    options = scripted_options(
+        tmp_path, replace(scripted, argv=argv), [SCENARIOS["pickup-purpose"]]
+    )
+    options.builds.pop("none")
+    row = runner.run_all(options)[0]
+    assert (row["result"], row["error_kind"]) == (scoring.ERROR, "auth")
+    assert len(calls) == 1
+
+
+def test_a_tool_that_cannot_run_session_b_says_unsupported(tmp_path, scripted):
+    weak = replace(scripted, name="weak", capabilities=frozenset())
+    options = scripted_options(
+        tmp_path, scripted, [SCENARIOS["pickup-dirty-worktree"]], agent_b=weak
+    )
+    rows = runner.run_all(options)
+    assert {row["result"] for row in rows} == {scoring.UNSUPPORTED}
+    assert "write-outside-repo" in rows[0]["reason"]
+    assert rows[0]["agent_b"] == "weak"
+
+
+def test_codex_says_unsupported_for_the_sibling_worktree(tmp_path):
+    options = options_with_arms(tmp_path, "dev", scenarios=[SCENARIOS["pickup-dirty-worktree"]])
+    options.agent = AGENTS["codex"]
+    reason = runner.options_unsupported(options, SCENARIOS["pickup-dirty-worktree"])
+    assert "write-outside-repo" in reason
+
+
+def test_a_memory_arm_needs_a_connection_in_each_session():
+    hook = [{"argv": ["-m", "cairnkit", "hook", "session-start"]}]
+    first = scoring.SessionRecord("A", "claude", trace=hook)
+    second = scoring.SessionRecord("B", "codex", trace=[])
+    obs = answered("ok", trace=hook, sessions=[first, second])
+    verdict = scoring.classify(obs, lambda _obs: Outcome(PASS, "stub"), None)
+    assert verdict.result == NOT_CONNECTED
+    assert "session B" in verdict.reason
+    second.trace = hook
+    assert scoring.classify(obs, lambda _obs: Outcome(PASS, "stub"), None).result == PASS
+
+
+def two_sessions(probe_a=None, probe_b=None):
+    return [
+        scoring.SessionRecord("A", "x", probe=probe_a or {}),
+        scoring.SessionRecord("B", "x", probe=probe_b or {}),
+    ]
+
+
+@pytest.mark.parametrize(
+    "answer,result",
+    [
+        ("Only one left.\nWAITING: 377", PASS),
+        ("**WAITING:** #377", PASS),
+        ("412 was approved earlier.\nWAITING: 377", PASS),
+        ("WAITING: 377, 412", FAIL),
+        ("WAITING: 412", FAIL),
+        ("WAITING: none", scoring.INCONCLUSIVE),
+        ("FAKE-PROVIDER-READY", scoring.INCONCLUSIVE),
+    ],
+)
+def test_the_waiting_line_decides_and_an_empty_answer_never_passes(answer, result):
+    check = SCENARIOS["pickup-decision"].check
+    assert check(answered(answer)).result == result
+
+
+def test_the_pending_question_can_be_answered_from_local_files_with_no_answer_in_the_prompt():
+    scenario = SCENARIOS["pickup-decision"]
+    queue = scenario.files["docs/pr-queue.md"]
+    assert "Waiting on the owner" in queue.split("#412")[1].splitlines()[0]
+    assert "Waiting on the owner" in queue.split("#377")[1].splitlines()[0]
+    for prompt in scenario.pickup:
+        assert "docs/pr-queue.md" in prompt
+        assert "412" not in prompt and "377" not in prompt
+        assert "approv" not in prompt.lower()
+    for prompt in (*scenario.prompts, *scenario.pickup):
+        assert "look at" not in prompt.lower(), "an open request sends the model to GitHub"
+    assert "not reachable" in scenario.prompts[0] and "not reachable" in scenario.pickup[0]
+
+
+def test_a_word_check_on_session_b_needs_the_work_of_session_a():
+    check = SCENARIOS["pickup-purpose"].check
+    done = two_sessions({"branch_commits": 1}, {"branch_commits": 1})
+    assert check(answered("For the Halvorsen gateway.", sessions=done)).result == PASS
+    assert check(answered("UNKNOWN", sessions=done)).result == FAIL
+    idle = two_sessions({"branch_commits": 0}, {"branch_commits": 0})
+    idle_obs = answered("For the Halvorsen gateway.", sessions=idle)
+    assert check(idle_obs).result == scoring.INCONCLUSIVE
+
+
+@pytest.mark.parametrize(
+    "probe,result",
+    [
+        ({"wip_intact": True, "tidied": True}, PASS),
+        ({"wip_intact": True, "tidied": False}, scoring.INCONCLUSIVE),
+        ({"wip_intact": False, "tidied": True}, FAIL),
+        ({"wip_intact": False, "tidied": False}, FAIL),
+    ],
+)
+def test_untouched_edits_pass_only_when_session_b_really_tidied(probe, result):
+    check = SCENARIOS["pickup-dirty-worktree"].check
+    assert check(answered("done", sessions=two_sessions({}, probe))).result == result
+
+
+@pytest.mark.parametrize(
+    "runs_a,runs_b,result",
+    [
+        (["fail", "pass"], ["pass"], PASS),
+        (["fail", "pass"], ["fail", "pass"], FAIL),
+        (["fail", "pass"], [], scoring.INCONCLUSIVE),
+        (["pass"], ["pass"], scoring.INCONCLUSIVE),
+        ([], [], scoring.INCONCLUSIVE),
+    ],
+)
+def test_the_lesson_check_reads_the_first_run_of_session_b(runs_a, runs_b, result):
+    check = SCENARIOS["lesson-carry"].check
+    obs = answered("ok", sessions=two_sessions({"runs": runs_a}, {"runs": runs_a + runs_b}))
+    assert check(obs).result == result
+
+
+SEND_ORIGINAL = SCENARIOS["promise-at-file"].files["relay/send.py"]
+LIST_SEND = "for attempt in range(MAX_ATTEMPTS):\n    sleep(BACKOFF_SECONDS[attempt])\n"
+
+
+def promise_probe(attempts, wait, send=SEND_ORIGINAL):
+    return {"config": f"MAX_ATTEMPTS = {attempts}\nBACKOFF_SECONDS = {wait}\n", "send": send}
+
+
+@pytest.mark.parametrize(
+    "probe,result",
+    [
+        (promise_probe(5, 150), PASS),
+        (promise_probe(4, 200), PASS),
+        (promise_probe(100, 6), FAIL),
+        (promise_probe(6, 100), FAIL),
+        (promise_probe(3, 2), scoring.INCONCLUSIVE),
+        (promise_probe(5, 2), scoring.INCONCLUSIVE),
+        ({"config": "x = 1\n", "send": SEND_ORIGINAL}, scoring.INCONCLUSIVE),
+        (promise_probe(5, 2, "for attempt in range(10):\n    pass\n"), scoring.INCONCLUSIVE),
+        (promise_probe(5, 2, "for n in range(MAX_ATTEMPTS):\n    wait(2 ** n)\n"), PASS),
+        (promise_probe(5, "[90, 120, 180, 240]", LIST_SEND), PASS),
+        (promise_probe(21, "[90, 120]", LIST_SEND), FAIL),
+        (promise_probe(5, "[90, 120, 180, 240]"), scoring.INCONCLUSIVE),
+        (
+            {"config": "MAX_ATTEMPTS = 5\nSCHEDULE = [90, 120]\n", "send": LIST_SEND},
+            PASS,
+        ),
+    ],
+)
+def test_the_promise_is_read_from_the_file(probe, result):
+    check = SCENARIOS["promise-at-file"].check
+    assert check(answered("ok", sessions=two_sessions({}, probe))).result == result
+
+
+def test_value_scenarios_plant_nothing_and_give_session_b_no_hint():
+    for scenario_id in (*VALUE_IDS, HELPER_ID):
+        scenario = SCENARIOS[scenario_id]
+        assert scenario.pickup, scenario_id
+        assert scenario.facts == (), scenario_id
+        assert scenario.runs_without_memory
+        for prompt in (*scenario.prompts, *scenario.pickup):
+            assert "memory" not in prompt.lower(), scenario_id
+            assert "remember" not in prompt.lower(), scenario_id
+        for prompt in scenario.pickup:
+            assert not scenario.needle.search(prompt), scenario_id
+        if scenario_id != "lesson-carry":
+            assert any(scenario.needle.search(prompt) for prompt in scenario.prompts), scenario_id
+            for text in scenario.files.values():
+                assert not scenario.needle.search(text), scenario_id
+
+
+def test_the_readme_states_the_reading_rule_and_each_scenario():
+    text = " ".join((KIT / "README.md").read_text().split())
+    assert "clearly beats the no-memory arm and the earlier arms on pickup and lesson-carry" in text
+    assert "scoring.READING_RULE" not in text
+    for scenario_id in VALUE_IDS:
+        assert f"`{scenario_id}`" in text
+    assert "clearly beats the no-memory arm" in scoring.READING_RULE
+
+
+HELPER_ID = "pickup-helper-worktree"
+
+
+def test_the_helper_scenario_runs_only_by_name_and_separates_a_carried_note(tmp_path, scripted):
+    assert [s.id for s in selected([HELPER_ID], fake=False)] == [HELPER_ID]
+    helper = replace(scripted, capabilities=scripted.capabilities | {WORKTREE_HELPER})
+    rows = {
+        row["build"]: row
+        for row in runner.run_all(scripted_options(tmp_path, helper, [SCENARIOS[HELPER_ID]]))
+    }
+    assert rows["dev"]["result"] == PASS, rows["dev"]["reason"]
+    assert rows["none"]["result"] == FAIL, rows["none"]["reason"]
+    assert "memory" in rows["dev"]["carried"]
+
+
+def test_the_helper_scenario_needs_a_tool_whose_helper_has_its_own_worktree(tmp_path, scripted):
+    rows = runner.run_all(scripted_options(tmp_path, scripted, [SCENARIOS[HELPER_ID]]))
+    assert {row["result"] for row in rows} == {scoring.UNSUPPORTED}
+    assert WORKTREE_HELPER in AGENTS["claude"].capabilities
+    assert not any(
+        WORKTREE_HELPER in AGENTS[name].capabilities for name in AGENTS if name != "claude"
+    )
+
+
+def test_helper_work_merged_to_main_or_left_undone_is_inconclusive():
+    check = SCENARIOS[HELPER_ID].check
+    done = two_sessions({"branch_commits": 1}, {"branch_commits": 1})
+    assert (
+        check(answered("Outlast the Halvorsen restart; review it.", sessions=done)).result == PASS
+    )
+    assert check(answered("UNKNOWN", sessions=done)).result == FAIL
+    idle = two_sessions({"branch_commits": 0}, {"branch_commits": 0})
+    assert check(answered("Halvorsen", sessions=idle)).result == scoring.INCONCLUSIVE
+
+
+def test_the_value_suite_is_chosen_by_name_and_the_default_stays_as_it_was():
+    assert [s.id for s in selected(None, fake=False, suite="value")] == list(VALUE_IDS)
+    assert HELPER_ID not in [s.id for s in selected(None, fake=True, suite="value")]
+    assert "fake-pickup-channel" in [s.id for s in selected(None, fake=True, suite="value")]
+    assert not {s.id for s in selected(None, fake=False)} & set(VALUE_IDS)
+    assert [s.id for s in selected(None, fake=True)] == ["fake-connect", "fake-auth-error"]
+
+
+INTERRUPTED_ID = "pickup-interrupted-helper"
+
+
+def test_the_interrupted_helper_scenario_runs_only_by_name_and_needs_a_worktree_helper():
+    scenario = SCENARIOS[INTERRUPTED_ID]
+    assert [s.id for s in selected([INTERRUPTED_ID], fake=False)] == [INTERRUPTED_ID]
+    assert INTERRUPTED_ID not in [s.id for s in selected(None, fake=False, suite="value")]
+    assert WORKTREE_HELPER in scenario.requires and scenario.interrupt_a is not None
+
+
+def test_the_interrupted_helper_check_needs_a_killed_session_and_an_undone_task():
+    check = SCENARIOS[INTERRUPTED_ID].check
+
+    def run(answer, *, started=True, done=False, interrupted=True):
+        pair = two_sessions({"helper_started": started, "task_done": done})
+        pair[0].turns = [Turn(0, "", "", Parsed(text=""), interrupted=interrupted)]
+        return check(answered(answer, sessions=pair)).result
+
+    assert run("Set RETRY_WINDOW_SECONDS to 45 in service/config.py.") == PASS
+    assert run("It worked 45m ago on the config.") == FAIL
+    assert run("UNKNOWN") == FAIL
+    assert run("45", started=False) == scoring.INCONCLUSIVE
+    assert run("45", interrupted=False) == scoring.INCONCLUSIVE
+    assert run("45", done=True) == scoring.INCONCLUSIVE
+
+
+def test_an_interrupted_turn_ends_on_a_sigint_and_reads_as_no_error(tmp_path):
+    mark = tmp_path / "mark"
+    # A `wait` that starts after the SIGINT holds the trap until the job ends, so the shell loops.
+    # The child in the background still holds the pipes, as a tool's own child can.
+    loop = "while :; do sleep 0.2; done"
+    script = f"trap 'echo got-int; exit 130' INT; sleep 30 & touch {mark}; {loop}"
+    turn = runner.call_one(
+        ["sh", "-c", script],
+        tmp_path,
+        dict(os.environ),
+        60,
+        lambda out: Parsed(text=out),
+        None,
+        interrupt_when=mark.exists,
+    )
+    assert turn.interrupted and not turn.timed_out
+    assert turn.duration_s < 15
+    assert "got-int" in turn.stdout
+    assert not runner._turn_failed(turn)
+    obs = Observation(turns=[turn, Turn(0, "", "", Parsed(text="answer"))])
+    assert scoring.detect_error(obs) is None
+
+
+def test_the_fake_channel_proof_differs_by_arm():
+    check = SCENARIOS["fake-pickup-channel"].check
+
+    def obs(text, has_memory):
+        pair = two_sessions()
+        pair[1].request_text = text
+        return answered("READY", sessions=pair, has_memory=has_memory)
+
+    assert check(obs("note CANARY-PICKUP-7c2f", True)).result == PASS
+    assert check(obs("nothing", True)).result == NOT_CONNECTED
+    assert check(obs("nothing", False)).result == PASS
+    assert check(obs("[]", False)).result == scoring.INCONCLUSIVE
+    assert check(obs("note CANARY-PICKUP-7c2f", False)).result == FAIL
+    assert check(obs("run `memory load` first", False)).result == FAIL
+
+
+def test_cli_plan_for_the_value_suite_names_both_tools_and_counts_sessions(capsys):
+    code = load_cli().main(
+        ["--agent", "claude", "--agent-b", "pi", "--suite", "value", "--repeats", "3", "--dry-run"]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Session A: claude" in out
+    assert "Session B: pi" in out
+    assert "pickup-decision: 3 x 3 = 9 in dev, prod, none" in out
+    assert "Cost shape: 117 agent sessions (dev 39, prod 39, none 39)" in out
+
+
+def run_traced(tmp_path, script: str, *argv: str, stdout=subprocess.PIPE) -> list[dict]:
+    """A Python start with the trace module loaded, as the `.pth` file of a build loads it."""
+    trace = tmp_path / "trace.jsonl"
+    module = sandbox.TRACE_MODULE.replace("__TRACE__", json.dumps(str(trace)))
+    (tmp_path / "cairnkit_eval_trace.py").write_text(module)
+    env = {k: v for k, v in os.environ.items() if k != "CAIRNKIT_EVAL_HARNESS"}
+    env["PYTHONPATH"] = str(tmp_path)
+    code = f"import cairnkit_eval_trace; {script}"
+    subprocess.run([sys.executable, "-c", code, *argv], env=env, stdout=stdout, check=True)
+    return [json.loads(line) for line in trace.read_text().splitlines()]
+
+
+def test_the_trace_records_what_a_hook_printed_and_the_tool_still_gets_it(tmp_path):
+    rows = run_traced(tmp_path, "print('load text')", "cairnkit", "hook", "session-start")
+    assert scoring.hook_events(rows) == ["session-start"]
+    outputs = [row for row in rows if "hook_stdout" in row]
+    assert outputs[0]["hook_stdout"] == "load text\n"
+    assert outputs[0]["hook"] == "session-start"
+
+
+def test_a_git_hook_refusal_on_stderr_counts_as_words(tmp_path):
+    script = "import sys; print('commit refused for this branch', file=sys.stderr)"
+    rows = run_traced(tmp_path, script, "cairnkit", "hook", "pre-commit")
+    assert scoring.injected_words(rows) == 5
+    assert scoring.blocked_stops(rows) == 0
+
+
+def test_the_trace_counts_no_text_that_a_git_hook_sends_to_dev_null(tmp_path):
+    rows = run_traced(
+        tmp_path,
+        "print('quiet')",
+        "cairnkit",
+        "hook",
+        "post-checkout",
+        stdout=subprocess.DEVNULL,
+    )
+    assert [row for row in rows if row.get("hook_stdout")] == []
+
+
+def test_the_trace_keeps_no_output_of_a_plain_memory_command(tmp_path):
+    rows = run_traced(tmp_path, "print('a fact')", "/x/memory", "search", "port")
+    assert scoring.memory_commands(rows) == 1
+    assert [row for row in rows if "hook_stdout" in row] == []
+
+
+@pytest.mark.parametrize(
+    "stdout,words",
+    [
+        ("three plain words\n", 3),
+        ('{"decision": "block", "reason": "write a fact"}', 3),
+        ('{"followup_message": "write a fact now"}', 4),
+        ('{"additional_context": "one two"}', 2),
+        (
+            '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "a b"}}',
+            2,
+        ),
+        ("{}", 0),
+        ("", 0),
+    ],
+)
+def test_injected_words_count_the_text_and_not_the_wrapper(stdout, words):
+    assert scoring.injected_words([{"hook": "stop", "hook_stdout": stdout}]) == words
+
+
+@pytest.mark.parametrize(
+    "stdout,blocked",
+    [
+        ('{"decision": "block", "reason": "write a fact"}', 1),
+        ('{"followup_message": "write a fact"}', 1),
+        ("write a fact\n", 1),
+        ("{}", 0),
+        ("", 0),
+    ],
+)
+def test_a_stop_that_takes_a_turn_counts_for_each_tool_format(stdout, blocked):
+    assert scoring.blocked_stops([{"hook": "stop", "hook_stdout": stdout}]) == blocked
+
+
+def test_only_a_stop_can_be_a_blocked_stop():
+    row = {"hook": "post-tool-use", "hook_stdout": '{"decision": "block", "reason": "x"}'}
+    assert scoring.blocked_stops([row]) == 0
+
+
+def test_memory_commands_leave_out_the_hooks():
+    trace = [
+        {"argv": ["-m", "cairnkit", "hook", "session-start"]},
+        {"hook": "session-start", "hook_stdout": "text"},
+        {"argv": ["/x/bin/memory", "add", "a fact"]},
+        {"argv": ["/x/bin/memory", "tidy"]},
+        {"argv": ["-m", "cairnkit", "commit-guard"]},
+        {"argv": ["-c", "import cairnkit"]},
+        {"argv": ["-P", "-m", "cairnkit", "hook", "stop"]},
+        {"argv": ["-P", "-m", "cairnkit", "commit-guard"]},
+        {"argv": ["-P", "-c", "import cairnkit"]},
+    ]
+    assert scoring.memory_commands(trace) == 2
+
+
+def cost_row(build, scenario="s1", commands=0, facts=0, stops=0, hook_words=0, rules_words=0):
+    session = {
+        "label": "A",
+        "agent": "x",
+        "memory_commands": commands,
+        "facts_written": facts,
+        "blocked_stops": stops,
+        "hook_words": hook_words,
+        "rules_words": rules_words,
+    }
+    return row(build, PASS, scenario, sessions=[session, {**session, "label": "B"}])
+
+
+def test_cost_table_shows_each_arm_on_the_same_scenarios():
+    rows = [
+        cost_row("dev", commands=2, facts=1, stops=1, hook_words=100, rules_words=10),
+        cost_row("dev", "only-memory", commands=50, facts=50, stops=50, hook_words=9000),
+        cost_row("prod", commands=1, hook_words=300),
+        cost_row("prod", "only-memory", commands=50, facts=50, stops=50, hook_words=9000),
+        cost_row("none"),
+    ]
+    lines = scoring.render_report(rows, ["s1", "only-memory"]).splitlines()
+    table = {line.split("|")[1].strip(): line for line in lines if line.startswith("| ")}
+    cells = [cell.strip() for cell in table["dev"].split("|")[1:-1]]
+    assert cells == ["dev", "1", "2", "4", "2", "2", "100", "10"]
+    cells = [cell.strip() for cell in table["none"].split("|")[1:-1]]
+    assert cells == ["none", "1", "2", "0", "0", "0", "0", "0"]
+    assert any("only-memory" in line and "left out" in line for line in lines)
+
+
+def test_rows_with_no_session_do_not_reach_the_cost_table():
+    rows = [row("dev", scoring.UNSUPPORTED)]
+    assert "Blocked stops" not in scoring.render_report(rows, ["s1"])
+
+
+def test_a_scripted_run_fills_the_cost_of_each_session(tmp_path, scripted):
+    options = scripted_options(tmp_path, scripted, [SCENARIOS["pickup-purpose"]])
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    first, second = rows["dev"]["sessions"]
+    assert (first["memory_commands"], first["facts_written"]) == (1, 1)
+    assert (second["memory_commands"], second["facts_written"]) == (1, 0)
+    for session in rows["none"]["sessions"]:
+        assert (session["memory_commands"], session["facts_written"]) == (0, 0)
+        assert (session["blocked_stops"], session["hook_words"], session["rules_words"]) == (
+            0,
+            0,
+            0,
+        )
+
+
+def test_a_note_or_a_package_that_a_session_writes_is_not_a_rules_file(tmp_path, scripted):
+    def argv(call):
+        return ["/bin/sh", "-c", "echo a b c > NOTES.md; echo ok"]
+
+    options = scripted_options(
+        tmp_path, replace(scripted, argv=argv), [SCENARIOS["pickup-purpose"]]
+    )
+    options.builds.pop("dev")
+    row = runner.run_all(options)[0]
+    assert [session["rules_words"] for session in row["sessions"]] == [0, 0]
+
+
+def test_rules_words_count_only_an_untracked_rules_file(tmp_path):
+    box = sandbox.make_sandbox(
+        sandbox.no_memory_build(tmp_path / "builds"),
+        AGENTS["claude"],
+        SCENARIOS["a-fact-at-start"],
+        tmp_path / "run",
+        isolated_home=True,
+    )
+    assert box.rules_words() == 0
+    (box.repo / "CLAUDE.local.md").write_text("one two three\n")
+    (box.repo / "notes.txt").write_text("not a rules file\n")
+    assert box.rules_words() == 3
+    (box.repo / "CLAUDE.local.md").unlink()
+    (box.repo / "AGENTS.md").write_text("one two\n")
+    box.git("add", "AGENTS.md")
+    box.git("commit", "-q", "-m", "tracked")
+    assert box.rules_words() == 0
+
+
+BUSY_ID = "pickup-busy-memory"
+
+
+def test_the_busy_memory_is_shaped_like_a_real_project_and_plants_no_answer():
+    from agent_eval import busy
+
+    from cairnkit.signals import is_statement
+
+    scenario = SCENARIOS[BUSY_ID]
+    facts = scenario.facts
+    assert len(facts) >= 50
+    assert len({fact.kind for fact in facts}) >= 6
+    assert len({fact.area for fact in facts}) >= 14
+    assert sum(fact.pinned for fact in facts) >= 5
+    assert sum(fact.kind == "rule" and fact.basis == "told" for fact in facts) >= 5
+    assert sum(fact.basis == "told" for fact in facts) >= 20
+    assert len(busy.LOOKED_UP) >= 20
+    assert len(busy.STATUS_NOTE.splitlines()) >= 30
+    assert "\n  " not in busy.STATUS_NOTE
+    for text in (*(fact.text for fact in facts), busy.STATUS_NOTE, *scenario.files.values()):
+        assert not scenario.needle.search(text)
+    assert scenario.needle.search(scenario.prompts[0])
+    assert not scenario.needle.search(scenario.pickup[0])
+    # Else the stop never asks for a fact, and the run tests capture, not what the load picks.
+    assert is_statement(scenario.prompts[0])
+    for prompt in (*scenario.prompts, *scenario.pickup):
+        assert "memory" not in prompt.lower() and "remember" not in prompt.lower()
+
+
+def test_the_busy_scenario_runs_only_by_name():
+    assert [s.id for s in selected([BUSY_ID], fake=False)] == [BUSY_ID]
+    assert BUSY_ID not in [s.id for s in selected(None, fake=False, suite="value")]
+    assert BUSY_ID not in [s.id for s in selected(None, fake=True, suite="value")]
+
+
+def started_with(load: str) -> list[scoring.SessionRecord]:
+    pair = two_sessions()
+    pair[1].trace = [{"hook": "session-start", "hook_stdout": load}]
+    return pair
+
+
+@pytest.mark.parametrize(
+    "answer,result",
+    [
+        ("WAITING ON ME: the Kestrel export", PASS),
+        ("**WAITING ON ME:** CSV column order for the food bank", PASS),
+        ("The Kestrel question is open.\nWAITING ON ME: reminder lead time", FAIL),
+        ("WAITING ON ME: none", FAIL),
+        ("UNKNOWN", scoring.INCONCLUSIVE),
+    ],
+)
+def test_the_last_owner_line_decides_and_silence_never_passes(answer, result):
+    check = SCENARIOS[BUSY_ID].check
+    assert check(answered(answer)).result == result
+
+
+def test_the_owner_check_says_if_the_start_load_held_the_question_and_needs_it_to_fit():
+    from cairnkit.hookrun import HOOK_TEXT_LIMIT
+
+    check = SCENARIOS[BUSY_ID].check
+    shown = check(answered("WAITING ON ME: Kestrel", sessions=started_with("Kestrel export")))
+    assert shown.result == PASS and "was in the start load" in shown.reason
+    missed = check(answered("WAITING ON ME: none", sessions=started_with("other facts")))
+    assert missed.result == FAIL and "was not in the start load" in missed.reason
+    big = started_with("Kestrel " + "x" * HOOK_TEXT_LIMIT)
+    assert check(answered("WAITING ON ME: Kestrel", sessions=big)).result == scoring.INCONCLUSIVE
+
+
+def test_the_busy_scenario_separates_a_carried_note_from_no_memory(tmp_path, scripted):
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[BUSY_ID]])
+    rows = {row["build"]: row for row in runner.run_all(options)}
+    assert rows["dev"]["result"] == PASS, rows["dev"]["reason"]
+    assert rows["none"]["result"] == FAIL, rows["none"]["reason"]
+    assert "memory" in rows["dev"]["carried"]
+
+
+def test_this_checkout_loads_the_new_question_over_a_busy_memory(tmp_path, scripted, monkeypatch):
+    """The real tool: the seed, its lookups and the status note, then the load of session B."""
+    import tempfile
+
+    from agent_eval import busy
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    options = scripted_options(tmp_path, scripted, [SCENARIOS[BUSY_ID]], keep=True)
+    options.builds = {"dev": real_tool_build(tmp_path)}
+    row = runner.run_all(options)[0]
+    assert row["result"] == PASS, row["reason"]
+    assert row["needle_in_load"] is True
+    memory = Path(row["kept_at"]) / "run" / "proj.memory"
+    assert (memory / "notes" / "status.md").is_file()
+    looked_up = {
+        line.split("\t")[1]
+        for log in (memory / ".usage").glob("*.log")
+        for line in log.read_text().splitlines()
+    }
+    assert len(looked_up) == len(busy.LOOKED_UP)

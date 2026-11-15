@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cairnkit import __version__, adapters, githook, instruction_files, instructions, refresh, tidy
+from cairnkit import __version__, adapters, githook, instruction_files, instructions, refresh
 from cairnkit.cli import main
 from cairnkit.paths import find_project
 
@@ -32,7 +32,6 @@ def old_rules_block(body: str = "Old text.") -> str:
 
 def test_new_markers_name_cairnkit():
     assert instructions.START == "<!-- cairnkit:start -->"
-    assert tidy.RULES_START == "<!-- cairnkit:rules:start -->"
     assert githook.START == "# >>> cairnkit >>>"
     assert "-m cairnkit hook" in adapters.hook_command("stop", "claude")
 
@@ -92,18 +91,6 @@ def test_an_old_block_is_skipped_when_reading_hand_written_rules(repo):
     assert not any("always write a fact" in t for t in texts)
 
 
-def test_tidy_adds_a_rule_inside_an_old_block_and_renames_its_markers(tmp_path):
-    path = tmp_path / "AGENTS.md"
-    path.write_text(f"top\n{OLD_RULES_START}\n## Rules\n\n- One.\n{OLD_RULES_END}\nbottom\n")
-    tidy.add_rule(path, "Two.")
-    tidy.add_rule(path, "Two.")
-    text = path.read_text()
-    assert OLD_RULES_START not in text and OLD_RULES_END not in text
-    assert text.count(tidy.RULES_START) == 1 and text.count(tidy.RULES_END) == 1
-    assert text.count("- Two.\n") == 1 and "- One.\n" in text
-    assert text.startswith("top\n") and text.endswith("bottom\n")
-
-
 def test_git_hook_with_old_markers_gets_one_new_block(repo, capsys):
     hook = repo / ".git" / "hooks" / "pre-commit"
     hook.write_text(f"#!/bin/sh\n{OLD_HOOK_START}\nold body\n{OLD_HOOK_END}\necho team-check\n")
@@ -134,17 +121,11 @@ def test_refresh_rewrites_old_agent_hooks_and_old_git_hooks(repo):
             {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": OLD_COMMAND}]}]}}
         )
     )
-    shared = repo / ".githooks" / "commit-msg"
-    shared.parent.mkdir()
-    shared.write_text(f"#!/bin/sh\n{OLD_HOOK_START}\nold guard\n{OLD_HOOK_END}\n")
     assert refresh.repo_line(find_project(), None)
     assert main(["init", "--refresh"]) == 0
     data = json.loads(settings.read_text())
     commands = [h["command"] for g in data["hooks"]["SessionStart"] for h in g["hooks"]]
     assert commands == [adapters.hook_command("session-start", "claude")]
-    text = shared.read_text()
-    assert OLD_HOOK_START not in text and text.count(githook.START) == 1
-    assert githook.GUARD_MARK in text
 
 
 def test_hooks_uninstall_removes_old_agent_hooks(repo):

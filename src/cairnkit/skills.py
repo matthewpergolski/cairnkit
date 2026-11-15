@@ -1,7 +1,8 @@
-"""pstack skills: `memory skills status|install`, and the one advisory line.
+"""pstack skills: `memory skills status|install`, and the line in `memory status`.
 
 Everything is at user level. Nothing is written into a repo. The check never
-fails and never blocks: offline or on any error, it says nothing.
+fails and never blocks: offline or on any error, it says nothing. pstack is optional
+and not about memory, so nothing here prints into an agent's session start.
 """
 
 from __future__ import annotations
@@ -18,8 +19,10 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.config import load_config
+from cairnkit.selection import clean_path
 
 REPO = "cursor/plugins"
 REPO_URL = "https://github.com/cursor/plugins"
@@ -27,6 +30,7 @@ PLUGIN_URL = "https://raw.githubusercontent.com/cursor/plugins/main/pstack/plugi
 MARKETPLACE = "cursor-plugins"
 PLUGIN = f"pstack@{MARKETPLACE}"
 COMMAND = "memory skills install pstack --yes"
+ADD_COMMAND = "memory skills install pstack --tool NAME --yes"
 TOOLS = {
     "claude": "Claude Code",
     "codex": "Codex",
@@ -105,7 +109,7 @@ def is_behind(installed: str | None, latest: str | None) -> bool:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
@@ -131,7 +135,7 @@ def latest_version(force: bool = False) -> str | None:
         record["failed"] = True
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        plainfile.write_text(path, json.dumps(record) + "\n", encoding="utf-8")
     return version or old
 
 
@@ -220,7 +224,7 @@ def record_catalog(count: int, names: list[str] | None = None) -> None:
     with contextlib.suppress(OSError):
         path = cache_dir() / CATALOG
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        plainfile.write_text(path, json.dumps(record) + "\n", encoding="utf-8")
 
 
 def catalog_count() -> int | None:
@@ -337,46 +341,81 @@ MARKERS = {
     "pi": ("PI_CODING_AGENT",),
     "grok": ("GROK_SESSION_ID", "GROK_HOOK_EVENT", "GROK_WORKSPACE_ROOT"),
 }
+# What each tool sets for its shell tool. CURSOR_TRACE_ID and the hook-time Grok names stay out,
+# because a person's terminal can hold them or a shell tool does not get them. Each name was seen in
+# a real shell tool, except CURSOR_AGENT, which was read in Cursor's shipped code.
+AGENT_SHELL_MARKERS = (
+    "CLAUDECODE",
+    "CODEX_THREAD_ID",
+    "CURSOR_AGENT",
+    "OPENCODE",
+    "PI_CODING_AGENT",
+    "GROK_SESSION_ID",
+)
 STATE_NAME = ".skills-advisory.json"
-SHOWN_MAX = 3
+
+
+def in_agent_shell() -> bool:
+    return any(os.environ.get(name) for name in AGENT_SHELL_MARKERS)
 
 
 def running_tool(agent: str | None = None) -> str | None:
     """The agent tool that runs this session, or None when it is not known.
 
-    The hook's `--agent` wins. Else one set of environment markers must match.
+    The hook's `--agent` wins. Any marker means an agent, so the markers of two tools name both.
     """
     if agent in TOOLS:
         return agent
     found = [t for t, names in MARKERS.items() if any(os.environ.get(n) for n in names)]
-    return found[0] if len(found) == 1 else None
+    return "+".join(found) or None
 
 
-def advisory(tools: list[str] | None = None) -> str | None:
-    """One line when pstack is missing or behind in a tool that is found. Never raises.
+def _behind_sentence(found: list[Row]) -> str | None:
+    """Name each installed tool that the update command would change. No tool, no network."""
+    installed = [r for r in found if r.installed is not None]
+    if not installed:
+        return None
+    latest = latest_version()
+    available = catalog_count()
+    names = []
+    for row in installed:
+        state = row.state(latest, available)
+        if state == "behind":
+            names.append(f"{row.label} {row.installed} (latest {latest})")
+        elif state == "partial":
+            names.append(f"{row.label} {row.installed} (partial)")
+    if not names:
+        return None
+    return f"behind for {', '.join(names)}. To update only these: {COMMAND}"
 
-    Only the tools in `tools` count (default: every tool that is found).
-    """
+
+def behind_line() -> str | None:
+    """One line when a tool that has pstack is behind. Never raises."""
     try:
-        found = [r for r in rows() if r.found and (tools is None or r.tool in tools)]
-        if not found:
-            return None  # no tool applies: no network
-        latest = latest_version()
-        missing, behind = [], []
-        for row in found:
-            state = row.state(latest)
-            if state == "missing":
-                missing.append(row.label)
-            elif state == "behind":
-                behind.append(f"{row.label} {row.installed} (latest {latest})")
-        parts = []
+        sentence = _behind_sentence([r for r in rows() if r.found])
+        return f"pstack skills: {sentence}" if sentence else None
+    except Exception:
+        return None
+
+
+def advisory() -> str | None:
+    """The behind line, and the found tools with no pstack. Never raises."""
+    try:
+        found = [r for r in rows() if r.found]
+        missing = [r.label for r in found if r.installed is None]
+        parts = [_behind_sentence(found)]
         if missing:
-            parts.append(f"missing for {', '.join(missing)}")
-        if behind:
-            parts.append(f"behind for {', '.join(behind)}")
-        if not parts:
-            return None
-        return f"pstack skills: {'; '.join(parts)}. Run: {COMMAND}"
+            parts.append(f"Not installed for {', '.join(missing)}. To add one: {ADD_COMMAND}")
+        text = " ".join(part for part in parts if part)
+        return f"pstack skills (optional): {text}" if text else None
+    except Exception:
+        return None
+
+
+def status_line(memdir: Path) -> str | None:
+    """For `memory status`: the behind line, unless `skills_check = false`. Never raises."""
+    try:
+        return behind_line() if load_config(memdir)["skills_check"] else None
     except Exception:
         return None
 
@@ -388,37 +427,8 @@ def _state(memdir: Path) -> dict:
 def _save(memdir: Path, state: dict) -> None:
     with contextlib.suppress(OSError):
         if memdir.is_dir():
-            (memdir / STATE_NAME).write_text(json.dumps(state) + "\n", encoding="utf-8")
-
-
-def session_line(memdir: Path, agent: str | None = None, record: bool = False) -> str | None:
-    """The advisory for the tool that runs this session, at most 3 sessions per version pair.
-
-    The pair is the installed version and the latest version. A newer latest starts a new
-    count. With `record`, this call is one session. Never raises.
-    """
-    try:
-        if not load_config(memdir)["skills_check"]:
-            return None
-        tool = running_tool(agent)
-        row = next((r for r in rows() if r.tool == tool), None)
-        if row is None or not row.found:
-            return None  # no tool applies: no network
-        latest = latest_version()
-        if row.state(latest) not in ("missing", "behind"):
-            return None
-        key = f"{row.installed or 'none'}->{latest or 'unknown'}"
-        state = _state(memdir)
-        entry = state.get("shown", {}).get(tool) or {}
-        sessions = int(entry.get("sessions", 0)) if entry.get("key") == key else 0
-        if sessions >= SHOWN_MAX:
-            return None
-        if record:
-            state.setdefault("shown", {})[tool] = {"key": key, "sessions": sessions + 1}
-            _save(memdir, state)
-        return advisory([tool])
-    except Exception:
-        return None
+            path = plainfile.inside(memdir, memdir / STATE_NAME)
+            plainfile.write_text(path, json.dumps(state) + "\n", encoding="utf-8")
 
 
 def once_line(memdir: Path, record: bool = True) -> str | None:
@@ -532,7 +542,7 @@ def copy_skills(
         "catalog": len(names),
         "installed_at": stamp(now()),
     }
-    (meta / MARKER).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    plainfile.write_text(meta / MARKER, json.dumps(record, indent=2) + "\n", encoding="utf-8")
     return installed, adopted, skipped
 
 
@@ -600,7 +610,7 @@ def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list, adopt: 
     target = skills_dir(row.tool)
     shown = f" {latest}" if latest else ""
     note = " (replace same-named folders)" if adopt else ""
-    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {target}{note}")
+    print(f"{row.label}: {verb} pstack{shown}: copy the skills to {clean_path(target)}{note}")
     if not yes:
         return True
     try:
@@ -632,7 +642,7 @@ def _install_copy(row: Row, latest: str | None, yes: bool, cloned: list, adopt: 
         return False
     print(
         f"{row.label}: pstack {version} ({len(installed)} skill(s) installed, "
-        f"{len(skipped)} skipped) copied to {target}"
+        f"{len(skipped)} skipped) copied to {clean_path(target)}"
     )
     if adopted:
         print(f"  adopted (replaced) {len(adopted)} same-named folder(s): {', '.join(adopted)}")
@@ -660,16 +670,29 @@ def _row_needs_install(row: Row, latest: str | None, available: int | None, adop
 
 
 def run_install(tool: str | None, yes: bool, adopt: bool = False) -> int:
-    """Plan (default) or do (--yes) the install or update. The same command updates.
+    """Plan (default) or do (--yes) the install or update.
 
-    With `adopt` (also `--all`), same-named skill folders are replaced so every
-    pstack skill is installed. Without it, a skill of yours with the same name
-    is kept and counted as skipped.
+    With no `tool`, only the found tools that already have pstack are updated. A new
+    tool takes `--tool NAME`, or `--tool all` for each tool that is found. With `adopt`
+    (also `--all`), same-named skill folders are replaced so every pstack skill is
+    installed. Without it, a skill of yours with the same name is kept and counted as
+    skipped.
     """
-    wanted = [t for t in TOOLS if detected(t)] if tool in (None, "all") else [tool]
-    if not wanted:
+    if tool is None:
+        found = [t for t in TOOLS if detected(t)]
+        wanted = [t for t in found if installed_version(t) is not None]
+    elif tool == "all":
+        found = wanted = [t for t in TOOLS if detected(t)]
+    else:
+        found = wanted = [tool]
+    if not found:
         print(f"No agent tool found (looked for {looked_for()}).")
         print("Nothing to do. Use --tool NAME to pick one.")
+        return 0
+    if not wanted:
+        names = ", ".join(TOOLS[t] for t in found)
+        print(f"pstack is on no tool yet, so there is nothing to update. Found: {names}.")
+        print(f"To add it to one tool: {ADD_COMMAND}")
         return 0
     latest = latest_version(force=yes)
     available = catalog_count()
@@ -699,16 +722,14 @@ def run_install(tool: str | None, yes: bool, adopt: bool = False) -> int:
 
 
 def update_note() -> str:
-    """For `skills_auto_update = true`: update what is missing or behind. Never raises.
+    """For `skills_auto_update = true`: update what is behind. It adds no new tool. Never raises.
 
     Return one line for the session, or an empty string when there was nothing to do.
     """
     try:
         latest = latest_version()
         available = catalog_count()
-        stale = [
-            r for r in rows() if r.state(latest, available) in ("missing", "behind", "partial")
-        ]
+        stale = [r for r in rows() if r.state(latest, available) in ("behind", "partial")]
         if not stale:
             return ""
         out = io.StringIO()

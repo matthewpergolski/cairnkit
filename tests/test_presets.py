@@ -52,6 +52,7 @@ def test_no_default_rules_is_the_none_preset(repo, tmp_path):
     assert facts(memdir_of(repo)) == []
     other = tmp_path / "other"
     other.mkdir()
+    (repo / "memory-bank").unlink()
     assert main(["init", "--preset", "none", "--path", str(other / "m")]) == 0
     assert not (other / "m" / "facts" / "default.jsonl").exists()
 

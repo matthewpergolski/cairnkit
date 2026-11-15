@@ -1,17 +1,28 @@
-"""One discoverability blurb for session-start, load footers, and --help."""
+"""The look-up line of the load, the short rules of a session start, and the capture guide."""
 
 from __future__ import annotations
 
 DISCOVER = (
-    "Look up: `memory search WORDS`. Read one: `memory show ID`. "
-    "Pin for every session: `--pinned`. Link: `memory change ID --link related:OTHER`. "
-    "Clean up: `memory tidy`."
+    "Look up: `memory search WORDS`, then `memory show ID`. All of it: `memory instructions`."
 )
 
-RULES_SHORT = f"""\
-Memory rules: record what a later session needs with `memory add` (decisions,
-traps, lessons: long-term; working notes: `--short --until-merged`). Optional
-`--summary` for a long body. To change a fact, add a newer one (`--supersedes ID`)
-or mark it `expired` or `wrong` with `memory change`. Never store secrets. Never
-edit memory files by hand. Run `memory instructions` for the full rules.
-{DISCOVER}"""
+ADD_LINE = (
+    '`memory add "TEXT" --basis told` for what the owner said, else `--basis seen`. If nothing is '
+    "worth a fact, say so and finish."
+)
+
+# Each block prints this. The 157 words before this guide were 43 percent of all hook words.
+# `--supersedes ID` is in RULES_SHORT, which each session reads at its start.
+CAPTURE_GUIDE = (
+    "Ask: what would the next agent get wrong if this session ended now? Write a fact for each "
+    "moment it had: an owner decision or approval, a promise or a limit, a review finding, the "
+    "purpose and next step of started work, or a failure and its fix. Give the reason and the "
+    f"files. A commit, a branch or the diff is no fact.\n{ADD_LINE}"
+)
+
+RULES_SHORT = """\
+Memory rules: save a decision, trap or lesson with `memory add "TEXT"`
+(`--basis told` if the owner said it, `--short` for branch notes). Replace one with
+`--supersedes ID`; end one with `memory change ID --status expired|wrong`, or
+`--status promoted --held-by FILE` when a tracked file holds it. Never store secrets or
+edit memory files."""

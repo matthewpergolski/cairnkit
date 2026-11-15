@@ -1,22 +1,23 @@
-"""Read-only staleness hints for `memory load`. Never writes proposals."""
+"""Read-only prompts for `memory load`: a source that is gone, a status behind the code.
+
+Age plays no part, and neither prompt ends a fact.
+"""
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 
-from cairnkit.clock import now, parse_time
+from cairnkit import plainfile
+from cairnkit.clock import now
 from cairnkit.memory import Memory
 from cairnkit.paths import run_git
 from cairnkit.state import effective_status
 
-DEFAULT_DAYS = 90
-
-
-def _age_days(state: dict, moment) -> float:
-    try:
-        return (moment - parse_time(state["learned_at"])).total_seconds() / 86400
-    except (KeyError, ValueError, TypeError):
-        return 0.0
+SHOW_IDS = 5
+COMMIT_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
+MAX_NAMED = 50
 
 
 def _file_missing(root: Path, source: str) -> bool:
@@ -25,7 +26,7 @@ def _file_missing(root: Path, source: str) -> bool:
     path = source[5:]
     if not path or path.startswith(("/", "~")):
         return False
-    return not (root / path).exists()
+    return not os.path.exists(root / path)
 
 
 def _commit_missing(root: Path, source: str) -> bool:
@@ -38,38 +39,48 @@ def _commit_missing(root: Path, source: str) -> bool:
     return probed is None
 
 
-def hygiene_line(memory: Memory, days: int = DEFAULT_DAYS) -> str | None:
-    """One line for load when facts look stale or point at missing sources."""
+def hygiene_line(memory: Memory) -> str | None:
+    """One line that names the facts whose source file or commit no longer exists."""
     moment = now()
     root = memory.project.root
-    linked = {link["id"] for s in memory.states.values() for link in s.get("links", [])}
-    linked |= {s["id"] for s in memory.states.values() if s.get("links")}
-    stale = 0
-    missing_file = 0
-    missing_commit = 0
+    gone = []
     for state in memory.states.values():
         status, _ = effective_status(state, moment, None)
         if status != "active":
             continue
-        if (
-            state.get("scope", "long") == "long"
-            and not state.get("pinned")
-            and state["id"] not in linked
-            and _age_days(state, moment) > days
-        ):
-            stale += 1
         source = str(state.get("source", ""))
-        if _file_missing(root, source):
-            missing_file += 1
-        elif _commit_missing(root, source):
-            missing_commit += 1
-    parts = []
-    if stale:
-        parts.append(f"{stale} older than {days} days with no links")
-    if missing_file:
-        parts.append(f"{missing_file} file source(s) missing")
-    if missing_commit:
-        parts.append(f"{missing_commit} commit source(s) missing")
-    if not parts:
+        if _file_missing(root, source) or _commit_missing(root, source):
+            gone.append(state["id"])
+    if not gone:
         return None
-    return f"Stale memory: {'; '.join(parts)}. Run `memory tidy` and review."
+    names = ", ".join(sorted(gone)[:SHOW_IDS]) + (" and more" if len(gone) > SHOW_IDS else "")
+    return (
+        f"Source gone: {len(gone)} fact(s) name a file or commit that no longer exists: {names}. "
+        "If you touch that work, check each fact. End one with `memory change ID --status "
+        'expired --reason "..."`.'
+    )
+
+
+def commits_past_status(root: Path, path: Path) -> str:
+    """Words for the status heading: how far HEAD is past the newest commit that the note names.
+
+    A note cites old commits as history, so only the newest one says how old the note is.
+    `--not` over all of them counts from the newest. A hex word that is no commit is ignored.
+    """
+    try:
+        named = sorted(set(COMMIT_RE.findall(plainfile.read_text(path, encoding="utf-8"))))[
+            :MAX_NAMED
+        ]
+    except (OSError, UnicodeDecodeError):
+        return ""
+    if not named:
+        return ""
+    known = run_git(
+        root, "log", "--no-walk", "--ignore-missing", "--format=%H", *named, timeout=1.0
+    )
+    if not known:
+        return ""
+    count = run_git(root, "rev-list", "--count", "HEAD", "--not", *known.split(), timeout=1.0)
+    if not count or count == "0":
+        return ""
+    return f"; HEAD is {count} commit(s) past the newest commit it names"

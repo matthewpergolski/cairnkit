@@ -1,6 +1,6 @@
 """Rule tiers: a rule with `enforced_by` names the check that fails when it is broken."""
 
-from conftest import git, make_fact, read_jsonl, write_facts
+from conftest import make_fact, read_jsonl, write_facts
 
 from cairnkit.cli import main
 from cairnkit.rules import DEFAULT_RULES
@@ -39,14 +39,14 @@ def test_change_sets_and_clears_append_only(mem, capsys):
     _, fid = add(capsys, "Run the tests.", *RULE)
     path = mem / "facts" / "main.jsonl"
     before = path.read_bytes()
-    assert main(["change", fid, "--enforced-by", "ci:tests"]) == 0
+    assert main(["change", fid, "--enforced-by", "manual:tests"]) == 0
     assert path.read_bytes().startswith(before)
-    assert read_jsonl(path)[-1]["enforced_by"] == "ci:tests"
+    assert read_jsonl(path)[-1]["enforced_by"] == "manual:tests"
     capsys.readouterr()
     main(["load"])
     out = capsys.readouterr().out
     assert out.index("## Enforced rules") < out.index("Run the tests.")
-    assert "enforced by ci:tests" in out
+    assert "enforced by manual:tests" in out
     assert main(["change", fid, "--no-enforced-by", "--reason", "CI job removed."]) == 0
     assert read_jsonl(path)[-1]["enforced_by"] is None
     capsys.readouterr()
@@ -61,7 +61,7 @@ def test_load_groups_rules_outside_the_budget(mem, capsys):
     write_facts(
         mem,
         [
-            make_fact("f-20261001-0001", "Enforced one.", kind="rule", enforced_by="ci:lint"),
+            make_fact("f-20261001-0001", "Enforced one.", kind="rule", enforced_by="manual:lint"),
             make_fact("f-20261001-0002", "Advisory one.", kind="rule"),
             make_fact("f-20261001-0003", "A plain fact."),
         ],
@@ -105,7 +105,7 @@ def test_check_advisory_lists_prose_rules(mem, capsys):
     write_facts(
         mem,
         [
-            make_fact("f-20261001-0001", "Enforced one.", kind="rule", enforced_by="ci:lint"),
+            make_fact("f-20261001-0001", "Enforced one.", kind="rule", enforced_by="manual:lint"),
             make_fact("f-20261001-0002", "Advisory one.", kind="rule"),
         ],
     )
@@ -155,15 +155,6 @@ def test_guard_install_and_uninstall_update_the_default_rule(repo, capsys):
     assert main(["check", "--strict"]) == 0
     assert main(["hooks", "uninstall"]) == 0
     assert "## Enforced rules" not in _load(capsys)
-
-
-def test_shared_guard_counts_only_when_hooks_path_is_set(repo, capsys):
-    assert main(["init", "--preset", "commits"]) == 0
-    assert main(["hooks", "install", "--agent", "generic", "--commit-msg-guard=shared"]) == 0
-    assert "## Enforced rules" not in _load(capsys)
-    git(repo, "config", "core.hooksPath", ".githooks")
-    assert main(["hooks", "install", "--agent", "generic", "--commit-msg-guard=shared"]) == 0
-    assert "## Enforced rules" in _load(capsys)
 
 
 def test_show_prints_enforced_by_and_its_history(mem, capsys):

@@ -32,10 +32,10 @@ def run_check(capsys):
     return code, capsys.readouterr().out
 
 
-def test_no_memory_folder_is_skipped(repo, capsys):
+def test_no_memory_folder_says_not_loaded(repo, capsys):
     code, out = run_check(capsys)
     assert code == 0
-    assert "skipped" in out
+    assert "memory: not loaded: no memory folder" in out
 
 
 def test_example_file_passes(repo, mem, capsys):
@@ -92,12 +92,22 @@ def test_missing_link_is_healed_when_memory_exists(repo, mem, capsys):
     assert "linked" in out
 
 
-def test_broken_link_is_reported(repo, mem, capsys, tmp_path):
+def test_broken_link_is_repaired_when_the_memory_is_known(repo, mem, capsys, tmp_path):
     (repo / "memory-bank").unlink()
     (repo / "memory-bank").symlink_to(tmp_path / "gone")
     code, out = run_check(capsys)
+    assert code == 0, out
+    assert "relinked" in out
+    assert (repo / "memory-bank").resolve() == mem.resolve()
+
+
+def test_broken_link_is_reported_when_the_memory_cannot_be_found(repo, mem, capsys, tmp_path):
+    far = tmp_path / "a" / "b"
+    far.parent.mkdir()
+    mem.rename(far)
+    code, out = run_check(capsys)
     assert code == 1
-    assert "broken" in out or "points to" in out
+    assert "memory init --path" in out and str(mem) in out
 
 
 def test_real_folder_in_a_worktree_is_reported(repo, mem, capsys):

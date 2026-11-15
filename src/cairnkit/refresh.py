@@ -8,14 +8,19 @@ git hooks. It records its version in the memory folder when it writes them.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
-from cairnkit import __version__, adapters, githook, instructions, markers
+from cairnkit import __version__, adapters, githook, instructions, markers, plainfile, rules_target
 from cairnkit.clock import now, stamp
+from cairnkit.ignore import exclude
 from cairnkit.paths import Project, resolve_memory_dir
-from cairnkit.skills import is_behind
+from cairnkit.selection import clean_path, shell_word
+from cairnkit.skills import cache_dir, is_behind
 
 STAMP = "tool-version.json"
 # Untracked block homes only. Tracked CLAUDE.md / AGENTS.md are migrated out, not refreshed.
@@ -26,10 +31,44 @@ BLOCK_FILES = (
     ".pi/APPEND_SYSTEM.md",
 )
 COMMAND = "memory init --refresh"
+_HOOK_PYTHON = re.compile(r"""(?:'([^']+)'|([^\s"'`\\]+)) (?:-P )?-m cairnkit hook""")
+# A start of the tool with no -P, which earlier builds wrote. It imports from the folder it runs in.
+_OPEN_LAUNCH = re.compile(
+    r"""(?<!-P )(?:-m cairnkit hook|-c 'import cairnkit')|(?<!"-P", )"-m", "cairnkit", "hook\""""
+)
+# 0.3.1 builds on the dev channel wrote this line into post-merge. It printed on each merge.
+OLD_DOCS_CHECK_MARK = "# cairnkit:docs-check"
+COMPARED = "build-compare"
+# The compare answers of this process. A load runs read_health once for each pass.
+_compared: dict[tuple, bool] = {}
 
 
 def tool_version() -> str:
     return __version__
+
+
+def build_commit() -> str | None:
+    """The commit of the running build. Two dev builds can share one version number."""
+    from cairnkit.install_source import running_commit
+
+    try:
+        return running_commit()
+    except Exception:
+        return None
+
+
+def _origin(version: str | None, recorded: str | None, running: str | None) -> str:
+    """Which build wrote the repo files, and which build runs now."""
+    from cairnkit.install_source import ref_tag
+
+    this = f"{tool_version()}{ref_tag(running)}"
+    if not version:
+        return f"come from an older memory; this is {this}"
+    if version == tool_version() and not recorded:
+        return f"come from an older build of memory {version}; this is {this}"
+    if version == tool_version() and recorded == running:
+        return f"differ from what memory {this} writes"
+    return f"come from memory {version}{ref_tag(recorded)}; this is {this}"
 
 
 def _memdir(project: Project, flag: str | None) -> Path | None:
@@ -39,7 +78,7 @@ def _memdir(project: Project, flag: str | None) -> Path | None:
 
 def read_stamp(memdir: Path) -> dict:
     try:
-        data = json.loads((memdir / STAMP).read_text(encoding="utf-8"))
+        data = json.loads(plainfile.read_text(memdir / STAMP, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -55,15 +94,20 @@ def record(project: Project, flag: str | None, block_file: str | None = None) ->
         blocks = set(old.get("blocks") or [])
         if block_file:
             blocks.add(block_file)
-        if old.get("version") == tool_version() and old.get("blocks") == sorted(blocks):
+        commit = build_commit()
+        same = old.get("version") == tool_version() and old.get("commit") == commit
+        if same and old.get("blocks") == sorted(blocks):
             return  # nothing new: a second run changes nothing
         data = {"version": tool_version(), "at": stamp(now()), "blocks": sorted(blocks)}
-        (memdir / STAMP).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        if commit:
+            data["commit"] = commit
+        path = plainfile.inside(memdir, memdir / STAMP)
+        plainfile.write_text(path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def _holds(path: Path, *marks: str) -> bool:
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = plainfile.read_text(path, encoding="utf-8", errors="replace")
     except OSError:
         return False
     return any(mark in text for mark in marks)
@@ -74,7 +118,7 @@ def _has_block(path: Path) -> bool:
     return _holds(path, *(mark for pair in githook.PAIRS for mark in pair))
 
 
-def _block_paths(project: Project, memdir: Path) -> list[Path]:
+def block_paths(project: Project, memdir: Path) -> list[Path]:
     # Include legacy CLAUDE.md / AGENTS.md so wrote_files still sees old installs.
     rels = sorted(
         set(BLOCK_FILES) | {"CLAUDE.md", "AGENTS.md"} | set(read_stamp(memdir).get("blocks") or [])
@@ -82,30 +126,49 @@ def _block_paths(project: Project, memdir: Path) -> list[Path]:
     return [checkout / rel for checkout in project.checkouts for rel in rels]
 
 
-def _agents(project: Project) -> dict[str, list[Path]]:
-    """For each agent, the checkouts whose hook config already holds memory's hooks."""
+def _agents(project: Project, linked: bool = False) -> dict[str, list[Path]]:
+    """For each agent, the checkouts whose hook config already holds memory's hooks.
+
+    A file behind a link counts only with `linked`: the writer skips it, so a check that asks
+    for a refresh because of it would ask for ever.
+    """
     found = {}
     for name, adapter in adapters.ADAPTERS.items():
-        holders = [c for c in project.checkouts if _holds(c / adapter.rel, *adapters.MARKS)]
+        holders = [
+            c
+            for c in project.checkouts
+            if _holds(c / adapter.rel, *adapters.MARKS)
+            and (linked or not adapters.behind_link(c, adapter.rel))
+        ]
         if holders:
             found[name] = holders
     return found
 
 
-def _post_merge_lacks_docs_check(project: Project) -> bool:
-    """A local post-merge cairnkit block with no docs-check stanza."""
+def _hook_text_is_old(project: Project) -> bool:
+    """A hook block from this version number that older dev builds wrote differently."""
     folder = githook.hooks_dir(project) if project.is_git else None
-    if folder is None or githook._inside_worktree(project, folder):
+    if folder is None:
         return False
-    path = folder / "post-merge"
-    if not _has_block(path):
+    if _holds(folder / "post-merge", OLD_DOCS_CHECK_MARK) or _holds(
+        folder / "pre-push", githook.OLD_FIX_MODE
+    ):
+        return True
+    if _has_block(folder / "pre-commit") and not _holds(
+        folder / "pre-commit", githook.PYTHON_GONE_MARK
+    ):
+        return True
+    if not githook.guard_installed(project):
         return False
-    return not _holds(path, githook.DOCS_CHECK_MARK) or not _holds(path, "docs --check")
+    return not (
+        _holds(folder / "commit-msg", githook.IDENTITY_MARK)
+        and _holds(folder / "pre-push", githook.PUSH_MARK)
+    )
 
 
 def _local_hooks(project: Project) -> list[str]:
     folder = githook.hooks_dir(project) if project.is_git else None
-    if folder is None or githook._inside_worktree(project, folder):
+    if folder is None:
         return []
     names = (
         "pre-commit",
@@ -118,50 +181,143 @@ def _local_hooks(project: Project) -> list[str]:
     return [h for h in names if _has_block(folder / h)]
 
 
-def _shared_hooks(project: Project) -> list[str]:
-    """The shared hooks that hold either marker, so a lost marker is found too."""
-    folder = project.root / githook.SHARED_DIR
-    return [h for h in ("commit-msg", "pre-commit", "post-checkout") if _has_block(folder / h)]
+def _leftovers(project: Project, memdir: Path) -> list[str]:
+    """What an older memory left, at any version number. The version cannot show these."""
+    from cairnkit.legacy import CANDIDATE_FILE
+
+    found = []
+    for hook in _local_hooks(project):
+        path = githook.hooks_dir(project) / hook
+        old = _holds(path, *(mark for pair in githook.PAIRS[1:] for mark in pair))
+        if hook == "post-commit" or old:
+            found.append(f"an old {hook} block")
+    if (memdir / CANDIDATE_FILE).exists():
+        found.append("facts that 0.3.1 mined")
+    return found
 
 
 def wrote_files(project: Project, memdir: Path) -> bool:
     return bool(
-        any(_holds(p, *(s for s, _ in instructions.PAIRS)) for p in _block_paths(project, memdir))
+        any(_holds(p, *(s for s, _ in instructions.PAIRS)) for p in block_paths(project, memdir))
         or _agents(project)
         or _local_hooks(project)
-        or _shared_hooks(project)
     )
 
 
-def repo_line(project: Project, flag: str | None) -> str | None:
-    """One line when repo files are older, or post-merge lacks the docs check. Never raises."""
+def _hook_texts(project: Project) -> list[str]:
+    """The text of each git hook and agent hook file that holds memory's hooks."""
+    folder = githook.hooks_dir(project) if project.is_git else None
+    hooks = [folder / hook for hook in _local_hooks(project)] if folder else []
+    files = hooks + [c / adapters.ADAPTERS[n].rel for n, hs in _agents(project).items() for c in hs]
+    texts = []
+    for path in files:
+        with contextlib.suppress(OSError):
+            texts.append(plainfile.read_text(path, encoding="utf-8", errors="replace"))
+    return texts
+
+
+def gone_pythons(project: Project, texts: list[str] | None = None) -> list[str]:
+    """The absolute Python paths in this repo's hooks that no longer run."""
+    texts = _hook_texts(project) if texts is None else texts
+    found = {a or b for text in texts for a, b in _HOOK_PYTHON.findall(text)}
+    return sorted(p for p in found if p.startswith("/") and not os.access(p, os.X_OK))
+
+
+def gone_python_line(project: Project, texts: list[str] | None = None) -> str | None:
+    gone = gone_pythons(project, texts)
+    if not gone:
+        return None
+    return (
+        f"memory: this repo's hooks run {', '.join(gone)}, which is gone, so they do nothing. "
+        f"Run `{COMMAND}` now. It rewrites them in place."
+    )
+
+
+def repo_line(project: Project, flag: str | None, compare: bool = False) -> str | None:
+    """One line when repo files are older than this tool. Never raises.
+
+    With `compare`, files from another build of this version count when this build would write
+    them differently. The compare reads each file, so only the session start asks for it.
+    """
     try:
         memdir = _memdir(project, flag)
         if memdir is None:
             return None
-        version = read_stamp(memdir).get("version")
-        stale_hook = _post_merge_lacks_docs_check(project)
+        state = githook.hook_state(project)
+        if state.fixable:
+            return "memory: " + state.line.removeprefix("warning: ")
+        texts = _hook_texts(project)
+        line = gone_python_line(project, texts)
+        if line:
+            return line
+        written = read_stamp(memdir)
+        version, recorded = written.get("version"), written.get("commit")
+        recorded = recorded if isinstance(recorded, str) else None
+        leftovers = _leftovers(project, memdir)
+        if leftovers and (not version or not is_behind(version, tool_version())):
+            return (
+                f"memory: this repo still holds {' and '.join(leftovers)} from an older memory. "
+                f"Run `{COMMAND}` now. It removes them."
+            )
+        stale_hook = _hook_text_is_old(project) or any(map(_OPEN_LAUNCH.search, texts))
+        running = None
         if version:
-            if not is_behind(version, tool_version()) and not stale_hook:
+            current = not is_behind(version, tool_version()) and not stale_hook
+            if compare and current and version == tool_version() and recorded:
+                running = build_commit()
+            other_build = running and recorded != running
+            if current and not (
+                other_build and _writes_other_files(project, flag, memdir, recorded, running)
+            ):
                 return None
         elif not wrote_files(project, memdir) and not stale_hook:
             return None
-        writer = f"memory {version}" if version else "an older memory"
         return (
-            f"memory: this repo's hooks and rules block come from {writer}. This is memory "
-            f"{tool_version()}. Run `{COMMAND}` now. It rewrites them in place."
+            "memory: this repo's hooks and rules block "
+            f"{_origin(version, recorded, running or build_commit())}. "
+            f"Run `{COMMAND}` now. It rewrites them in place."
         )
     except Exception:
         return None
 
 
-def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
+def _ensure_local_block(project: Project, dry_run: bool) -> list[str]:
+    """A block that stays in a tracked file still gets its current copy in the local file."""
+    path = project.root / rules_target.LOCAL
+    if path.exists() and instructions.START in plainfile.read_text(path, encoding="utf-8"):
+        return []
+    if not dry_run:
+        instructions.write_block(path)
+        exclude(project, [rules_target.LOCAL])
+    return [f"write the rules block to {path}"]
+
+
+def _end_mined_facts(project: Project, flag: str | None) -> list[str]:
+    """A tool with no session-start hook has only this step to end them."""
+    from cairnkit import legacy
+    from cairnkit.autotidy import LOG_NAME
+    from cairnkit.memory import Memory
+
+    with contextlib.suppress(Exception):
+        memory = Memory.open(project, flag)
+        ended = legacy.clean(memory)
+        if ended:
+            log = shell_word(f"{memory.where}/{LOG_NAME}")
+            return [
+                f"end {len(ended)} fact(s) that 0.3.1 mined from commits. "
+                f"They stay in the archive. `grep mined {log}` lists each id with its undo "
+                "command. `memory show ID` prints one."
+            ]
+    return []
+
+
+def _plan(project: Project, flag: str | None, memdir: Path, dry_run: bool):
+    """The steps that rewrite the repo files, and the files too broken to rewrite.
+
+    With `dry_run`, it only reads. Raises adapters.BadConfig.
+    """
     from cairnkit.hooks_cmd import guard_patterns
 
-    memdir = _memdir(project, flag)
-    if memdir is None:
-        print("error: there is no memory here. Run `memory init` first.", file=sys.stderr)
-        return 1
     steps: list[str] = []
     broken: list[Path] = []
     migrate_steps, migrate_broken = instructions.migrate_shared_blocks(
@@ -169,8 +325,10 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
     )
     steps += migrate_steps
     broken += migrate_broken
+    if any(step.startswith("note: tracked") for step in migrate_steps):
+        steps += _ensure_local_block(project, dry_run)
     shared_names = {"CLAUDE.md", "AGENTS.md"}
-    for path in _block_paths(project, memdir):
+    for path in block_paths(project, memdir):
         if path.name in shared_names:
             continue  # migrated above; never refresh a tracked shared file in place
         result = instructions.replace_block(path, dry_run)
@@ -178,43 +336,78 @@ def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
             steps.append(f"update the rules block in {path}")
         elif result == "broken":
             broken.append(path)
-    try:
-        for name, holders in _agents(project).items():
-            steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
-    except adapters.BadConfig as exc:
-        print(f"error: {exc}")
-        return 1
+    for name, holders in _agents(project, linked=True).items():
+        steps += adapters.apply(project, name, install=True, dry_run=dry_run, checkouts=holders)
+    patterns = guard_patterns(project, flag)
     bodies = {
-        "pre-commit": githook.pre_commit_body(shared=False),
-        "post-checkout": githook.post_checkout_body(shared=False),
-        "pre-push": githook.pre_push_body(),
+        "pre-commit": githook.pre_commit_body(),
+        "post-checkout": githook.post_checkout_body(),
+        "pre-push": githook.pre_push_body(patterns if githook.guard_installed(project) else None),
         "post-merge": githook.post_merge_body(),
-        "post-commit": githook.post_commit_body(),
+        "commit-msg": githook.guard_body(patterns),
     }
     hooks = _local_hooks(project)
     broken += githook.broken_paths(project, hooks)
     for hook in hooks:
         if githook.is_broken(githook.hooks_dir(project) / hook):
             continue
-        body = bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
-        steps += githook.install(project, hook, body, dry_run)
-    # Each shared hook on its own: only a file that holds a block is rewritten.
-    shared_bodies = {
-        "pre-commit": githook.pre_commit_body(shared=True),
-        "post-checkout": githook.post_checkout_body(shared=True),
-    }
-    for hook in _shared_hooks(project):
-        path = project.root / githook.SHARED_DIR / hook
-        if githook.is_broken(path):
-            broken.append(path)
+        if hook == "post-commit":  # 0.3.1 mined commits here. Nothing runs there now.
+            steps += githook.uninstall(project, hook, dry_run)
             continue
-        body = shared_bodies.get(hook) or githook.guard_body(guard_patterns(project, flag))
-        steps += githook.write_block(path, body, dry_run)
+        steps += githook.install(project, hook, bodies[hook], dry_run)
+    return steps, broken
+
+
+def _is_plain(step: str) -> bool:
+    return step.startswith(("skip", "note"))
+
+
+def _writes_other_files(
+    project: Project, flag: str | None, memdir: Path, recorded: str, running: str
+) -> bool:
+    """True when this build would rewrite a repo file. It writes no repo file.
+
+    The answer holds until the record or the running build changes, so it is kept in the user
+    cache, one small file for each repo. When the cache cannot be read or written, it compares.
+    """
+    key = (str(project.root), str(memdir), recorded, running)
+    if key in _compared:
+        return _compared[key]
+    path = cache_dir() / COMPARED / f"{hashlib.sha1(key[0].encode()).hexdigest()[:16]}.json"
+    with contextlib.suppress(OSError, ValueError, AttributeError):
+        data = json.loads(plainfile.read_text(path, encoding="utf-8"))
+        if data.get("key") == list(key) and isinstance(data.get("differs"), bool):
+            _compared[key] = data["differs"]
+            return data["differs"]
+    steps, _ = _plan(project, flag, memdir, dry_run=True)
+    differs = _compared[key] = not all(map(_is_plain, steps))
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(f".{path.name}.{os.getpid()}")
+        plainfile.write_text(temp, json.dumps({"key": key, "differs": differs}) + "\n", "utf-8")
+        os.replace(temp, path)
+    return differs
+
+
+def run_refresh(project: Project, flag: str | None, dry_run: bool) -> int:
+    memdir = _memdir(project, flag)
+    if memdir is None:
+        print("error: there is no memory here. Run `memory init` first.", file=sys.stderr)
+        return 1
+    try:
+        steps, broken = _plan(project, flag, memdir, dry_run)
+    except adapters.BadConfig as exc:
+        print(f"error: {clean_path(exc)}")
+        return 1
+    if not dry_run:
+        steps += _end_mined_facts(project, flag)
     if dry_run:
         print("Dry run: nothing will change.")
     for step in steps:
-        plain = step.startswith(("skip", "note"))
-        print(("would " if dry_run and not plain else "") + step)
+        print(("would " if dry_run and not _is_plain(step) else "") + step)
+    own = githook.own_hooks_line(project)
+    if own:
+        print(own)
     for path in broken:
         print(markers.broken_message(path, COMMAND))
     if broken:

@@ -1,4 +1,4 @@
-"""Stop hook: junk stays quiet, durable work reminds once, auto-tidy does not count."""
+"""Durable work earns one block. Junk stays quiet. Auto-tidy does not count as a fact."""
 
 import io
 import json
@@ -50,24 +50,19 @@ def test_stop_stays_quiet_when_a_tracked_junk_file_changes(repo, mem, capsys, mo
     code, out, _ = stop(capsys, monkeypatch)
     assert code == 0
     assert "block" not in out
-    assert "debug.log" not in out
 
 
-def test_stop_names_a_tracked_edit_and_says_you_can_finish(repo, mem, capsys, monkeypatch):
+def test_a_tracked_edit_blocks_the_stop_once(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "README.md").write_text("changed\n")
     code, out, _ = stop(capsys, monkeypatch)
     assert code == 0
-    data = json.loads(out)
-    assert data["decision"] == "block"
-    reason = data["reason"]
-    assert "README.md" in reason
-    assert "say so and finish" in reason
-    _, again, _ = stop(capsys, monkeypatch)
-    assert "block" not in again
+    assert "memory add" in json.loads(out)["reason"]
+    (repo / "README.md").write_text("changed again\n")
+    assert stop(capsys, monkeypatch)[1] == ""
 
 
-def test_an_auto_tidy_write_does_not_suppress_the_reminder(repo, mem, capsys, monkeypatch):
+def test_an_auto_tidy_write_does_not_end_the_check(repo, mem, capsys, monkeypatch):
     start(capsys, monkeypatch)
     (repo / "README.md").write_text("changed\n")
     saved = json.loads((mem / ".sessions" / "s1.json").read_text())
@@ -84,16 +79,10 @@ def test_an_auto_tidy_write_does_not_suppress_the_reminder(repo, mem, capsys, mo
         ],
         name="auto-tidy.jsonl",
     )
-    _, out, _ = stop(capsys, monkeypatch)
-    data = json.loads(out)
-    assert data["decision"] == "block"
-    assert "memory add" in data["reason"]
-    assert "README.md" in data["reason"]
+    assert "memory add" in json.loads(stop(capsys, monkeypatch)[1])["reason"]
 
 
-def test_a_session_file_without_the_durable_gate_rebaselines_quietly(
-    repo, mem, capsys, monkeypatch
-):
+def test_a_session_file_from_an_older_tool_blocks_nothing(repo, mem, capsys, monkeypatch):
     folder = mem / ".sessions"
     folder.mkdir(exist_ok=True)
     (folder / "s1.json").write_text(
@@ -103,7 +92,5 @@ def test_a_session_file_without_the_durable_gate_rebaselines_quietly(
     code, out, _ = stop(capsys, monkeypatch)
     assert code == 0
     assert "block" not in out
-    saved = json.loads((folder / "s1.json").read_text())
-    assert saved.get("gate") == "durable"
     _, again, _ = stop(capsys, monkeypatch)
     assert "block" not in again

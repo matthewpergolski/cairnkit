@@ -6,21 +6,48 @@ to delete.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import itertools
 import json
+import os
 import re
+import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from cairnkit import deadline, plainfile
 from cairnkit.autotidy import WRITER as AUTO_TIDY_WRITER
-from cairnkit.clock import now, parse_time, stamp
+from cairnkit.clock import now, stamp
 from cairnkit.install_source import SKIP_DIRS, SKIP_SUFFIXES
+from cairnkit.load import changed_paths
 from cairnkit.memory import Memory
-from cairnkit.paths import run_git
+from cairnkit.paths import current_branch, run_git, writer_name
+from cairnkit.reading import note_files
+from cairnkit.secretscan import mask
+from cairnkit.selection import areas_for_paths, name
 
 KEEP_DAYS = 7
-GATE = "durable"
+OTHERS_LIMIT = 2000
+KEY_LIMIT = 80
+# Reflog actions that make a new commit in this checkout. A merge, a pull or a switch brings
+# the commits of other people, so it is not here. Nor is a merge that a person finished by hand.
+OWN_COMMIT = re.compile(r"^(?!commit \(merge\))(commit|revert|cherry-pick)\b")
+REFLOG_LIMIT = "500"
+# Owner prompts between two blocks for work, when the agent answers each one with a fact. An agent
+# that always writes then sees at most 3 blocks in 20 turns, the limit of tests/test_stop_replay.py.
+WORK_GAP = 6
+# Helper checkouts read at one stop. Each costs about five git calls inside the stop's budget.
+HELPER_LIMIT = 8
+WORK_CHANGED = "The work changed in this session, and no fact records it."
+OWNER_SAID = "The owner stated something that only this conversation holds, and no fact records it."
+BOTH_CHANGED = (
+    "The owner stated something that only this conversation holds, and the work changed. No fact "
+    "records either."
+)
+# The memory folder is outside the work, so a capture check names the notes that changed there.
+NOTE_FOLDERS = ("notes", "branches")
+NOTES_SHOWN = 5
 JUNK_DIRS = frozenset(SKIP_DIRS) | {
     ".venv",
     ".pytest_cache",
@@ -81,8 +108,12 @@ SOURCE_SUFFIXES = frozenset(
 )
 
 
-def _path(memory: Memory, session_id: str) -> Path:
-    safe = re.sub(r"[^A-Za-z0-9._-]", "-", session_id or "default")[:80] or "default"
+def state_path(memory: Memory, session_id: str) -> Path:
+    key = session_id or "default"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "-", key)
+    if safe != key or len(safe) > KEY_LIMIT:
+        # Pi keys are long paths with one prefix. A cut or a replaced character must not join two.
+        safe = f"{safe[:KEY_LIMIT]}-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
     return memory.dir / ".sessions" / f"{safe}.json"
 
 
@@ -107,7 +138,7 @@ def _pathspecs(root: Path, memory_dir: Path | None) -> list[str]:
     return specs
 
 
-def _memory_path(path: str, root: Path, memory_dir: Path | None) -> bool:
+def is_memory_path(path: str, root: Path, memory_dir: Path | None) -> bool:
     norm = path.replace("\\", "/")
     if norm in ("memory-bank", ".memory-path") or norm.startswith(
         ("memory-bank/", ".memory-path/")
@@ -141,7 +172,7 @@ def is_junk_path(path: str) -> bool:
 
 
 def durable_untracked(path: str) -> bool:
-    """True when an untracked path is source worth a stop reminder."""
+    """True when an untracked path is source worth a capture check."""
     if is_junk_path(path):
         return False
     name = PurePosixPath(path).name
@@ -156,107 +187,206 @@ def _durable_tracked_paths(root: Path, memory_dir: Path | None) -> list[str]:
     listed = run_git(root, "diff", "--name-only", "HEAD", "--", *specs, timeout=2.0) or ""
     paths = []
     for path in listed.splitlines():
-        if not path or _memory_path(path, root, memory_dir) or is_junk_path(path):
+        if not path or is_memory_path(path, root, memory_dir) or is_junk_path(path):
             continue
         if path not in paths:
             paths.append(path)
     return paths
 
 
-@dataclass(frozen=True)
-class DurableSnapshot:
-    """The part of the worktree a later session could need a fact about."""
+def _work(root: Path, memory_dir: Path | None) -> tuple[str, str, list[str]]:
+    """HEAD, the diff of durable tracked paths, and the durable untracked paths. No junk."""
+    durable = _durable_tracked_paths(root, memory_dir)
+    untracked = sorted(
+        path
+        for path in _untracked_paths(root)
+        if durable_untracked(path) and not is_memory_path(path, root, memory_dir)
+    )
+    head = run_git(root, "rev-parse", "HEAD", timeout=2.0) or ""
+    diff = (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "") if durable else ""
+    return head, diff, untracked
 
-    head: str
-    tracked_diff: str
-    untracked: tuple[str, ...]
 
-    def digest(self) -> str:
-        blob = "\0".join(("durable-v1", self.head, self.tracked_diff, *self.untracked))
-        return hashlib.sha1(blob.encode()).hexdigest()
-
-
-class ReminderGate:
-    """Whether stop should ask for a memory write. Junk files do not count."""
-
-    def snapshot(self, root: Path, memory_dir: Path | None = None) -> DurableSnapshot:
-        head = run_git(root, "rev-parse", "HEAD", timeout=2.0) or ""
-        durable = _durable_tracked_paths(root, memory_dir)
-        tracked = (
-            (run_git(root, "diff", "HEAD", "--", *durable, timeout=2.0) or "") if durable else ""
-        )
-        untracked = tuple(
-            sorted(
-                path
-                for path in _untracked_paths(root)
-                if durable_untracked(path) and not _memory_path(path, root, memory_dir)
-            )
-        )
-        return DurableSnapshot(head, tracked, untracked)
-
-    def names(self, root: Path, memory_dir: Path | None = None) -> list[str]:
-        names = list(_durable_tracked_paths(root, memory_dir))
-        for path in self.snapshot(root, memory_dir).untracked:
-            if path not in names:
-                names.append(path)
-        return names
+def _digest(head: str, diff: str, untracked: list[str]) -> str:
+    return hashlib.sha1("\0".join(("durable-v1", head, diff, *untracked)).encode()).hexdigest()
 
 
 def fingerprint(root: Path, memory_dir: Path | None = None) -> str:
-    """A hash of the durable snapshot. Junk and unchanged trees keep the same hash."""
-    return ReminderGate().snapshot(root, memory_dir).digest()
+    """A hash of the work that a later session could need a fact about. Junk does not count."""
+    return _digest(*_work(root, memory_dir))
 
 
-def reminder_text(memory: Memory) -> str:
-    """The stop message. It names the durable paths and says the agent may finish."""
+def note_helpers(memory: Memory, session_id: str, paths: list[str]) -> None:
+    """Keep the other checkouts where a helper of this session worked. Only a main stop calls it.
+
+    A Claude Code helper with `isolation: "worktree"` works in its own worktree, with the session
+    key of its parent. Its changes are not in this checkout, so the capture check reads them there.
+    Only the live markers of this session name a checkout, so the work of another session never
+    counts. The value is the work seen at the last look, empty before the first.
+    """
+    root = memory.project.root.resolve()
+    state = load_state(memory, session_id)
+    if state is None:
+        return
+    helpers = state.setdefault("helper_checkouts", {})
+    new = [path for path in paths if path not in helpers and Path(path).resolve() != root]
+    if new:
+        helpers.update(dict.fromkeys(new, ""))
+        save_state(memory, session_id, state)
+
+
+def _helper_work(memory: Memory, seen: dict[str, str]) -> dict[str, str]:
+    """The work of each helper checkout that holds changes or commits that this checkout lacks.
+
+    A checkout that is gone, or that git could not read in time, is left out, so it is no change.
+    """
+    project = memory.project
+    present = {path.resolve() for path in project.checkouts} - {project.root.resolve()}
+    wanted = [path for path in seen if Path(path).resolve() in present][:HELPER_LIMIT]
+    if not wanted:
+        return {}
+    base = run_git(project.root, "rev-parse", "HEAD", timeout=2.0) or ""
+    found = {}
+    for path in wanted:
+        cuts = deadline.git_cuts()
+        head, diff, untracked = _work(Path(path), memory.dir)
+        args = ("merge-base", "--is-ancestor", head, base)
+        merged = bool(head and base) and run_git(project.root, *args, timeout=2.0) is not None
+        if deadline.git_cuts() == cuts and (diff or untracked or not merged):
+            found[path] = _digest(head, diff, untracked)
+    return found
+
+
+def files_outside_git(root: Path, memory_dir: Path | None) -> list[str]:
+    """Files that git does not hold and could not bring back, such as an ignored .env.local.
+
+    A folder that git does not know at all counts as one entry, and it is left out. Most of those
+    are build output, and a stop must not ask about each `rm -rf .next`.
+    """
+    listed = run_git(root, "ls-files", "-z", "--others", "--directory", timeout=2.0) or ""
+    found = [
+        path
+        for path in listed.split("\0")
+        if path
+        and not path.endswith("/")
+        and not is_junk_path(path)
+        and not is_memory_path(path, root, memory_dir)
+    ]
+    return found[:OTHERS_LIMIT]
+
+
+def _deleted(root: Path, *commits: str) -> set[str]:
+    args = ("diff", "--name-only", "--diff-filter=D", "-M", *commits)
+    return set((run_git(root, *args, timeout=2.0) or "").splitlines())
+
+
+def _deleted_here(root: Path, head: str) -> set[str]:
+    """What this checkout deleted since `head`: in the worktree, or in a commit that it made.
+
+    The HEAD reflog says which moves made a commit here. With no entry for `head`, the reflog is
+    off or too old to say, so only the worktree counts. A missed question costs less than a false
+    one.
+    """
+    found = _deleted(root, "HEAD")
+    log = run_git(root, "log", "-g", "-n", REFLOG_LIMIT, "--format=%H%x00%gs", "HEAD", timeout=2.0)
+    moves = [line.split("\0", 1) for line in (log or "").splitlines()]
+    if head not in (move[0] for move in moves):
+        return found
+    for (new, action), (old, _) in itertools.pairwise(moves):
+        if new == head:
+            break
+        if OWN_COMMIT.match(action):
+            found |= _deleted(root, old, new)
+    return found
+
+
+def tracked_files_gone(root: Path, memory_dir: Path | None, head: str) -> list[str]:
+    """Files that the start commit held and this session deleted. A rename is not a deletion.
+
+    A file removed by commits from elsewhere (pull, merge, rebase, switch) is not in the list.
+    """
+    # After a switch or a rebase, a file can be missing only because its branch is not here.
+    if run_git(root, "merge-base", "--is-ancestor", head, "HEAD", timeout=2.0) is None:
+        return []
+    specs = _pathspecs(root, memory_dir)
+    args = ("diff", "--name-only", "--diff-filter=D", "-M", head, "--", *specs)
+    listed = run_git(root, *args, timeout=2.0) or ""
+    gone = [path for path in listed.splitlines() if path and not is_junk_path(path)]
+    if not gone:
+        return []
+    here = _deleted_here(root, head)
+    return [path for path in gone if path in here]
+
+
+def mark_loaded(memory: Memory, session_id: str, text: str) -> None:
+    """Record what this session has read, so that later news repeats none of it."""
+    state = load_state(memory, session_id) or {}
+    if "start" not in state:
+        start_session(memory, session_id)
+        state = load_state(memory, session_id) or {}
+    state["loaded_at"] = stamp(now())
+    state["shown"] = sorted(fact_id for fact_id in memory.states if f"[{fact_id}]" in text)
     root = memory.project.root
-    gate = ReminderGate()
-    snap = gate.snapshot(root, memory.dir)
-    names = gate.names(root, memory.dir)
-    if names:
-        lines = [f"- {name}" for name in names[:5]]
-        if len(names) > 5:
-            lines.append(f"- and {len(names) - 5} more")
-        listing = "\n".join(lines)
-    else:
-        listing = f"- new commit {(snap.head or 'unknown')[:7]}"
-    return (
-        "Tracked work changed and no fact was written.\n"
-        f"{listing}\n"
-        "Search before adding: `memory search WORDS`. Open a hit with `memory show ID`.\n"
-        "Record what a later session needs:\n"
-        "- a decision, trap, or lesson: "
-        '`memory add "TEXT" --kind decision|trap|lesson --area AREA '
-        "--basis seen|told|guess --source commit:HASH|file:PATH`\n"
-        "- a note for this branch only: "
-        '`memory add "TEXT" --short --until-merged --area AREA '
-        "--basis seen --source session:DATE`\n"
-        "- a fact that is now wrong: "
-        '`memory change ID --status wrong|expired --reason "..."` '
-        'or `memory add "TEXT" --supersedes ID`\n'
-        "If none of this is worth a fact, say so and finish."
-    )
+    state["writers"] = sorted({*state.get("writers", []), writer_name(root)})
+    paths = changed_paths(root, current_branch(root))
+    state["areas"] = sorted(areas_for_paths(paths, memory.config["areas"]))
+    save_state(memory, session_id, state)
+
+
+def hold_load(memory: Memory, session_id: str, text: str) -> None:
+    """Keep the load for a tool that cannot add context at session start."""
+    state = load_state(memory, session_id) or {}
+    state["held_load"] = text
+    save_state(memory, session_id, state)
+
+
+def take_load(memory: Memory, session_id: str) -> str | None:
+    state = load_state(memory, session_id)
+    if not state or not state.get("held_load"):
+        return None
+    text = state.pop("held_load")
+    save_state(memory, session_id, state)
+    return text
 
 
 def load_state(memory: Memory, session_id: str) -> dict | None:
     try:
-        return json.loads(_path(memory, session_id).read_text())
+        return json.loads(plainfile.read_text(state_path(memory, session_id)))
     except (OSError, ValueError):
         return None
 
 
 def save_state(memory: Memory, session_id: str, state: dict) -> None:
-    path = _path(memory, session_id)
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(json.dumps(state))
-    _prune(path.parent)
+    write_state(memory, state_path(memory, session_id), state)
 
 
-def _prune(folder: Path) -> None:
-    limit = time.time() - KEEP_DAYS * 86400
-    for old in folder.glob("*.json"):
+def write_state(memory: Memory, path: Path, state: dict) -> None:
+    """Write a JSON file in the sessions folder. Old session files go."""
+    plainfile.inside(memory.dir, path.parent).mkdir(exist_ok=True)
+    # Another hook of the same session may read it now. A rename gives it all or nothing.
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".state-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(state))
+        os.replace(tmp, path)
+    except BaseException:  # a hook's time budget can end it here
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    _prune(memory.dir, path.parent)
+
+
+# A temp file of a write that a kill ended. A live write holds its file for far less.
+STALE_TEMP = 3600
+
+
+def _prune(memdir: Path, folder: Path) -> None:
+    now_s = time.time()
+    old_files = [(p, KEEP_DAYS * 86400) for p in plainfile.files_in(memdir, folder, "*.json")]
+    old_files += [(p, STALE_TEMP) for p in plainfile.files_in(memdir, folder, ".state-*.tmp")]
+    for old, age in old_files:
         try:
-            if old.stat().st_mtime < limit:
+            if old.stat().st_mtime < now_s - age:
                 old.unlink()
         except OSError:
             pass
@@ -268,44 +398,109 @@ def start_session(memory: Memory, session_id: str) -> None:
         memory,
         session_id,
         {
+            # The real clock, to compare with a file time. `started_at` follows MEMORY_NOW.
+            "clock": time.time(),
             "started_at": stamp(now()),
             "start": fingerprint(memory.project.root, memory.dir),
             "start_head": head,
-            "gate": GATE,
+            "others": files_outside_git(memory.project.root, memory.dir),
+            "writes": agent_writes(memory),
         },
     )
 
 
-def wrote_since(memory: Memory, moment: str) -> bool:
-    since = parse_time(moment)
-    for rec in memory.records:
-        if rec.get("writer") == AUTO_TIDY_WRITER:
-            continue
-        when = rec.get("learned_at") if rec.get("type") == "fact" else rec.get("at")
-        try:
-            if when and parse_time(when) >= since:
-                return True
-        except ValueError:
-            continue
-    return False
+def agent_writes(memory: Memory) -> int:
+    """How many records anyone but auto-tidy has written. A rise means that a fact was written.
+
+    A count has no tie, where a time has one-second steps.
+    """
+    return sum(record.get("writer") != AUTO_TIDY_WRITER for record in memory.records)
 
 
-def needs_reminder(memory: Memory, session_id: str) -> bool:
-    """True once per new durable snapshot, when no agent fact was written for it."""
+def capture_reasons(memory: Memory, session_id: str) -> list[str]:
+    """At a stop: why this stop must ask for a fact. Each reason is given once.
+
+    A statement is due when no fact followed it. Work is due when it changed since the last look,
+    unless the agent already answered a block for work with no fact: only a later fact opens that
+    again, and then only after WORK_GAP prompts. The work includes the checkouts of this session's
+    helpers (see `note_helpers`). A session from an older tool starts here.
+    """
     state = load_state(memory, session_id)
-    current = fingerprint(memory.project.root, memory.dir)
-    if state is None or state.get("gate") != GATE:
+    if state is None or "writes" not in state:
         start_session(memory, session_id)
-        return False
-    if current in (state.get("start"), state.get("reminded")):
-        return False
-    if wrote_since(memory, state.get("reminded_at") or state["started_at"]):
-        return False
-    state["reminded"] = current
-    state["reminded_at"] = stamp(now())
-    state["gate"] = GATE
+        return []
+    root, wrote, prompts = memory.project.root, agent_writes(memory), state.get("prompts", 0)
+    looked, wrote_before = time.time(), state["writes"]
+    seen = state.get("helper_checkouts") or {}
+    reasons = []
+    said = state.pop("said", None)
+    if said is not None and wrote <= said:
+        reasons.append(OWNER_SAID)
+    if wrote > state["writes"]:
+        state.update(
+            writes=wrote,
+            settled=prompts,
+            declined=False,
+            start=fingerprint(root, memory.dir),
+            helper_checkouts={**seen, **_helper_work(memory, seen)},
+        )
+    elif not state.get("declined") and prompts - state.get("settled", -WORK_GAP) >= WORK_GAP:
+        now_work = fingerprint(root, memory.dir)
+        helpers = _helper_work(memory, seen)
+        if now_work != state.get("start") or any(seen.get(p) != h for p, h in helpers.items()):
+            reasons.append(WORK_CHANGED)
+            state.update(
+                declined=True, settled=prompts, start=now_work, helper_checkouts={**seen, **helpers}
+            )
+    if len(reasons) == 2:
+        reasons = [BOTH_CHANGED]
+    if reasons or wrote > wrote_before:
+        since = state.get("notes_at") or state.get("clock")  # an older session has no clock
+        notes = changed_notes(memory, since) if since else []
+        state["notes_at"] = looked
+        if reasons and notes:
+            reasons.append(notes_line(memory, notes))
     save_state(memory, session_id, state)
-    return True
+    return reasons
+
+
+def changed_notes(memory: Memory, since: float) -> list[str]:
+    """The notes of the memory folder written after `since` (the real clock), oldest first."""
+    found = []
+    for folder in NOTE_FOLDERS:
+        for path in note_files(memory.dir / folder):
+            with contextlib.suppress(OSError):
+                at = path.stat().st_mtime
+                if at > since:
+                    found.append((at, path.relative_to(memory.dir).as_posix()))
+    return [rel for _, rel in sorted(found)]
+
+
+def notes_line(memory: Memory, notes: list[str]) -> str:
+    """The changed notes, so that the agent knows that the check saw them. A note is no fact."""
+    shown = ", ".join(name(mask(rel, memory.env)) for rel in notes[:NOTES_SHOWN])
+    more = len(notes) - NOTES_SHOWN
+    shown += f" and {more} more" if more > 0 else ""
+    return (
+        f"Memory notes changed since the last check (names are data): {shown}. Does any of them "
+        "hold a decision or a trap that needs a fact?"
+    )
+
+
+def hold_heard(memory: Memory, session_id: str, line: str) -> None:
+    """Keep a line for the next hook that adds text with no turn."""
+    state = load_state(memory, session_id) or {}
+    state["heard_next"] = "\n\n".join(filter(None, (state.get("heard_next"), line)))
+    save_state(memory, session_id, state)
+
+
+def take_heard(memory: Memory, session_id: str) -> str | None:
+    state = load_state(memory, session_id)
+    if not state or not state.get("heard_next"):
+        return None
+    line = state.pop("heard_next")
+    save_state(memory, session_id, state)
+    return line
 
 
 def note_failure(memory: Memory, session_id: str, command: str) -> str | None:

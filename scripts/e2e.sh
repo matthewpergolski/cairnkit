@@ -7,6 +7,13 @@ memory() { uv run --project "$here" -q memory "$@"; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+# Nothing here may read or write the real home. uv keeps its own cache so that it needs no download.
+UV_CACHE_DIR="$(uv cache dir)"
+export UV_CACHE_DIR HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" XDG_CACHE_HOME="$tmp/home/.cache"
+mkdir -p "$HOME"
+# This run acts as a person. A rule that an agent adds prints as data, so an agent's markers change the output.
+unset CLAUDECODE CODEX_CI CODEX_SANDBOX CODEX_THREAD_ID CURSOR_AGENT CURSOR_TRACE_ID \
+  OPENCODE OPENCODE_SESSION_ID PI_CODING_AGENT GROK_SESSION_ID GROK_HOOK_EVENT GROK_WORKSPACE_ROOT
 step() { printf '\n== %s\n' "$*"; }
 fail() { echo "FAIL: $*"; exit 1; }  # a check ends the run: an `a && b` list does not under set -e
 
@@ -66,7 +73,7 @@ memory check --advisory | grep -v '^memory check'
 step "session hooks (generic): start, work, stop reminds once"
 echo '{}' | memory hook session-start | tail -3
 echo "x = 1" > work.py
-echo '{}' | memory hook stop && echo "stop: no reminder" || echo "stop: exit $? (reminder shown above)"
+echo '{}' | memory hook stop && echo "stop: nothing to say" || echo "stop: exit $? (message shown above)"
 echo '{}' | memory hook stop && echo "stop again: quiet (same work)"
 rm work.py
 
@@ -127,7 +134,7 @@ memory preset add --file "$tools" | grep "tools\.ruff: enforced"
 memory load --budget 1 | grep -A1 "## Enforced rules"
 memory check --strict
 
-step "rules block: local goes to CLAUDE.local.md; shared is refused; AGENTS.md gets a pointer"
+step "rules block: local goes to CLAUDE.local.md; shared is refused; no AGENTS.md is written"
 mkdir -p "$tmp/rules" && cd "$tmp/rules"
 git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
 memory init --no-default-rules > /dev/null
@@ -138,21 +145,15 @@ memory init --write-instructions | grep -E "^(found|created)"
 [ ! -e CLAUDE.md ] || fail "local mode wrote CLAUDE.md"
 git check-ignore -q CLAUDE.local.md || fail "CLAUDE.local.md is not ignored"
 grep -q "cairnkit:start" CLAUDE.local.md || fail "CLAUDE.local.md has no block"
-! grep -q "cairnkit:start" AGENTS.md || fail "the pointer AGENTS.md holds a block"
-grep -q 'Also read `CLAUDE.md`, and `CLAUDE.local.md` if it exists.' AGENTS.md \
-  || fail "AGENTS.md does not point to CLAUDE.md / CLAUDE.local.md"
-! grep -qi cairnkit AGENTS.md || fail "AGENTS.md mentions cairnkit"
+[ ! -e AGENTS.md ] || fail "the write created AGENTS.md"
 memory instructions --write-instructions=shared >"$tmp/shared.out" 2>&1 && fail "shared mode exited 0" || true
 grep -qi "error:.*shared" "$tmp/shared.out" || fail "shared mode did not refuse"
 [ ! -e CLAUDE.md ] || fail "refused shared mode wrote CLAUDE.md"
-# Pointer creates AGENTS.md first, so Claude gets @AGENTS.md above the block.
-[ "$(head -n 1 CLAUDE.local.md)" = "@AGENTS.md" ] || fail "CLAUDE.local.md does not import AGENTS.md after the pointer write"
 memory instructions --write-instructions | grep -q "unchanged" || fail "a second local write changed a file"
 [ "$(grep -c 'cairnkit:start' CLAUDE.local.md)" = 1 ] || fail "CLAUDE.local.md holds more than one block"
-[ "$(grep -c '@AGENTS.md' CLAUDE.local.md)" = 1 ] || fail "CLAUDE.local.md import is not idempotent"
-echo "local block + pointer; shared refused"
+echo "local block, no AGENTS.md; shared refused"
 
-step "rules block: only AGENTS.md, so CLAUDE.local.md starts with @AGENTS.md; pointer is appended"
+step "rules block: only AGENTS.md, so CLAUDE.local.md starts with @AGENTS.md; AGENTS.md stays as it was"
 mkdir -p "$tmp/agentsonly" && cd "$tmp/agentsonly"
 git init -q -b main && git config user.name e2e && git config user.email e2e@example.invalid
 printf '# Team rules\n\nUse uv.\n' > AGENTS.md
@@ -164,11 +165,9 @@ memory instructions --write-instructions > /dev/null
 memory init --refresh > /dev/null
 [ "$(cat CLAUDE.local.md)" = "$first" ] || fail "CLAUDE.local.md changed on a second write or refresh"
 [ "$(grep -c 'cairnkit:start' CLAUDE.local.md)" = 1 ] || fail "CLAUDE.local.md holds more than one block"
-printf '# Team rules\n\nUse uv.\n\nAlso read `CLAUDE.md`, and `CLAUDE.local.md` if it exists.\n' > "$tmp/agents.want"
-[ "$(cat AGENTS.md)" = "$(cat "$tmp/agents.want")" ] \
-  || fail "AGENTS.md lost hand text or is missing the pointer"
-[ "$(grep -c 'Also read `CLAUDE.md`' AGENTS.md)" = 1 ] || fail "AGENTS.md pointer is not idempotent"
-echo "import kept, hand text + pointer"
+printf '# Team rules\n\nUse uv.\n' > "$tmp/agents.want"
+[ "$(cat AGENTS.md)" = "$(cat "$tmp/agents.want")" ] || fail "the write changed AGENTS.md"
+echo "import kept, AGENTS.md unchanged"
 
 step "personal tidy hooks: push exits 0 after the memory folder is removed"
 mkdir -p "$tmp/tidyhook" && cd "$tmp/tidyhook"

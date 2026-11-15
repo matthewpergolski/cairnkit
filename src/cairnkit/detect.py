@@ -16,6 +16,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from cairnkit import plainfile
 from cairnkit.paths import run_git
 
 SKIP = {"node_modules", "dist", "build", "venv", "__pycache__", "target", "vendor"}
@@ -66,7 +67,7 @@ def _read(path: Path) -> str:
     try:
         if path.stat().st_size > MAX_BYTES:
             return ""
-        return path.read_text(encoding="utf-8", errors="replace")
+        return plainfile.read_text(path, encoding="utf-8", errors="replace")
     except OSError:
         return ""
 
@@ -78,7 +79,7 @@ def _files(root: Path, name: str) -> list[Path]:
 def _pyproject(path: Path) -> dict:
     try:
         return tomllib.loads(_read(path))
-    except tomllib.TOMLDecodeError:
+    except (ValueError, RecursionError):  # deep nesting runs the parser out of stack
         return {}
 
 
@@ -115,7 +116,7 @@ def _hook_files(folder: Path | None) -> list[Path]:
     return [p for p in sorted(folder.iterdir()) if p.is_file() and not p.name.endswith(".sample")]
 
 
-def _entries(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
+def entries(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
     """Files that git or CI runs, and hook files that git does not run, with why."""
     runs = [p for g in CI_GLOBS for p in sorted(root.glob(g)) if p.is_file()]
     idle: list[tuple[Path, str]] = []
@@ -165,7 +166,7 @@ def _package_scripts(root: Path) -> dict[str, tuple[str, str]]:
     for path in _files(root, "package.json"):
         try:
             scripts = json.loads(_read(path) or "{}").get("scripts", {})
-        except (json.JSONDecodeError, AttributeError):
+        except (ValueError, RecursionError, AttributeError):
             continue
         if isinstance(scripts, dict):
             for name, command in scripts.items():
@@ -193,7 +194,7 @@ def _runs(root: Path, tool: str) -> Finding:
     """Does a CI file, or a hook that git runs, run the tool?"""
     pattern = TOOLS[tool]
     scripts = _package_scripts(root)
-    runs, idle = _entries(root)
+    runs, idle = entries(root)
     for entry in runs:
         chain = _calls(root, entry, pattern, scripts)
         if chain:

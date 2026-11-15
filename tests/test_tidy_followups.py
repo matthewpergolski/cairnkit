@@ -92,12 +92,12 @@ def test_the_task_is_regenerated_the_same_way(mem, capsys):
     assert (mem / TASK).read_bytes() == first
 
 
-def test_a_number_in_the_difference_is_not_a_pair(mem, capsys):
+def test_a_number_in_the_difference_is_no_task(mem, capsys):
     write_facts(
         mem,
         [
-            make_fact(A, "Retry the upload up to 3 times, short delay, each job"),
-            make_fact(B, "Retry the upload up to 5 times, short delay, each job"),
+            make_fact(A, "Retry the upload up to 3 times, short delay, each job and each host"),
+            make_fact(B, "Retry the upload up to 5 times, short delay, each job and each host"),
         ],
     )
     assert "Open similar pairs: 0" in run(capsys, "tidy")[1]
@@ -113,7 +113,7 @@ def test_near_pairs_are_not_tidy_proposals_any_more(mem, capsys):
 def test_an_exact_repeat_of_unprotected_facts_is_left_to_auto_tidy(mem, capsys):
     write_facts(
         mem,
-        [make_fact(A, "Same words here."), make_fact(B, "same words here")],
+        [make_fact(A, "Same words here."), make_fact(B, "Same words here")],
     )
     assert "Open similar pairs: 0" in run(capsys, "tidy")[1]
 
@@ -160,3 +160,16 @@ def test_the_scan_is_fast_for_many_facts(mem):
     start = time.perf_counter()
     refresh(memory)
     assert time.perf_counter() - start < 3.0
+
+
+def test_load_names_the_memory_folder_when_the_link_leads_elsewhere(mem, repo, capsys):
+    write_facts(mem, pair_facts())
+    run(capsys, "tidy")
+    other = repo.parent / "other"
+    other.mkdir()
+    (repo / "memory-bank").unlink()
+    (repo / "memory-bank").symlink_to(other)
+    (repo / ".memory-path").write_text(f"{mem}\n")
+    _, out = run(capsys, "load")
+    assert f"task: {mem}/proposals/tidy-followups.md" in out
+    assert "memory-bank/" not in out

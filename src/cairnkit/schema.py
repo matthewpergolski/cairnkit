@@ -11,14 +11,17 @@ BASES = ("seen", "told", "guess")
 STATUSES = ("active", "superseded", "expired", "wrong", "promoted")
 SCOPES = ("long", "short")
 RELS = ("related", "depends_on", "caused_by", "contradicts", "similar_to")
-TYPES = ("fact", "change", "tombstone")
+TYPES = ("fact", "change", "tombstone", "repair")
 MAX_TEXT = 2000  # fact body, every kind except rule
-RULE_MAX_TEXT = 400  # kind == rule; copied into the shared rules file
+RULE_MAX_TEXT = 400  # kind == rule; each rule loads in every session
 MAX_SUMMARY = 200  # optional load line
+MAX_FILES = 10  # repo paths beside the text, outside its limit
+MAX_FILE_PATH = 200
 ID_RE = re.compile(r"^f-\d{8}-[0-9a-f]{4}$")
 SOURCE_RE = re.compile(r"^(default$|[a-z][a-z0-9_-]*:\S)")
 # The check that fails when a rule is broken: githook:commit-msg, lint:ruff:T201, ci:<job>.
 ENFORCED_RE = re.compile(r"^[a-z][a-z0-9_-]*:\S{1,120}$")
+TIP_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 
 FACT_REQUIRED = (
     "id",
@@ -52,6 +55,12 @@ def _check_enforced(value: object) -> list[str]:
     return []
 
 
+def _check_tip(value: object) -> list[str]:
+    if not isinstance(value, str) or not TIP_RE.match(value):
+        return [f"branch_tip {value!r} is not a full commit hash"]
+    return []
+
+
 def _check_summary(value: object, kind: object) -> list[str]:
     if kind == "rule":
         return ["a rule has no summary"]
@@ -60,6 +69,31 @@ def _check_summary(value: object, kind: object) -> list[str]:
     if len(value) > MAX_SUMMARY:
         return [f"summary has {len(value)} characters; the limit is {MAX_SUMMARY}"]
     return []
+
+
+def file_problem(path: object) -> str | None:
+    """Why one entry of `files` is no clean repo path, or None."""
+    if not isinstance(path, str) or not path:
+        return "each path must be a non-empty string"
+    if len(path) > MAX_FILE_PATH:
+        return f"a path has {len(path)} characters; the limit is {MAX_FILE_PATH}"
+    if path.startswith("/") or "\\" in path or any(p in ("", ".", "..") for p in path.split("/")):
+        return f"{path!r} is not a path inside the repo, with / between its parts"
+    # Files show only inside the data frame, never on a line of the owner's rules, so any
+    # printable path counts (`app/[id]/page.tsx`, `docs/My Notes.md`). A comma splits the list.
+    if "," in path or not path.isprintable():
+        return f"{path!r} holds a comma or a character that does not print"
+    return None
+
+
+def _check_files(value: object) -> list[str]:
+    if not isinstance(value, list) or not value:
+        return ["files must be a non-empty list of repo paths"]
+    if len(value) > MAX_FILES:
+        return [f"files has {len(value)} paths; the limit is {MAX_FILES}"]
+    if len(set(map(str, value))) != len(value):
+        return ["files must name each path once"]
+    return [f"files: {problem}" for problem in map(file_problem, value) if problem]
 
 
 def _check_fact(rec: dict) -> list[str]:
@@ -93,17 +127,29 @@ def _check_fact(rec: dict) -> list[str]:
         isinstance(rec["tags"], list) and all(isinstance(t, str) for t in rec["tags"])
     ):
         errors.append("tags must be a list of strings")
+    if "files" in rec:
+        errors += _check_files(rec["files"])
     if "links" in rec:
         errors += _check_links(rec["links"], "links")
     if "enforced_by" in rec:
         errors += _check_enforced(rec["enforced_by"])
         if rec.get("kind") != "rule":
             errors.append("enforced_by is only for kind 'rule'")
+    if "branch_tip" in rec:
+        errors += _check_tip(rec["branch_tip"])
     if "author" in rec and not (isinstance(rec["author"], str) and rec["author"].strip()):
         errors.append("author must be a non-empty string, for example agent:claude")
     if "pinned" in rec and not isinstance(rec["pinned"], bool):
         errors.append("pinned must be true or false")
+    if "confirmed" in rec and (rec["confirmed"] is not False or rec.get("basis") != "told"):
+        errors.append("confirmed is only false, on a fact with basis 'told'")
     return errors
+
+
+def stated(rec: dict) -> bool:
+    """A person said it: basis `told`, and not an agent's claim that the owner's words did not
+    confirm (`confirmed: false`)."""
+    return rec.get("basis") == "told" and rec.get("confirmed") is not False
 
 
 def _check_change(rec: dict) -> list[str]:
@@ -124,10 +170,15 @@ def _check_change(rec: dict) -> list[str]:
         errors.append(f"scope {rec['scope']!r} is not one of {', '.join(SCOPES)}")
     if "add_links" in rec:
         errors += _check_links(rec["add_links"], "add_links")
+    if "remove_links" in rec:
+        errors += _check_links(rec["remove_links"], "remove_links")
     if rec.get("enforced_by") is not None:  # null clears it
         errors += _check_enforced(rec["enforced_by"])
-    if not any(k in rec for k in ("status", "add_links", "scope", "enforced_by")):
-        errors.append("a change must set status, scope, add_links or enforced_by")
+    if "branch_tip" in rec:
+        errors += _check_tip(rec["branch_tip"])
+    sets = ("status", "add_links", "remove_links", "scope", "enforced_by", "branch_tip")
+    if not any(k in rec for k in sets):
+        errors.append("a change must set status, scope, add_links, remove_links or enforced_by")
     if "text" in rec:
         errors.append("a change cannot set text; add a new fact with --supersedes")
     if "summary" in rec:
@@ -143,6 +194,13 @@ def _check_tombstone(rec: dict) -> list[str]:
     return errors
 
 
+def _check_repair(rec: dict) -> list[str]:
+    errors = [f"missing field {n!r}" for n in ("file", "sha", "at", "writer") if n not in rec]
+    if "at" in rec and not is_time(rec["at"]):
+        errors.append(f"at {rec['at']!r} is not an ISO 8601 date-time")
+    return errors
+
+
 def validate_record(rec: object) -> list[str]:
     """Return the problems with one record. An empty list means it is well formed."""
     if not isinstance(rec, dict):
@@ -154,4 +212,6 @@ def validate_record(rec: object) -> list[str]:
         return _check_change(rec)
     if kind == "tombstone":
         return _check_tombstone(rec)
+    if kind == "repair":
+        return _check_repair(rec)
     return [f"type {kind!r} is not one of {', '.join(TYPES)}"]

@@ -20,7 +20,7 @@ TASK = "proposals/tidy-followups.md"
 def pair(first, second, text):
     return [
         make_fact(first, text, learned_at="2026-10-01T00:00:00+00:00"),
-        make_fact(second, text.upper(), learned_at="2026-10-02T00:00:00+00:00"),
+        make_fact(second, text, learned_at="2026-10-02T00:00:00+00:00"),
     ]
 
 

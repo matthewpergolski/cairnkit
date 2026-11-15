@@ -18,8 +18,10 @@ import tempfile
 import time
 from pathlib import Path
 
+from cairnkit import adapters, native, skills
 from cairnkit import install_source as src
 from cairnkit.install_source import Latest, SourceError
+from cairnkit.paths import resolve_memory_dir
 from cairnkit.progress import Progress
 from cairnkit.skills import cache_dir
 
@@ -42,7 +44,7 @@ LOCK_POLL = 0.2
 AFTER = "Each repo catches up when it is next used. Its session start says what to run."
 
 
-def _run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
+def _run(argv: list[str], timeout: float = 900, cwd: Path | None = None) -> tuple[int, str]:
     """Run a command with no input. git gets an environment where it cannot prompt."""
     if argv and argv[0] == "git":
         src.refuse_pinned_args(argv[1:])
@@ -56,6 +58,7 @@ def _run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
             check=False,
             stdin=subprocess.DEVNULL,
             env=env,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         return 1, f"{' '.join(argv)} took longer than {int(timeout)} s"
@@ -70,11 +73,16 @@ def _tail(text: str, lines: int = 15) -> str:
 
 
 def run_update(
-    flag: str | None, check: bool = False, dry_run: bool = False, *, plain: bool = False
+    flag: str | None,
+    check: bool = False,
+    dry_run: bool = False,
+    channel: str | None = None,
+    *,
+    plain: bool = False,
 ) -> int:
     bar = Progress(anim=False if plain else None)
     try:
-        return _update(bar, flag, check, dry_run)
+        return _update(bar, flag, check, dry_run, channel)
     except SourceError as exc:
         bar.fail()
         bar.close()
@@ -85,13 +93,21 @@ def run_update(
         bar.close()
 
 
-def _update(bar: Progress, flag: str | None, check: bool, dry_run: bool) -> int:
+def _update(
+    bar: Progress, flag: str | None, check: bool, dry_run: bool, channel: str | None = None
+) -> int:
     source, _ = src.installed(flag)
     if source is None:
         raise SourceError(
             "memory does not know where it was installed from.",
             "Run `memory update --source PATH` once. PATH is the folder or git URL "
             "you installed memory from.",
+        )
+    if channel and source.kind != "git":
+        raise SourceError(
+            f"--channel picks a tag or a branch of a git source. {source.spec} is a folder, "
+            "which always builds its own commit. Nothing was saved.",
+            "Run `memory update` with no --channel, or add `--source URL` with a git URL.",
         )
     if source.editable:
         bar.say(f"memory runs in editable mode from {source.spec}. It runs that code already.")
@@ -102,28 +118,35 @@ def _update(bar: Progress, flag: str | None, check: bool, dry_run: bool) -> int:
     # commit while this one waits, so this one must check after it gets the lock.
     # A check or a dry run changes nothing and never waits.
     with contextlib.nullcontext() if check or dry_run else _locked(bar):
-        return _checked_update(bar, flag, check, dry_run)
+        return _checked_update(bar, flag, check, dry_run, channel)
 
 
-def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool) -> int:
+def _checked_update(
+    bar: Progress, flag: str | None, check: bool, dry_run: bool, channel: str | None = None
+) -> int:
     source, commit = src.installed(flag)  # read again: an update may have just run
     old = src.current_version()
+    want = channel or src.channel(source)
+    switching = want != src.channel(source)
     bar.start("Check")
-    found = src.latest(source)
+    found = src.latest(source, on=want) if switching else src.latest(source)
     if source.kind == "folder" and src.dirty(Path(source.spec)):
         raise SourceError(
             f"{source.spec} has uncommitted changes.",
             "Commit or stash them in that folder. Then run `memory update` again.",
         )
-    newer = src.is_newer(source, old, commit, found)
+    # A switch of channel installs the other channel's commit, even at a lower version.
+    newer = found.commit != commit if switching else src.is_newer(source, old, commit, found)
     bar.done()
-    if not dry_run:  # a dry run changes no state, not even the cache
+    # A dry run changes no state. A look at another channel must not fill the saved one's cache.
+    if not dry_run and not switching:
         src.save_check(source, old, commit, found, newer)
     before, after = src.describe(old, commit), src.describe(found.version, found.commit)
+    command = f"memory update --channel {want}" if switching else "memory update"
 
     if check:
         if newer:
-            bar.say(f"Update available: {before} -> {after}. Run `memory update`.")
+            bar.say(f"Update available: {before} -> {after}. Run `{command}`.")
             _say_changes(bar, source, commit, found.commit)
         elif commit:
             bar.say(f"Up to date ({old}).")
@@ -133,6 +156,8 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
             )
         return 0
     if not newer and commit:
+        if not dry_run:
+            _keep_channel(want)
         bar.say(f"Already up to date ({old}).")
         return 0
 
@@ -170,6 +195,7 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
         wheel = _build(bar, uv, folder, Path(tmp))
         _install(bar, uv, source, wheel, found.release)
         new = _verify(bar, source, found)
+        _keep_channel(want)
         notes = src.release_notes(folder / "CHANGELOG.md", old, new)
         src.write_record(source, found.commit, new, found.release)
         src.save_check(source, new, found.commit, found, False)
@@ -181,6 +207,12 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
     else:
         _say_changes(bar, source, commit, found.commit)
     bar.say(AFTER)
+    if source.kind == "git" and "--channel" not in _run([src.entrypoint(), "update", "--help"])[1]:
+        bar.say(
+            "This version has no `--channel`. To go back to dev, run "
+            f"`uv tool install --force --reinstall {src.install_spec(source, None)}@dev`, "
+            "then `memory update --channel dev`."
+        )
     if src.tool_env().name == src.OLD_PACKAGE:
         # Old agent and git hooks call the old environment's Python, so each repo must
         # refresh before the old tool goes. The uninstall also removes the `memory` link.
@@ -191,6 +223,12 @@ def _checked_update(bar: Progress, flag: str | None, check: bool, dry_run: bool)
             f"`uv tool install --force --reinstall {src.install_spec(source, found.release)}`."
         )
     return 0
+
+
+def _keep_channel(want: str) -> None:
+    """Save the channel when the next read would not find it. An install drops a pin of dev."""
+    if src.channel() != want:
+        src.set_channel(want)
 
 
 def refuses_commit_id(output: str) -> bool:
@@ -313,10 +351,27 @@ def _fetch(bar: Progress, source, found: Latest, tmp: Path) -> tuple[Path, Lates
     return folder, Latest(found.commit, version, found.release)
 
 
+def _uv(uv: str, command: tuple[str, ...], *args: str) -> tuple[int, str]:
+    """Run uv with no setting from the folder of the caller. The owner's uv settings still count.
+
+    uv reads `uv.toml`, `[tool.uv]` and a `.venv` from the project it finds: the folder where it
+    starts, UV_PROJECT or UV_WORKING_DIR, and a workspace in a folder above. A repo can hold each
+    of them, so uv runs on the tool's cache folder as its project, where an empty `pyproject.toml`
+    and `uv.toml` hold no setting and stop the search upward. uv still reads its user and system
+    settings and UV_CONFIG_FILE.
+    """
+    home = cache_dir().absolute()
+    home.mkdir(parents=True, exist_ok=True)
+    for name in ("pyproject.toml", "uv.toml"):
+        (home / name).write_text("")
+    where = ("--project", str(home), "--directory", str(home))
+    return _run([uv, *command, *where, *args], cwd=home)
+
+
 def _build(bar: Progress, uv: str, folder: Path, tmp: Path) -> Path:
     bar.start("Build")
     dist = tmp / "dist"
-    code, out = _run([uv, "build", "--wheel", "--out-dir", str(dist), str(folder)])
+    code, out = _uv(uv, ("build",), "--wheel", "--out-dir", str(dist), str(folder))
     wheels = sorted(dist.glob("*.whl")) if code == 0 else []
     if len(wheels) != 1:
         what = "The source did not build." if code else f"The build made {len(wheels)} wheels."
@@ -355,8 +410,8 @@ def _install(bar: Progress, uv: str, source, wheel: Path, release) -> None:
     attempt = Path(tempfile.mkdtemp(prefix="install-", dir=kept_dir))
     kept = attempt / wheel.name
     shutil.copyfile(wheel, kept)
-    install = [uv, "tool", "install", "--force", "--reinstall", f"{src.PACKAGE} @ {kept.as_uri()}"]
-    code, out = _run(install)
+    spec = f"{src.PACKAGE} @ {kept.as_uri()}"
+    code, out = _uv(uv, ("tool", "install"), "--force", "--reinstall", spec)
     if code:
         shutil.rmtree(attempt, ignore_errors=True)
         raise SourceError(
@@ -385,7 +440,8 @@ def _verify(bar: Progress, source, found: Latest) -> str:
             "Put the uv tool bin folder on PATH. `uv tool dir --bin` prints it.",
         )
     code, out = _run([entry, "--version"], 60)
-    new = out.strip().removeprefix("memory").strip() if code == 0 else ""
+    words = out.split()
+    new = words[1] if code == 0 and len(words) > 1 else ""
     if not new or (found.version and new != found.version):
         expected = found.version or "its version"
         raise SourceError(
@@ -404,16 +460,42 @@ def _say_changes(bar: Progress, source, old: str | None, new: str | None) -> Non
 
 def run_status(project, flag: str | None) -> int:
     """The version, the source, and one line for each update that is due."""
-    from cairnkit.refresh import repo_line
+    from cairnkit.check import read_health
+    from cairnkit.docs_cmd import status_line as docs_status_line
 
-    source, commit = src.installed(None)
-    print(f"memory {src.current_version()}{src.ref_tag(commit)}")
+    source, _ = src.installed(None)
+    build = src.running_build()
+    print(f"memory {src.current_version()}{src.ref_tag(build.commit)}")
     if source is None:
         print("Source: unknown. `memory update --source PATH` sets it.")
     else:
         print(f"Source: {source.label}" + (", editable" if source.editable else ""))
+        print(f"Channel: {build.channel}")
     print(src.update_line(background=False) or "No update found.")
     for line in src.pending_change_lines():
         print(line)
-    print(repo_line(project, flag) or "Repo files: current.")
+    health = read_health(project, flag, compare=True)
+    for line in [
+        *health.linked,
+        health.answer(),
+        *health.details(),
+        *health.todo,
+        *health.shown_info(),
+    ]:
+        print(line)
+    atlas = docs_status_line(project)
+    if atlas:
+        print(atlas)
+    own_memory = native.status_line(health.memory) if health.memory else None
+    if own_memory:
+        print(own_memory)
+    with contextlib.suppress(OSError, ValueError):
+        line = skills.status_line(resolve_memory_dir(project, flag)[0])
+        if line:
+            print(line)
+    if (
+        adapters.holds_ours(project.main_root / adapters.ADAPTERS["codex"].rel)
+        and adapters.codex_in_use()
+    ):
+        print(adapters.CODEX_TRUST)
     return 0

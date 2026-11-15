@@ -6,28 +6,54 @@ when it read nothing.
 
 from __future__ import annotations
 
+import contextlib
+import re
 from pathlib import Path
 
-from cairnkit import followups, hygiene, install_source, refresh, scenarios, skills, usage
+from cairnkit import (
+    deadline,
+    enforcement,
+    followups,
+    hygiene,
+    install_source,
+    landed,
+    migrate_refs,
+    plainfile,
+    rule_notices,
+    usage,
+)
+from cairnkit.check import read_health
 from cairnkit.clock import now
 from cairnkit.discover import DISCOVER
-from cairnkit.init import link_here
-from cairnkit.memory import Memory, MemoryMissing
+from cairnkit.envsecrets import EnvValues
+from cairnkit.init import real_folder_warning
+from cairnkit.memory import Memory, MemoryMissing, listed
 from cairnkit.paths import (
-    LINK_NAME,
+    UNREAD_WRITER,
     Project,
+    beside_line,
     current_branch,
     default_branch,
+    earlier_names,
+    load_owner_line,
     merged_checker,
     run_git,
     writer_name,
 )
+from cairnkit.secretscan import mask
 from cairnkit.selection import (
+    AGENT_RULES,
+    APPROVAL_RULES,
     FRAME_FOOTER,
     FRAME_HEADER,
+    RULE_WORD_LIMIT,
     areas_for_paths,
+    bound_rules,
     branch_words,
     clean,
+    clean_path,
+    name,
+    owner_rule,
     pick,
     render,
     score_parts,
@@ -37,27 +63,57 @@ from cairnkit.state import effective_status
 
 GIT_TIMEOUT = 1.0
 NOTE_LINES = 8
+# A note in the load uses no budget, so a cap keeps room for facts: a third of the session budget.
+NOTE_WORDS = 200
+TITLE = re.compile(r"# +\S")
 
 
 def changed_paths(root: Path, branch: str | None) -> list[str]:
+    """The files of the work in progress: uncommitted changes, and the branch's own diff."""
+    uncommitted = run_git(root, "diff", "--name-only", "HEAD", timeout=GIT_TIMEOUT) or ""
+    paths = uncommitted.splitlines()
     base = default_branch(root)
-    if not base or not branch or base == branch:
-        return []
-    out = run_git(root, "diff", "--name-only", f"{base}...HEAD", timeout=GIT_TIMEOUT)
-    return out.splitlines() if out else []
+    if base and branch and base != branch:
+        out = run_git(root, "diff", "--name-only", f"{base}...HEAD", timeout=GIT_TIMEOUT) or ""
+        paths += [line for line in out.splitlines() if line not in paths]
+    return paths
 
 
-def note_head(path: Path) -> list[str]:
+def note_head(path: Path, env: EnvValues | None = None, words: int | None = None) -> list[str]:
+    """The first NOTE_LINES lines, and at most `words` words, then where the rest is."""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+        text = plainfile.read_bytes(path).decode("utf-8", errors="replace")
+    except (FileNotFoundError, NotADirectoryError):
         return []
+    except OSError:
+        return [f"(This file could not be read: {clean_path(path)}.)"]
     body = [
-        line
-        for line in lines
-        if line.strip() and not line.startswith("#") and not line.lstrip().startswith("<!--")
+        line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("<!--")
     ]
-    return body[:NOTE_LINES]
+    # A first-line title names the file. `#96 is open` is no title, and a section heading gives a
+    # list its meaning, so both stay.
+    if body and TITLE.match(body[0]):
+        body = body[1:]
+    # Masked before the cut, so that a cut cannot split a secret.
+    head = [mask(line, env) for line in body[:NOTE_LINES]]
+    rest = f"The rest is in {clean_path(path)}."
+    if words is not None and sum(len(line.split()) for line in head) > words:
+        total = sum(len(line.split()) for line in body)
+        return [*_first_words(head, words), f"({words} of {total} words shown. {rest})"]
+    if len(body) > NOTE_LINES:
+        return [*head, f"({NOTE_LINES} of {len(body)} lines shown. {rest})"]
+    return head
+
+
+def _first_words(lines: list[str], limit: int) -> list[str]:
+    kept = []
+    for line in lines:
+        words = line.split()
+        if len(words) >= limit:
+            return [*kept, " ".join(words[:limit]) + (" ..." if len(words) > limit else "")]
+        kept.append(line)
+        limit -= len(words)
+    return kept
 
 
 def active_states(memory: Memory) -> list[dict]:
@@ -72,6 +128,7 @@ def active_states(memory: Memory) -> list[dict]:
 
 def build_output(memory: Memory, area: str | None, budget: int, explain: bool = False) -> list[str]:
     root = memory.project.root
+    cuts = deadline.git_cuts()
     branch = current_branch(root)
     writer = writer_name(root)
     moment = now()
@@ -79,104 +136,132 @@ def build_output(memory: Memory, area: str | None, budget: int, explain: bool = 
     if area:
         states = [s for s in states if s.get("area") == area or s.get("pinned")]
 
+    names = {branch} | earlier_names(root, branch)
+
     def mine(state: dict) -> bool:
         owner = state.get("until_branch_merged")
-        return owner == branch if owner else state.get("writer") == writer
+        return owner in names if owner else state.get("writer") in (writer, UNREAD_WRITER)
 
     rules = [s for s in states if s.get("kind") == "rule"]
     states = [s for s in states if s.get("kind") != "rule"]
+    # A rule that may approve one piece of work binds under the same limit, but it is held back
+    # first, and the note on the budget counts only the lasting rules.
+    one_time = {s["id"] for s in rules if landed.one_time(s)}
     short = [s for s in states if s.get("scope") == "short" and mine(s)]
+    other_short = [s for s in states if s.get("scope") == "short" and not mine(s)]
     long = [s for s in states if s.get("scope", "long") == "long"]
     paths = changed_paths(root, branch)
     areas = areas_for_paths(paths, memory.config["areas"])
     words = branch_words(branch)
 
     used_at = usage.last_used(memory)
-    groups = scenarios.group_scenarios(long, moment, areas, words, used_at)
-    scenario_budget = max(budget // 3, 1) if budget else 0
-    scenarios_shown = []
-    used = 0
-    covered: set[str] = set()
-    for group in groups:
-        cost = scenarios.scenario_cost(group)
-        if budget and used + cost > scenario_budget and scenarios_shown:
-            continue
-        if budget and used + cost > budget:
-            continue
-        scenarios_shown.append(group)
-        used += cost
-        covered.update(group.ids)
-
     short_budget = max(budget // 4, 1) if budget else 0
     short_shown = pick(short, short_budget, moment, areas, words, used_at)
     if short and not short_shown:
         short_shown = short[:1]
-    used += sum(words_in(render(s)) for s in short_shown)
-    # Prefer uncovered long facts for remaining bullets; pinned always included.
-    long_rest = [s for s in long if s["id"] not in covered or s.get("pinned")]
+    used = sum(words_in(render(s)) for s in short_shown)
     long_budget = max(budget - used, 1) if budget else 0
-    long_shown = pick(long_rest, long_budget, moment, areas, words, used_at)
-    folded = len(covered - {s["id"] for s in long_shown})
+    long_shown = pick(long, long_budget, moment, areas, words, used_at)
 
-    out = [f"# Project memory ({memory.dir})"]
+    out = [f"# Project memory ({clean_path(memory.dir)})"]
     if memory.errors:
-        out.append(f"warning: {len(memory.errors)} bad line(s) skipped; run `memory check`")
+        out.append(f"warning: {len(memory.errors)} bad line(s) skipped; run `memory repair`")
     stale = hygiene.hygiene_line(memory)
     if stale:
         out.append(stale)
-    if _followup_pending(memory):
-        out.append(f"Migration follow-up pending: see {LINK_NAME}/proposals/migrate-followups.md")
     tidy_line = followups.pending_line(memory)
     if tidy_line:
         out.append(tidy_line)
-    rules.sort(key=lambda s: s.get("learned_at", ""))
-    enforced = [s for s in rules if s.get("enforced_by")]
-    advisory = [s for s in rules if not s.get("enforced_by")]
+    out += [clean(note) for note in memory.secret_notes()]
+    lasting = [s for s in rules if s["id"] not in one_time]
+    all_words = sum(words_in(render(s)) for s in rules)
+    rule_words = sum(words_in(render(s)) for s in lasting)
+    rules, held_rules = bound_rules(rules, one_time) if budget else (rules, [])
+    if held_rules:
+        out.append(
+            f"warning: {len(held_rules)} rule(s) held back, past the limit of {RULE_WORD_LIMIT} "
+            f"words of rules: {listed([name(s['id']) for s in held_rules])}. Read them all: "
+            "`memory load --budget 0`. Merge rules or end the ones that do not apply."
+        )
+    if budget and rule_words > budget:
+        out.append(
+            f"note: {len(lasting)} rule(s) hold {rule_words} words, outside the "
+            f"word budget of {budget}, because a rule binds in each session."
+        )
+    if held_rules or (budget and all_words > budget):
+        stale = landed.stale_line(memory, rules + held_rules)
+        if stale:
+            out.append(stale)
+    rules.sort(key=lambda s: (s.get("learned_at") or "", s["id"]))
+    instructions = [s for s in rules if owner_rule(s) and s["id"] not in one_time]
+    false_claims = [s for s in instructions if enforcement.is_false(memory.project, s)]
+    enforced = [s for s in instructions if s.get("enforced_by") and s not in false_claims]
+    advisory = [s for s in instructions if not s.get("enforced_by")]
     if enforced:
         out.append("## Enforced rules (a check fails if broken)")
-        out += [render(s) for s in enforced]
-    if advisory:
+        out += [render(s, with_files=False) for s in enforced]
+    if advisory or false_claims:
         out.append("## Advisory rules")
-        out += [render(s) for s in advisory]
+        out += [render(s, with_files=False) for s in advisory]
+        out += [
+            f"{render({**s, 'enforced_by': None}, with_files=False)} "
+            f"(no check found for {name(s['enforced_by'])})"
+            for s in false_claims
+        ]
+    owner_approvals = [s for s in rules if owner_rule(s) and s["id"] in one_time]
+    if owner_approvals:
+        out.append(APPROVAL_RULES)
+        out += [render(s, with_files=False) for s in owner_approvals]
     out.append(FRAME_HEADER)
+    agent_rules = [s for s in rules if not owner_rule(s)]
+    if agent_rules:
+        out.append(AGENT_RULES)
+        out += [render(s) for s in agent_rules]
     pinned = [s for s in long_shown if s.get("pinned")]
     if pinned:
         out.append("## Pinned")
         out += [render(s) for s in sorted(pinned, key=lambda s: s.get("learned_at", ""))]
-    if scenarios_shown:
-        out.append("## Scenarios")
-        for group in scenarios_shown:
-            out += scenarios.render_scenario(group)
     if short_shown:
-        out.append(f"## Short-term (branch {branch or writer})")
+        cut = memory.project.is_git and deadline.git_cuts() > cuts
+        out.append(f"## Short-term (branch {name(branch or ('unknown' if cut else writer))})")
         out += [render(s) for s in sorted(short_shown, key=lambda s: s.get("learned_at", ""))]
     long_bullets = [s for s in long_shown if not s.get("pinned")]
     out.append("## Long-term")
     if not long_bullets:
-        out.append("(no active long-term facts)" if not long_shown else "(covered in scenarios)")
+        out.append("(no active long-term facts)")
     current = None
     for state in sorted(long_bullets, key=lambda s: (s.get("area", ""), s.get("happened_at", ""))):
         if state.get("area") != current:
             current = state.get("area")
-            out.append(f"### {clean(current)}")
+            out.append(f"### {name(current)}")
         out.append(render(state))
-    status = note_head(memory.dir / "notes" / "status.md")
+    status = note_head(memory.dir / "notes" / "status.md", memory.env, NOTE_WORDS)
     if status:
-        out += ["## Status (notes/status.md)", *(f"- [status] {clean(x)}" for x in status)]
+        age = hygiene.commits_past_status(root, memory.dir / "notes" / "status.md")
+        out.append(f"## Status (notes/status.md{age})")
+        out += [f"- [status] {clean(x)}" for x in status]
     if branch:
-        branch_note = note_head(memory.dir / "branches" / f"{branch}.md")
+        branch_note = note_head(memory.dir / "branches" / f"{branch}.md", memory.env, NOTE_WORDS)
         if branch_note:
             out.append(f"## Branch notes (branches/{branch}.md)")
             out += [f"- [branch] {clean(x)}" for x in branch_note]
     out.append(FRAME_FOOTER)
-    hidden = len(short) + len(long) - len(short_shown) - len(long_shown) - folded
+    cut = memory.project.is_git and deadline.git_cuts() > cuts
+    held = len(other_short) if cut and not branch else 0
+    if cut:
+        unread = "the branch, the changed files" if not branch else "the changed files"
+        out.insert(
+            1,
+            f"warning: this load is partial: git did not answer, so it could not read {unread} "
+            f"and which branches merged. {held} fact(s) held back. Run `memory load` again when "
+            "git answers.",
+        )
+    hidden = held + len(held_rules) + len(short) + len(long) - len(short_shown) - len(long_shown)
     shown = len(rules) + len(short_shown) + len(long_shown)
     parts = [f"{shown} fact(s) shown"]
-    if folded:
-        parts.append(f"{folded} folded into scenarios")
     if hidden > 0:
         parts.append(f"{hidden} active fact(s) not shown")
-    out.append("; ".join(parts) + f". Open one with `memory show ID`. {DISCOVER}")
+    out.append("; ".join(parts) + f". {DISCOVER}")
     if explain:
         shown_ids = {s["id"] for s in short_shown + long_shown}
         out += _explain(short + long, shown_ids, moment, areas, words, used_at)
@@ -188,8 +273,9 @@ def _explain(
 ) -> list[str]:
     out = [
         "## Ranking (--explain)",
-        "Rules and pinned facts are always shown. Other facts are ranked by "
-        "total = recency + kind + area + branch + use, until the word budget is used.",
+        f"Pinned facts always show, and rules up to {RULE_WORD_LIMIT} words. Other facts rank by "
+        "total = recency + kind + area + mention + trap + branch + use, until the word budget "
+        "is used. A fact that does not fit stays active and searchable.",
     ]
     rows = []
     for state in states:
@@ -204,14 +290,15 @@ def _explain(
     return out
 
 
-def _followup_pending(memory: Memory) -> bool:
-    """True while the task that `memory migrate` wrote is not done."""
-    path = memory.dir / "proposals" / "migrate-followups.md"
-    try:
-        with path.open(encoding="utf-8") as fh:
-            return fh.readline().startswith("# Migration follow-up (pending)")
-    except OSError:
-        return False
+def take_notices(project: Project, flag: str | None) -> list[str]:
+    """The one-time notices of a load. Once taken they are gone, so take them once. Never raises."""
+    lines: list[str] = []
+    with contextlib.suppress(Exception):
+        lines += rule_notices.take_lines(Memory.open(project, flag))
+    with contextlib.suppress(Exception):
+        notice = install_source.notice_once()
+        lines += [notice] if notice else []
+    return lines
 
 
 def run_load(
@@ -220,29 +307,45 @@ def run_load(
     area: str | None,
     budget: int,
     explain: bool = False,
-    agent: str | None = None,
-    record: bool = False,
+    update_notice: bool = True,
+    session: str | None = None,
+    hide_helpers_of: str | None = None,
+    own_helpers_of: str | None = None,
+    notices: list[str] | None = None,
 ) -> int:
+    """Print the load. `notices` stands in for the one-time notices, which a caller took once."""
+    from cairnkit import live  # it reads session state, and session.py imports this module
+
     try:
-        linked = link_here(project, flag)
-        memory = Memory.open(project, flag)
+        health = read_health(project, flag, compare=True)
+        if health.missing:
+            print(health.answer())
+            return 0
+        memory = health.memory or Memory.open(project, flag)
         lines = build_output(memory, area, budget, explain)
-        # Right under the header, so the agent sees them first.
-        lines[1:1] = [
-            line
-            for line in (install_source.update_line(), refresh.repo_line(project, flag))
-            if line
-        ]
+        with contextlib.suppress(Exception):  # after the build, so that a slow git cuts only this
+            lines = live.add_lines(memory, lines, session, hide_helpers_of, own_helpers_of)
+        # Right under the header, so the agent sees them first. No detail from a stored record
+        # goes here: this text is outside the frame that marks stored text as data.
+        notice = install_source.notice_once() if update_notice and notices is None else None
+        warning = real_folder_warning(project, memory.dir)
+        owner = load_owner_line(project, memory.dir)
+        beside = beside_line(project, memory.dir)
+        answer = [] if health.is_ok else [health.answer()]
+        if health.errors or health.warnings:
+            answer.append("`memory check` lists each one with its fix.")
+        todo = [line for line in health.todo if not migrate_refs.is_stray_note(line)]
+        todo.append(migrate_refs.stray_line(health.stray))
+        lines[1:1] = [line for line in (owner, beside, warning, notice, *answer, *todo) if line]
+        if notices is not None:
+            lines[1:1] = notices
+        elif update_notice:
+            lines[1:1] = rule_notices.take_lines(memory)
     except MemoryMissing as exc:
         print(f"memory: not loaded: {exc}")
         return 0
     except Exception as exc:
         print(f"memory: not loaded: unexpected error: {exc}")
         return 0
-    if linked:
-        print(linked)
-    print("\n".join(lines))
-    line = skills.session_line(memory.dir, agent, record)
-    if line:
-        print(line)
+    print("\n".join([*health.linked, *lines]))
     return 0

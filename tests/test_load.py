@@ -33,7 +33,8 @@ def test_no_memory_warns_and_exits_zero(repo, capsys):
 
 
 def test_broken_link_warns_and_exits_zero(repo, mem, capsys, tmp_path):
-    mem.rename(tmp_path / "moved")
+    (tmp_path / "far").mkdir()
+    mem.rename(tmp_path / "far" / "moved")
     out = load(capsys)
     assert "not loaded" in out
 
@@ -80,8 +81,7 @@ def test_budget_is_held_and_pinned_always_shown(mem, capsys, monkeypatch):
     assert "Pinned rule." in out
     words = sum(len(line.split()) for line in lines)
     assert words <= 60 + 10
-    # Budget still drops facts: either "not shown" or folded into a scenario line.
-    assert "not shown" in out or "folded into scenarios" in out
+    assert "not shown" in out
     assert "memory search" in out or "memory show" in out
 
 

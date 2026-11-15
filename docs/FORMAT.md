@@ -2,7 +2,8 @@
 
 This page specifies the files that cairnkit reads and writes. It is precise
 enough to write another implementation of the `memory` command in another
-language. It describes version 0.3.1.
+language. It describes version 0.3.2. It also includes the changes under
+`Unreleased` in [CHANGELOG.md](../CHANGELOG.md), which are on the `dev` branch.
 
 For what each kind and scope means, see [memory-types.md](memory-types.md).
 
@@ -17,13 +18,54 @@ The memory folder is the first of these:
 
 1. the `--path DIR` flag;
 2. the `MEMORY_DIR` environment variable;
-3. the first line of `.memory-path` in the main checkout. A relative path is
-   relative to the main checkout. `~` is expanded;
-4. the default: `<parent of main checkout>/<name of main checkout>.memory`.
+3. the first line of `.memory-path` in the project's home, when that folder holds `facts/`.
+   A relative path is relative to the home. `~` is expanded;
+4. the folder that a `memory-bank` link resolves to, when it holds `facts/`. The link of the
+   main checkout goes first;
+5. the folder with the id in `<common git folder>/cairnkit-memory`: at the recorded path, or
+   directly in the parent of the home or of the recorded path, when it is the only folder there
+   with that id and its name is the recorded name, `<name of home>.memory` or the default name;
+6. the `.memory-path` target that does not exist yet;
+7. the default: `<parent of home>/<name of home>.memory`.
 
-The main checkout is the parent of the common git folder
-(`git rev-parse --git-common-dir`), when that folder is named `.git`. All
-worktrees of one repo use the same memory folder.
+A `.memory-path` or a `memory-bank` link counts only when the current user owns it and git does
+not track it. A tracked one is skipped, and the load and `memory check` show a line for each.
+`Memory.open` refuses a memory folder in which git tracks a file, so no hook and no load reads
+it, and `memory check` exits 1.
+
+The home is the first entry of `git worktree list`: the main checkout, or the bare repo. A
+submodule's first entry is its git folder, so its home is the `core.worktree` of that folder.
+All worktrees of one repo use the same memory folder. For a bare repo, the default drops a
+`.git` suffix. A bare folder whose name starts with `.` uses the name of its parent:
+`proj/.bare` gives `proj/proj.memory`.
+
+When the home is inside another work tree, the default is
+`<parent of the outermost work tree>/<outermost name>.<path inside it, joined by dots>.memory`.
+An existing `<name of home>.memory` that holds `facts/` is kept. The sibling is also used when
+that parent is not writable. Any memory inside a work tree gets a line `/<path>` in that repo's
+`info/exclude`, and `git check-ignore` must confirm it.
+
+`<common git folder>/cairnkit-memory` has three lines: the memory id, its absolute path, and
+the absolute path of the common git folder that wrote the file.
+`.identity` in the memory folder has three lines: a random id, the project's root commits
+separated by spaces, and the owner: the absolute path of the owner's common git folder, or of
+the folder of a project with no git. Neither file holds a time. A file with fewer lines is from
+an earlier version, and the next load adds the line when the memory is this project's.
+
+A memory belongs to another project when its owner still exists and that owner's record names
+the memory at this folder, or when its owner is gone and its root commits share none with this
+repo. With its owner gone and the roots not against it, a memory is unclaimed: the repo can be the
+owner moved or a copy of it. A load does not change the owner line. `memory init` in such a repo
+writes it. The record of an unclaimed memory keeps the repo line that it had, and only the place
+can change. A repo that sees another repo beside it, or beside the old owner, with a record of the
+same id and place, says so. A record that names another git folder, with a live owner, means that
+this repo is a copy or a move. `<common git folder>/cairnkit-copy-noted` holds that repo's git
+folder and the state, after it has heard this once in that state. The local git setting
+`cairnkit.sharedmemory = true` says that a project shares another project's memory on purpose.
+
+A folder `<name>.memory` with no folder `<name>` is named as this project's earlier memory only
+when `<name>` is the last part of a path in the record or of the `origin` URL. The local git
+setting `cairnkit.notearlier`, which can hold many values, denies a folder by its name.
 
 Each checkout (the main checkout and each worktree) holds a symbolic link
 named `memory-bank` to the memory folder. The link target is a relative path,
@@ -43,8 +85,8 @@ Write `memory-bank` with no trailing slash. Git sees a link as a file, and
 `memory-bank/` does not match a file.
 
 Outside git, the project is the nearest folder, from the current folder up,
-that holds a `memory-bank` link or a `.memory-path` file. The walk stops
-before the home folder and the file system root.
+that holds a `memory-bank` link or a `.memory-path` file that the current user owns. The walk
+stops before the home folder and the file system root.
 
 ## 2. The memory folder
 
@@ -56,17 +98,34 @@ before the home folder and the file system root.
   notes/status.md               prose: where things stand now
   notes/**                      other prose notes (read by `memory search`, never parsed)
   branches/<branch>.md          working notes for one branch
+  notes/**                      other prose notes (read by `memory search`, never parsed)
+  branches/<branch>.md          working notes for one branch
   proposals/<date>.md           output of `memory tidy`
   proposals/tidy-followups.md   the agent task for similar pairs (rebuilt; removed when empty)
   proposals/migrate-candidates.jsonl   output of `memory migrate`
-  proposals/migrate-followups.md       the agent task of `memory migrate --fix-references`
-  auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, push, merge)
+  proposals/migrate-followups.md       the agent task of `memory migrate` (removed when nothing is open)
+  proposals/old-copies/**              copies that lost to a note; an agent compares, then deletes each one
+  auto-tidy.log                 one line per retire, with the undo command (tidy --auto, session start, stop, push, merge)
   tool-version.json             the tool version that last wrote the repo files (section 6)
   .sessions/<session>.json      hook state per session (safe to delete)
+  .sessions/{before,asked,stash}-<hash>.json  what a session heard once, written under a lock: facts before a command, stop events, the stash refusal of each agent (safe to delete)
+  .sessions/live/<session>-<checkout>  a session in a turn in that checkout: holds its path, and the file time is the last event (safe to delete)
+  .sessions/helpers/open.json   each helper with no recorded end: why it started, and where (safe to delete)
   .usage/<writer>.log           lookups for the rank: one line per lookup, a time and a fact id (safe to delete)
   .auto-tidy-state.json         the state of `auto_tidy = "auto"` (safe to delete)
   .auto-tidy.lock               the lock for a retire
-  .skills-advisory.json         how often the pstack line was shown (safe to delete)
+  .landed.json                  {"version": 2, "tips": [...], "facts": {KEY: [commit, date, subject] or null or "unknown"}}: the commit that landed the work of each one-time approval, kept until a main branch moves or the fact changes; "unknown" when git did not answer in time; a bad entry is ignored; written whole (safe to delete)
+  .stop-problems.json           hashes of the problems that a stop already named (safe to delete)
+  config.toml.bad               the old file, when `memory repair` changed `config.toml`
+  repairs.jsonl                 the lines that `memory repair` settled, by file and hash
+  .loop-breaker.json            the last command and its fail streak (safe to delete)
+  .loop-breaker.lock            the lock for that file
+  .native-memory.json           the Claude Code native notes that the session start already named (safe to delete)
+  .older-instructions.json      the lines of older repo docs that the session start already named (safe to delete)
+  .skills-advisory.json         whether init or migrate named pstack once (safe to delete)
+  .agents-seen.json             the agent tools seen at setup and since; a tool not in it is new
+  .rule-notices                 ids of rules that an agent changed; the next load names each once
+  .identity                     this memory's id and its project's root commits (section 1); do not copy it to another memory
 ```
 
 An implementation must create `facts/`, `notes/`, `branches/`, `README.md`
@@ -91,11 +150,14 @@ same time with no conflict. Readers merge all files.
 
 Each line is one JSON object, written with no spaces between items
 (`separators=(",", ":")`) and non-ASCII characters as they are. There are
-three record types: `fact`, `change` and `tombstone`.
+three record types: `fact`, `change` and `tombstone`. A reader also accepts a `repair` record that an earlier dev build wrote.
 
 A write appends all its lines in one write, under an exclusive `flock` on the
 file (no lock on Windows). When the file does not end with `\n`, the write
-starts with `\n`.
+starts with `\n`. A wait for the lock ends after 5 seconds, and then nothing is written.
+
+A reader works by line, in bytes. Only `\n` ends a line. A line that is not UTF-8 or not JSON, or a
+record with no usable `id` or `text`, is skipped and counted. The other lines still count.
 
 An id is `f-YYYYMMDD-xxxx`: the date of `learned_at` and 4 random lower-case
 hex characters. A new id must not exist in any fact file.
@@ -119,15 +181,18 @@ hex characters. A new id must not exist in any fact file.
 | `summary` | no | Short load line. At most 200 characters. Not for rules. Load shows this instead of the full body when set. |
 | `area` | yes | One area of the work, for example `deploy` or `database`. |
 | `tags` | no | A list of words for search and ranking. |
+| `files` | no | A list of 1 to 10 paths that the fact is about, relative to the repo root, each once. A path has `/` between its parts, at most 200 characters, no `.` or `..` part, no comma and no character that does not print (`app/[id]/page.tsx` and `docs/My Notes.md` are paths). Files show only inside the data frame: a rule that loads as an instruction above the frame shows no files on its line. They do not count in the `text` limit. A changed file that a path names, or that sits under it, counts as a mention in the load rank and in the "match the files you changed" hint. A fact that supersedes another with no `files` keeps the old fact's files. |
 | `happened_at` | yes | When it happened or became true. A date (`2026-10-03`) or a date-time. |
 | `learned_at` | yes | When it was written. A date-time with an offset. |
-| `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. |
-| `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. A `told` fact is never superseded or retired by a fact with another basis. |
-| `author` | no | `agent:<tool>` (`claude`, `codex` or `cursor`) when the tool could tell that an agent wrote the fact. Absent otherwise, and in older facts. |
+| `source` | yes | Where it came from, as `<kind>:<value>`: `commit:<hash>`, `pr:<n>`, `file:<path>`, `session:<date>`, `person:<role>`. `memory add` writes `session:<today>` when no source is given. The rules of the `commits` preset use `default`. Other preset rules use `preset:<name>`, for example `preset:dev`. A rule from a preset file uses the prefix of its key as the name. `memory import` writes `import:<name>:<date>`: the file name with each run of white space as `-` (`paste` for stdin), and the date of the import. |
+| `basis` | yes | `seen` (observed), `told` (a person said so) or `guess` (inferred). It is the writer's own claim. `memory add` writes `guess` when no basis is given. An exact repeat with no basis keeps the basis of the older fact. A `told` fact is never superseded or retired by a fact with another basis. |
+| `confirmed` | no | Only `false`, only with basis `told`: an agent claimed that a person said it, and the owner's words in that session did not match (see `owner_evidence.py`). The owner's words are only what the owner typed: a paste that Claude Code wraps in `<pasted_content id="...">`, a fenced block, a quoted line (it starts with `> ` or is only `>`), a notification, the note of a side agent, and a quoted sentence (a sentence end and six words or more in quote marks) with the sentence or line that holds it do not count. The reply below a side agent's note and the words after a paste do count. A message that the owner typed while the agent worked counts as typed: Claude Code runs the prompt hook for it between tool calls and records it in the transcript as a `queued_command` attachment, and only one with the origin `human` and no meta, rewritten, relayed or forwarded mark counts. The label that the owner picked in an agent question counts, each label of a multi-select too (Claude Code joins them with `, ` and puts a label that holds `, ` or `"` in JSON quotes); an answer that holds the text of a label in another shape counts as a pick, never as typed words; the answer of a dialog that closed while the owner was away, or of a question that Claude Code marks as unanswered, does not. The words that the owner types in an agent question instead of a pick (Claude Code's `response`) count as a free answer. A pick or a yes counts until the next prompt with words that the owner typed, also words that name a command of this tool; a notification or another prompt with no owner words does not end the turn and adds nothing. A short quoted sentence, and a paste that Claude Code does not wrap, read as typed: a short paste is not known to be wrapped, and a session that does not fetch feature flags wraps no paste. Such a fact loads as `told (via agent, not confirmed)` data, a rule among the rules an agent wrote, and it does not outrank a fact with another basis. The owner confirms it by stating the same text from their own shell, or an agent adds it again in the turn where the owner's words match. Absent otherwise, and in older facts. |
+| `author` | no | `agent:<tool>` (`claude`, `codex`, `cursor`, `opencode`, `pi` or `grok`) when the tool could tell that an agent wrote the fact. Two tools' markers give `agent:claude+cursor`. `memory import` writes `import`, with basis `seen`, so an imported rule loads as data. Absent otherwise, and in older facts. |
 | `status` | yes | Always `active` in a fact record. Changes set other values. |
 | `scope` | no | `long` (default) or `short`. |
-| `expires_at` | no | Short-term only. The date-time when the fact ends. Default: `learned_at` + `short_term_days` (14) from `config.toml`. |
-| `until_branch_merged` | no | Short-term only. The fact ends when this branch is merged into the default branch, or when the branch is deleted. |
+| `expires_at` | no | The date-time when the fact ends. Present only when an agent passed `--expires`. It counts only with `scope: short`. There is no default. |
+| `until_branch_merged` | no | Short-term only. The fact ends when this branch reads as merged (section 4). `--short` sets it to the current branch unless `--expires` is given. |
+| `branch_tip` | no | The full commit hash of that branch when the fact was written, from a local branch or a remote copy. Absent when no ref had the name. It is the record that the branch existed (section 4). |
 | `links` | no | A list of `{"rel": ..., "id": ...}`. `rel` is `related`, `depends_on`, `caused_by`, `contradicts` or `similar_to`. |
 | `pinned` | no | `true` loads the fact in every session. Use it rarely. |
 | `enforced_by` | no | Rules only. The check that fails when the rule is broken, as `<type>:<value>`: `githook:commit-msg`, `lint:ruff:T201`, `test:tests/test_x.py`, `ci:<job>`. No spaces, at most 120 characters after the colon. A rule without it is advisory. |
@@ -146,29 +211,40 @@ A change does not edit the fact. It adds a new state.
 | `status` | no | The new status. |
 | `reason` | with `status` | Why. |
 | `superseded_by` | with `superseded` | The id of the newer fact. |
-| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must exist. |
+| `held_by` | with `promoted` | The path of the tracked file that now holds the rule (a rule file, doc, test or lint check). It must be a regular file in the repo (its real path too, after links), not in `.git` or the memory folder, and exist when the change is written. `memory change` stores it as a repo path with `/`. Later, `memory check` accepts a path that exists here or in the history of any branch. |
 | `scope` | no | `long` or `short`. `memory keep` writes `"scope": "long"`. |
 | `add_links` | no | Links to add. |
+| `remove_links` | no | Links to remove, each one the fact holds. A build before this field keeps the link, and its `memory check` names the record. |
 | `enforced_by` | no | Rules only. A `<type>:<value>` string sets it. `null` clears it (the rule is advisory again). |
+| `branch_tip` | no | Auto-tidy only. The first tip that it saw of the end branch of a fact with no `branch_tip`. It changes no status. |
+| `cid` | no | A hash that auto-tidy writes. Two sessions that write the same change write it once. A reader applies only the first change with a `cid`. |
+| `case` | no | Auto-tidy only. Why it retired the fact: `duplicate`, `ended`, `file-gone` or `mined`. An older record can hold `near-duplicate`. |
+| `author` | no | `agent:<tool>`, as in a fact, when an agent marked a fact that a person stated `expired` or `wrong`. The owner's words in that session held the fact's id (see `owner_evidence.py`): a prompt the owner typed, or the closing question that the owner approved with a short yes. Absent otherwise. |
 | `writer` | yes | The writer name. |
 
-A change must set at least one of `status`, `scope`, `add_links` or
-`enforced_by`.
+A change must set at least one of `status`, `scope`, `add_links`, `remove_links`,
+`enforced_by` or `branch_tip`.
+
+`memory change` with more than one ID writes one change record for each ID, with the same `at`,
+in one append. When the check of one ID refuses, it writes no record.
 
 ### Status
 
 | Status | Meaning | Loaded? |
 |---|---|---|
-| `active` | True now, as far as we know. | Yes |
+| `active` | True now, as far as we know. | Yes, within the word budget |
 | `superseded` | A newer fact replaces it. | No |
-| `expired` | It was true, and it stopped being true by time. A short-term fact that has ended also reads as `expired` (computed, not written). | No |
+| `expired` | It stopped being true. An agent ended it, or auto-tidy wrote a short-term note as ended. A short-term fact that has ended also reads as `expired` (computed, not written). A long-term fact never expires by itself. | No |
 | `wrong` | It was never true, or it was a bad guess. | No |
 | `promoted` | A tracked file in the project now holds it. | No |
 
 ### Tombstone
 
 `memory purge ID --reason secret --yes` writes one tombstone and removes all
-other lines for that id, in every fact file.
+other lines for that id, in every fact file. `ID` must be the id of a record, or the
+`line-HASH` that `memory check` prints for a damaged line. A purge refuses text that looks
+secret as an id or a reason. It refuses a fact with a mask that holds true text, unless a
+live fact supersedes it, or the call gives both `--reason secret` and `--yes`.
 
 | Field | Meaning |
 |---|---|
@@ -180,6 +256,22 @@ other lines for that id, in every fact file.
 
 A tombstone holds no content.
 
+### Repair
+
+`memory repair` writes one row to `repairs.jsonl` in the memory folder for each bad line.
+The row is not in a fact file, because the tool of 0.3.1 refuses a commit when a fact file
+holds a type it does not know. The line stays in its file. A reader and `memory check` stop
+counting a line whose bytes match. A new bad line has other bytes. A dev build before this
+wrote the same fields to a fact file with `"type": "repair"`, and a reader still accepts that.
+
+| Field | Required | Value |
+|---|---|---|
+| `file` | yes | The name of the fact file that holds the line. |
+| `sha` | yes | The first 16 characters of the SHA-1 of the line, with no outer white space. |
+| `line` | no | The line number when it was written. |
+| `at` | yes | The time. |
+| `writer` | yes | The writer. |
+
 ### Example
 
 ```json
@@ -190,28 +282,47 @@ A tombstone holds no content.
 
 More examples: [tests/fixtures/example-facts.jsonl](../tests/fixtures/example-facts.jsonl).
 
-
 ## 4. Short-term facts and computed state
 
 A reader computes the status of a fact; it does not only read it:
 
 - Fold: start with the fact record. Apply each change record for its id in
-  order of `at`. A later value wins. `add_links` adds to `links`.
-- A short-term fact (`scope: short`) whose `expires_at` is past, or whose
-  `until_branch_merged` branch is merged into the default branch or deleted,
-  reads as `expired`. Nothing is written. `memory tidy --auto` may write the
-  change later.
-- The default branch is `origin/HEAD`, else `main`, else `master`.
+  order of `at`. A later value wins. `add_links` adds to `links`, and `remove_links` takes
+  each of its links out of `links`.
+- A short-term fact (`scope: short`) reads as `expired` when its `expires_at` is
+  past, or when its `until_branch_merged` branch reads as merged. Nothing is written.
+  Auto-tidy may write the change later.
+- A long-term fact never reads as `expired` by itself, also when it holds
+  `expires_at`.
+- The default branch is `origin/HEAD`, else `main`, else `master`. A repo with no
+  default branch reads no branch as merged, and the default branch itself never reads
+  as merged.
+- A branch with a local copy reads as merged when its tip is not the tip of the
+  default branch and one of these is true: the tip is an ancestor of the default
+  branch, or `git merge-tree --write-tree BASE TIP` gives the tree of the default
+  branch (a squash merge; git 2.38 or later).
+- A base is the default branch, `dev` or `develop`, local or on `origin`. Each test for
+  merged runs against each base. A squash also counts when one of the last 30 commits of
+  the base on those files adds and removes the same lines as the whole branch.
+- A branch with only a remote copy reads as open, unless a squash or a merge commit in a
+  base took the tip of that copy.
+- A branch in no ref in `refs/heads` or `refs/remotes` reads as merged or deleted only
+  when `branch_tip` names a commit in this clone that landed in a base, or when a reflog
+  shows that the branch was renamed and the new name is in no ref. Otherwise it reads as
+  unknown: the fact stays
+  active, and `memory tidy` names it. A fact from before `branch_tip` has none, so it
+  stays until auto-tidy sees its branch, or until an agent ends it.
+
+A short-term fact loads when `until_branch_merged` is the current branch. With no
+such field, it loads when `writer` is the current writer.
 
 ## 5. `config.toml`
 
 ```toml
-short_term_days = 14          # end of a short-term fact with no expires_at
-# rules_file = "CLAUDE.local.md"  # untracked rules file for `memory tidy`; unset: CLAUDE.local.md
 auto_tidy = "auto"            # "auto", "report" (only say), "on" (retire) or "off"
-skills_check = true           # false: no advisory line about the pstack skills (also init, migrate)
-skills_auto_update = false    # true: session start installs or updates pstack (user level)
-                              # (fills missing skills; does not --adopt same-named folders)
+skills_check = true           # false: no line about the pstack skills (status, init, migrate)
+skills_auto_update = false    # true: session start updates pstack where it is installed (user level)
+                              # (adds no tool; does not --adopt same-named folders)
 
 [areas]                       # path prefix -> area, for ranking in `memory load`
 "src/db/" = "database"
@@ -219,6 +330,12 @@ skills_auto_update = false    # true: session start installs or updates pstack (
 [commit_msg_guard]            # extended regular expressions, matched without case
 patterns = ["^co-authored-by:.*(some-tool)", "^generated with "]
 ```
+
+A file that cannot be parsed, a bad `auto_tidy` value and a key close to `auto_tidy` turn auto-tidy
+off, the safest behavior. `memory check` names each bad setting, and `memory repair` drops it.
+
+A file from an older version may hold `short_term_days` or `rules_file`. The tool
+uses neither.
 
 ## 6. Text that the tool writes into repo files
 
@@ -242,9 +359,8 @@ Files: `CLAUDE.local.md` (the default), untracked harness copies
 (`.cursor/rules/cairnkit.mdc`, `.pi/APPEND_SYSTEM.md`),
 `AGENTS.local.md` (older versions), or an untracked file that a person names.
 Tracked `CLAUDE.md` and `AGENTS.md` never receive a new cairnkit block. A
-write or refresh moves any existing cairnkit block out of those files into
-`CLAUDE.local.md`, leaving hand-written text. `AGENTS.md` may gain one
-generic pointer line to `CLAUDE.md` / `CLAUDE.local.md` (no cairnkit markers).
+write or refresh changes no tracked file. It removes an old block from an untracked file, and it
+writes the rules to `CLAUDE.local.md`. An old block in a tracked file stays, with a note.
 
 | | Start | End |
 |---|---|---|
@@ -260,37 +376,21 @@ A reader that looks for hand-written rules in these files skips the block,
 from a line that is a start marker to the line that is its end marker. A start
 marker with no end marker runs to the end of the file.
 
-### Rules block of `memory tidy`
-
-File: `rules_file` from `config.toml`. Unset, it is `CLAUDE.local.md`. A
-tracked path is refused.
-
-| | Start | End |
-|---|---|---|
-| New | `<!-- cairnkit:rules:start -->` | `<!-- cairnkit:rules:end -->` |
-| Old | `<!-- project-memory:rules:start -->` | `<!-- project-memory:rules:end -->` |
-
-A new block is:
-
-```
-<!-- cairnkit:rules:start -->
-## Rules learned from project memory
-
-- RULE TEXT
-<!-- cairnkit:rules:end -->
-```
-
-An approved rule adds one line `- RULE TEXT` right before the end marker,
-once.
-
 ### Git hooks
 
-Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge`, `post-commit`
-and `commit-msg`
+Files: `pre-commit`, `post-checkout`, `pre-push`, `post-merge` and `commit-msg`
 in the hooks folder that git uses (`git rev-parse --git-path hooks`).
-The shared option writes `commit-msg`, `pre-commit` and `post-checkout` into
-`.githooks/`. It does not write `pre-push` or `post-merge`. Those two stay
-in this clone.
+When that folder is outside the repo's git folder (`core.hooksPath` names a folder in a
+checkout, or a global folder), the tool writes nothing there. The files go to
+`.git/cairnkit-hooks` instead, and each one gets `hook.cairnkit-NAME.event` and
+`hook.cairnkit-NAME.command` in the local git config, so git 2.54 or newer runs it beside that
+folder. The command is
+`"$(git rev-parse --path-format=absolute --git-common-dir)"/cairnkit-hooks/NAME`. It holds no
+path, so a moved or copied repo keeps working. Session start replaces a path that an earlier
+install stored. A hook in that folder that already runs memory gets no second run, and the tool
+names it. Git older than 2.54 does not read `hook.*`, so it ignores these settings with no
+error: only the hook in its hooks folder runs. The tool writes nothing then, and it says so.
+Install and refresh remove a `post-commit` block that 0.3.1 wrote.
 
 | | Start | End |
 |---|---|---|
@@ -305,144 +405,274 @@ removes the file when only `#!/bin/sh` is left.
 
 Block bodies (`PY` is the full path of the Python that runs the tool):
 
-- `pre-commit`: `if [ -x PY ]; then PY -m cairnkit hook pre-commit || exit 1; fi`.
-  Shared: `memory hook pre-commit`, run only when `memory` is on `PATH`.
-- `post-checkout`: runs `PY -m cairnkit hook post-checkout` only when `$1`
+- `pre-commit`: when `PY` can import the tool, `PY -P -m cairnkit hook pre-commit || exit 1`.
+  Otherwise it prints one line that names `memory init --refresh`, and refuses only
+  `memory-bank` and `.memory-path` in the staged files, with `sh`, `git` and `grep`.
+- `post-checkout`: runs `PY -P -m cairnkit hook post-checkout` only when `$1`
   (the old HEAD) is all zeros, which is `git worktree add`. It never fails.
-- `post-commit`: the same quiet shape as `pre-push`, with a 1 second bound
-  (`timeout -k 1 1`, or `perl` `alarm 1`). It drafts pending candidates from
-  the commit just made. It ends with `|| true`. Not part of the shared option.
 - `pre-push`: a short shell block. When `PY` is executable it
-  runs `PY -m cairnkit hook pre-push` with stdin, stdout and stderr on `/dev/null`,
-  under a few-second wall-clock bound (`timeout` / `gtimeout` when present,
+  runs `PY -P -m cairnkit hook pre-push` with stdin, stdout and stderr on `/dev/null`,
+  under a wall-clock bound of 3 seconds (`timeout` / `gtimeout` when present,
   else `perl` `alarm`+`exec`, which ships on macOS and Linux). The perl
   command runs in a group that discards output, so the shell's alarm line is
   not printed. With none of those tools the command runs unbounded. It ends
-  with `|| true`. It does not read the hook arguments. It never fails the
-  push. Not part of the shared option.
-- `post-merge`: that same quiet tidy block, after a docs check that runs
-  only when `docs/state` is a directory and `PY` is executable. The docs
-  check half begins with the line `# cairnkit:docs-check` so
-  `memory init --refresh` can tell an older post-merge body apart without a
-  package version bump. A comment names `docs --check` for that same
-  refresh scan. The timed child is `PY -c` directly (same bound pattern as
-  the quiet hooks: `timeout -k 1 1`, or `gtimeout`, or `perl` `alarm`+
-  `exec`), so a hung start is not left orphaned under a nested shell.
-  That `-c` asks `has_memory(find_project(), None)`, then runs the same
-  compare as `memory docs --check` via `atlas_freshness`. When the result
-  is stale, it prints
-  `cairnkit: docs/state looks out of date; run memory docs --force`
-  on its own stdout. It does not print the page list. Stderr of the timed
-  child goes to `/dev/null`. The timed command ends with `|| true`. The
-  hook writes nothing and never fails the merge. Not part of the shared
-  option.
-- `commit-msg` (opt-in): a comment line that starts with
+  with `|| true`. It does not read the hook arguments. It never fails the push.
+  When the commit-msg guard is installed, a check comes first. It begins with
+  `# Refuse a new commit with an AI identity or attribution line.`, reads the
+  ref list on stdin and puts it back for the rest of the file. For each ref it greps
+  the commits that no remote holds, with the identity patterns on
+  `Name <email>`, a tab and the short id, and with the message patterns on the
+  message. A new commit is one that `.git/cairnkit-guard-base` and a shallow edge do
+  not reach. That file holds a `^HASH` line for each ref when the check was installed. An
+  install that finds the check already on does not write it again, and neither does the hook.
+  With no such file, each commit that no remote holds is new. A new commit with an AI identity,
+  or with a line and the current user as committer, prints the lines and exits 1. For each pushed
+  ref that holds one, it prints a command that can move only that ref. A branch is named in the
+  rebase, and a branch checked out in another worktree gets `git -C`. A tag gets a rebase on a
+  detached HEAD and then `git tag -f`. Any other commit gets a rebase on a detached HEAD and a
+  push. A line with another committer is named. An older commit counts in one line. The hook does
+  not read its arguments to choose what it does.
+- `.git/cairnkit-fix-commit`: written with the check, gone with it, and never a hook. It amends
+  HEAD to drop such lines and an AI author, and leaves a commit that a remote holds. The printed
+  rebase runs it on each commit.
+- The branch-note gate, a test arm that is off by default. The local git setting
+  `cairnkit.branchnotegate = true` turns it on. It acts only in the shell of an agent tool, which is
+  a process with `CLAUDECODE`, `CODEX_THREAD_ID`, `CURSOR_AGENT`, `OPENCODE`, `PI_CODING_AGENT` or
+  `GROK_SESSION_ID`. Off, it costs one `git config` read per push. `pre-commit` refuses the first
+  commit of a branch that is not the default branch and has no open short note with
+  `until_branch_merged` set to that branch. `pre-push` starts with a block that runs
+  `PY -P -m cairnkit hook pre-push-note` on the ref list and gives the list back. It refuses a branch
+  with new patches and no such note, and a branch whose notes are the same as at its last push.
+  Each refusal prints a `memory add ... --short` command. Only exit code 3 of that command stops the
+  push. `.git/cairnkit-branch-notes.json` holds the state. These states pass: a merge, a rebase, a
+  pick, a revert or a bisect in progress, an amend, a detached HEAD, a repo with no default branch,
+  a tag, a delete, a push with no new patch, and any failure or slow git. It looks only at whether a
+  note exists and changed. `memory hooks uninstall` removes the setting and the state.
+- `post-merge`: that same quiet tidy block. It never fails the merge.
+- `commit-msg`: a comment line that starts with
   `# Refuse AI self-attribution lines.`, then `grep -iqE` with the patterns of
   `[commit_msg_guard]` on the lines of `$1` that do not start with `#`. A
-  match prints the line and exits 1.
+  match prints the line and the settings that stop a tool adding it, and exits 1.
+  Then a line `# Refuse an AI author or committer.`, and `grep -iE` with
+  `identity_patterns` of `[commit_msg_guard]` on `git var GIT_AUTHOR_IDENT` and
+  `git var GIT_COMMITTER_IDENT`, as `Name <email>`. An identity pattern must not end
+  in `$`. A match prints the identity and exits 1. It installs when an active rule fact matches
+  `attribution`, `co-author` or `generated with` (no case), or with
+  `--commit-msg-guard`.
 
 ### Agent hooks
 
 Files that git does not track. A tracked file is never written; the tool
 prints the commands instead. Each file is added to `.git/info/exclude`.
 
-| Agent | File | Events |
-|---|---|---|
-| Claude Code | `.claude/settings.local.json` | `hooks.SessionStart[]`: `{"matcher": "startup\|resume\|clear\|compact", "hooks": [{"type": "command", "command": CMD, "timeout": 10}]}`; `hooks.Stop[]`: `{"hooks": [{"type": "command", "command": CMD, "timeout": 30}]}`; `hooks.PostToolUse[]` for `after-shell` |
-| Codex | `.codex/hooks.json` | the same shape, matcher `startup\|resume`, plus `PostToolUse` |
-| Cursor | `.cursor/hooks.json` | `version: 1`; `hooks.sessionStart[]`: `{"command": CMD, "timeout": 10}`; `hooks.stop[]`: `{"command": CMD, "timeout": 30, "loop_limit": 1}`; `hooks.afterShellExecution[]` for `after-shell` |
+`CMD` is `PY -P -m cairnkit hook EVENT --agent AGENT`. A timeout is in seconds.
 
-`CMD` is `PY -m cairnkit hook EVENT --agent AGENT`, with `EVENT`
-`session-start`, `stop`, or `after-shell`. Claude Code and Codex also install
-`PostToolUse` for `after-shell`. Cursor also installs `afterShellExecution`
-for `after-shell`. A hook entry belongs to the tool when its command
-holds `cairnkit hook`, or the old `project_memory hook`. Install first removes
-the entries that belong to the tool, then adds new ones, so a hook is never
-written twice. Other entries stay.
+| Agent | File | Events and hook events |
+|---|---|---|
+| Claude Code | `.claude/settings.local.json` | `SessionStart` (matcher `startup\|resume\|clear\|compact`, timeout 10): `session-start`. `Stop` (timeout 30): `stop`. `PreToolUse` (matcher `Bash`, timeout 5): `before-shell`. `PostToolUse` and `PostToolUseFailure` (timeout 5): `after-shell`. `UserPromptSubmit` (timeout 5): `prompt`. `SubagentStart` (timeout 10): `subagent-start`. |
+| Codex | `.codex/hooks.json` | The same shape, with no `PostToolUseFailure`. |
+| Grok Build | `.grok/hooks/cairnkit.json` | The same shape as Claude Code, with no `PreToolUse`. |
+| Cursor | `.cursor/hooks.json` | `version: 1`. `hooks.sessionStart[]` (timeout 10): `session-start`. `hooks.stop[]` (timeout 30, `loop_limit: 1`): `stop`. `hooks.beforeSubmitPrompt[]` (timeout 5): `prompt`. `hooks.postToolUse[]` (matcher `Shell|Write|Delete`) and `hooks.postToolUseFailure[]` (timeout 5): `after-shell`. `hooks.preCompact[]` (timeout 5): `pre-compact`. |
+
+A JSON entry has the shape `{"matcher": ..., "hooks": [{"type": "command", "command":
+CMD, "timeout": N}]}`, except in Cursor, where an entry is `{"command": CMD, "timeout":
+N}`. A hook entry belongs to the tool when its command holds `cairnkit hook`, or the
+old `project_memory hook`. Install first removes the entries that belong to the tool,
+then adds new ones, so a hook is never written twice. Other entries stay.
+
+Pi and OpenCode load code, so the tool owns one generated file for each. The first
+line holds `cairnkit hook`. A file with that path and without that text is not
+changed.
+
+| Agent | File | Tool events and hook events |
+|---|---|---|
+| Pi | `.pi/extensions/cairnkit.ts` | `session_start` and `session_compact`: `session-start`, held until the next prompt. `before_agent_start`: `prompt`, then returns a hidden message with the held load and the news. `tool_call` for `bash`: `before-shell`, and a reply returns `{ block: true, reason }`. `tool_result` for `bash`: `after-shell`. `agent_end`: `stop`, sent once as a follow-up that starts a turn. |
+| OpenCode | `.opencode/plugins/cairnkit.js` | `session.created` and `session.compacted`: `session-start`, sent with `noReply`. `session.idle`: `stop`, sent once as a prompt. `tool.execute.before` for `bash`: `before-shell`, and a reply is thrown as an error, which stops the call. `tool.execute.after` for `bash`: `after-shell`, sent with `noReply`. |
 
 ### `tool-version.json`
 
 In the memory folder. It records the tool version that last wrote the blocks
-and hooks of this repo:
+and hooks of this repo, and the commit of that build when the tool knows it:
 
 ```json
-{"version": "0.2.0", "at": "2026-10-25T09:00:00+00:00", "blocks": ["CLAUDE.local.md"]}
+{"version": "0.2.0", "at": "2026-10-25T09:00:00+00:00", "blocks": ["CLAUDE.local.md"], "commit": "6b4bdf0..."}
 ```
 
 `blocks` lists the files that got a rules block, relative to the checkout.
+`commit` is the full commit that `memory --version` shortens to `@6b4bdf0`. Two
+dev builds can have one version number, so the refresh line names both builds:
+"come from memory 0.3.1 @6b4bdf0; this is 0.3.1 @81f8499". A record with no
+`commit` reads as an older build of that version.
 When `version` is lower than the running tool, the session start prints one
-line that asks for `memory init --refresh`. The same line appears when the
-local `post-merge` hook holds a cairnkit block that either lacks
-`# cairnkit:docs-check` or lacks `docs --check`, even when `version` equals
-the running tool. A release that changes a block or hook raises the version.
-This post-merge docs check does not. Refresh reads the comment
-`# cairnkit:docs-check` in the hook.
+line that asks for `memory init --refresh`. For the same `version`, when
+`commit` and the running build's commit are both known and differ, the session
+start and `memory status` print it only when the running build would write the
+repo files differently. They read the files to find out and write no repo
+file. The user cache keeps the answer for this repo and these two commits, so
+the compare runs once for each pair. The stop hook does not make this compare. The same line appears when the
+local `post-merge` hook still holds `# cairnkit:docs-check`, the docs check
+that older builds of the same version wrote. A release that changes a block
+or hook raises the version.
 
 ## 7. The hook commands
 
 `memory hook EVENT --agent AGENT` reads a JSON object on stdin (or nothing).
-The session key is `session_id`, else `conversation_id`, else `default`.
+The session key is `session_id`, else `conversation_id`, else `default`. When the
+environment holds `GROK_HOOK_EVENT`, the agent is `grok`, because Grok Build also runs
+a project's Claude Code and Cursor hooks. With no memory folder, each event does
+nothing and exits 0, except that `pre-commit` still refuses a private memory path.
 
-- `session-start`: prints the output of `memory load` and a short rules text.
-  For `cursor` it prints `{"additional_context": TEXT}`. It always exits 0.
+- `session-start`: ends the facts that the 0.3.1 commit miner wrote, and removes its
+  files. Runs the auto-tidy step. Names new native memory notes, and each new line of
+  `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md` that names the old notes or the old checker,
+  unless a migration task is open. Prints the output of
+  `memory load` and a short rules text. For `cursor` it prints
+  `{"additional_context": TEXT}`. For `grok` it holds the text in the session file,
+  prints `{"systemMessage": "Project memory is ready."}`, and the next `after-shell`
+  gives the text. A payload with `source: compact` keeps the same session. It always
+  exits 0.
 - `stop`: when `stop_hook_active` is true or `loop_count` is above 0, it says
-  nothing more. Else, when `memory check --strict` finds a problem, or the
-  session changed the work and wrote no fact, it asks the agent to continue.
-  When the same command has failed 3 times in a row, the message also says
-  to stop, run `memory check`, and ask. Output is
-  `{"decision": "block", "reason": TEXT}` for `claude` and `codex`,
-  `{"followup_message": TEXT}` for `cursor`, and TEXT on stderr with exit 1
-  for `generic`. With nothing to say it prints nothing (`claude`, `generic`)
-  or `{}` (`codex`, `cursor`), and exits 0.
-- `post-commit`: drafts pending candidates from the commit just made, then
-  runs the candidate quality gate and the same auto-tidy step as `pre-push`.
-  It prints nothing and always exits 0. The shell bounds it to about 1 second.
-  With no memory folder it does nothing.
+  nothing more. Else it runs auto-tidy when the last tidy is more than one day old.
+  Then it builds a message from these parts: problems from `memory check --strict`,
+  except a line that looks secret in a file that this session did not write (the next
+  prompt or tool result names those lines once), the loop nudge, the load that a tool holds, and the events of this session. The events
+  are a command that failed at least twice and then passed, a command that failed and then
+  passed with a setting or a wrapper in front of it, a revert since the session
+  started, a correction, and a lost file that no prompt named or asked to remove. A pass pairs
+  with a failure only when both do the same work steps in the same order, where a `cd`,
+  `pushd`, `popd`, `echo` or `printf` step is no work, and nor is a `tail`, `head`, `grep`,
+  `wc`, `tee`, `sort`, `uniq`, `less` or `cat` step that a pipe (`|`, `|&`) leads into. Each
+  event is named once; a command or revert event that a stop named is kept in
+  `.sessions/asked-*.json`. A fix with a setting in front is no event when an active fact names the
+  setting and the command. It adds the capture check when no fact followed new work or a statement
+  of the owner, and the guide. Events with no capture check get the `memory add` line and no guide.
+  A payload with `agent_id` gets no capture check. It adds no text
+  for news, unless the agent is `generic`, which has no other hook. Output is
+  `{"decision": "block", "reason": TEXT}` for `claude`, `codex` and `grok`,
+  `{"followup_message": TEXT}` for `cursor`, TEXT on stdout with exit 0 for `pi` and
+  `opencode`, and TEXT on stderr with exit 1 for `generic`. With nothing to say it
+  prints nothing, or `{}` for `codex` and `cursor`, and exits 0.
+- `prompt`: counts the prompt, notes a statement or a correction, and prints the news on stdout. The news is a compaction notice, up to 5 facts
+  that another branch or auto-tidy wrote or ended since the load, and up to 5 stored
+  facts that match files changed since the load, traps first. Each item is named once.
+  It always exits 0.
+- `before-shell`: before a shell command runs. First it refuses a command that would forge the
+  owner's evidence (see `forgery.py`): one that runs `memory hook ...` or `python -m cairnkit
+  hook` by hand, changes or removes an agent marker (`env -u`, `env -i`, `NAME=`, `unset`) and
+  runs `memory`, calls cairnkit's evidence code from a `python -c` script, or writes into the
+  memory folder's `facts/` or `.sessions/`. The reason of that deny says why. Then it splits the
+  command into steps at `;`, `&&`,
+  `||`, `|` and newlines. A step is its `NAME=value` settings and its core, the other words without
+  output redirects. An active fact matches when its text holds the whole core behind a prefix that
+  the step lacks: a setting, or one of the wrappers `env`, `sudo`, `uv run`, `poetry run`,
+  `pdm run`, `pipenv run`, `hatch run`, `bundle exec`, `npx`, `pnpm exec` and `bunx`. The fact
+  speaks once in a session (`.sessions/before-*.json`). Its masked line, labelled as data, and the
+  longer form are the reason of a deny:
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+  "permissionDecisionReason": TEXT}}` for `claude` and `codex`, and TEXT on stdout for `pi` and
+  `opencode`. It never prints an allow, because an allow skips the person's own approval. With
+  nothing to say, on any error and past 2.5 seconds, it prints nothing (`{}` for `codex`), and the
+  command runs. Other agents get nothing. It always exits 0. A command that holds `stash` and
+  has a `git stash` step that can take or lose an entry of other work (`clear`; `pop`, `apply`
+  or `drop` with no entry named; `branch` with no entry; a push or `save` with no message; also
+  in `( )` or `$( )`, or after `sudo` or `env` with their options and the values of those
+  options (`sudo -u root`, `env -u NAME`); not in a `bash -c` script or a git alias) gets the
+  same deny, when a marker in `.sessions/live/` from the last 30 minutes names another session,
+  or this session in another checkout. TEXT names the live checkouts, a WIP commit on a branch,
+  `git stash push -m TAG`, `git stash apply SHA` and `git stash drop stash@{n}` for the line with
+  TAG, and says to run the command again only when each entry that it uses is the agent's own.
+  Only the first such command of each agent in a session is refused: the record
+  (`.sessions/stash-*.json`) has the session id and the payload's `agent_id`, when there is one.
+  It is written before the deny, so a record that fails refuses nothing. When a fact stops the
+  same call, its deny also gives the stash reason, and the stash record is written. A payload with
+  no `session_id` or `conversation_id`, or with the session id `pi` from `pi`, is never refused.
 - `after-shell` and `post-tool`: record one shell or tool result for the loop
-  breaker. On the third identical failure the hook returns the same nudge as
-  `stop`. A payload with no command, or a command and no outcome (`exit_code`,
-  `status`, or `error`), is ignored. The hook always exits 0.
-- `pre-commit`: exits 1 when a staged path is `memory-bank`, `.memory-path`
-  or inside the memory folder, or when `memory check` finds an error. With no
-  memory folder it exits 0.
-- `post-checkout`: makes the `memory-bank` link in a new worktree.
+  breaker and for the events of `stop`. Then they add the same news as
+  `prompt`, and the load that `grok` holds. The third identical failure adds the nudge. The output is
+  `{"hookSpecificOutput": {"hookEventName": EVENT, "additionalContext": TEXT}}` for
+  `claude`, `codex` and `grok`, `{"additional_context": TEXT}`
+  for `cursor`, and TEXT on stdout for `pi` and `opencode`. A payload with no command, or
+  a command and no outcome, is not counted. The hook always exits 0.
+- `subagent-start`: prints `{"hookSpecificOutput": {"hookEventName": "SubagentStart",
+  "additionalContext": TEXT}}`, where TEXT is a load of 300 words with no helper of its own
+  session. It adds the `agent_id`, the checkout (`cwd`, when it is not the parent's) and that
+  checkout's HEAD to the record of the call: the record that a background launch named, else the
+  oldest call of the session for that `agent_type` with no helper yet.
+- `helper-call` (Claude Code `PreToolUse`, matcher `Agent|Task`) and `subagent-stop` (Claude Code
+  `SubagentStop`): print nothing and exit 0, so they never allow, deny or stop anything. They give
+  up after 2.5 seconds. `helper-call` adds a record to `.sessions/helpers/open.json`: a JSON list
+  of objects with `call` (the `tool_use_id`), `session`, `kind` (`subagent_type`), `about` (the
+  `description`, at most 12 words), `task` (the prompt, at most 60 words), `started_at` (Unix
+  seconds), `parent` (the parent's `cwd`), `agent`, `checkout`, `base`, `told` (the sessions
+  whose load named it) and `transcript` (the helper's own transcript, set by `subagent-start`:
+  `agent_transcript_path` when it is in the folder of `transcript_path`, else
+  `<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`), and `ended` (true after
+  an end event that kept the record, below). A reader leaves out a
+  field that it does not know, so a record of a later build is still read. Each text field is
+  masked and made one line before it is written. The file
+  holds at most 50 records, under the lock `.sessions/helpers/.lock`. Each write leaves out a
+  record with `"ended": true` whose `checkout` is not there. `subagent-stop` removes the
+  record of that `agent_id`. `after-shell` on the `Agent` tool removes the record of the call, or,
+  for `"status": "async_launched"`, adds its `agentId`. When the record's own `checkout` is still
+  there, these two set `"ended": true` in place of the removal. `stop` removes the calls of its turn with
+  no helper, and each record that its session's load named whose checkout is not there.
+- The load adds one `- [helper]` line under `## Live work` for each of the 3 newest records (with
+  the count of the others) whose `started_at` is in the last 24 hours, or whose own checkout
+  still holds uncommitted changes or commits since `base` that no `main`, `master`, `dev` or
+  `develop` ref (local or `origin`) holds. The refs of the checkout's own branch do not count, and
+  a `base` that git does not know counts no commit. A record whose `transcript` file exists and has
+  a file time older than 30 minutes ended, as a record with `"ended": true` did: it is named only while its checkout holds such work, and
+  its line says that it ended. The load reads only that file time. It reads the checkouts of at
+  most 3 records that are past 24 hours, ended or quiet, newest first. When git answers in time
+  and such a checkout holds no such work, the load removes the record if it ended or is past 24
+  hours. It is inside the frame of
+  stored notes, because the text came from an agent. A load for `compact` or `reload` leaves out the records of its own session.
+- `prompt` and `after-shell` also write the marker in `.sessions/live/` for this session and
+  checkout. `stop` removes the markers of its session, except for the stop of a subagent. Before
+  it removes them, it adds each other checkout that they name to `helpers` in
+  `.sessions/<session>.json`: a map from the checkout path to a hash of the work seen there at the
+  last capture check, empty before the first. A Claude Code subagent with its own worktree writes
+  such a marker. The capture check reads at most 8 of these checkouts that still exist.
+- `pre-compact`: holds a load for the next tool result or stop. Only Cursor needs this.
+- `pre-commit`: exits 1 only when a staged path is `memory-bank`, `.memory-path`
+  or inside the memory folder. Else it prints each stored trap (up to 3) that matches
+  the staged files on stderr, each on one line labelled as data, and exits 0. A problem in the
+  memory never stops a commit.
+- `post-checkout`: makes the `memory-bank` link and the adapter files in a new worktree.
 - `pre-push` and `post-merge`: run the same auto-tidy step as `session-start`.
+  `post-commit` does the same, for a hook that 0.3.1 wrote.
   They do not count as a session start. The tidy command prints nothing
   (including when the interpreter lacks cairnkit). They always exit 0. With no
-  memory folder the tidy does nothing. Before the tidy command, the
-  `post-merge` shell runs the docs-check half described above (timed
-  `PY -c` with the same compare as `memory docs --check`). When that
-  compare is stale, the shell prints one warn line on stdout. The tidy
-  command's
-  shell bounds hung process start to a few seconds when
+  memory folder the tidy does nothing. The tidy
+  command's shell bounds hung process start to 3 seconds when
   `timeout`, `gtimeout`, or `perl` is on `PATH` (stock macOS has `perl`).
   The perl command runs in a group that discards output, so the shell's
   alarm line is not printed. Without any of those the start is unbounded.
-  Once cairnkit is running, an in-process budget of a few seconds stops a
-  slow tidy and leaves the memory as it is. A held tidy lock can add up to about three seconds to a push or a
-  merge before that budget stops the wait.
+  Once cairnkit is running, an in-process budget of 3 seconds stops a
+  slow tidy and leaves the memory as it is. A held tidy lock can add up to about
+  three seconds to a push or a merge before that budget stops the wait.
   `git push --no-verify` skips the pre-push hook, as git does for every
   pre-push hook. Before the gate they only report. After the gate they retire.
   The same lock, and the same retire id, keep one retire when a session start
-  runs at the same time. They also draft pending candidates from recent
-  commits (lessons, decisions, traps) before that tidy step.
+  runs at the same time.
 
 ### Loop breaker
 
 `<memory>/.loop-breaker.json` stores `command` and `streak`. It is safe to
-delete. `session.note_failure` records one failed command. The third identical
-failure makes `stop`, and `after-shell` when an adapter can see the failure,
-tell the agent to stop, run `memory check`, and ask.
+delete. A pass or a different command resets the streak. The third identical failure
+makes `after-shell` add the nudge when an adapter can see the failure, and `stop`
+shows it while the streak stands. The nudge says to stop retrying, find the cause,
+search the memory, or ask the person.
 
 | Agent | Sees a command failure |
 |---|---|
-| Claude Code | Yes. `PostToolUse` runs `memory hook after-shell`. |
-| Codex | Yes. The same `PostToolUse` shape. |
-| Cursor | Yes. `afterShellExecution` runs `memory hook after-shell`. |
-| Generic | No per-command hook. `stop` still shows the nudge when a failure was recorded another way. |
-| OpenCode | No hook adapter. It cannot observe a command failure. |
-| Pi | No hook adapter. It cannot observe a command failure. |
-| Grok Build | No hook adapter. It cannot observe a command failure. |
+| Claude Code | Yes. `PostToolUseFailure` runs `memory hook after-shell`. `PostToolUse` fires only on a success. |
+| Codex | Yes. `PostToolUse` fires for each result. The exit code is in the text of the result. |
+| Cursor | Yes. `postToolUseFailure` and `postToolUse` run `memory hook after-shell`. |
+| Grok Build | The same events as Claude Code. Not checked in a real run. |
+| Pi | Yes, for `bash`, from `tool_result`. Not checked in a real run. |
+| OpenCode | Yes, for `bash`, from `tool.execute.after`. Not checked in a real run. |
+| Generic | No per-command hook, so it cannot report a command. `stop` still shows the nudge when a failure was recorded another way. |
 
 ## 8. Install record and update receipt
 
@@ -467,11 +697,22 @@ counts only when its source is the current source and its version is the
 running version. Parsing the record and parsing the current source give the
 same source. A pin on the uv receipt does not make them different.
 
+The channel is in `$XDG_CONFIG_HOME/cairnkit/channel`, else
+`~/.config/cairnkit/channel`. It holds `stable` or `dev`. `memory update --channel`
+writes it. With no file, an install pinned to `@dev` is on `dev`, and any other
+install is on `stable`.
+
 The user cache is `$XDG_CACHE_HOME/cairnkit`, else `~/.cache/cairnkit`:
 
 - `update-check.json`: the last update check (`checked`, `source`,
   `installed`, `newer`, `from`, `to`, and `failed` after a failure). It is
   fresh for one day, or one hour after a failure.
+- `update-notice.json`: the last update notice that a load showed. It holds
+  the notice to once per version pair.
+- `build-compare/<16 hex of the repo path>.json`: the last answer of the
+  compare with another build of the same version (`key`: the repo, the memory
+  folder, the recorded commit and the running commit; `differs`). A different
+  key compares again.
 - `wheels/<12 hex of the environment path>/install-*/<wheel>`: the wheel that
   the uv receipt points to after `memory update`.
 - `wheels/update.lock`: the lock that one update holds from the check to the
@@ -503,13 +744,21 @@ User-level skill markers (not in the memory folder; under
 - a line that is not valid JSON, a missing field, or a value that is not allowed;
 - a duplicate fact id;
 - text longer than 2000 characters (400 for `kind` `rule`);
-- text that looks like a secret (keys, tokens, passwords, private keys) in any field;
+- text that looks like a secret (keys, tokens, passwords, private keys, payment keys,
+  bearer tokens, named secrets such as `CRON_SECRET=`, secrets in URLs) in any field, a damaged
+  line or `config.toml`. Each read masks it as `[secret: NAME]`. It stays on disk until a purge,
+  and `memory repair` does not settle it;
 - a change to an unknown fact;
 - `superseded_by` or a link to an unknown fact;
-- `held_by` that does not exist;
+- the current `held_by` of a promoted fact, when it does not exist here or in the history of any
+  branch. `memory change ID --status active` clears it;
 - a missing, broken or wrong `memory-bank` link, or a real folder in its place, in any checkout.
 
 A writer name that differs from the file name is a warning, not an error.
 So is an active rule fact that `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md`
-already says in the same words. `--strict` makes each warning an error.
-
+already says in the same words. So is a line with a secret shape in `notes/`, `branches/`, the `.memory-old` copy or `proposals/`,
+and a fact that holds a plain word from a `.env` file. One distinct line is one warning, at the note,
+and the warning names its copies. In these files, one plain word under a label or from a `.env` file
+is a `note:` line, with no exit code. A worklist row is read by its strings, not its JSON. `--strict` makes each warning an error. A value in git history or in
+Claude Code's own memory is a note and sets no exit code, because this tool does not change
+either one.

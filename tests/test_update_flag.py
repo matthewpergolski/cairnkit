@@ -6,6 +6,7 @@ this repo's files come from an older tool. No test uses the network.
 
 from __future__ import annotations
 
+import io
 import json
 
 from conftest import git
@@ -75,17 +76,79 @@ def test_status_shows_commit_subjects_when_the_source_is_newer(
     assert head(machine.source)[:7] in out
 
 
+def status_output(capsys) -> str:
+    capsys.readouterr()
+    assert main(["status"]) == 0
+    return capsys.readouterr().out
+
+
 def test_the_check_is_cached_for_a_day(repo, machine, monkeypatch, capsys):  # noqa: F811
     assert main(["init"]) == 0
     monkeypatch.setenv("MEMORY_NOW", "2026-10-25T09:00:00+00:00")
-    assert "a newer memory" in load_output(capsys)
+    assert "a newer memory" in status_output(capsys)
     (machine.source / "pyproject.toml").write_text(
         '[project]\nname = "cairnkit"\nversion = "0.1.0"\n'
     )
     git(machine.source, "commit", "-qam", "back to 0.1.0")
     monkeypatch.setenv("MEMORY_NOW", "2026-10-25T20:00:00+00:00")
-    assert "a newer memory" in load_output(capsys)  # still the cached answer
+    assert "a newer memory" in status_output(capsys)  # still the cached answer
     monkeypatch.setenv("MEMORY_NOW", "2026-10-26T10:00:00+00:00")
+    assert "a newer memory" not in status_output(capsys)
+
+
+def session_start(capsys, monkeypatch, event="session-start") -> str:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "s1"})))
+    capsys.readouterr()
+    assert main(["hook", event, "--agent", "claude"]) == 0
+    return capsys.readouterr().out
+
+
+def test_the_notice_shows_once_per_version_pair(repo, machine, monkeypatch, capsys):  # noqa: F811
+    assert main(["init"]) == 0
+    monkeypatch.setenv("MEMORY_NOW", "2026-10-25T09:00:00+00:00")
+    shown = [
+        "a newer memory" in session_start(capsys, monkeypatch),
+        "a newer memory" in session_start(capsys, monkeypatch),
+        "a newer memory" in load_output(capsys),
+        "a newer memory" in session_start(capsys, monkeypatch),
+    ]
+    assert shown == [True, False, False, False]
+    assert "a newer memory" in status_output(capsys)  # status always answers
+
+
+def test_a_newer_version_brings_the_notice_back_once(repo, machine, monkeypatch, capsys):  # noqa: F811
+    assert main(["init"]) == 0
+    monkeypatch.setenv("MEMORY_NOW", "2026-10-25T09:00:00+00:00")
+    assert "0.2.0" in session_start(capsys, monkeypatch)
+    (machine.source / "pyproject.toml").write_text(
+        '[project]\nname = "cairnkit"\nversion = "0.3.0"\n'
+    )
+    git(machine.source, "commit", "-qam", "0.3.0")
+    monkeypatch.setenv("MEMORY_NOW", "2026-10-27T09:00:00+00:00")
+    out = session_start(capsys, monkeypatch)
+    assert "0.3.0" in out
+    assert "a newer memory" not in session_start(capsys, monkeypatch)
+
+
+def test_a_subagent_does_not_use_up_the_notice(repo, machine, monkeypatch, capsys):  # noqa: F811
+    assert main(["init"]) == 0
+    assert "a newer memory" not in session_start(capsys, monkeypatch, "subagent-start")
+    assert "a newer memory" in session_start(capsys, monkeypatch)
+
+
+def test_a_cache_that_cannot_be_written_keeps_the_notice_silent(
+    repo,
+    machine,  # noqa: F811
+    monkeypatch,
+    capsys,
+):
+    assert main(["init"]) == 0
+    assert "a newer memory" in status_output(capsys)
+
+    def refuse(line):
+        raise OSError("read only")
+
+    monkeypatch.setattr(install_source, "_mark_notice", refuse)
     assert "a newer memory" not in load_output(capsys)
 
 

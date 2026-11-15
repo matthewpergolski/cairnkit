@@ -16,12 +16,13 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from importlib import metadata
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlparse, urlsplit, urlunsplit
 
-from cairnkit import __version__
+from cairnkit import __version__, deadline
 from cairnkit.clock import now, parse_time, stamp
 from cairnkit.skills import cache_dir, is_behind
 
@@ -32,6 +33,7 @@ OLD_PACKAGE = "project-memory"
 OLD_RECORD = "project-memory-install.json"
 RECEIPT = "uv-receipt.toml"
 CACHE = "update-check.json"
+NOTICE = "update-notice.json"
 FRESH = timedelta(days=1)
 FRESH_AFTER_FAILURE = timedelta(hours=1)
 # Build, cache and log files that are not source. This is not a full ignore-rules reader.
@@ -135,7 +137,7 @@ def current_version() -> str:
 def git_env() -> dict[str, str]:
     """The environment for git: it never asks for a password and waits, and its
     messages are in English, so update.refuses_commit_id can read them."""
-    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0"}
 
 
 def git(args: list[str], timeout: float = 3.0) -> str | None:
@@ -144,17 +146,24 @@ def git(args: list[str], timeout: float = 3.0) -> str | None:
     Empty stdout on exit 0 stays ``""``. A failed command is ``None``.
     """
     refuse_pinned_args(args)
+    room = deadline.left()
+    if room <= 0 or deadline.git_stuck():
+        return None
     try:
         done = subprocess.run(
             ["git", *args],
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=min(timeout, room),
             check=False,
             stdin=subprocess.DEVNULL,
             env=git_env(),
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        if timeout <= room:
+            deadline.note_git_timeout()
+        return None
+    except OSError:
         return None
     return done.stdout.strip() if done.returncode == 0 else None
 
@@ -163,7 +172,7 @@ def spawn_check() -> None:
     """Run `memory update --check` in the background. It writes the cache."""
     with contextlib.suppress(OSError):
         subprocess.Popen(
-            [sys.executable, "-m", "cairnkit", "update", "--check"],
+            [sys.executable, "-P", "-m", "cairnkit", "update", "--check"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -371,16 +380,116 @@ def write_record(source: Source, commit: str | None, version: str, release: Rele
     (target_env() / RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
+def _direct_url() -> dict | None:
+    """What the installer recorded about the origin of this package (PEP 610)."""
+    try:
+        data = json.loads(metadata.distribution(PACKAGE).read_text("direct_url.json") or "")
+    except (metadata.PackageNotFoundError, OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+# One process reads the commit of its own checkout once; a hook asks for it from several places.
+_CHECKOUT_HEADS: dict[str, str | None] = {}
+
+
+def built_from() -> tuple[Source, str | None] | None:
+    """The git source or the editable checkout that runs now, and its commit."""
+    data = _direct_url()
+    url = data.get("url") if data else None
+    if not isinstance(url, str):
+        return None
+    vcs, folder = data.get("vcs_info"), data.get("dir_info")
+    if isinstance(vcs, dict):
+        commit = vcs.get("commit_id")
+        return parse(f"git+{url}"), commit if isinstance(commit, str) else None
+    if isinstance(folder, dict) and folder.get("editable"):
+        path = unquote(urlparse(url).path)
+        if path not in _CHECKOUT_HEADS:
+            _CHECKOUT_HEADS[path] = git(["-C", path, "rev-parse", "HEAD"])
+        return parse(path, editable=True), _CHECKOUT_HEADS[path]
+    return None
+
+
+def _same_place(built: Source, source: Source | None) -> bool:
+    return source is not None and replace(built, editable=source.editable) == source
+
+
 def installed(flag: str | None) -> tuple[Source | None, str | None]:
-    """The source, and the commit installed from it when the record knows it."""
+    """The source, and the commit installed from it when that is known.
+
+    A record names the commit. Else the installer's own note does, for a checkout and for the dev
+    channel. A stable install may sit past its tag with one version number, so only a record
+    compares it, or the older tag would read as an update.
+    """
     record = read_record()
     recorded = parse(record["source"]) if isinstance(record.get("source"), str) else None
-    source = parse(flag) if flag else (from_receipt() or recorded)
+    built = built_from()
+    source = parse(flag) if flag else (from_receipt() or recorded or (built and built[0]))
     commit = record.get("commit")
     # A record for another source or another version is from an older install.
     if source != recorded or record.get("version") != current_version():
         commit = None
-    return source, commit if isinstance(commit, str) else None
+    if not isinstance(commit, str):
+        commit = None
+    trusted = built and _same_place(built[0], source)
+    if commit is None and trusted and (built[0].editable or channel(source) == "dev"):
+        commit = built[1]
+    return source, commit
+
+
+@dataclass(frozen=True)
+class Build:
+    """What `memory --version` and `memory status` name beside the version."""
+
+    channel: str | None
+    commit: str | None
+
+
+def _channel_name(source: Source | None) -> str | None:
+    if source is None:
+        return None
+    if source.kind == "git":
+        return channel(source)
+    if not source.editable:
+        return "folder"
+    branch = git(["-C", source.spec, "rev-parse", "--abbrev-ref", "HEAD"])
+    return "dev" if branch == DEV_BRANCH else f"checkout {branch or 'unknown'}"
+
+
+def _running() -> tuple[Source | None, str | None]:
+    source, commit = installed(None)
+    if commit is None:
+        built = built_from()
+        if built and _same_place(built[0], source):
+            commit = built[1]
+    return source, commit
+
+
+def running_commit() -> str | None:
+    """The commit of the build that runs now, as `--version` names it. None when unknown."""
+    return _running()[1]
+
+
+def running_build() -> Build:
+    source, commit = _running()
+    return Build(_channel_name(source), commit)
+
+
+def version_text() -> str:
+    """The version, for `--version`. A build of a release stays the bare number.
+
+    `memory update` in a 0.3.1 tool compares this whole output to the version, so a release must
+    print the number alone or that update fails.
+    """
+    version = current_version()
+    try:
+        build = running_build()
+    except Exception:
+        return version
+    if build.channel in (None, "stable"):
+        return version
+    return f"{version} ({build.channel}{ref_tag(build.commit)})"
 
 
 _VERSION_ASSIGN = re.compile(r"""^(?:__version__|VERSION)\s*=\s*['"]([^'"]+)['"]""", re.M)
@@ -499,8 +608,41 @@ def _choose_release(ls_remote_tags: str) -> Release | None:
     return Release(best_name, number, shas[best_name])
 
 
-def latest(source: Source, timeout: float = 3.0) -> Latest:
-    """The newest commit and version at the source. Raise SourceError."""
+CHANNELS = ("stable", "dev")
+DEV_BRANCH = "dev"
+
+
+def _channel_path() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "cairnkit" / "channel"
+
+
+def channel(source: Source | None = None) -> str:
+    """Stable takes the highest release tag. Dev takes the newest commit of the dev branch.
+
+    A saved choice wins. An install pinned to the dev branch needs no choice.
+    """
+    with contextlib.suppress(OSError):
+        saved = _channel_path().read_text(encoding="utf-8").strip()
+        if saved in CHANNELS:
+            return saved
+    return "dev" if source is not None and source.pin == DEV_BRANCH else "stable"
+
+
+def set_channel(name: str) -> None:
+    """Save the channel. A cached check read the old channel, so it goes."""
+    path = _channel_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(name + "\n", encoding="utf-8")
+    with contextlib.suppress(OSError):
+        _cache_path().unlink()
+
+
+def latest(source: Source, timeout: float = 3.0, on: str | None = None) -> Latest:
+    """The newest commit and version at the source. Raise SourceError.
+
+    `on` reads that channel instead of the saved one, and saves nothing.
+    """
     if source.kind == "folder":
         folder = Path(source.spec)
         if not (folder / "pyproject.toml").is_file():
@@ -514,6 +656,14 @@ def latest(source: Source, timeout: float = 3.0) -> Latest:
             commit = content_id(folder)
         return Latest(commit, folder_version(folder))
     remote = source.spec
+    if (on or channel(source)) == "dev":
+        out = git(["ls-remote", remote, f"refs/heads/{DEV_BRANCH}"], timeout)
+        if not out:
+            raise SourceError(
+                f"Could not read the {DEV_BRANCH} branch of {remote}.",
+                "Check the network, or run `memory update --channel stable`.",
+            )
+        return Latest(out.split()[0], None)
     tags_out = git(["ls-remote", "--tags", remote], timeout)
     if tags_out is None:
         raise SourceError(
@@ -549,9 +699,10 @@ def is_newer(source: Source, version: str, commit: str | None, found: Latest) ->
         return False
     if source.kind == "git" or not is_git_folder(Path(source.spec)):
         return True
-    # A folder moved back to an older commit is not an update.
-    check = ["-C", source.spec, "merge-base", "--is-ancestor", commit, found.commit]
-    return git(check) is not None
+    # A folder moved back to an older commit is not an update. A rebase or an amend can leave the
+    # installed commit out of the folder's history, and the folder then holds the newer work.
+    check = ["-C", source.spec, "merge-base", "--is-ancestor", found.commit, commit]
+    return git(check) is None
 
 
 def describe(version: str | None, commit: str | None) -> str:
@@ -759,6 +910,34 @@ def update_line(background: bool = True) -> str | None:
     except Exception:
         return None
     return None
+
+
+def _mark_notice(line: str) -> None:
+    _notice_path().parent.mkdir(parents=True, exist_ok=True)
+    _notice_path().write_text(json.dumps({"shown": line}) + "\n", encoding="utf-8")
+
+
+def _notice_path() -> Path:
+    return cache_dir() / NOTICE
+
+
+def notice_once() -> str | None:
+    """The update line for a load, once per version pair. Never raises.
+
+    `memory status` always has the line. When the record cannot be written, the notice stays
+    silent, because it would otherwise repeat in each session.
+    """
+    line = update_line()
+    if not line:
+        return None
+    try:
+        with contextlib.suppress(OSError, ValueError):
+            if json.loads(_notice_path().read_text(encoding="utf-8")).get("shown") == line:
+                return None
+        _mark_notice(line)
+    except Exception:
+        return None
+    return line
 
 
 def pending_change_lines() -> list[str]:

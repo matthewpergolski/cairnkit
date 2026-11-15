@@ -22,6 +22,17 @@ def test_instructions_cover_the_rules(capsys):
         assert needle in out, needle
 
 
+def test_the_instructions_and_session_rules_name_the_promote_step(capsys):
+    """An agent that followed them marked a fact that a skill now holds `expired`."""
+    from cairnkit.discover import RULES_SHORT
+
+    promote = "--status promoted --held-by FILE"
+    assert main(["instructions"]) == 0
+    words = " ".join(capsys.readouterr().out.split())
+    assert f"memory change ID {promote} --reason" in words
+    assert promote in " ".join(RULES_SHORT.split())
+
+
 def test_init_does_not_write_instructions_by_default(repo):
     assert main(["init"]) == 0
     assert not (repo / "AGENTS.md").exists()
@@ -29,28 +40,23 @@ def test_init_does_not_write_instructions_by_default(repo):
 
 
 def test_write_instructions_adds_one_marked_block(repo):
-    from cairnkit.harness_local import AGENTS_POINTER
-
     (repo / "AGENTS.md").write_text("# Rules\n\nBe kind.\n")
     assert main(["init", "--write-instructions"]) == 0
     assert main(["init", "--write-instructions"]) == 0
     agents = (repo / "AGENTS.md").read_text()
     assert agents.startswith("# Rules\n\nBe kind.\n")
-    assert agents.count(AGENTS_POINTER) == 1 and START not in agents
+    assert START not in agents
     text = (repo / "CLAUDE.local.md").read_text()
     assert text.count(START) == 1 and text.count(END) == 1
     assert "memory add" in text
 
 
 def test_write_instructions_migrates_an_old_block_out_of_tracked(repo):
-    from cairnkit.harness_local import AGENTS_POINTER
-
     (repo / "AGENTS.md").write_text(f"top\n{START}\nold text\n{END}\nbottom\n")
     assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
     assert "old text" not in text and START not in text
     assert text.startswith("top\n") and "bottom\n" in text
-    assert text.rstrip().endswith(AGENTS_POINTER)
     assert START in (repo / "CLAUDE.local.md").read_text()
 
 
@@ -66,20 +72,18 @@ def test_dry_run_does_not_write_instructions(repo):
 
 
 def test_default_writes_a_local_ignored_file(repo):
-    from cairnkit.harness_local import AGENTS_POINTER
-
     (repo / "AGENTS.md").write_text("# Shared rules\n")
     git(repo, "add", "AGENTS.md")
     git(repo, "commit", "-q", "-m", "rules")
     assert main(["init", "--write-instructions"]) == 0
     agents = (repo / "AGENTS.md").read_text()
-    assert agents.startswith("# Shared rules\n") and AGENTS_POINTER in agents
+    assert agents == "# Shared rules\n"
     local = repo / "CLAUDE.local.md"
     assert START in local.read_text()
     assert not (repo / "AGENTS.local.md").exists()
     assert "CLAUDE.local.md" in (repo / ".git" / "info" / "exclude").read_text().splitlines()
     git(repo, "check-ignore", "-q", "CLAUDE.local.md")
-    assert git(repo, "status", "--porcelain").strip() == "M AGENTS.md"
+    assert git(repo, "status", "--porcelain").strip() == ""
 
 
 def test_local_file_can_be_chosen(repo):
@@ -89,14 +93,11 @@ def test_local_file_can_be_chosen(repo):
 
 
 def test_text_outside_the_block_is_never_changed(repo):
-    from cairnkit.harness_local import AGENTS_POINTER
-
     body = "# Rules\n\nKeep this.\n"
     (repo / "AGENTS.md").write_text(body + START + "\nold\n" + END + "\n\nAfter.\n")
     assert main(["init", "--write-instructions"]) == 0
     text = (repo / "AGENTS.md").read_text()
     assert text.startswith(body) and "\nAfter.\n" in text
-    assert text.rstrip().endswith(AGENTS_POINTER)
     assert START not in text
 
 
@@ -123,3 +124,13 @@ def test_kinds_line_lists_every_kind(capsys):
     out = capsys.readouterr().out
     [line] = [x for x in out.splitlines() if "Kinds:" in x]
     assert line.strip() == f"Kinds: {', '.join(KINDS)}. Basis: {', '.join(BASES)}."
+
+
+def test_the_rules_block_names_no_link_that_may_not_lead_to_the_memory(repo, capsys, monkeypatch):
+    memdir = repo.parent / "elsewhere"
+    assert main(["init", "--path", str(memdir)]) == 0
+    (repo / "memory-bank").unlink()
+    monkeypatch.setenv("MEMORY_DIR", str(memdir))
+    capsys.readouterr()
+    assert main(["instructions"]) == 0
+    assert "memory-bank" not in capsys.readouterr().out
