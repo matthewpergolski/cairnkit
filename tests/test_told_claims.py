@@ -763,6 +763,149 @@ def test_an_answer_counts_only_in_its_own_turn(mem, capsys, monkeypatch):
     assert not binds(capsys, "Sign every commit with GPG.")
 
 
+RELEASE = {
+    "question": "How should the release reach main?",
+    "header": "Release",
+    "multiSelect": False,
+    "options": [
+        {"label": "Cut each release from dev to main", "description": "One merge"},
+        {"label": "Cherry-pick the fixes to main", "description": "Pick each one"},
+    ],
+}
+PUSH = {
+    "question": "May I push the branch and open the PR?",
+    "header": "Push",
+    "multiSelect": False,
+    "options": [
+        {"label": "Yes, push the branch and open a PR (Recommended)", "description": "Now"},
+        {"label": "No, keep the branch local", "description": "Wait"},
+    ],
+}
+CHECKS = {
+    "question": "Which checks must pass before a merge?",
+    "header": "Checks",
+    "multiSelect": True,
+    "options": [
+        {"label": "Run the unit tests before a merge", "description": "pytest"},
+        {"label": "Run the linter before a merge", "description": "ruff"},
+        {"label": "Run the benchmarks before a merge", "description": "slow"},
+    ],
+}
+PICKS = {
+    RELEASE["question"]: "Cut each release from dev to main",
+    PUSH["question"]: "Yes, push the branch and open a PR (Recommended)",
+}
+MULTI = {CHECKS["question"]: ["Run the unit tests before a merge", "Run the linter before a merge"]}
+
+
+def answered(answers, before="Your questions have been answered: "):
+    """The tool result text that Claude Code 2.1.325 gives the model (and the transcript)."""
+    pairs = ", ".join(
+        f'"{q}"="{a if isinstance(a, str) else ", ".join(a)}"' for q, a in answers.items()
+    )
+    return f"{before}{pairs}. You can now continue with these answers in mind."
+
+
+def dialog(capsys, monkeypatch, questions, answers, tool_input=None, tool_response=None, **more):
+    """An agent question that the owner answered. By default the shape of Claude Code 2.1.325:
+    the input carries the answers that the dialog collected, and the result is the tool's data
+    `{questions, answers, ...}`. The transcript holds the result text."""
+    payload = {
+        "session_id": "s",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {"questions": questions, "answers": answers}
+        if tool_input is None
+        else tool_input,
+        "tool_response": {"questions": questions, "answers": answers, **more}
+        if tool_response is None
+        else tool_response,
+        "tool_use_id": "toolu_1",
+    }
+    hook(capsys, monkeypatch, "after-shell", payload)
+    content = more.pop("text", None) or answered(answers)
+    result = {"type": "tool_result", "tool_use_id": "toolu_1", "content": content}
+    append(TRANSCRIPTS["dir"] / "s.jsonl", said("user", result))
+
+
+def test_each_pick_of_a_claude_code_dialog_binds(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "cut the release")
+    dialog(capsys, monkeypatch, [RELEASE, PUSH], PICKS)
+    for label in PICKS.values():
+        out = agent_add(capsys, monkeypatch, label)
+        assert "told: confirmed by the option the owner picked in this turn" in out
+        assert binds(capsys, label)
+    agent_add(capsys, monkeypatch, "Cherry-pick the fixes to main")
+    assert not binds(capsys, "Cherry-pick the fixes to main")
+
+
+@pytest.mark.parametrize(
+    ("tool_input", "tool_response"),
+    [
+        ({"questions": [RELEASE, PUSH], "answers": PICKS}, ""),
+        ({"questions": [RELEASE, PUSH]}, {"data": {"questions": [], "answers": PICKS}}),
+        ({"questions": [RELEASE, PUSH]}, [{"type": "text", "text": answered(PICKS)}]),
+        ({"questions": [RELEASE, PUSH]}, answered(PICKS)),
+    ],
+    ids=["answers-in-input", "answers-nested", "content-blocks", "text"],
+)
+def test_a_pick_binds_in_each_result_shape(mem, capsys, monkeypatch, tool_input, tool_response):
+    prompt(capsys, monkeypatch, "cut the release")
+    dialog(capsys, monkeypatch, [RELEASE, PUSH], PICKS, tool_input, tool_response)
+    for label in PICKS.values():
+        assert "told: confirmed by the option" in agent_add(capsys, monkeypatch, label)
+
+
+@pytest.mark.parametrize("where", ["input", "result", "joined"])
+def test_each_option_of_a_multi_select_binds(mem, capsys, monkeypatch, where):
+    prompt(capsys, monkeypatch, "set up the merge checks")
+    picks = {q: ", ".join(a) for q, a in MULTI.items()} if where == "joined" else MULTI
+    bare, full = {"questions": [CHECKS]}, {"questions": [CHECKS], "answers": picks}
+    tool_input, tool_response = (full, bare) if where == "input" else (bare, full)
+    dialog(capsys, monkeypatch, [CHECKS], picks, tool_input, tool_response)
+    for label in MULTI[CHECKS["question"]]:
+        assert "told: confirmed by the option" in agent_add(capsys, monkeypatch, label)
+    agent_add(capsys, monkeypatch, "Run the benchmarks before a merge")
+    assert not binds(capsys, "Run the benchmarks before a merge")
+
+
+def test_a_bad_question_entry_does_not_lose_the_others(mem, capsys, monkeypatch):
+    prompt(capsys, monkeypatch, "cut the release")
+    junk = [7, {"question": None, "options": "abc"}, {"question": "x", "options": [None, 3]}]
+    answers = {**PICKS, "x": None}
+    dialog(capsys, monkeypatch, [*junk, RELEASE, PUSH], answers, {"questions": [*junk, RELEASE,
+           PUSH]}, {"answers": answers}, text=answered(PICKS))  # fmt: skip
+    for label in PICKS.values():
+        assert "told: confirmed by the option" in agent_add(capsys, monkeypatch, label)
+
+
+@pytest.mark.parametrize(
+    ("answers", "more"),
+    [
+        (
+            {SIGNING["question"]: PICKED},
+            {
+                "afkTimeoutMs": 60000,
+                "text": "No response after 60s. Before going idle the user had selected: "
+                f'"{SIGNING["question"]}"="{PICKED}".',
+            },
+        ),
+        (
+            {SIGNING["question"]: "Sign each commit after the owner closed the card"},
+            {"annotations": {SIGNING["question"]: {"unanswered": "dismissed"}}},
+        ),
+    ],
+    ids=["away-from-keyboard", "unanswered"],
+)
+def test_an_answer_that_the_owner_did_not_give_does_not_bind(
+    mem, capsys, monkeypatch, answers, more
+):
+    prompt(capsys, monkeypatch, "set up commit signing")
+    dialog(capsys, monkeypatch, [SIGNING], answers, {"questions": [SIGNING]}, None, **more)
+    claim = next(iter(answers.values()))
+    assert "told: not confirmed" in agent_add(capsys, monkeypatch, claim)
+
+
 # --- the owner at a shell, and a later confirmation -----------------------------------
 
 
