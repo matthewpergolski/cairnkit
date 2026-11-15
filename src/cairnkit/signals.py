@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from bisect import bisect_left
 from pathlib import PurePosixPath
 
 from cairnkit import landed, loopbreak
@@ -57,14 +58,39 @@ NAMED_LIMIT = 200
 # each hook reads and writes stays small.
 FAILS_LIMIT = 20
 QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"", re.DOTALL)
-# A harness turn opens with a tag, or with the line that Claude Code puts before a side agent's
-# note (read in its binary, 2.1.325). A stop follow-up comes back as a prompt on some tools.
+# A harness turn opens with a tag. A stop follow-up comes back as a prompt on some tools.
 # Text that the tools put in a prompt: a notification, or a line of this tool. An owner who writes
 # "run memory check" later in a prompt is still the owner.
-NOT_THE_OWNER = re.compile(
-    r"^\s*(?:<|memory check\b|Here is a note offered by a side agent:)"
-    r"|`memory |\bDoes a trap belong\b"
+NOT_THE_OWNER = re.compile(r"^\s*(?:<|memory check\b)|`memory |\bDoes a trap belong\b")
+# Text in a prompt that the owner did not type: a fenced block, a paste in the shape that Claude
+# Code gives it (read in its binary, 2.1.325; an open tag with no end runs to the end of the
+# prompt), a quoted line, and the line that Claude Code puts before a side agent's note. Claude
+# Code quotes each line of the note, and the owner types a reply below it.
+NOT_TYPED = re.compile(
+    r"```.*?(?:```|\Z)"
+    r'|<pasted_content id="([0-9a-f]{4})">\n.*?(?:\n</pasted_content id="\1">|\Z)'
+    r"|^[ \t]*>(?:[ \t][^\n]*)?$"
+    r"|\A\s*Here is a note offered by a side agent:[^\n]*",
+    re.DOTALL | re.MULTILINE,
 )
+# Each pattern stops at the next opening mark, so an unmatched mark costs one scan. A straight
+# single quote and a backtick are no quote marks: an apostrophe, and a code span. An apostrophe
+# in a word does not end a quote in \u2018 \u2019.
+QUOTE_PAIR = re.compile(
+    '"[^"]*"'
+    "|\u201c[^\u201c\u201d]*\u201d"
+    "|\u2018(?:[^\u2018\u2019]|\u2019(?=\\w))*\u2019"
+    "|\u00ab[^\u00ab\u00bb]*\u00bb"
+    "|\u201e[^\u201e\u201c\u201d]*[\u201c\u201d]"
+    "|\u201d[^\u201c\u201d]*\u201c"
+)
+# A quote with a sentence end and QUOTE_WORDS words or more is a quoted sentence: often the agent's
+# text that the owner quotes back. A command, a label or a short sentence that the owner quotes
+# stays typed.
+QUOTE_WORDS = 6
+QUOTE_SENTENCE_END = re.compile(r"[.!?](?=\s|\Z)")
+# The end of a sentence or a line, after the marks that close a quote.
+SENTENCE_STOP = re.compile('[.!?]["\u201c\u201d\u2019\u00bb]*(?=\\s|\\Z)|\n')
 # `clean`, `clear` and `drop` also mean a tidy-up with no loss, so they must name a file.
 REMOVAL = re.compile(
     r"\b(?:remove|delete|rm|get rid of|wipe|purge|prune|erase|trash|discard)\b"
@@ -247,11 +273,39 @@ def _reverts(root, state: dict) -> list[str]:
     return found
 
 
+def _without_quoted_sentences(text: str) -> str:
+    """The text with each quoted sentence gone, and with the rest of the sentence or line that
+    holds it, so that no stub of it reads as the owner's words."""
+    stops = [stop.end() for stop in SENTENCE_STOP.finditer(text)]
+    kept, at = [], 0
+    for quote in QUOTE_PAIR.finditer(text):
+        inner = quote[0][1:-1]
+        if len(inner.split()) < QUOTE_WORDS or not QUOTE_SENTENCE_END.search(inner):
+            continue
+        before = bisect_left(stops, quote.start() + 1) - 1
+        start = max(at, stops[before] if before >= 0 else 0)
+        end = quote.end()
+        if not inner.rstrip().endswith((".", "!", "?")):
+            after = bisect_left(stops, end + 1)
+            end = stops[after] if after < len(stops) else len(text)
+        kept += [text[at:start], " "]
+        at = max(at, end)
+    return "".join([*kept, text[at:]])
+
+
+def owner_typed(text: str, veto: bool = True) -> str:
+    """The words that the owner typed: no block or line of NOT_TYPED, and no quoted sentence.
+    With `veto`, a prompt that the tools wrote (NOT_THE_OWNER) gives nothing."""
+    typed = NOT_TYPED.sub("\n", text)
+    if veto and NOT_THE_OWNER.search(typed):
+        return ""
+    return _without_quoted_sentences(typed).strip()
+
+
 def is_correction(prompt: str) -> bool:
     """True when the owner's words say that the agent got something wrong. English only."""
-    if NOT_THE_OWNER.search(prompt):
-        return False
-    return bool(CORRECTION.search(QUOTED.sub(" ", prompt[:PROMPT_HEAD])))
+    own = owner_typed(prompt)
+    return bool(CORRECTION.search(QUOTED.sub(" ", own[:PROMPT_HEAD])))
 
 
 def is_statement(prompt: str) -> bool:
@@ -259,9 +313,8 @@ def is_statement(prompt: str) -> bool:
 
     It reads each sentence by itself. A question or a condition states nothing.
     """
-    if NOT_THE_OWNER.search(prompt):
-        return False
-    for sentence in SENTENCE_END.split(QUOTED.sub(" ", prompt[:STATEMENT_HEAD]).strip()):
+    own = owner_typed(prompt)
+    for sentence in SENTENCE_END.split(QUOTED.sub(" ", own[:STATEMENT_HEAD]).strip()):
         if sentence.rstrip().endswith("?") or NOT_STATED.match(sentence):
             continue
         if STATEMENT.search(sentence):
@@ -280,10 +333,11 @@ def removal_words(prompt: str) -> set[str]:
     clause, and it skips a question, a refusal and a correction. A path gives only its file name:
     its folder and its extension would match every file that shares them.
     """
-    if NOT_THE_OWNER.search(prompt) or is_correction(prompt):
+    own = owner_typed(prompt)
+    if not own or is_correction(prompt):
         return set()
     found: set[str] = set()
-    for clause in CLAUSE_END.split(prompt[:PROMPT_HEAD]):
+    for clause in CLAUSE_END.split(own[:PROMPT_HEAD]):
         ask = REMOVAL.search(clause)
         if ask and not clause.rstrip().endswith("?") and not NEGATED.search(clause[: ask.start()]):
             target = PATH_WORD.sub(lambda match: _file_stem(match[0]), clause[ask.end() :])
@@ -303,17 +357,17 @@ def note_prompt(memory: Memory, key: str, prompt: str) -> None:
     if state is None or not prompt.strip():
         return
     # A helper's report or a notification also arrives as a prompt. Its names are not the owner's.
-    if not NOT_THE_OWNER.search(prompt):
-        words = [word.strip("`'\",:;!?()*_").rstrip(".") for word in prompt.split()]
+    own = owner_typed(prompt)
+    if own:
+        words = [word.strip("`'\",:;!?()*_").rstrip(".") for word in own.split()]
         named = [word for word in words if "." in word or "/" in word]
         state["named"] = _newest(state.get("named", []), named)
         state["asked"] = _newest(state.get("asked", []), sorted(removal_words(prompt)))
-    if not NOT_THE_OWNER.search(prompt):
         state["prompts"] = state.get("prompts", 0) + 1
     if is_statement(prompt):
         state["said"] = agent_writes(memory)
     if is_correction(prompt):
-        flat = clean(prompt)
+        flat = clean(own)
         text = "" if find_secrets(flat, memory.env) else flat[:PROMPT_WIDTH]
         state["correction"] = {"writes": agent_writes(memory), "text": text}
     save_state(memory, key, state)

@@ -541,12 +541,18 @@ do it` (the owner takes the task), `go with your rec` (the closing question is o
 recommendation) and a prompt with a digit or a word of another script (`yes 2`) approve
 nothing. Only the words that the owner typed count, for a `told` claim and for the end of a
 fact that a person stated. A fenced block, a paste that Claude Code wraps in
-`<pasted_content>`, a quoted line (a line that starts with `>`), a quoted sentence (text in
-double quotes with six words or more, or with a sentence end in it), a notification and the
-note of a side agent are not the owner's words. A quoted sentence is often the agent's own
-text that the owner quotes back. A short quoted term such as `use "uv run"` still counts.
-The known limit: a paste that Claude Code does not wrap reads as typed. A short paste is not
-known to be wrapped, and a session that does not fetch feature flags wraps no paste. A `told` claim binds only when it is a near-verbatim
+`<pasted_content id="...">`, a quoted line (a line that starts with `> ` or is only `>`), a
+notification, the note of a side agent, and a quoted sentence are not the owner's words. A
+quoted sentence has a sentence end and six words or more in quote marks (`"`, `“”`,
+`‘’`, `«»` or `„“`). It is often the agent's own text that the owner quotes back, so
+the sentence or line that holds it does not count either. The owner's words around these
+still count: the reply that the owner types below a side agent's note, and the words after a
+paste at the start of a prompt. A quoted command (`run "uv run pytest -q tests"`) and a
+short quoted sentence (`reply "Done."`) count as typed. A straight single quote and a
+backtick are no quote marks. A free answer to an agent question is cleaned the same way. The
+known limits: a short quoted sentence of the agent counts, and a paste that Claude Code does
+not wrap reads as typed. A short paste is not known to be wrapped, and a session that does not
+fetch feature flags wraps no paste. A `told` claim binds only when it is a near-verbatim
 copy of one sentence of this evidence. Each sentence of the claim (or a run of them)
 must match one sentence of the owner, word for word and in the same order. Only
 articles, `please`, pronouns, punctuation, case, word endings (`commits`, `committing`)
