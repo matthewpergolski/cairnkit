@@ -529,9 +529,12 @@ marker means an agent, and two markers name both tools. A person who restates a
 rule from their own shell lifts it.
 
 **An agent's `told` claim needs the owner's words.** The prompt hook keeps the owner's
-evidence of the session: the last 12 prompts that the owner typed, the option that the owner picked in an agent question
-(Claude Code's AskUserQuestion; only the label the owner picked counts, not the agent's
-question or option descriptions), and, when the whole prompt is a short yes (`yes`,
+evidence of the session: the last 12 prompts that the owner typed (also a message that the
+owner types while the agent works, which Claude Code gives the agent between tool calls), the
+option that the owner picked in an agent question (Claude Code's AskUserQuestion; only the
+label the owner picked counts, not the agent's question or option descriptions; each label of
+a multi-select counts; a dialog that closed while the owner was away from the keyboard, and a
+question that Claude Code marks as unanswered, count nothing), and, when the whole prompt is a short yes (`yes`,
 `y`, `yep`, `go ahead`, `do it`, `do that`, `approved`, `sounds good`, `ok do it`, or a
 few of them in a row such as `yes, go ahead` or `let's do it`), the question that ends the
 agent's message just before it, read from the transcript that the hook names. Only that
@@ -566,6 +569,9 @@ the tests", and "Don't merge to main until CI is green" does not confirm "Never 
 main". An ellipsis in the claim (`...` beside a space, or the ellipsis character) marks
 words left out of one sentence of the owner, never a join of two sentences. A typed question, also one with no question mark ("can you force push to main"),
 and a sentence that opens with `if` state no rule. A claim with a rule and such a question binds only when it is the owner's whole prompt ("ok, make these changes. how?"), with only case, spaces and the marks at its end changed. An approval and an answer count only in their own turn, until the next owner prompt.
+The known limit: the turn ends at each prompt that the prompt hook sees, also a task
+notification when Claude Code runs the prompt hook for it between tool calls. So a pick or a
+yes can stop counting when a background task reports back in the same turn.
 A claim whose words are only a reply that says nothing (`yes`, `Owner said: go ahead`,
 `ok`, `sure`, `lgtm`, `ship it`, `proceed`, `correct`, `thanks`, `I'll go with your rec`), or
 that has no letter and no digit (an emoji such as `👍` or `✅ 👍`), confirms nothing, because it tells a later reader nothing. This list is wider than the
@@ -585,7 +591,10 @@ owner's typed words and choices only.
 
 **The transcript proves the evidence, and the agent's shell is guarded.** For Claude
 Code and Codex, `memory add` reads the session's transcript when it checks a claim: a
-prompt counts only when the transcript holds it as an owner prompt, an approval only
+prompt counts only when the transcript holds it as an owner prompt (a `user` record, or, for
+a message typed while the agent worked, a `queued_command` attachment from a person: no other
+origin, such as a peer agent or a task, and no meta, rewritten, relayed or forwarded mark), an
+approval only
 when it holds the "yes" and the question, and an answer only when a tool result holds
 it. The first prompt of a session fixes its transcript path; a prompt that names
 another path is not kept. A session start of the same session (a

@@ -390,6 +390,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The option that the owner picked in an agent question (Claude Code's AskUserQuestion) is kept
+  from each shape that a tool can send. Before, the hook after a tool read the answers only from
+  a dict `answers` at the top of the result, or from plain text. Now it also reads the answers in
+  the tool input, a dict `answers` nested in the result and a list of text blocks. A multi-select
+  answer given as a list counts each picked label. A bad question entry no longer hides the other
+  answers. A dialog that closed while the owner was away from the keyboard (`afkTimeoutMs`) and a
+  question that Claude Code marks as unanswered keep nothing, because the text in `answers` is
+  then the tool's. Claude Code 2.1.325 sends the tool data `{questions, answers, ...}`, which the
+  hook already read, so the field report of an empty `choices` list has another cause. The likely
+  one: the prompt hook ends the turn at each prompt that it sees, also a task notification that
+  Claude Code gives the agent between tool calls, and that clears the choices. That rule stays
+  (see the known limit in the README).
+- A message that the owner typed while the agent worked now confirms a `told` claim. Claude Code
+  gives such a message to the agent between tool calls and runs the prompt hook for it, so the
+  prompt was kept, but its transcript records the message as a `queued_command` attachment, not
+  as a `user` record. The transcript proof read only `user` records, so an exact copy stayed not
+  confirmed. Now the proof also reads a `queued_command` attachment with `commandMode` `prompt`
+  and no origin or a human origin. One from a peer agent, a task or a channel, and one with a
+  meta, rewritten, relayed, forwarded or not-typed mark, still proves nothing. The text is cleaned
+  as a typed prompt is, so a paste in it does not count.
 - A `told` claim of an agent, and the end of a fact that a person stated, count only the words
   that the owner typed. Before, only a fenced block was taken out of a prompt. A paste that
   Claude Code wraps in `<pasted_content>`, a quoted line (it starts with `>`) and text in double
